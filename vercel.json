@@ -34,10 +34,22 @@
             "value": "no-cache, no-store, must-revalidate"
           }
         ]
+      },
+      {
+        "source": "/_vercel/insights/script.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000, immutable"
+          }
+        ]
       }
     ],
     "github": {
       "silent": true
     },
-    "cleanUrls": true
-  }
+    "cleanUrls": true,
+    "analytics": {
+      "enabled": true
+    }
+}
