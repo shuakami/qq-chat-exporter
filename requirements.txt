@@ -1,5 +1,0 @@
-pyautogui==0.9.53
-opencv-python==4.5.5.64
-pillow==8.4.0
-pywin32==301
-numpy==1.21.5
