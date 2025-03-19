@@ -26,12 +26,27 @@ async function init() {
   if (!historyManager) {
     historyManager = await createHistoryManager();
   }
-  historyManager.show();
 }
+
+// 注册快捷键
+document.addEventListener('keydown', async (event) => {
+  if (event.ctrlKey && event.key === 'F9') {
+    event.preventDefault();
+    if (!historyManager) {
+      await init();
+    }
+    historyManager.show();
+  }
+});
 
 // 导出全局方法
 window.QCEHistory = {
-  show: init
+  show: async () => {
+    if (!historyManager) {
+      await init();
+    }
+    historyManager.show();
+  }
 };
 
 // 等待 DOM 加载完成后初始化
