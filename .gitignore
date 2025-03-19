@@ -1,3 +1,4 @@
 .package-lock.json
 .vercel
 /node_modules
+changes.txt
