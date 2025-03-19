@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QQ Chat Exporter Pro - 使用文档</title>
+    <style>
+        :root {
+            --bg-color: #fff;
+            --text-color: #333;
+            --code-bg: #f5f5f5;
+            --code-border: #e0e0e0;
+            --button-bg: #f5f5f5;
+            --button-hover: #e0e0e0;
+            --button-text: #555;
+            --highlight-bg: #fff3cd;
+            --highlight-text: #856404;
+            --line-color: #eaeaea;
+            --footer-color: #777;
+            --link-color: #3498db;
+        }
+        
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #1a1a1a;
+                --text-color: #e0e0e0;
+                --code-bg: #282828;
+                --code-border: #444;
+                --button-bg: #2a2a2a;
+                --button-hover: #3a3a3a;
+                --button-text: #ccc;
+                --highlight-bg: #2c2c1e;
+                --highlight-text: #e0d287;
+                --line-color: #333;
+                --footer-color: #999;
+                --link-color: #61afef;
+            }
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        
+        h1, h2 {
+            border-bottom: 1px solid var(--line-color);
+            padding-bottom: 8px;
+        }
+        
+        pre {
+            background: var(--code-bg);
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid var(--code-border);
+            position: relative;
+        }
+        
+        code {
+            font-family: 'Fira Code', 'Consolas', monospace;
+            color: var(--text-color);
+        }
+        
+        .highlight {
+            background: var(--highlight-bg);
+            padding: 2px 5px;
+            border-radius: 3px;
+            color: var(--highlight-text);
+        }
+        
+        .code-container {
+            position: relative;
+            margin: 20px 0;
+        }
+        
+        .copy-indicator {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 12px;
+            color: var(--button-text);
+            background: var(--button-bg);
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            opacity: 0.8;
+            transition: opacity 0.2s ease;
+            user-select: none;
+        }
+        
+        .copy-indicator:hover {
+            opacity: 1;
+            background: var(--button-hover);
+        }
+        
+        a {
+            color: var(--link-color);
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+        
+        footer {
+            margin-top: 50px;
+            text-align: center;
+            color: var(--footer-color);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--line-color);
+            padding-top: 20px;
+        }
+        
+        .theme-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: transparent;
+            border: none;
+            color: var(--text-color);
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: transform 0.3s ease;
+        }
+        
+        .theme-toggle:hover {
+            transform: rotate(30deg);
+        }
+        
+        .prerequisite-steps {
+            background: var(--code-bg);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 30px 0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+        
+        .step {
+            margin-bottom: 25px;
+            position: relative;
+            padding-top: 5px;
+            border-top: 1px solid var(--line-color);
+        }
+        
+        .step:first-child {
+            border-top: none;
+            padding-top: 0;
+        }
+        
+        .important-note {
+            border-left: 2px solid #e74c3c;
+            padding-left: 12px;
+            margin: 15px 0;
+            font-weight: normal;
+        }
+        
+        .warning {
+            background: rgba(231, 76, 60, 0.05);
+            border-radius: 4px;
+            padding: 10px 15px;
+            margin: 15px 0;
+            border-left: 2px solid #e74c3c;
+        }
+        
+        .image-container {
+            max-width: 100%;
+            margin: 12px 0;
+            text-align: center;
+        }
+        
+        .image-container img {
+            max-width: 100%;
+            border-radius: 4px;
+            border: 1px solid var(--line-color);
+        }
+        
+        .image-caption {
+            font-size: 0.9em;
+            color: var(--footer-color);
+            margin-top: 5px;
+        }
+        
+        .sub-step {
+            margin-left: 15px;
+            margin-top: 8px;
+            position: relative;
+            padding-left: 15px;
+        }
+        
+        .sub-step:before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: var(--text-color);
+        }
+        
+        .notes-section {
+            background: var(--code-bg);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin: 20px 0 30px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .notes-section p {
+            margin: 12px 0;
+        }
+        
+        .note-warning {
+            border-left: 2px solid #e74c3c;
+            padding-left: 12px;
+        }
+        
+        .note-complaint {
+            margin-top: 20px;
+            background: rgba(0, 0, 0, 0.05);
+            padding: 10px;
+            border-radius: 4px;
+            font-style: italic;
+        }
+        
+        .note-item {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+        
+        .note-item strong {
+            display: inline;
+            margin-bottom: 0;
+        }
+
+        .disclaimer-section, .copyright-section {
+            background: var(--code-bg);
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin: 20px 0;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .disclaimer-section p, .copyright-section p {
+            margin: 8px 0;
+        }
+        
+        .disclaimer-section {
+            border-left: 2px solid #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <button class="theme-toggle" id="theme-toggle" title="切换主题">🌓</button>
+    
+    <h1>QQ Chat Exporter Pro</h1>
+    <p>这是一个用于导出QQ聊天记录的工具。只需要按照以下步骤操作即可使用。</p>
+    <strong>建议先全部看完再开始，也要不了多少时间。</strong>
+    
+    <h2>前提条件</h2>
+    <div class="prerequisite-steps">
+        <div class="step">
+            <strong>下载安装 NapCatQQ</strong>
+            <p>首先，你需要下载 NapCatQQ，这是一个包含了 LiteLoaderQQ 的修改版 QQ 客户端。</p>
+            <div class="sub-step">
+                访问 <a href="https://github.com/NapNeko/NapCatQQ/releases/latest" target="_blank">https://github.com/NapNeko/NapCatQQ/releases/latest</a> 下载最新版本
+            </div>
+            <div class="sub-step">
+                一般情况下，你应该选择 <span class="highlight">Win64有头</span> 版本
+            </div>
+            
+            <div class="image-container">
+                <img src="https://img.erpweb.eu.org/imgs/2025/03/82d16b8dd9a0cba3.png" alt="NapCatQQ 下载页面">
+                <div class="image-caption">NapCatQQ 下载页面示例</div>
+            </div>
+            
+            <div class="important-note">
+                <p>为什么要下载 NapCatQQ？</p>
+                <p>因为 NapCatQQ 已经包含了 LiteLoaderQQ（<a href="https://github.com/LiteLoaderQQNT/LiteLoaderQQNT" target="_blank">https://github.com/LiteLoaderQQNT/LiteLoaderQQNT</a>），并且是一键安装包。人家已经打包好了直接用就行，何乐而不为？</p>
+            </div>
+        </div>
+        
+        <div class="step">
+            <strong>安装 Chii DevTools 插件</strong>
+            <p>下载完成后，请按照以下步骤操作：</p>
+            
+            <div class="sub-step">
+                解压下载的 NapCatQQ 压缩包到你喜欢的位置
+            </div>
+            
+            <div class="sub-step">
+                <span class="highlight">重要！</span> 运行 <strong>NapCatWinBootMain.exe</strong>，而不是 QQ.exe
+            </div>
+            
+            <div class="warning">
+                <strong>特别注意：</strong> 必须运行 <strong>NapCatWinBootMain.exe</strong>！不是 QQ.exe！
+            </div>
+            
+            <div class="sub-step">
+                使用你的 QQ 账号登录
+            </div>
+            
+            <div class="sub-step">
+                点击左下角的设置按钮 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;">
+                    <path d="M3 7H21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M3 12H21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    <path d="M3 17H21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg> 进入设置页面
+            </div>
+            
+            <div class="sub-step">
+                在设置页面的侧边栏中找到并点击【插件列表查看】
+            </div>
+            
+            <div class="sub-step">
+                在插件搜索框中搜索 <strong>Chii DevTools</strong>
+            </div>
+            
+            <div class="sub-step">
+                点击安装按钮，等待安装完成
+            </div>
+            
+            <div class="sub-step">
+                安装完成后，完全退出 QQ：
+                <ul>
+                    <li>退出登录</li>
+                    <li>关闭 QQ 窗口</li>
+                    <li>确保右下角托盘区域没有 QQ 图标，如果有请右键点击并选择"退出"</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="step">
+            <strong>使用导出工具</strong>
+            <p>重新启动并准备导出聊天记录：</p>
+            
+            <div class="sub-step">
+                再次运行 <strong>NapCatWinBootMain.exe</strong> 并登录你的 QQ 账号
+            </div>
+            
+            <div class="sub-step">
+                打开你想要导出聊天记录的好友或群聊对话窗口
+            </div>
+            
+            <div class="sub-step">
+                按下键盘上的 <span class="highlight">F12</span> 键，打开开发者工具
+            </div>
+            
+            <div class="sub-step">
+                切换到"控制台"(Console)标签页
+            </div>
+            
+            <div class="sub-step">
+                在控制台中输入 <code>allow pasting</code> 并按回车，以允许在控制台中粘贴代码
+            </div>
+            
+            <div class="sub-step">
+                复制下面的代码并粘贴到控制台中：
+            </div>
+        </div>
+    </div>
+    
+    <h2>导入代码</h2>
+    <p>按照上述前提条件设置完成后，复制以下代码到控制台并回车：</p>
+    
+    <div class="code-container">
+        <pre><code id="import-code">// 加载打包后的模块
+(() => {
+  const script = document.createElement('script');
+  script.src = 'https://qce.luoxiaohei.cn/dist/qce-pro.bundle.js';
+  script.onload = () => {
+    console.log('🎉 QQ Chat Exporter Pro 加载成功！');
+    console.log('使用 Ctrl + F8 开始/暂停导出');
+  };
+  script.onerror = (err) => {
+    console.error('加载失败：', err);
+  };
+  document.documentElement.appendChild(script);
+})();</code></pre>
+        <div class="copy-indicator" id="copy-button">复制</div>
+    </div>
+
+
+    <h2>快捷键</h2>
+    <ul>
+        <li><span class="highlight">Ctrl + F8</span>: 开始/暂停导出</li>
+    </ul>
+
+    <h2>历史记录管理器</h2>
+    <p>如果你需要管理和查看已导出的聊天记录，可以使用历史记录管理器。复制以下代码到控制台：</p>
+    
+    <div class="code-container">
+        <pre><code id="history-manager-code">// 加载历史记录管理器
+(() => {
+  const historyScript = document.createElement('script');
+  historyScript.src = 'https://qce.luoxiaohei.cn/dist/qce-history.bundle.js';
+  historyScript.onload = () => {
+    console.log('📚 历史记录管理器加载成功！');
+    console.log('使用 Ctrl + F9 打开历史记录管理器');
+  };
+  historyScript.onerror = (err) => {
+    console.error('历史记录管理器加载失败：', err);
+  };
+  document.documentElement.appendChild(historyScript);
+})();</code></pre>
+        <div class="copy-indicator" id="history-copy-button">复制</div>
+    </div>
+
+    <h2>注意事项和杂谈</h2>
+        <p>这个版本支持图片和文字，图片包括base64和本地图片路径，已经算很好用了。</p>
+        
+        <p class="note-warning">导出完一个人的数据后，如果要导另一个人，<span class="highlight">必须</span>先在控制台按F5刷新，再执行脚本。
+            <br/>不要不刷新就重复执行脚本，会出问题。</p>
+        
+        <p>如果你的聊天数据在手机上，可以先在QQ设置里把手机聊天记录导到电脑上，再按上面步骤操作。</p>
+        
+        <p>唯一的缺点是有可能会被临时封号，但好消息是只要扫个脸就能解除。怕就别用了。</p>
+        
+        <p>当然你也可以用项目旧版本，那个用python的不会封号，但非常痛苦而且没法捕获图片。</p>
+        
+        <p>腾讯是真的妈妈死了。数据库加密，app又没有导出按钮，这个聊天记录漫游还做跟个狗屎一样，纯鸡巴傻逼来的</p>
+
+    <h2>源代码</h2>
+    <p>本项目的源代码托管在：<a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a></p>
+
+
+    <h2>免责声明</h2>
+    <div class="important-note">
+        <p>本工具仅供个人备份自己的聊天记录使用，请遵守相关法律法规。</p>
+        <p>使用本工具可能违反腾讯QQ用户协议，可能导致账号被临时封禁，用户需自行承担使用风险。</p>
+        <p>本工具与腾讯公司无任何关联，为非官方、非商业的开源项目。</p>
+        <p>开发者不对使用本工具导致的任何问题负责，包括但不限于账号安全、数据丢失等问题。</p>
+        <p>如果您继续使用本工具，即表示您已阅读并同意以上声明。</p>
+    </div>
+
+    <h2>版权信息</h2>
+        <p>© 2025 Luoxiaohei，保留所有权利。</p>
+        <p>本项目代码采用 <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank">GNU通用公共许可证 v3 (GPL-3.0)</a> 开源。</p>
+
+    <footer>
+        <p>Made with ❤️ by Luoxiaohei</p>
+    </footer>
+
+    <script>
+        // 复制功能
+        document.getElementById('copy-button').addEventListener('click', function() {
+            const codeElement = document.getElementById('import-code');
+            const textArea = document.createElement('textarea');
+            textArea.value = codeElement.textContent;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            
+            this.textContent = '已复制';
+            setTimeout(() => {
+                this.textContent = '复制';
+            }, 2000);
+        });
+        
+        // 历史记录管理器复制功能
+        document.getElementById('history-copy-button').addEventListener('click', function() {
+            const codeElement = document.getElementById('history-manager-code');
+            const textArea = document.createElement('textarea');
+            textArea.value = codeElement.textContent;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            
+            this.textContent = '已复制';
+            setTimeout(() => {
+                this.textContent = '复制';
+            }, 2000);
+        });
+        
+        // 主题切换
+        const themeToggle = document.getElementById('theme-toggle');
+        
+        // 检查本地存储中的主题首选项
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) {
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        }
+        
+        themeToggle.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            let newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        });
+        
+        // 检测系统颜色模式
+        const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+        
+        if (prefersDarkScheme.matches && !localStorage.getItem('theme')) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    </script>
+</body>
+</html> 
