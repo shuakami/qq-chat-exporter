@@ -48,8 +48,5 @@
     "github": {
       "silent": true
     },
-    "cleanUrls": true,
-    "analytics": {
-      "enabled": true
-    }
+    "cleanUrls": true
 }
