@@ -480,6 +480,29 @@
         
         <p class="note-warning">导出完一个人的数据后，如果要导另一个人，<span class="highlight">必须</span>先在控制台按F5刷新，再执行脚本。
             <br/>不要不刷新就重复执行脚本，会出问题。</p>
+
+        <div class="notes-section">
+            <p><strong>如果想手动结束采集？</strong></p>
+            <p>有两种方式可以手动结束采集：</p>
+            <ol>
+                <li>在控制台输入：<code>window.finishNow()</code></li>
+            </ol>
+            <p>两种方式都会安全地结束采集并保存已采集的数据。</p>
+        </div>
+
+        <div class="notes-section">
+            <p><strong>如果采集意外中断了怎么办？</strong></p>
+            <p>不用担心！如果采集过程意外中断，你可以这样继续：</p>
+            <ol>
+                <li>在控制台输入：<code>window.QCEPro.continueTask()</code></li>
+                <li>刷新页面（按F5）</li>
+                <li>在弹出的历史记录中找到对应的时间点</li>
+                <li>点击消息记录按钮，找到那个时间点的消息</li>
+                <li>重新运行上面的导入代码</li>
+                <li>重新运行脚本就可以继续采集了</li>
+            </ol>
+            <p>提示：每次继续采集前，都需要先刷新页面(F5)，这样可以确保数据采集的准确性。</p>
+        </div>
         
         <p>如果你的聊天数据在手机上，可以先在QQ设置里把手机聊天记录导到电脑上，再按上面步骤操作。</p>
         

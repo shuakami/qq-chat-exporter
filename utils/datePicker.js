@@ -49,8 +49,18 @@ export async function selectSpecificDate(targetDate) {
     return false; // 返回 false 表示选择失败
   }
 
-  // 步骤 0: 点击筛选按钮
-  const filterButtonCssPath = 'div.record-filter-btn[data-v-35f48dfb]';
+  // 步骤 0: 点击聊天记录按钮
+  const messageRecordButton = document.querySelector('#id-func-bar-MessageRecord');
+  if (messageRecordButton) {
+    simulateClick(messageRecordButton);
+    await delay(1000); // 等待聊天记录面板展开
+  } else {
+    console.error('无法找到聊天记录按钮。');
+    return false;
+  }
+
+  // 步骤 1: 点击筛选按钮
+  const filterButtonCssPath = 'div.record-filter-btn';
   const filterButton = document.querySelector(filterButtonCssPath);
   if (filterButton) {
     simulateClick(filterButton);
@@ -60,12 +70,12 @@ export async function selectSpecificDate(targetDate) {
     return false; // 返回 false 表示选择失败
   }
 
-  // 步骤 1: 点击打开日期选择器
+  // 步骤 2: 点击打开日期选择器
   const openDatePickerCssPath = 'div#ml-root > div:nth-of-type(3) > div > div:nth-of-type(2) > div:nth-of-type(2) > div';
   simulateClick(document.querySelector(openDatePickerCssPath));
   await delay(500); // 等待日期选择器展开
 
-  // 步骤 2: 导航到目标月份
+  // 步骤 3: 导航到目标月份
   let resetAttempted = false;
 
   while (true) {
@@ -117,7 +127,7 @@ export async function selectSpecificDate(targetDate) {
     }
   }
 
-  // 步骤 3: 选择目标日期并判断是否禁用
+  // 步骤 4: 选择目标日期并判断是否禁用
   const dayElements = document.querySelectorAll('div.vc-weeks div.vc-day');
   let targetDayFound = false;
 
@@ -225,7 +235,10 @@ export function createDatePicker(onSelect) {
         </div>
       </div>
       <div class="date-picker-footer">
-        <button class="date-picker-btn secondary" id="skip-btn">跳过选择</button>
+        <div class="date-picker-actions">
+          <button class="date-picker-btn secondary" id="continue-task-btn">继续未完成的任务</button>
+          <button class="date-picker-btn secondary" id="skip-btn">跳过选择</button>
+        </div>
         <div class="button-group">
           <button class="date-picker-btn" id="cancel-btn">取消</button>
           <button class="date-picker-btn primary" id="confirm-btn">确认</button>
@@ -266,7 +279,7 @@ export function createDatePicker(onSelect) {
       background: white;
       border-radius: 16px;
       width: 90%;
-      max-width: 400px;
+      max-width: 500px;
       box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
       z-index: 10001;
       animation: modalAppear 0.2s ease-out;
@@ -405,11 +418,71 @@ export function createDatePicker(onSelect) {
       background: #f5f5f5;
       color: #000;
     }
+
+    .date-picker-actions {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .date-picker-btn.continue-task {
+      background: #f0f9ff;
+      color: #1e90ff;
+      border: 1px solid #1e90ff;
+    }
+    
+    .date-picker-btn.continue-task:hover {
+      background: #e6f4ff;
+    }
   `;
   document.head.appendChild(style);
   document.body.appendChild(datePicker);
 
   return new Promise((resolve) => {
+    // 继续任务按钮
+    document.getElementById('continue-task-btn').addEventListener('click', async () => {
+      try {
+        // 检查 Dexie.js 是否已加载
+        if (!window.Dexie) {
+          // 尝试加载 Dexie.js
+          try {
+            await new Promise((resolve, reject) => {
+              const script = document.createElement("script");
+              script.src = "https://cdn.bootcdn.net/ajax/libs/dexie/3.2.2/dexie.min.js";
+              script.onload = resolve;
+              script.onerror = (error) => {
+                script.src = "https://cdn.jsdelivr.net/npm/dexie@3.2.2/dist/dexie.min.js";
+                script.onload = resolve;
+                script.onerror = reject;
+              };
+              document.head.appendChild(script);
+            });
+          } catch (error) {
+            alert('无法加载必要的依赖 Dexie.js，请检查网络连接后刷新页面重试');
+            return;
+          }
+        }
+
+        // 使用QCEPro的continueTask方法
+        if (window.QCEPro && window.QCEPro.continueTask) {
+          const targetDate = await window.QCEPro.continueTask();
+          if (targetDate) {
+            // 先移除日期选择器
+            if (document.body.contains(datePicker)) {
+              document.body.removeChild(datePicker);
+            }
+            resolve(targetDate);
+          } else {
+            alert('无法继续任务，请手动选择日期或刷新页面重试');
+          }
+        } else {
+          alert('继续任务功能未就绪，请刷新页面重试');
+        }
+      } catch (error) {
+        console.error('继续任务失败:', error);
+        alert('继续任务失败: ' + error.message);
+      }
+    });
+
     // 取消按钮
     document.getElementById('cancel-btn').addEventListener('click', () => {
       document.body.removeChild(datePicker);

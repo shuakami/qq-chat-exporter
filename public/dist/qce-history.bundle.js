@@ -321,7 +321,7 @@
 
     .history-item-actions {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 8px;
       margin-top: 12px;
     }
@@ -516,6 +516,14 @@
               </svg>
               预览
             </button>
+            <button class="history-item-btn danger" data-action="delete" data-db="${dbInfo.name}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                <line x1="10" y1="11" x2="10" y2="17"/>
+                <line x1="14" y1="11" x2="14" y2="17"/>
+              </svg>
+              删除
+            </button>
           </div>
         `;
 
@@ -541,6 +549,30 @@
                   break;
                 case 'preview':
                   await previewChatRecords(db, sessionId, 'asc');
+                  break;
+                case 'delete':
+                  if (confirm(`确定要删除这条历史记录吗？\n对话者：${senders.join(', ')}\n消息数：${records.length}\n时间：${timestamp.toLocaleString()}\n\n此操作不可恢复！`)) {
+                    try {
+                      await db.close();
+                      await Dexie.delete(dbName);
+                      historyItem.remove();
+                      logger.success('历史记录已删除');
+                      
+                      // 更新统计信息
+                      const remainingItems = historyList.querySelectorAll('.history-item').length;
+                      const remainingRecords = Array.from(historyList.querySelectorAll('.history-item-info'))
+                        .reduce((sum, info) => sum + parseInt(info.textContent.match(/\d+/)[0]), 0);
+                      stats.textContent = `共 ${remainingItems} 条历史记录，${remainingRecords} 条消息`;
+                      
+                      // 如果没有记录了，显示空状态
+                      if (remainingItems === 0) {
+                        emptyState.style.display = 'block';
+                        emptyState.textContent = '暂无历史记录';
+                      }
+                    } catch (error) {
+                      logger.error(`删除失败: ${error.message}`);
+                    }
+                  }
                   break;
               }
             });
@@ -607,12 +639,27 @@
     if (!historyManager) {
       historyManager = await createHistoryManager();
     }
-    historyManager.show();
   }
+
+  // 注册快捷键
+  document.addEventListener('keydown', async (event) => {
+    if (event.ctrlKey && event.key === 'F9') {
+      event.preventDefault();
+      if (!historyManager) {
+        await init();
+      }
+      historyManager.show();
+    }
+  });
 
   // 导出全局方法
   window.QCEHistory = {
-    show: init
+    show: async () => {
+      if (!historyManager) {
+        await init();
+      }
+      historyManager.show();
+    }
   };
 
   // 等待 DOM 加载完成后初始化

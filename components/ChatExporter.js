@@ -347,31 +347,28 @@ export function createChatExporter(db, recordId, messageCount) {
   });
 
   previewBtn.addEventListener('click', async () => {
-    const sortOrder = document.querySelector('input[name="sort-order"]:checked').value;
     try {
-      await previewChatRecords(db, recordId, sortOrder);
+      await previewChatRecords(db, recordId, 'asc');
     } catch (error) {
-      logger.error('预览失败:', error);
+      logger.error(`预览失败: ${error.message}`);
       console.error('预览失败:', error);
     }
   });
 
   exportJsonBtn.addEventListener('click', async () => {
-    const sortOrder = document.querySelector('input[name="sort-order"]:checked').value;
     try {
-      await exportChatRecords(db, recordId, 'json', sortOrder);
+      await exportChatRecords(db, recordId, 'json', 'asc');
     } catch (error) {
-      logger.error('导出JSON失败:', error);
+      logger.error(`导出JSON失败: ${error.message}`);
       console.error('导出JSON失败:', error);
     }
   });
 
   exportTxtBtn.addEventListener('click', async () => {
-    const sortOrder = document.querySelector('input[name="sort-order"]:checked').value;
     try {
-      await exportChatRecords(db, recordId, 'txt', sortOrder);
+      await exportChatRecords(db, recordId, 'txt', 'asc');
     } catch (error) {
-      logger.error('导出TXT失败:', error);
+      logger.error(`导出TXT失败: ${error.message}`);
       console.error('导出TXT失败:', error);
     }
   });
