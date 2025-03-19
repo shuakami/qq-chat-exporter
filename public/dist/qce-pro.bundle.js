@@ -742,7 +742,7 @@
   }
 
   // 版本信息
-  const VERSION = '2.0.0';
+  const VERSION = '2.1.5';
 
   // 导出全局方法供外部使用
   window.QCEPro = {
