@@ -38,22 +38,30 @@
 
             /* 暗色主题代码高亮 */
             .code-js {
-                color: #ce9178;  /* 字符串颜色 */
+                color: #abb2bf;  /* 基础文本颜色 */
+            }
+            .code-js .string {
+                color: #98c379;  /* 字符串颜色 */
             }
             .code-js .comment {
-                color: #6a9955;  /* 注释颜色 */
+                color: #7f848e;  /* 注释颜色 */
+                font-style: italic;
             }
             .code-js .keyword {
-                color: #569cd6;  /* 关键字颜色 */
+                color: #c678dd;  /* 关键字颜色 */
+                font-weight: 500;
             }
             .code-js .function {
-                color: #dcdcaa;  /* 函数颜色 */
+                color: #61afef;  /* 函数颜色 */
             }
             .code-js .operator {
-                color: #d4d4d4;  /* 操作符颜色 */
+                color: #56b6c2;  /* 操作符颜色 */
             }
             .code-js .punctuation {
-                color: #d4d4d4;  /* 标点符号颜色 */
+                color: #abb2bf;  /* 标点符号颜色 */
+            }
+            .code-js .variable {
+                color: #e06c75;  /* 变量颜色 */
             }
         }
         
@@ -75,36 +83,48 @@
         
         pre {
             background: var(--code-bg);
-            padding: 15px;
+            padding: 20px;
             border-radius: 8px;
             overflow-x: auto;
             border: 1px solid var(--code-border);
             position: relative;
+            font-size: 14px;
+            line-height: 1.6;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         }
         
         code {
-            font-family: 'Fira Code', 'Consolas', monospace;
-            color: var(--text-color);
+            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 14px;
+            tab-size: 4;
         }
         
-        /* 代码高亮样式 */
+        /* 代码高亮样式 - Light Theme */
         .code-js {
-            color: #c6937c;  /* 字符串颜色 */
+            color: #383a42;  /* 基础文本颜色 */
+        }
+        .code-js .string {
+            color: #50a14f;  /* 字符串颜色 */
         }
         .code-js .comment {
-            color: #6a9955;  /* 注释颜色 */
+            color: #a0a1a7;  /* 注释颜色 */
+            font-style: italic;
         }
         .code-js .keyword {
-            color: #569cd6;  /* 关键字颜色 */
+            color: #a626a4;  /* 关键字颜色 */
+            font-weight: 500;
         }
         .code-js .function {
-            color: #dcdcaa;  /* 函数颜色 */
+            color: #4078f2;  /* 函数颜色 */
         }
         .code-js .operator {
-            color: #d4d4d4;  /* 操作符颜色 */
+            color: #0184bc;  /* 操作符颜色 */
         }
         .code-js .punctuation {
-            color: #d4d4d4;  /* 标点符号颜色 */
+            color: #383a42;  /* 标点符号颜色 */
+        }
+        .code-js .variable {
+            color: #e45649;  /* 变量颜色 */
         }
         
         .highlight {
