@@ -35,6 +35,26 @@
                 --footer-color: #999;
                 --link-color: #61afef;
             }
+
+            /* 暗色主题代码高亮 */
+            .code-js {
+                color: #ce9178;  /* 字符串颜色 */
+            }
+            .code-js .comment {
+                color: #6a9955;  /* 注释颜色 */
+            }
+            .code-js .keyword {
+                color: #569cd6;  /* 关键字颜色 */
+            }
+            .code-js .function {
+                color: #dcdcaa;  /* 函数颜色 */
+            }
+            .code-js .operator {
+                color: #d4d4d4;  /* 操作符颜色 */
+            }
+            .code-js .punctuation {
+                color: #d4d4d4;  /* 标点符号颜色 */
+            }
         }
         
         body {
@@ -65,6 +85,26 @@
         code {
             font-family: 'Fira Code', 'Consolas', monospace;
             color: var(--text-color);
+        }
+        
+        /* 代码高亮样式 */
+        .code-js {
+            color: #c6937c;  /* 字符串颜色 */
+        }
+        .code-js .comment {
+            color: #6a9955;  /* 注释颜色 */
+        }
+        .code-js .keyword {
+            color: #569cd6;  /* 关键字颜色 */
+        }
+        .code-js .function {
+            color: #dcdcaa;  /* 函数颜色 */
+        }
+        .code-js .operator {
+            color: #d4d4d4;  /* 操作符颜色 */
+        }
+        .code-js .punctuation {
+            color: #d4d4d4;  /* 标点符号颜色 */
         }
         
         .highlight {
@@ -373,19 +413,19 @@
     <p>按照上述前提条件设置完成后，复制以下代码到控制台并回车：</p>
     
     <div class="code-container">
-        <pre><code id="import-code">// 加载打包后的模块
-(() => {
-  const script = document.createElement('script');
-  script.src = 'https://qce.luoxiaohei.cn/dist/qce-pro.bundle.js';
-  script.onload = () => {
-    console.log('🎉 QQ Chat Exporter Pro 加载成功！');
-    console.log('使用 Ctrl + F8 开始/暂停导出');
-  };
-  script.onerror = (err) => {
-    console.error('加载失败：', err);
-  };
-  document.documentElement.appendChild(script);
-})();</code></pre>
+        <pre><code id="import-code" class="code-js"><span class="comment">// 加载打包后的模块</span>
+<span class="punctuation">(</span><span class="punctuation">(</span><span class="punctuation">)</span> <span class="operator">=></span> <span class="punctuation">{</span>
+  <span class="keyword">const</span> script <span class="operator">=</span> <span class="function">document.createElement</span><span class="punctuation">(</span><span class="code-js">'script'</span><span class="punctuation">)</span><span class="punctuation">;</span>
+  script<span class="punctuation">.</span>src <span class="operator">=</span> <span class="code-js">'https://qce.luoxiaohei.cn/dist/qce-pro.bundle.js'</span><span class="punctuation">;</span>
+  script<span class="punctuation">.</span>onload <span class="operator">=</span> <span class="punctuation">(</span><span class="punctuation">)</span> <span class="operator">=></span> <span class="punctuation">{</span>
+    <span class="function">console.log</span><span class="punctuation">(</span><span class="code-js">'🎉 QQ Chat Exporter Pro 加载成功！'</span><span class="punctuation">)</span><span class="punctuation">;</span>
+    <span class="function">console.log</span><span class="punctuation">(</span><span class="code-js">'使用 Ctrl + F8 开始/暂停导出'</span><span class="punctuation">)</span><span class="punctuation">;</span>
+  <span class="punctuation">}</span><span class="punctuation">;</span>
+  script<span class="punctuation">.</span>onerror <span class="operator">=</span> <span class="punctuation">(</span>err<span class="punctuation">)</span> <span class="operator">=></span> <span class="punctuation">{</span>
+    <span class="function">console.error</span><span class="punctuation">(</span><span class="code-js">'加载失败：'</span><span class="punctuation">,</span> err<span class="punctuation">)</span><span class="punctuation">;</span>
+  <span class="punctuation">}</span><span class="punctuation">;</span>
+  <span class="function">document.documentElement.appendChild</span><span class="punctuation">(</span>script<span class="punctuation">)</span><span class="punctuation">;</span>
+<span class="punctuation">}</span><span class="punctuation">)</span><span class="punctuation">(</span><span class="punctuation">)</span><span class="punctuation">;</span></code></pre>
         <div class="copy-indicator" id="copy-button">复制</div>
     </div>
 
@@ -399,19 +439,19 @@
     <p>如果你需要管理和查看已导出的聊天记录，可以使用历史记录管理器。复制以下代码到控制台：</p>
     
     <div class="code-container">
-        <pre><code id="history-manager-code">// 加载历史记录管理器
-(() => {
-  const historyScript = document.createElement('script');
-  historyScript.src = 'https://qce.luoxiaohei.cn/dist/qce-history.bundle.js';
-  historyScript.onload = () => {
-    console.log('📚 历史记录管理器加载成功！');
-    console.log('使用 Ctrl + F9 打开历史记录管理器');
-  };
-  historyScript.onerror = (err) => {
-    console.error('历史记录管理器加载失败：', err);
-  };
-  document.documentElement.appendChild(historyScript);
-})();</code></pre>
+        <pre><code id="history-manager-code" class="code-js"><span class="comment">// 加载历史记录管理器</span>
+<span class="punctuation">(</span><span class="punctuation">(</span><span class="punctuation">)</span> <span class="operator">=></span> <span class="punctuation">{</span>
+  <span class="keyword">const</span> historyScript <span class="operator">=</span> <span class="function">document.createElement</span><span class="punctuation">(</span><span class="code-js">'script'</span><span class="punctuation">)</span><span class="punctuation">;</span>
+  historyScript<span class="punctuation">.</span>src <span class="operator">=</span> <span class="code-js">'https://qce.luoxiaohei.cn/dist/qce-history.bundle.js'</span><span class="punctuation">;</span>
+  historyScript<span class="punctuation">.</span>onload <span class="operator">=</span> <span class="punctuation">(</span><span class="punctuation">)</span> <span class="operator">=></span> <span class="punctuation">{</span>
+    <span class="function">console.log</span><span class="punctuation">(</span><span class="code-js">'📚 历史记录管理器加载成功！'</span><span class="punctuation">)</span><span class="punctuation">;</span>
+    <span class="function">console.log</span><span class="punctuation">(</span><span class="code-js">'使用 Ctrl + F9 打开历史记录管理器'</span><span class="punctuation">)</span><span class="punctuation">;</span>
+  <span class="punctuation">}</span><span class="punctuation">;</span>
+  historyScript<span class="punctuation">.</span>onerror <span class="operator">=</span> <span class="punctuation">(</span>err<span class="punctuation">)</span> <span class="operator">=></span> <span class="punctuation">{</span>
+    <span class="function">console.error</span><span class="punctuation">(</span><span class="code-js">'历史记录管理器加载失败：'</span><span class="punctuation">,</span> err<span class="punctuation">)</span><span class="punctuation">;</span>
+  <span class="punctuation">}</span><span class="punctuation">;</span>
+  <span class="function">document.documentElement.appendChild</span><span class="punctuation">(</span>historyScript<span class="punctuation">)</span><span class="punctuation">;</span>
+<span class="punctuation">}</span><span class="punctuation">)</span><span class="punctuation">(</span><span class="punctuation">)</span><span class="punctuation">;</span></code></pre>
         <div class="copy-indicator" id="history-copy-button">复制</div>
     </div>
 
