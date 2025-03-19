@@ -1155,25 +1155,180 @@
             
             // 在连续25次无新消息且未执行过恢复机制时，尝试恢复
             if (noNewTimes >= 25 && !hasTriedRecovery) {
-              logger.warning('检测到连续25次无新消息，启动恢复机制...');
-              logger.system('暂停5秒，然后尝试反向滚动来恢复...');
+              logger.warning('检测到连续25次无新消息，启动强制滚动解锁机制...');
+              logger.system('暂停3秒，然后尝试恢复滚动...');
               
-              // 暂停5秒
-              await delay(5000);
+              // 暂停3秒
+              await delay(3000);
+
+              // 1. 强制重置滚动容器属性
+              logger.system('步骤1: 强制重置滚动容器属性');
+              const originalOverflow = container.style.overflow;
+              const originalScrollBehavior = container.style.scrollBehavior;
+              const originalPosition = container.style.position;
               
-              // 执行2次反向滚动
-              const oppositeDirection = direction === 'up' ? 'down' : 'up';
-              logger.system(`执行反向滚动 (${oppositeDirection})...`);
+              // 强制干预DOM - 临时禁用滚动
+              container.style.overflow = 'hidden';
+              container.style.scrollBehavior = 'auto';
+              await delay(200);
               
-              for (let i = 0; i < 2; i++) {
-                await scrollWithMethod(container, oppositeDirection, activeMethod, scrollDuration * 1.5);
-                await delay(scrollDelay * 1.5);
+              // 重置回原始状态并强制滚动
+              container.style.overflow = originalOverflow || '';
+              container.style.scrollBehavior = originalScrollBehavior || '';
+              container.scrollTop = container.scrollTop - 1000; 
+              await delay(300);
+              
+              // 2. 使用PageDown/PageUp键重置
+              logger.system('步骤2: 模拟PageDown/PageUp键');
+              document.activeElement.blur();
+              container.focus();
+              
+              // 发送PageDown以强制向下滚动
+              [33, 34].forEach(keyCode => {
+                const keyEvents = ['keydown', 'keypress', 'keyup'];
+                keyEvents.forEach(eventType => {
+                  const event = new KeyboardEvent(eventType, {
+                    bubbles: true,
+                    cancelable: true,
+                    key: keyCode === 33 ? 'PageUp' : 'PageDown',
+                    code: keyCode === 33 ? 'PageUp' : 'PageDown',
+                    keyCode: keyCode,
+                    which: keyCode,
+                    composed: true,
+                    view: window
+                  });
+                  
+                  // 强制设置关键属性
+                  try {
+                    Object.defineProperties(event, {
+                      keyCode: { value: keyCode },
+                      which: { value: keyCode },
+                      charCode: { value: 0 }
+                    });
+                  } catch (e) {}
+                  
+                  container.dispatchEvent(event);
+                });
+              });
+              await delay(500);
+              
+              // 3. 模拟鼠标拖拽
+              logger.system('步骤3: 模拟鼠标拖拽滚动条');
+              const rect = container.getBoundingClientRect();
+              const scrollbarX = rect.right - 5;
+              const startY = rect.top + 10;
+              const endY = rect.bottom - 10;
+              
+              const mouseEvents = [
+                {type: 'mousedown', x: scrollbarX, y: startY},
+                {type: 'mousemove', x: scrollbarX, y: Math.floor((startY + endY) / 2)},
+                {type: 'mousemove', x: scrollbarX, y: endY},
+                {type: 'mouseup', x: scrollbarX, y: endY}
+              ];
+              
+              for (const evt of mouseEvents) {
+                const mouseEvent = new MouseEvent(evt.type, {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  button: 0,
+                  buttons: evt.type === 'mouseup' ? 0 : 1,
+                  clientX: evt.x,
+                  clientY: evt.y,
+                  screenX: evt.x,
+                  screenY: evt.y,
+                });
+                document.dispatchEvent(mouseEvent);
+                await delay(100);
               }
+              
+              // 4. 触发滚轮事件
+              logger.system('步骤4: 滚轮事件');
+              for (let i = 0; i < 10; i++) {
+                const wheelEvent1 = new WheelEvent('wheel', {
+                  bubbles: true,
+                  cancelable: true,
+                  deltaY: -300,
+                  deltaMode: 0,
+                });
+                container.dispatchEvent(wheelEvent1);
+                await delay(50);
+                
+                const wheelEvent2 = new WheelEvent('wheel', {
+                  bubbles: true,
+                  cancelable: true,
+                  deltaY: 300,
+                  deltaMode: 0,
+                });
+                container.dispatchEvent(wheelEvent2);
+                await delay(50);
+              }
+              await delay(300);
+              
+              // 5. 触发重绘
+              logger.system('步骤5: 强制布局重新计算');
+              // 保存原始样式
+              const originalDisplay = container.style.display;
+              
+              // 使用display属性触发强制重排
+              container.style.display = 'none';
+              void container.offsetHeight; 
+              container.style.display = originalDisplay || '';
+              
+              // 另一种强制重排的方法
+              container.style.position = 'relative';
+              void container.offsetHeight;
+              container.style.position = originalPosition || '';
+              await delay(200);
+              
+              // 6. 使用InputEvent
+              logger.system('步骤6: InputEvent');
+              const beforeInputEvent = new InputEvent('beforeinput', {
+                bubbles: true,
+                cancelable: true,
+                inputType: 'insertText',
+                data: 'PageUp'
+              });
+              container.dispatchEvent(beforeInputEvent);
+              
+              const inputEvent = new InputEvent('input', {
+                bubbles: true,
+                cancelable: true,
+                inputType: 'insertText',
+                data: 'PageUp'
+              });
+              container.dispatchEvent(inputEvent);
+              
+              // 7. 最后恢复滚动
+              logger.system('步骤7: 恢复正常滚动');
+              container.scrollTo({
+                top: container.scrollTop - 500,
+                behavior: 'smooth'
+              });
+              
+              // 触发滚动完成事件
+              container.dispatchEvent(new Event('scroll', {
+                bubbles: true,
+                cancelable: false
+              }));
+              
+              // 4. 执行一次反向滚动
+              const oppositeDirection = direction === 'up' ? 'down' : 'up';
+              logger.system(`执行最终反向滚动 (${oppositeDirection})...`);
+              await scrollWithMethod(container, oppositeDirection, activeMethod, scrollDuration);
+              await delay(scrollDelay);
+
+              // 5. 最后执行一次原方向的滚动
+              logger.system('执行最终恢复滚动...');
+              await scrollWithMethod(container, direction, activeMethod, scrollDuration);
               
               // 标记已执行过恢复机制
               hasTriedRecovery = true;
-              logger.system('恢复机制执行完毕，继续正常滚动...');
-              logger.system('如果后续仍然无效，将等待达到最大无消息次数后自动停止。');
+              logger.system('强制滚动解锁机制执行完毕，继续正常滚动...');
+              
+              // 重置计数器，给更多恢复机会
+              consecutiveInvalidScrolls = 0;
+              noNewTimes = Math.max(0, noNewTimes - 5);
             }
             
             if (noNewTimes >= maxNoNewTimes) {
@@ -1355,6 +1510,10 @@
           const firstTime = times[0];
           const lastTime = times[times.length - 1];
 
+          // 获取前3条和后3条消息的内容
+          const first3Messages = records.slice(0, 3).map(r => r.content);
+          const last3Messages = records.slice(-3).map(r => r.content);
+
           // 获取消息类型统计
           const textMsgs = records.filter(r => !r.content.startsWith('[') && !r.content.includes('未识别')).length;
           const imgMsgs = records.filter(r => r.content.includes('[图片]')).length;
@@ -1366,6 +1525,10 @@
           logger.system(`对话者：${participants}`);
           logger.system(`总消息数：${records.length} 条`);
           logger.system(`时间范围：${firstTime} 至 ${lastTime}`);
+          logger.system('前3条消息：');
+          first3Messages.forEach((msg, i) => logger.system(`${i + 1}. ${msg.length > 50 ? msg.substring(0, 50) + '...' : msg}`));
+          logger.system('最后3条消息：');
+          last3Messages.forEach((msg, i) => logger.system(`${i + 1}. ${msg.length > 50 ? msg.substring(0, 50) + '...' : msg}`));
           logger.system('消息类型统计：');
           logger.system(`- 文本消息：${textMsgs} 条`);
           logger.system(`- 图片消息：${imgMsgs} 条`);
