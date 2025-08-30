@@ -382,7 +382,7 @@ func (m *InteractiveMenu) GetTimeRange() (*time.Time, *time.Time) {
 			break
 		}
 
-		parsedTime, err := m.parseTime(startTimeStr)
+		parsedTime, err := m.parseTimeForStart(startTimeStr)
 		if err != nil {
 			PrintError(fmt.Sprintf("时间格式错误: %v", err))
 			PrintInfo("支持的格式: 2025-01-01 或 2025-01-01 15:30:00")
@@ -401,7 +401,7 @@ func (m *InteractiveMenu) GetTimeRange() (*time.Time, *time.Time) {
 			break
 		}
 
-		parsedTime, err := m.parseTime(endTimeStr)
+		parsedTime, err := m.parseTimeForEnd(endTimeStr)
 		if err != nil {
 			PrintError(fmt.Sprintf("时间格式错误: %v", err))
 			PrintInfo("支持的格式: 2025-01-01 或 2025-01-01 15:30:00")
@@ -438,7 +438,7 @@ func (m *InteractiveMenu) GetTimeRange() (*time.Time, *time.Time) {
 	return startTime, endTime
 }
 
-// parseTime 解析时间字符串
+// parseTime 解析时间字符串 (通用版本)
 func (m *InteractiveMenu) parseTime(timeStr string) (time.Time, error) {
 	timeStr = strings.TrimSpace(timeStr)
 
@@ -455,6 +455,75 @@ func (m *InteractiveMenu) parseTime(timeStr string) (time.Time, error) {
 	for _, format := range formats {
 		if t, err := time.Parse(format, timeStr); err == nil {
 			return t, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("不支持的时间格式，请使用 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS 格式")
+}
+
+// parseTimeForStart 解析开始时间字符串（只有日期时解析为当天00:00:00）
+func (m *InteractiveMenu) parseTimeForStart(timeStr string) (time.Time, error) {
+	timeStr = strings.TrimSpace(timeStr)
+
+	// 先尝试完整时间格式
+	fullTimeFormats := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006/01/02 15:04:05",
+		"2006/01/02 15:04",
+	}
+
+	for _, format := range fullTimeFormats {
+		if t, err := time.Parse(format, timeStr); err == nil {
+			return t, nil
+		}
+	}
+
+	// 尝试仅日期格式，解析为当天开始时间（00:00:00）
+	dateFormats := []string{
+		"2006-01-02",
+		"2006/01/02",
+	}
+
+	for _, format := range dateFormats {
+		if t, err := time.Parse(format, timeStr); err == nil {
+			// 开始时间：当天00:00:00（默认行为）
+			return t, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("不支持的时间格式，请使用 YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS 格式")
+}
+
+// parseTimeForEnd 解析结束时间字符串（只有日期时解析为当天23:59:59）
+func (m *InteractiveMenu) parseTimeForEnd(timeStr string) (time.Time, error) {
+	timeStr = strings.TrimSpace(timeStr)
+
+	// 先尝试完整时间格式
+	fullTimeFormats := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006/01/02 15:04:05",
+		"2006/01/02 15:04",
+	}
+
+	for _, format := range fullTimeFormats {
+		if t, err := time.Parse(format, timeStr); err == nil {
+			return t, nil
+		}
+	}
+
+	// 尝试仅日期格式，解析为当天结束时间（23:59:59）
+	dateFormats := []string{
+		"2006-01-02",
+		"2006/01/02",
+	}
+
+	for _, format := range dateFormats {
+		if t, err := time.Parse(format, timeStr); err == nil {
+			// 结束时间：当天23:59:59
+			endOfDay := time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 999999999, t.Location())
+			return endOfDay, nil
 		}
 	}
 

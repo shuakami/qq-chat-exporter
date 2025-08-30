@@ -2,7 +2,6 @@
 napcat:
   base_url: "http://127.0.0.1:3032"  # 我们的WebSocket服务端地址
   token: ""                          # API Token (可选，从截图看需要配置)
-  timeout: 10s                       # 请求超时时间 (高性能模式缩短)
   retry_count: 2                     # 重试次数 (减少重试提高速度)
   retry_delay: 500ms                 # 重试延迟 (缩短延迟)
   max_requests: 2000                 # 最大并发请求数 (高性能模式)

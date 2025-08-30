@@ -111,21 +111,14 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	// 手动解析duration字段，因为viper可能有问题
-	if timeoutStr := viper.GetString("napcat.timeout"); timeoutStr != "" {
-		if timeout, err := time.ParseDuration(timeoutStr); err == nil {
-			config.Napcat.Timeout = timeout
-		}
-	}
 	if retryDelayStr := viper.GetString("napcat.retry_delay"); retryDelayStr != "" {
 		if retryDelay, err := time.ParseDuration(retryDelayStr); err == nil {
 			config.Napcat.RetryDelay = retryDelay
 		}
 	}
 
-	// 如果还是没有值，使用默认值
-	if config.Napcat.Timeout == 0 {
-		config.Napcat.Timeout = 30 * time.Second
-	}
+	// 硬编码超时时间为60秒，不允许配置
+	config.Napcat.Timeout = 60 * time.Second
 	if config.Napcat.RetryDelay == 0 {
 		config.Napcat.RetryDelay = 500 * time.Millisecond
 	}
@@ -150,7 +143,7 @@ func GetDefaultConfig(configDir string) *Config {
 		Napcat: NapcatConfig{
 			BaseURL:     "http://127.0.0.1:3032",
 			Token:       "",
-			Timeout:     10 * time.Second,
+			Timeout:     60 * time.Second, // 硬编码1分钟超时
 			RetryCount:  2,
 			RetryDelay:  500 * time.Millisecond,
 			MaxRequests: 2000,
@@ -189,7 +182,6 @@ func setDefaults() {
 	// Napcat默认配置
 	viper.SetDefault("napcat.base_url", "http://127.0.0.1:3000")
 	viper.SetDefault("napcat.token", "")
-	viper.SetDefault("napcat.timeout", "30s")
 	viper.SetDefault("napcat.retry_count", 3)
 	viper.SetDefault("napcat.retry_delay", "1s")
 	viper.SetDefault("napcat.max_requests", 10)
