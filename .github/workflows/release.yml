@@ -45,7 +45,8 @@ jobs:
 
     - name: 构建Go应用程序
       run: |
-        # 创建构建输出目录
+        # 清理并创建构建输出目录
+        rm -rf dist
         mkdir -p dist
         
         # Windows amd64
