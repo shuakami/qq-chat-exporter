@@ -107,6 +107,11 @@ jobs:
           cp README.md "$package_dir/"
           cp config.example.yaml "$package_dir/"
           
+          # 复制启动脚本 (仅Windows)
+          if [[ $platform == *"windows"* ]]; then
+            cp "启动QQ聊天记录导出工具.bat" "$package_dir/"
+          fi
+          
           # 创建压缩包
           cd dist/packages
           if [[ $platform == *"windows"* ]]; then
@@ -148,7 +153,8 @@ jobs:
         echo "" >> CHANGELOG.md
         echo "1. 下载对应您系统的压缩包" >> CHANGELOG.md
         echo "2. 解压到任意目录" >> CHANGELOG.md
-        echo "4. 双击执行就可以开始使用了" >> CHANGELOG.md
+        echo "3. **Windows用户**: 双击 \`启动QQ聊天记录导出工具.bat\` 文件启动程序" >> CHANGELOG.md
+        echo "4. **Linux/macOS用户**: 在终端中运行对应的可执行文件" >> CHANGELOG.md
 
     - name: 创建GitHub Release
       uses: softprops/action-gh-release@v2
