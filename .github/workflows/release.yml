@@ -45,61 +45,78 @@ jobs:
 
     - name: 构建Go应用程序
       run: |
-        # 清理并创建构建输出目录
-        rm -rf dist
-        mkdir -p dist
+        # 创建构建目录
+        mkdir -p build/binaries
         
         # Windows amd64
-        GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/qq-chat-exporter-windows-amd64.exe .
+        GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o build/binaries/qq-chat-exporter-windows-amd64.exe .
         
         # Windows arm64
-        GOOS=windows GOARCH=arm64 go build -ldflags="-s -w" -o dist/qq-chat-exporter-windows-arm64.exe .
+        GOOS=windows GOARCH=arm64 go build -ldflags="-s -w" -o build/binaries/qq-chat-exporter-windows-arm64.exe .
         
         # Linux amd64
-        GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/qq-chat-exporter-linux-amd64 .
+        GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o build/binaries/qq-chat-exporter-linux-amd64 .
         
         # Linux arm64
-        GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/qq-chat-exporter-linux-arm64 .
+        GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o build/binaries/qq-chat-exporter-linux-arm64 .
         
         # macOS amd64
-        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dist/qq-chat-exporter-darwin-amd64 .
+        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o build/binaries/qq-chat-exporter-darwin-amd64 .
         
         # macOS arm64 (Apple Silicon)
-        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dist/qq-chat-exporter-darwin-arm64 .
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o build/binaries/qq-chat-exporter-darwin-arm64 .
 
-    - name: 打包配置文件和资源
+    - name: 验证构建文件
       run: |
-        # 创建资源包
-        mkdir -p dist/assets
-        cp -r public dist/assets/
-        cp -r styles dist/assets/
-        cp config.example.yaml dist/assets/
+        echo "验证构建的文件："
+        ls -la build/binaries/
+        file build/binaries/* || true
+
+    - name: 创建发布包
+      run: |
+        # 创建发布目录
+        mkdir -p dist/packages
         
-        # 为每个平台创建完整的发布包
-        platforms=("windows-amd64" "windows-arm64" "linux-amd64" "linux-arm64" "darwin-amd64" "darwin-arm64")
+        # 定义平台数组
+        declare -A platforms=(
+          ["windows-amd64"]="qq-chat-exporter-windows-amd64.exe"
+          ["windows-arm64"]="qq-chat-exporter-windows-arm64.exe"
+          ["linux-amd64"]="qq-chat-exporter-linux-amd64"
+          ["linux-arm64"]="qq-chat-exporter-linux-arm64"
+          ["darwin-amd64"]="qq-chat-exporter-darwin-amd64"
+          ["darwin-arm64"]="qq-chat-exporter-darwin-arm64"
+        )
         
-        for platform in "${platforms[@]}"; do
-          # 清理并创建目录
-          rm -rf "dist/qq-chat-exporter-$platform"
-          mkdir -p "dist/qq-chat-exporter-$platform"
+        # 为每个平台创建发布包
+        for platform in "${!platforms[@]}"; do
+          binary="${platforms[$platform]}"
+          package_dir="dist/packages/qq-chat-exporter-$platform"
+          
+          echo "创建 $platform 发布包..."
+          
+          # 创建包目录
+          mkdir -p "$package_dir"
           
           # 复制可执行文件
-          if [[ $platform == *"windows"* ]]; then
-            cp "dist/qq-chat-exporter-$platform.exe" "dist/qq-chat-exporter-$platform/"
-          else
-            cp "dist/qq-chat-exporter-$platform" "dist/qq-chat-exporter-$platform/"
-          fi
+          cp "build/binaries/$binary" "$package_dir/"
+          chmod +x "$package_dir/$binary" 2>/dev/null || true
           
           # 复制资源文件
-          cp -r dist/assets/* "dist/qq-chat-exporter-$platform/"
-          cp README.md "dist/qq-chat-exporter-$platform/"
+          cp -r public "$package_dir/"
+          cp -r styles "$package_dir/"
+          cp README.md "$package_dir/"
+          cp config.example.yaml "$package_dir/"
           
           # 创建压缩包
+          cd dist/packages
           if [[ $platform == *"windows"* ]]; then
-            (cd dist && zip -r "qq-chat-exporter-$platform.zip" "qq-chat-exporter-$platform")
+            zip -r "qq-chat-exporter-$platform.zip" "qq-chat-exporter-$platform"
           else
-            (cd dist && tar -czf "qq-chat-exporter-$platform.tar.gz" "qq-chat-exporter-$platform")
+            tar -czf "qq-chat-exporter-$platform.tar.gz" "qq-chat-exporter-$platform"
           fi
+          cd ../..
+          
+          echo "✅ $platform 包创建完成"
         done
 
     - name: 生成更新日志
@@ -142,11 +159,11 @@ jobs:
         draft: false
         prerelease: false
         files: |
-          dist/*.zip
-          dist/*.tar.gz
+          dist/packages/*.zip
+          dist/packages/*.tar.gz
 
     - name: 发布完成通知
       run: |
         echo "🎉 Release ${{ steps.get_version.outputs.version }} 发布成功!"
         echo "📦 已上传以下文件:"
-        ls -la dist/*.zip dist/*.tar.gz 2>/dev/null || true
+        ls -la dist/packages/*.zip dist/packages/*.tar.gz 2>/dev/null || true
