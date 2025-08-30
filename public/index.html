@@ -322,191 +322,260 @@
 <body>
     <button class="theme-toggle" id="theme-toggle" title="切换主题">🌓</button>
     
-    <h1>QQ Chat Exporter Pro</h1>
-    <p>这是一个用于导出QQ聊天记录的工具。只需要按照以下步骤操作即可使用。</p>
-    <strong>建议先全部看完再开始，也要不了多少时间。</strong>
+    <h1>QQ Chat Exporter Pro V3</h1>
+    <p>全新的Go版本QQ聊天记录导出工具，更稳定、更强大、更可靠。支持HTML、JSON、TXT多种格式导出，具备实时保存和断点续传功能。</p>
+    <strong>V3版本相比之前有重大改进，建议先全部看完再开始操作。</strong>
     
-    <h2>前提条件</h2>
+    <h2>V3版本新特性</h2>
     <div class="prerequisite-steps">
         <div class="step">
-            <strong>下载安装 NapCatQQ</strong>
-            <p>首先，你需要下载 NapCatQQ，这是一个包含了 LiteLoaderQQ 的修改版 QQ 客户端。</p>
+            <strong>核心改进</strong>
+            <div class="sub-step"><strong>独立程序</strong>：不再依赖Devtools，使用命令行程序，更稳定可靠</div>
+            <div class="sub-step"><strong>数据库存储</strong>：所有数据保存在本地数据库，支持断点续传</div>
+            <div class="sub-step"><strong>实时保存</strong>：每30秒自动保存进度，再也不怕数据丢失</div>
+            <div class="sub-step"><strong>多格式导出</strong>：支持HTML、JSON、TXT三种格式</div>
+            <div class="sub-step"><strong>时间范围过滤</strong>：可以指定导出特定时间段的聊天记录</div>
+            <div class="sub-step"><strong>会话管理</strong>：支持多个聊天会话，方便管理不同的导出任务</div>
+        </div>
+    </div>
+
+    <h2>使用步骤</h2>
+    <div class="prerequisite-steps">
+        <div class="step">
+            <strong>1. 下载程序</strong>
+            <p>从GitHub下载最新版本的QQ Chat Exporter Pro V3：</p>
             <div class="sub-step">
-                访问 <a href="https://github.com/NapNeko/NapCatQQ/releases/latest" target="_blank">https://github.com/NapNeko/NapCatQQ/releases/latest</a> 下载最新版本
+                访问 <a href="https://github.com/shuakami/qq-chat-exporter/releases/latest" target="_blank">https://github.com/shuakami/qq-chat-exporter/releases/latest</a>
             </div>
             <div class="sub-step">
-                一般情况下，你应该选择 <span class="highlight">Win64有头</span> 版本
-            </div>
-            
-            <div class="image-container">
-                <img src="https://img.erpweb.eu.org/imgs/2025/03/82d16b8dd9a0cba3.png" alt="NapCatQQ 下载页面">
-                <div class="image-caption">NapCatQQ 下载页面示例</div>
-            </div>
-            
-            <div class="important-note">
-                <p>为什么要下载 NapCatQQ？</p>
-                <p>因为 NapCatQQ 已经包含了 LiteLoaderQQ（<a href="https://github.com/LiteLoaderQQNT/LiteLoaderQQNT" target="_blank">https://github.com/LiteLoaderQQNT/LiteLoaderQQNT</a>），并且是一键安装包。人家已经打包好了直接用就行，何乐而不为？</p>
+                下载适合你操作系统的版本（Windows用户下载 <span class="highlight">qq-chat-exporter.exe</span>）
             </div>
         </div>
         
         <div class="step">
-            <strong>安装 Chii DevTools 插件</strong>
-            <p>下载完成后，请按照以下步骤操作：</p>
+            <strong>2. 设置NapCat</strong>
+            <p>V3版本需要NapCat作为QQ接口，按以下步骤详细配置：</p>
             
             <div class="sub-step">
-                解压下载的 NapCatQQ 压缩包到你喜欢的位置
+                <strong>第1步：下载 NapCat</strong>
+                <ul>
+                    <li>访问 GitHub 发布页面：<a href="https://github.com/NapNeko/NapCatQQ/releases/latest" target="_blank">https://github.com/NapNeko/NapCatQQ/releases/latest</a></li>
+                    <li>下载适合您系统的版本（通常是Windows的 .zip 文件）</li>
+                    <li>解压到任意文件夹（建议桌面或文档文件夹）</li>
+                </ul>
             </div>
             
             <div class="sub-step">
-                <span class="highlight">重要！</span> 运行 <strong>NapCatWinBootMain.exe</strong>，而不是 QQ.exe
+                <strong>第2步：启动 NapCat</strong>
+                <ul>
+                    <li>双击运行 <strong>NapCatWinBootMain.exe</strong></li>
+                    <li>程序启动后会显示二维码</li>
+                    <li>使用手机 QQ 扫码登录</li>
+                </ul>
+            </div>
+            
+            <div class="sub-step">
+                <strong>第3步：打开 QQ 设置</strong>
+                <p>登录成功后，在QQ界面中找到并点击设置按钮：</p>
+                
+                <div class="image-container">
+                    <img src="https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAALpwGiyi-p4GtK7qN2ESOHW6sZjZ2FpAAKuFQACnJuYVSfqH1oM7srYNgQ.png" alt="在QQ中打开设置">
+                    <div class="image-caption">在QQ界面中找到并点击设置按钮</div>
+                </div>
+            </div>
+            
+            <div class="sub-step">
+                <strong>第4步：打开 NapCat 网页界面和配置 WebSocket</strong>
+                <p>在浏览器中打开管理界面地址：</p>
+                
+                <div class="image-container">
+                    <img src="https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAALpwWiyjBjizXS61Zt8BcHEHBBZDUevAAKvFQACnJuYVVhjvrvAR2DeNgQ.png" alt="打开NapCat网页管理界面">
+                    <div class="image-caption">NapCat网页管理界面</div>
+                </div>
+                
+                <p>然后点击"网络配置"：</p>
+                
+                <div class="image-container">
+                    <img src="https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAALpwmiyjGTqVpHT5ti5P17yCmwMyzu_AAKwFQACnJuYVaDZ6FpR7Cw9NgQ.png" alt="在Napcat设置中准备添加Websocket客户端">
+                    <div class="image-caption">在Napcat设置中准备添加Websocket客户端</div>
+                </div>
+                
+                <p>在网络配置中新建WebSocket客户端：</p>
+                
+                <div class="image-container">
+                    <img src="https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAALpw2iyjKGDreGNTh1ALe6zzenJlPfpAAKxFQACnJuYVS_YQrH6tykSNgQ.png" alt="Websocket客户端的设置">
+                    <div class="image-caption">WebSocket客户端配置界面</div>
+                </div>
+                
+                <p><strong>重要配置参数：</strong></p>
+                <ul>
+                    <li><strong>启用</strong>：开启（打开开关）</li>
+                    <li><strong>名称</strong>：QQ Chat Exporter</li>
+                    <li><strong>URL</strong>：<code>ws://localhost:3032</code></li>
+                    <li><strong>消息格式</strong>：Array</li>
+                    <li><strong>重连间隔</strong>：<code>5000</code>（重要！必须设置为5000）</li>
+                    <li><strong>Token</strong>：（留空）</li>
+                    <li><strong>其他选项</strong>：保持默认</li>
+                </ul>
+                
+                <p>配置完成后点击保存。</p>
             </div>
             
             <div class="warning">
-                <strong>特别注意：</strong> 必须运行 <strong>NapCatWinBootMain.exe</strong>！不是 QQ.exe！
-            </div>
-            
-            <div class="sub-step">
-                使用你的 QQ 账号登录
-            </div>
-            
-            <div class="sub-step">
-                点击左下角的设置按钮 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle;">
-                    <path d="M3 7H21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                    <path d="M3 12H21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                    <path d="M3 17H21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg> 进入设置页面
-            </div>
-            
-            <div class="sub-step">
-                在设置页面的侧边栏中找到并点击【插件列表查看】
-            </div>
-            
-            <div class="sub-step">
-                在插件搜索框中搜索 <strong>Chii DevTools</strong>
-            </div>
-            
-            <div class="sub-step">
-                点击安装按钮，等待安装完成
-            </div>
-            
-            <div class="sub-step">
-                安装完成后，完全退出 QQ：
+                <strong>重要提醒：</strong>
                 <ul>
-                    <li>退出登录</li>
-                    <li>关闭 QQ 窗口</li>
-                    <li>确保右下角托盘区域没有 QQ 图标，如果有请右键点击并选择"退出"</li>
+                    <li>必须保持NapCat运行状态，V3版本通过WebSocket与QQ通信</li>
+                    <li>WebSocket URL必须是 <code>ws://localhost:3032</code>，这是V3版本的默认连接地址</li>
+                    <li>确保QQ处于登录状态，否则无法采集消息</li>
                 </ul>
             </div>
         </div>
         
         <div class="step">
-            <strong>使用导出工具</strong>
-            <p>重新启动并准备导出聊天记录：</p>
+            <strong>3. 运行导出程序</strong>
+            <p>V3版本使用非常简单，直接双击即可运行：</p>
             
             <div class="sub-step">
-                再次运行 <strong>NapCatWinBootMain.exe</strong> 并登录你的 QQ 账号
+                将下载的 <code>qq-chat-exporter.exe</code> 放到一个专门的文件夹中
             </div>
             
             <div class="sub-step">
-                打开你想要导出聊天记录的好友或群聊对话窗口
+                <strong>双击运行</strong> <code>qq-chat-exporter.exe</code> 文件
             </div>
             
             <div class="sub-step">
-                按下键盘上的 <span class="highlight">F12</span> 键，打开开发者工具
+                首次运行会进入交互式配置向导，按提示设置NapCat连接
             </div>
             
             <div class="sub-step">
-                切换到"控制台"(Console)标签页
+                配置完成后，程序会显示操作菜单，选择相应功能即可
             </div>
             
-            <div class="sub-step">
-                在控制台中输入 <code>allow pasting</code> 并按回车，以允许在控制台中粘贴代码
-            </div>
-            
-            <div class="sub-step">
-                复制下面的代码并粘贴到控制台中：
+            <div class="warning">
+                <strong>提示：</strong> 如果需要使用命令行参数（如批处理脚本），也可以在终端中运行 <code>./qq-chat-exporter.exe [命令]</code>
             </div>
         </div>
     </div>
     
-    <h2>导入代码</h2>
-    <p>按照上述前提条件设置完成后，复制以下代码到控制台并回车：</p>
+    <h2>使用流程</h2>
+    <p>双击运行程序后，你会看到交互式菜单，按照以下流程操作：</p>
     
-    <div class="code-container">
-        <pre><code id="import-code" class="code-js"><span class="comment">// 加载打包后的模块</span>
-<span class="punctuation">(</span><span class="punctuation">(</span><span class="punctuation">)</span> <span class="operator">=></span> <span class="punctuation">{</span>
-  <span class="keyword">const</span> script <span class="operator">=</span> <span class="function">document.createElement</span><span class="punctuation">(</span><span class="code-js">'script'</span><span class="punctuation">)</span><span class="punctuation">;</span>
-  script<span class="punctuation">.</span>src <span class="operator">=</span> <span class="code-js">'https://qce.luoxiaohei.cn/dist/qce-pro.bundle.js'</span><span class="punctuation">;</span>
-  script<span class="punctuation">.</span>onload <span class="operator">=</span> <span class="punctuation">(</span><span class="punctuation">)</span> <span class="operator">=></span> <span class="punctuation">{</span>
-    <span class="function">console.log</span><span class="punctuation">(</span><span class="code-js">'🎉 QQ Chat Exporter Pro 加载成功！'</span><span class="punctuation">)</span><span class="punctuation">;</span>
-    <span class="function">console.log</span><span class="punctuation">(</span><span class="code-js">'使用 Ctrl + F8 开始/暂停导出'</span><span class="punctuation">)</span><span class="punctuation">;</span>
-  <span class="punctuation">}</span><span class="punctuation">;</span>
-  script<span class="punctuation">.</span>onerror <span class="operator">=</span> <span class="punctuation">(</span>err<span class="punctuation">)</span> <span class="operator">=></span> <span class="punctuation">{</span>
-    <span class="function">console.error</span><span class="punctuation">(</span><span class="code-js">'加载失败：'</span><span class="punctuation">,</span> err<span class="punctuation">)</span><span class="punctuation">;</span>
-  <span class="punctuation">}</span><span class="punctuation">;</span>
-  <span class="function">document.documentElement.appendChild</span><span class="punctuation">(</span>script<span class="punctuation">)</span><span class="punctuation">;</span>
-<span class="punctuation">}</span><span class="punctuation">)</span><span class="punctuation">(</span><span class="punctuation">)</span><span class="punctuation">;</span></code></pre>
-        <div class="copy-indicator" id="copy-button">复制</div>
+    <div class="prerequisite-steps">
+        <div class="step">
+            <strong>主菜单选项</strong>
+            <div class="sub-step"><strong>开始导出</strong> - 创建新的导出任务</div>
+            <div class="sub-step"><strong>查看历史</strong> - 管理已有的导出任务和会话</div>
+            <div class="sub-step"><strong>系统配置</strong> - 配置NapCat连接和导出设置</div>
+            <div class="sub-step"><strong>帮助信息</strong> - 查看详细使用说明</div>
+        </div>
+        
+        <div class="step">
+            <strong>导出操作步骤</strong>
+            <div class="sub-step">选择聊天类型（好友/群聊）</div>
+            <div class="sub-step">输入QQ号或群号</div>
+            <div class="sub-step">选择导出格式（HTML/JSON/TXT）</div>
+            <div class="sub-step">设置时间范围（可选）</div>
+            <div class="sub-step">确认开始导出，程序会自动采集和保存</div>
+        </div>
+        
+        <div class="step">
+            <strong>高级用法（命令行）</strong>
+            <p>如果需要批处理或自动化，也支持命令行参数：</p>
+            <div class="code-container">
+                <pre><code><span class="comment"># 导出好友聊天记录</span>
+./qq-chat-exporter.exe export friend 123456789 --format html
+
+<span class="comment"># 导出群聊记录</span>
+./qq-chat-exporter.exe export group 987654321 --format json
+
+<span class="comment"># 导出指定时间范围</span>
+./qq-chat-exporter.exe export friend 123456789 --start-time "2024-01-01" --end-time "2024-12-31"</code></pre>
+                <div class="copy-indicator" id="copy-button">复制</div>
+            </div>
+        </div>
     </div>
 
 
-    <h2>快捷键</h2>
+    <h2>常用命令</h2>
+    <div class="code-container">
+        <pre><code><span class="comment"># 查看所有可用命令</span>
+./qq-chat-exporter.exe --help
+
+<span class="comment"># 查看历史导出记录</span>
+./qq-chat-exporter.exe history
+
+<span class="comment"># 查看会话列表</span>
+./qq-chat-exporter.exe sessions
+
+<span class="comment"># 删除指定会话</span>
+./qq-chat-exporter.exe sessions delete &lt;session_id&gt;
+
+<span class="comment"># 配置NapCat连接（交互式）</span>
+./qq-chat-exporter.exe config</code></pre>
+        <div class="copy-indicator" id="commands-copy-button">复制</div>
+    </div>
+
+    <h2>控制选项</h2>
     <ul>
-        <li><span class="highlight">Ctrl + F8</span>: 开始/暂停导出</li>
+        <li><span class="highlight">Ctrl + C</span>: 安全中断导出（会保存当前进度）</li>
+        <li><span class="highlight">--max-count N</span>: 限制导出消息数量</li>
+        <li><span class="highlight">--format html/json/txt</span>: 指定导出格式</li>
+        <li><span class="highlight">--output-dir</span>: 指定输出目录</li>
     </ul>
 
-    <h2>历史记录管理器</h2>
-    <p>如果你需要管理和查看已导出的聊天记录，可以使用历史记录管理器。复制以下代码到控制台：</p>
-    
-    <div class="code-container">
-        <pre><code id="history-manager-code" class="code-js"><span class="comment">// 加载历史记录管理器</span>
-<span class="punctuation">(</span><span class="punctuation">(</span><span class="punctuation">)</span> <span class="operator">=></span> <span class="punctuation">{</span>
-  <span class="keyword">const</span> historyScript <span class="operator">=</span> <span class="function">document.createElement</span><span class="punctuation">(</span><span class="code-js">'script'</span><span class="punctuation">)</span><span class="punctuation">;</span>
-  historyScript<span class="punctuation">.</span>src <span class="operator">=</span> <span class="code-js">'https://qce.luoxiaohei.cn/dist/qce-history.bundle.js'</span><span class="punctuation">;</span>
-  historyScript<span class="punctuation">.</span>onload <span class="operator">=</span> <span class="punctuation">(</span><span class="punctuation">)</span> <span class="operator">=></span> <span class="punctuation">{</span>
-    <span class="function">console.log</span><span class="punctuation">(</span><span class="code-js">'📚 历史记录管理器加载成功！'</span><span class="punctuation">)</span><span class="punctuation">;</span>
-    <span class="function">console.log</span><span class="punctuation">(</span><span class="code-js">'使用 Ctrl + F9 打开历史记录管理器'</span><span class="punctuation">)</span><span class="punctuation">;</span>
-  <span class="punctuation">}</span><span class="punctuation">;</span>
-  historyScript<span class="punctuation">.</span>onerror <span class="operator">=</span> <span class="punctuation">(</span>err<span class="punctuation">)</span> <span class="operator">=></span> <span class="punctuation">{</span>
-    <span class="function">console.error</span><span class="punctuation">(</span><span class="code-js">'历史记录管理器加载失败：'</span><span class="punctuation">,</span> err<span class="punctuation">)</span><span class="punctuation">;</span>
-  <span class="punctuation">}</span><span class="punctuation">;</span>
-  <span class="function">document.documentElement.appendChild</span><span class="punctuation">(</span>historyScript<span class="punctuation">)</span><span class="punctuation">;</span>
-<span class="punctuation">}</span><span class="punctuation">)</span><span class="punctuation">(</span><span class="punctuation">)</span><span class="punctuation">;</span></code></pre>
-        <div class="copy-indicator" id="history-copy-button">复制</div>
-    </div>
-
-    <h2>注意事项和杂谈</h2>
-        <p>这个版本支持图片和文字，图片包括base64和本地图片路径，已经算很好用了。</p>
+    <h2>注意事项和使用技巧</h2>
+        <p>V3版本支持图片、文字、表情、@消息等多种消息类型，导出的HTML文件可以直接在浏览器中查看，体验接近原生QQ。</p>
         
-        <p class="note-warning">导出完一个人的数据后，如果要导另一个人，<span class="highlight">必须</span>先在控制台按F5刷新，再执行脚本。
-            <br/>不要不刷新就重复执行脚本，会出问题。</p>
-
         <div class="notes-section">
-            <p><strong>如果想手动结束采集？</strong></p>
-            <p>在控制台输入：<code>window.finishNow()</code></li>
+            <p><strong>断点续传功能</strong></p>
+            <p>V3版本最大的优势是支持断点续传：</p>
+            <ul>
+                <li>程序每30秒自动保存进度到数据库</li>
+                <li>如果程序意外中断，重新运行相同命令会从中断处继续</li>
+                <li>使用 <code>Ctrl + C</code> 安全退出，不会丢失已采集的数据</li>
+                <li>可以随时查看采集进度和历史记录</li>
+            </ul>
         </div>
 
         <div class="notes-section">
-            <p><strong>如果采集意外中断了怎么办？</strong></p>
-            <p>不用担心！如果采集过程意外中断，你可以这样继续：</p>
-            <ol>
-                <li>在控制台输入：<code>window.QCEPro.continueTask()</code></li>
-                <li>刷新页面（按F5）</li>
-                <li>在弹出的历史记录中找到对应的时间点</li>
-                <li>点击消息记录按钮，找到那个时间点的消息</li>
-                <li>重新运行上面的导入代码</li>
-                <li>重新运行脚本就可以继续采集了</li>
-            </ol>
-            <p>提示：每次继续采集前，都需要先刷新页面(F5)，这样可以确保数据采集的准确性。</p>
+            <p><strong>数据管理</strong></p>
+            <ul>
+                <li>所有数据存储在本地SQLite数据库中</li>
+                <li>支持多个聊天会话同时管理</li>
+                <li>可以为不同联系人创建不同的导出任务</li>
+                <li>支持删除过期的会话和导出任务</li>
+            </ul>
+        </div>
+
+        <div class="notes-section">
+            <p><strong>⚠️ 安全提醒</strong></p>
+            <p class="note-warning">🎉 根据最新反馈，腾讯现在通常只会发出警告提示，不再进行封号处理。</p>
         </div>
         
-        <p>如果你的聊天数据在手机上，可以先在QQ设置里把手机聊天记录导到电脑上，再按上面步骤操作。</p>
+        <p>如果你的聊天数据主要在手机上，建议先在QQ设置中同步聊天记录到电脑，然后再进行导出。</p>
         
-        <p>唯一的缺点是有可能会被临时封号，但好消息是只要扫个脸就能解除。怕就别用了。</p>
-        
-        <p>当然你也可以用项目旧版本，那个用python的不会封号，但非常痛苦而且没法捕获图片。</p>
-        
-        <p>腾讯是真的妈妈死了。数据库加密，app又没有导出按钮，这个聊天记录漫游还做跟个狗屎一样，纯鸡巴傻逼来的</p>
+        <p><strong>相比旧版本的优势：</strong>V3版本不再需要浏览器操作，避免了JS注入的不稳定性，同时数据持久化存储让断点续传成为可能，大大提升了使用体验。</p>
+
+        <div class="notes-section">
+            <p><strong>💡 V3版本使用技巧</strong></p>
+            <ul>
+                <li><strong>批量导出：</strong>可以为多个好友/群组分别创建导出会话，程序会自动管理</li>
+                <li><strong>定时导出：</strong>定期运行相同命令，只会导出新增的消息（增量备份）</li>
+                <li><strong>格式选择：</strong>推荐HTML格式用于查看，JSON格式用于数据分析</li>
+                <li><strong>性能优化：</strong>程序使用15条/批的小批量请求，平衡速度和稳定性</li>
+                <li><strong>错误恢复：</strong>如果网络中断，重新运行命令会自动从中断处继续</li>
+            </ul>
+        </div>
+
+        <div class="notes-section">
+            <p><strong>🔧 故障排除</strong></p>
+            <ul>
+                <li><strong>连接失败：</strong>检查NapCat是否正常运行，WebSocket配置是否正确</li>
+                <li><strong>无法获取消息：</strong>确认QQ账号已登录，且目标聊天存在</li>
+                <li><strong>导出空文件：</strong>可能是时间范围设置过窄，或该时间段无消息</li>
+                <li><strong>程序卡住：</strong>按 Ctrl+C 安全退出，检查网络连接后重试</li>
+            </ul>
+        </div>
 
     <h2>源代码</h2>
     <p>本项目的源代码托管在：<a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a></p>
@@ -515,7 +584,7 @@
     <h2>免责声明</h2>
     <div class="important-note">
         <p>本工具仅供个人备份自己的聊天记录使用，请遵守相关法律法规。</p>
-        <p>使用本工具可能违反腾讯QQ用户协议，可能导致账号被临时封禁，用户需自行承担使用风险。</p>
+        <p>使用本工具可能违反腾讯QQ用户协议。根据最新反馈，腾讯现在通常只会发出警告提示，不再进行封号处理，但政策可能随时变化。</p>
         <p>本工具与腾讯公司无任何关联，为非官方、非商业的开源项目。</p>
         <p>开发者不对使用本工具导致的任何问题负责，包括但不限于账号安全、数据丢失等问题。</p>
         <p>如果您继续使用本工具，即表示您已阅读并同意以上声明。</p>
@@ -546,9 +615,9 @@
             }, 2000);
         });
         
-        // 历史记录管理器复制功能
-        document.getElementById('history-copy-button').addEventListener('click', function() {
-            const codeElement = document.getElementById('history-manager-code');
+        // 常用命令复制功能
+        document.getElementById('commands-copy-button').addEventListener('click', function() {
+            const codeElement = this.previousElementSibling.querySelector('code');
             const textArea = document.createElement('textarea');
             textArea.value = codeElement.textContent;
             document.body.appendChild(textArea);

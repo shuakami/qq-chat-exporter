@@ -1,0 +1,58 @@
+name: 持续集成
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+
+    - name: 设置Go环境
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: 设置Node.js环境
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: 安装前端依赖
+      run: npm ci
+
+    - name: 构建前端资源
+      run: npm run build
+
+    - name: 下载Go依赖
+      run: go mod download
+
+    - name: 代码格式检查
+      run: |
+        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+          echo "以下文件需要格式化:"
+          gofmt -s -l .
+          exit 1
+        fi
+
+    - name: Go代码检查
+      run: go vet ./...
+
+    - name: 运行测试
+      run: go test -v ./...
+
+    - name: 构建测试 (Linux)
+      run: go build -v .
+
+    - name: 构建测试 (Windows)
+      run: GOOS=windows GOARCH=amd64 go build -v .
+
+    - name: 构建测试 (macOS)
+      run: GOOS=darwin GOARCH=amd64 go build -v .

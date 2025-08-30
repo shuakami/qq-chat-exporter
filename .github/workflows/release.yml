@@ -1,0 +1,151 @@
+name: 自动发布Release
+
+on:
+  push:
+    tags:
+      - 'v[3-9].*.*'
+      - 'v[1-9][0-9].*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: 设置Go环境
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+
+    - name: 设置Node.js环境
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: 安装前端依赖
+      run: npm ci
+
+    - name: 构建前端资源
+      run: npm run build
+
+    - name: 获取版本信息
+      id: get_version
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "版本号: $VERSION"
+
+    - name: 构建Go应用程序
+      run: |
+        # 创建构建输出目录
+        mkdir -p dist
+        
+        # Windows amd64
+        GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/qq-chat-exporter-windows-amd64.exe .
+        
+        # Windows arm64
+        GOOS=windows GOARCH=arm64 go build -ldflags="-s -w" -o dist/qq-chat-exporter-windows-arm64.exe .
+        
+        # Linux amd64
+        GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/qq-chat-exporter-linux-amd64 .
+        
+        # Linux arm64
+        GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/qq-chat-exporter-linux-arm64 .
+        
+        # macOS amd64
+        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dist/qq-chat-exporter-darwin-amd64 .
+        
+        # macOS arm64 (Apple Silicon)
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dist/qq-chat-exporter-darwin-arm64 .
+
+    - name: 打包配置文件和资源
+      run: |
+        # 创建资源包
+        mkdir -p dist/assets
+        cp -r public dist/assets/
+        cp -r styles dist/assets/
+        cp config.example.yaml dist/assets/
+        
+        # 为每个平台创建完整的发布包
+        platforms=("windows-amd64" "windows-arm64" "linux-amd64" "linux-arm64" "darwin-amd64" "darwin-arm64")
+        
+        for platform in "${platforms[@]}"; do
+          mkdir -p "dist/qq-chat-exporter-$platform"
+          
+          # 复制可执行文件
+          if [[ $platform == *"windows"* ]]; then
+            cp "dist/qq-chat-exporter-$platform.exe" "dist/qq-chat-exporter-$platform/"
+          else
+            cp "dist/qq-chat-exporter-$platform" "dist/qq-chat-exporter-$platform/"
+          fi
+          
+          # 复制资源文件
+          cp -r dist/assets/* "dist/qq-chat-exporter-$platform/"
+          cp README.md "dist/qq-chat-exporter-$platform/"
+          
+          # 创建压缩包
+          cd dist
+          if [[ $platform == *"windows"* ]]; then
+            zip -r "qq-chat-exporter-$platform.zip" "qq-chat-exporter-$platform"
+          else
+            tar -czf "qq-chat-exporter-$platform.tar.gz" "qq-chat-exporter-$platform"
+          fi
+          cd ..
+        done
+
+    - name: 生成更新日志
+      id: changelog
+      run: |
+        # 获取最新的标签
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^)
+        
+        # 生成更新日志
+        echo "## 🚀 更新内容" > CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        
+        if [ -n "$PREVIOUS_TAG" ]; then
+          echo "### 📝 提交记录 ($PREVIOUS_TAG..${{ steps.get_version.outputs.version }})" >> CHANGELOG.md
+          git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD >> CHANGELOG.md
+        else
+          echo "### 📝 提交记录" >> CHANGELOG.md
+          git log --pretty=format:"- %s (%h)" >> CHANGELOG.md
+        fi
+        
+        echo "" >> CHANGELOG.md
+        echo "## 📦 下载文件说明" >> CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        echo "- **Windows用户**: 下载 \`qq-chat-exporter-windows-amd64.zip\` (Intel/AMD) 或 \`qq-chat-exporter-windows-arm64.zip\` (ARM)" >> CHANGELOG.md
+        echo "- **macOS用户**: 下载 \`qq-chat-exporter-darwin-amd64.tar.gz\` (Intel) 或 \`qq-chat-exporter-darwin-arm64.tar.gz\` (Apple Silicon)" >> CHANGELOG.md
+        echo "- **Linux用户**: 下载 \`qq-chat-exporter-linux-amd64.tar.gz\` (x86_64) 或 \`qq-chat-exporter-linux-arm64.tar.gz\` (ARM64)" >> CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        echo "## 🔧 使用方法" >> CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        echo "1. 下载对应您系统的压缩包" >> CHANGELOG.md
+        echo "2. 解压到任意目录" >> CHANGELOG.md
+        echo "4. 双击执行就可以开始使用了" >> CHANGELOG.md
+
+    - name: 创建GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.get_version.outputs.version }}
+        name: "QQ聊天记录导出器 ${{ steps.get_version.outputs.version }}"
+        body_path: CHANGELOG.md
+        draft: false
+        prerelease: false
+        files: |
+          dist/*.zip
+          dist/*.tar.gz
+
+    - name: 发布完成通知
+      run: |
+        echo "🎉 Release ${{ steps.get_version.outputs.version }} 发布成功!"
+        echo "📦 已上传以下文件:"
+        ls -la dist/*.zip dist/*.tar.gz 2>/dev/null || true

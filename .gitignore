@@ -1,4 +1,48 @@
-.package-lock.json
-.vercel
+# Dependencies
 /node_modules
+.package-lock.json
+
+# Build outputs
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Configuration files with sensitive data
+config.yaml
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+.napcat_setup_complete
+temp.txt
 changes.txt
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Vercel
+.vercel
+
+# Exports directory (user data)
+exports/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
