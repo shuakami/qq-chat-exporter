@@ -154,7 +154,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_version.outputs.version }}
-        name: "QQ Chat Exporter Pro v${{ steps.get_version.outputs.version }}"
+        name: "QQ Chat Exporter Pro ${{ steps.get_version.outputs.version }}"
         body_path: CHANGELOG.md
         draft: false
         prerelease: false
