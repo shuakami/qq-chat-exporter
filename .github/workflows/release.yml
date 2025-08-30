@@ -78,6 +78,8 @@ jobs:
         platforms=("windows-amd64" "windows-arm64" "linux-amd64" "linux-arm64" "darwin-amd64" "darwin-arm64")
         
         for platform in "${platforms[@]}"; do
+          # 清理并创建目录
+          rm -rf "dist/qq-chat-exporter-$platform"
           mkdir -p "dist/qq-chat-exporter-$platform"
           
           # 复制可执行文件
@@ -92,13 +94,11 @@ jobs:
           cp README.md "dist/qq-chat-exporter-$platform/"
           
           # 创建压缩包
-          cd dist
           if [[ $platform == *"windows"* ]]; then
-            zip -r "qq-chat-exporter-$platform.zip" "qq-chat-exporter-$platform"
+            (cd dist && zip -r "qq-chat-exporter-$platform.zip" "qq-chat-exporter-$platform")
           else
-            tar -czf "qq-chat-exporter-$platform.tar.gz" "qq-chat-exporter-$platform"
+            (cd dist && tar -czf "qq-chat-exporter-$platform.tar.gz" "qq-chat-exporter-$platform")
           fi
-          cd ..
         done
 
     - name: 生成更新日志
