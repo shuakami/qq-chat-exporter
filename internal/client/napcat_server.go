@@ -77,11 +77,29 @@ func (c *NapcatServerClient) GetGroupMessageHistory(req *models.GroupMessageHist
 		}
 	}
 
-	var napcatResp models.GroupMessageHistoryResponse
-	if err := response.ParseData(&napcatResp); err != nil {
-		return nil, &cli.UserFriendlyError{
-			Title:       "解析群消息历史响应失败",
-			Description: err.Error(),
+	// 直接构建完整响应结构，而不是只解析Data部分
+	napcatResp := models.GroupMessageHistoryResponse{
+		Status:  response.Status,
+		Retcode: response.Retcode,
+		Message: response.Message,
+		Echo:    response.Echo,
+	}
+
+	// 解析Data部分到正确的结构
+	if response.Data != nil {
+		dataJSON, err := json.Marshal(response.Data)
+		if err != nil {
+			return nil, &cli.UserFriendlyError{
+				Title:       "序列化响应数据失败",
+				Description: err.Error(),
+			}
+		}
+
+		if err := json.Unmarshal(dataJSON, &napcatResp.Data); err != nil {
+			return nil, &cli.UserFriendlyError{
+				Title:       "解析群消息历史数据失败",
+				Description: err.Error(),
+			}
 		}
 	}
 

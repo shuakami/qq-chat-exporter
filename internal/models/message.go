@@ -50,6 +50,7 @@ type Message struct {
 	MessageID       int64         `json:"message_id"`         // 消息ID
 	MessageSeq      int64         `json:"message_seq"`        // 消息序号
 	RealID          int64         `json:"real_id"`            // ?ID
+	RealSeq         string        `json:"real_seq"`           // 真实序号
 	MessageType     string        `json:"message_type"`       // 消息类型
 	Sender          Sender        `json:"sender"`             // 发送人信息
 	RawMessage      string        `json:"raw_message"`        // 原始消息
@@ -60,6 +61,7 @@ type Message struct {
 	PostType        string        `json:"post_type"`          // ?
 	MessageSentType string        `json:"message_sent_type"`  // 消息发送类型
 	GroupID         *int64        `json:"group_id,omitempty"` // 群号（仅群消息）
+	GroupName       string        `json:"group_name"`         // 群名称（仅群消息）
 }
 
 // Sender 发送人信息
