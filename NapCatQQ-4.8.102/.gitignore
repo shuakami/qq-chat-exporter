@@ -1,0 +1,16 @@
+# Develop
+node_modules/
+pnpm-lock.yaml
+out/
+dist/
+/src/core.lib/common/
+devconfig/*
+
+# Editor
+!.vscode/extensions.json
+.idea/*
+
+# Build
+*.db
+checkVersion.sh
+bun.lockb

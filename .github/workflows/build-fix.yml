@@ -1,0 +1,128 @@
+name: "Build Fix Action"
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions: write-all
+
+jobs:
+  Build-Fix-Framework:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./NapCatQQ-4.8.102
+    steps:
+    - name: Clone Main Repository
+      uses: actions/checkout@v4
+    - name: Use Node.js 20.X
+      uses: actions/setup-node@v4
+      with:
+          node-version: 20.x
+
+    - name: Build NapCat Framework Fix
+      run: |
+          npm i
+          cd napcat.webui
+          npm i
+          cd ..
+          npm run build:framework
+          cd dist
+          npm i --omit=dev
+          cd ..
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: NapCat.Framework.Fix
+        path: ./NapCatQQ-4.8.102/dist
+
+  Build-Fix-Shell:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./NapCatQQ-4.8.102
+    steps:
+        - name: Clone Main Repository
+          uses: actions/checkout@v4
+
+        - name: Use Node.js 20.X
+          uses: actions/setup-node@v4
+          with:
+              node-version: 20.x
+          
+        - name: Build NapCat Shell Fix
+          run: |
+                npm i 
+                cd napcat.webui
+                npm i
+                cd ..
+                npm run build:shell
+                cd dist
+                npm i --omit=dev
+                cd ..
+
+        - name: Upload Artifact
+          uses: actions/upload-artifact@v4
+          with:
+              name: NapCat.Shell.Fix
+              path: ./NapCatQQ-4.8.102/dist
+
+  release-napcat-fix:
+    needs: [Build-Fix-Framework,Build-Fix-Shell]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./NapCatQQ-4.8.102
+    steps:
+
+    - name: Clone Main Repository
+      uses: actions/checkout@v4
+
+    - name: Download All Artifact
+      uses: actions/download-artifact@v4
+      
+    - name: Compress subdirectories
+      run: |
+        cd ./NapCat.Shell.Fix/
+        zip -q -r NapCat.Shell.Fix.zip *
+        cd ..
+        cd ./NapCat.Framework.Fix/
+        zip -q -r NapCat.Framework.Fix.zip *
+        cd ..
+        rm ./NapCat.Shell.Fix.zip -rf
+        rm ./NapCat.Framework.Fix.zip -rf
+        mv ./NapCat.Shell.Fix/NapCat.Shell.Fix.zip ./
+        mv ./NapCat.Framework.Fix/NapCat.Framework.Fix.zip ./
+
+        mkdir ./NapCat.Framework.Windows.Once.Fix
+        unzip -q ./external/LiteLoaderWrapper.zip -d ./NapCat.Framework.Windows.Once.Fix
+        cd ./NapCat.Framework.Windows.Once.Fix
+        ls 
+        mkdir -p ./LL/plugins/NapCatQQ
+        unzip -q ../NapCat.Framework.Fix.zip -d ./LL/plugins/NapCatQQ
+        zip -q -r NapCat.Framework.Windows.Once.Fix.zip *
+        cd ..
+        mv ./NapCat.Framework.Windows.Once.Fix/NapCat.Framework.Windows.Once.Fix.zip ./
+
+    - name: Generate Release Tag
+      run: |
+        echo "RELEASE_TAG=fix-$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+        echo "RELEASE_NAME=NapCat Fix $(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: ${{ env.RELEASE_NAME }}
+        tag_name: ${{ env.RELEASE_TAG }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        body: |
+          ## NapCat 语音处理修复版
+          **构建信息:**
+          - 构建时间: $(date +'%Y-%m-%d %H:%M:%S')
+          - 提交哈希: ${{ github.sha }}
+        files: |
+          NapCatQQ-4.8.102/NapCat.Framework.Fix.zip
+          NapCatQQ-4.8.102/NapCat.Shell.Fix.zip
+          NapCatQQ-4.8.102/NapCat.Framework.Windows.Once.Fix.zip
+        draft: false
+        prerelease: false
