@@ -70,9 +70,6 @@ jobs:
   release-napcat-fix:
     needs: [Build-Fix-Framework,Build-Fix-Shell]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./NapCatQQ-4.8.102
     steps:
 
     - name: Clone Main Repository
@@ -95,7 +92,7 @@ jobs:
         mv ./NapCat.Framework.Fix/NapCat.Framework.Fix.zip ./
 
         mkdir ./NapCat.Framework.Windows.Once.Fix
-        unzip -q ./external/LiteLoaderWrapper.zip -d ./NapCat.Framework.Windows.Once.Fix
+        unzip -q ./NapCatQQ-4.8.102/external/LiteLoaderWrapper.zip -d ./NapCat.Framework.Windows.Once.Fix
         cd ./NapCat.Framework.Windows.Once.Fix
         ls 
         mkdir -p ./LL/plugins/NapCatQQ
@@ -121,8 +118,8 @@ jobs:
           - 构建时间: $(date +'%Y-%m-%d %H:%M:%S')
           - 提交哈希: ${{ github.sha }}
         files: |
-          NapCatQQ-4.8.102/NapCat.Framework.Fix.zip
-          NapCatQQ-4.8.102/NapCat.Shell.Fix.zip
-          NapCatQQ-4.8.102/NapCat.Framework.Windows.Once.Fix.zip
+          NapCat.Framework.Fix.zip
+          NapCat.Shell.Fix.zip
+          NapCat.Framework.Windows.Once.Fix.zip
         draft: false
         prerelease: false
