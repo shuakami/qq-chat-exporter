@@ -33,7 +33,7 @@ jobs:
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: NapCat.Framework.Fix
+        name: NapCat.Framework
         path: ./NapCatQQ-4.8.102/dist
 
   Build-Fix-Shell:
@@ -64,7 +64,7 @@ jobs:
         - name: Upload Artifact
           uses: actions/upload-artifact@v4
           with:
-              name: NapCat.Shell.Fix
+              name: NapCat.Shell
               path: ./NapCatQQ-4.8.102/dist
 
   release-napcat-fix:
@@ -80,26 +80,26 @@ jobs:
       
     - name: Compress subdirectories
       run: |
-        cd ./NapCat.Shell.Fix/
-        zip -q -r NapCat.Shell.Fix.zip *
+        cd ./NapCat.Shell/
+        zip -q -r NapCat.Shell.zip *
         cd ..
-        cd ./NapCat.Framework.Fix/
-        zip -q -r NapCat.Framework.Fix.zip *
+        cd ./NapCat.Framework/
+        zip -q -r NapCat.Framework.zip *
         cd ..
-        rm ./NapCat.Shell.Fix.zip -rf
-        rm ./NapCat.Framework.Fix.zip -rf
-        mv ./NapCat.Shell.Fix/NapCat.Shell.Fix.zip ./
-        mv ./NapCat.Framework.Fix/NapCat.Framework.Fix.zip ./
+        rm ./NapCat.Shell.zip -rf
+        rm ./NapCat.Framework.zip -rf
+        mv ./NapCat.Shell/NapCat.Shell.zip ./
+        mv ./NapCat.Framework/NapCat.Framework.zip ./
 
-        mkdir ./NapCat.Framework.Windows.Once.Fix
-        unzip -q ./NapCatQQ-4.8.102/external/LiteLoaderWrapper.zip -d ./NapCat.Framework.Windows.Once.Fix
-        cd ./NapCat.Framework.Windows.Once.Fix
+        mkdir ./NapCat.Framework.Windows.Once
+        unzip -q ./NapCatQQ-4.8.102/external/LiteLoaderWrapper.zip -d ./NapCat.Framework.Windows.Once
+        cd ./NapCat.Framework.Windows.Once
         ls 
         mkdir -p ./LL/plugins/NapCatQQ
-        unzip -q ../NapCat.Framework.Fix.zip -d ./LL/plugins/NapCatQQ
-        zip -q -r NapCat.Framework.Windows.Once.Fix.zip *
+        unzip -q ../NapCat.Framework.zip -d ./LL/plugins/NapCatQQ
+        zip -q -r NapCat.Framework.Windows.Once.zip *
         cd ..
-        mv ./NapCat.Framework.Windows.Once.Fix/NapCat.Framework.Windows.Once.Fix.zip ./
+        mv ./NapCat.Framework.Windows.Once/NapCat.Framework.Windows.Once.zip ./
 
     - name: Generate Release Tag
       run: |
@@ -118,8 +118,8 @@ jobs:
           - 构建时间: $(date +'%Y-%m-%d %H:%M:%S')
           - 提交哈希: ${{ github.sha }}
         files: |
-          NapCat.Framework.Fix.zip
-          NapCat.Shell.Fix.zip
-          NapCat.Framework.Windows.Once.Fix.zip
+          NapCat.Framework.zip
+          NapCat.Shell.zip
+          NapCat.Framework.Windows.Once.zip
         draft: false
         prerelease: false
