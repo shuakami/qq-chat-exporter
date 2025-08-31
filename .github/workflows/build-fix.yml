@@ -22,13 +22,13 @@ jobs:
 
     - name: Build NapCat Framework Fix
       run: |
-          npm i
+          npm i --legacy-peer-deps
           cd napcat.webui
-          npm i
+          npm i --legacy-peer-deps
           cd ..
           npm run build:framework
           cd dist
-          npm i --omit=dev
+          npm i --omit=dev --legacy-peer-deps
           cd ..
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
@@ -52,13 +52,13 @@ jobs:
           
         - name: Build NapCat Shell Fix
           run: |
-                npm i 
+                npm i --legacy-peer-deps
                 cd napcat.webui
-                npm i
+                npm i --legacy-peer-deps
                 cd ..
                 npm run build:shell
                 cd dist
-                npm i --omit=dev
+                npm i --omit=dev --legacy-peer-deps
                 cd ..
 
         - name: Upload Artifact
