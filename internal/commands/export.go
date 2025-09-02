@@ -32,6 +32,8 @@ func (a *App) createGroupExportCommand() *cobra.Command {
 	var maxCount int
 	var format string
 	var outputDir string
+	var startTimeStr string
+	var endTimeStr string
 
 	cmd := &cobra.Command{
 		Use:   "group",
@@ -39,7 +41,8 @@ func (a *App) createGroupExportCommand() *cobra.Command {
 		Long:  "导出指定群的聊天记录",
 		Example: `  qq-chat-exporter export group --group-id 123456789 --format json --max-count 1000
   qq-chat-exporter export group --group-id 123456789 --format txt
-  qq-chat-exporter export group --group-id 123456789 --format json --max-count 0  # 无限制`,
+  qq-chat-exporter export group --group-id 123456789 --format json --max-count 0  # 无限制
+  qq-chat-exporter export group --group-id 123456789 --start-time "2024-01-01" --end-time "2024-12-31"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if groupID == "" {
 				return fmt.Errorf("群号不能为空，请使用 --group-id 参数指定")
@@ -53,6 +56,33 @@ func (a *App) createGroupExportCommand() *cobra.Command {
 				outputDir = a.config.Export.OutputDir
 			}
 
+			// 解析时间范围
+			var startTime, endTime *time.Time
+			if startTimeStr != "" {
+				t, err := time.Parse("2006-01-02", startTimeStr)
+				if err != nil {
+					t, err = time.Parse("2006-01-02 15:04:05", startTimeStr)
+					if err != nil {
+						return fmt.Errorf("无效的开始时间格式: %s (支持格式: 2006-01-02 或 2006-01-02 15:04:05)", startTimeStr)
+					}
+				}
+				startTime = &t
+			}
+			if endTimeStr != "" {
+				t, err := time.Parse("2006-01-02", endTimeStr)
+				if err != nil {
+					t, err = time.Parse("2006-01-02 15:04:05", endTimeStr)
+					if err != nil {
+						return fmt.Errorf("无效的结束时间格式: %s (支持格式: 2006-01-02 或 2006-01-02 15:04:05)", endTimeStr)
+					}
+				}
+				// 如果只指定了日期，设置为当天的最后一刻
+				if len(endTimeStr) == 10 { // 只有日期格式 2006-01-02
+					t = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+				}
+				endTime = &t
+			}
+
 			cli.PrintTitle("导出群聊记录")
 			cli.PrintInfo(fmt.Sprintf("群号: %s", groupID))
 			cli.PrintInfo(fmt.Sprintf("格式: %s", format))
@@ -60,6 +90,12 @@ func (a *App) createGroupExportCommand() *cobra.Command {
 				cli.PrintInfo("最大数量: 无限制")
 			} else {
 				cli.PrintInfo(fmt.Sprintf("最大数量: %d", maxCount))
+			}
+			if startTime != nil {
+				cli.PrintInfo(fmt.Sprintf("开始时间: %s", startTime.Format("2006-01-02 15:04:05")))
+			}
+			if endTime != nil {
+				cli.PrintInfo(fmt.Sprintf("结束时间: %s", endTime.Format("2006-01-02 15:04:05")))
 			}
 
 			// 检查Napcat连接
@@ -77,6 +113,8 @@ func (a *App) createGroupExportCommand() *cobra.Command {
 				MaxCount:     maxCount,
 				ExportFormat: format,
 				OutputDir:    outputDir,
+				StartTime:    startTime,
+				EndTime:      endTime,
 			}
 
 			// 开始导出
@@ -88,6 +126,8 @@ func (a *App) createGroupExportCommand() *cobra.Command {
 	cmd.Flags().IntVarP(&maxCount, "max-count", "c", 0, "最大消息数量 (0表示无限制)")
 	cmd.Flags().StringVarP(&format, "format", "f", "json", "导出格式 (json, txt, html)")
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "输出目录")
+	cmd.Flags().StringVarP(&startTimeStr, "start-time", "s", "", "开始时间 (格式: 2006-01-02 或 2006-01-02 15:04:05)")
+	cmd.Flags().StringVarP(&endTimeStr, "end-time", "e", "", "结束时间 (格式: 2006-01-02 或 2006-01-02 15:04:05)")
 
 	cmd.MarkFlagRequired("group-id")
 
@@ -100,13 +140,16 @@ func (a *App) createFriendExportCommand() *cobra.Command {
 	var maxCount int
 	var format string
 	var outputDir string
+	var startTimeStr string
+	var endTimeStr string
 
 	cmd := &cobra.Command{
 		Use:   "friend",
 		Short: "导出好友聊天记录",
 		Long:  "导出与指定好友的聊天记录",
 		Example: `  qq-chat-exporter export friend --user-id 123456789 --format json --max-count 1000
-  qq-chat-exporter export friend --user-id 123456789 --format txt`,
+  qq-chat-exporter export friend --user-id 123456789 --format txt
+  qq-chat-exporter export friend --user-id 123456789 --start-time "2024-01-01" --end-time "2024-12-31"`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if userID == "" {
 				return fmt.Errorf("QQ号不能为空，请使用 --user-id 参数指定")
@@ -120,6 +163,33 @@ func (a *App) createFriendExportCommand() *cobra.Command {
 				outputDir = a.config.Export.OutputDir
 			}
 
+			// 解析时间范围
+			var startTime, endTime *time.Time
+			if startTimeStr != "" {
+				t, err := time.Parse("2006-01-02", startTimeStr)
+				if err != nil {
+					t, err = time.Parse("2006-01-02 15:04:05", startTimeStr)
+					if err != nil {
+						return fmt.Errorf("无效的开始时间格式: %s (支持格式: 2006-01-02 或 2006-01-02 15:04:05)", startTimeStr)
+					}
+				}
+				startTime = &t
+			}
+			if endTimeStr != "" {
+				t, err := time.Parse("2006-01-02", endTimeStr)
+				if err != nil {
+					t, err = time.Parse("2006-01-02 15:04:05", endTimeStr)
+					if err != nil {
+						return fmt.Errorf("无效的结束时间格式: %s (支持格式: 2006-01-02 或 2006-01-02 15:04:05)", endTimeStr)
+					}
+				}
+				// 如果只指定了日期，设置为当天的最后一刻
+				if len(endTimeStr) == 10 { // 只有日期格式 2006-01-02
+					t = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+				}
+				endTime = &t
+			}
+
 			cli.PrintTitle("导出好友聊天记录")
 			cli.PrintInfo(fmt.Sprintf("QQ号: %s", userID))
 			cli.PrintInfo(fmt.Sprintf("格式: %s", format))
@@ -127,6 +197,12 @@ func (a *App) createFriendExportCommand() *cobra.Command {
 				cli.PrintInfo("最大数量: 无限制")
 			} else {
 				cli.PrintInfo(fmt.Sprintf("最大数量: %d", maxCount))
+			}
+			if startTime != nil {
+				cli.PrintInfo(fmt.Sprintf("开始时间: %s", startTime.Format("2006-01-02 15:04:05")))
+			}
+			if endTime != nil {
+				cli.PrintInfo(fmt.Sprintf("结束时间: %s", endTime.Format("2006-01-02 15:04:05")))
 			}
 
 			// 检查Napcat连接
@@ -144,6 +220,8 @@ func (a *App) createFriendExportCommand() *cobra.Command {
 				MaxCount:     maxCount,
 				ExportFormat: format,
 				OutputDir:    outputDir,
+				StartTime:    startTime,
+				EndTime:      endTime,
 			}
 
 			// 开始导出
@@ -155,6 +233,8 @@ func (a *App) createFriendExportCommand() *cobra.Command {
 	cmd.Flags().IntVarP(&maxCount, "max-count", "c", 0, "最大消息数量 (0表示无限制)")
 	cmd.Flags().StringVarP(&format, "format", "f", "json", "导出格式 (json, txt, html)")
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "输出目录")
+	cmd.Flags().StringVarP(&startTimeStr, "start-time", "s", "", "开始时间 (格式: 2006-01-02 或 2006-01-02 15:04:05)")
+	cmd.Flags().StringVarP(&endTimeStr, "end-time", "e", "", "结束时间 (格式: 2006-01-02 或 2006-01-02 15:04:05)")
 
 	cmd.MarkFlagRequired("user-id")
 
