@@ -1,0 +1,60 @@
+name: "QCE V4 Build Action"
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions: write-all
+
+jobs:
+  Build-QCE-V4:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Clone Main Repository
+        uses: actions/checkout@v4
+      
+      - name: Use Node.js 20.X
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+      
+      # 设置 pnpm（NextJS项目需要pnpm）
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+      
+      # Linux/macOS 构建
+      - name: Build QCE V4 (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd NapCatQQ
+          npm install
+          cd napcat.webui && npm install && cd ..
+          npm run build:universal
+          cd dist && npm install --omit=dev && cd ..
+      
+      # Windows 构建
+      - name: Build QCE V4 (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd NapCatQQ
+          npm install
+          cd napcat.webui
+          npm install
+          cd ..
+          npm run build:universal
+          cd dist
+          npm install --omit=dev
+          cd ..
+      
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NapCat.QCE.V4-${{ runner.os }}
+          path: NapCatQQ/dist
+          retention-days: 7

@@ -1,0 +1,44 @@
+# Develop
+node_modules/
+pnpm-lock.yaml
+out/
+dist/
+/src/core.lib/common/
+devconfig/*
+
+# Frontend Build Outputs
+napcat.webui/dist/
+napcat.webui/.next/
+napcat.webui/out/
+
+# QCE V4 Tool Build Outputs  
+../qce-v4-tool/.next/
+../qce-v4-tool/out/
+../qce-v4-tool/build/
+
+# Editor
+!.vscode/extensions.json
+.idea/*
+
+# Build
+*.db
+checkVersion.sh
+bun.lockb
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Runtime
+.env
+.env.local
+.env.production
+.env.test
+
+# Cache
+.cache/
+.temp/
+.tmp/

@@ -1,0 +1,29 @@
+{
+  "manifest_version": 4,
+  "type": "extension",
+  "name": "NapCatQQ",
+  "slug": "NapCat.Framework",
+  "description": "高性能的 OneBot 11 协议实现",
+  "version": "4.8.105",
+  "icon": "./logo.png",
+  "authors": [
+    {
+      "name": "NapNeko",
+      "link": "https://github.com/NapNeko"
+    }
+  ],
+  "repository": {
+    "repo": "NapNeko/NapCatQQ",
+    "branch": "main"
+  },
+  "platform": [
+    "win32",
+    "linux",
+    "darwin"
+  ],
+  "injects": {
+    "renderer": "./renderer.js",
+    "main": "./liteloader.cjs",
+    "preload": "./preload.cjs"
+  }
+}

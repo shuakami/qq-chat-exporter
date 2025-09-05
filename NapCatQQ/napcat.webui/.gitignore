@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.pnpm/
+
+# Build outputs
+dist/
+dist-ssr/
+.next/
+out/
+build/
+*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Runtime
+.env
+.env.local
+.env.production
+.env.test
+
+# Cache
+.cache/
+.vite/
+.turbo/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# NPM LOCK files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Archives
+dist.zip
+*.tar.gz

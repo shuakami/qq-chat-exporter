@@ -1,0 +1,299 @@
+name: "QCE V4 Release"
+
+on:
+  push:
+    tags:
+      - "v4.*"
+      - "v*"
+
+permissions: write-all
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Use Node.js 20.X
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Check Version
+        run: | 
+          ls
+          cd NapCatQQ
+          node ./script/checkVersion.cjs
+          sh ./checkVersion.sh
+
+  Build-QCE-V4-Multi-Platform:
+    needs: [check-version]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: Linux
+            arch: x64
+            ext: ""
+            shell: "bash"
+          - os: windows-latest
+            platform: Windows
+            arch: x64
+            ext: ".bat"
+            shell: "cmd"
+          - os: macos-latest
+            platform: macOS
+            arch: x64
+            ext: ""
+            shell: "bash"
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Clone Main Repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'NapNeko/NapCatQQ'
+          submodules: true
+          ref: main
+          token: ${{ secrets.NAPCAT_BUILD }}
+      
+      - name: Use Node.js 20.X
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+      
+      # 设置 pnpm（NextJS项目需要）
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+      
+      # Unix系统构建 (Linux/macOS)
+      - name: Build QCE V4 (Unix)
+        if: matrix.shell == 'bash'
+        run: |
+          echo "🚀 Building QCE V4 for ${{ matrix.platform }}-${{ matrix.arch }}"
+          cd NapCatQQ
+          npm install
+          cd napcat.webui && npm install && cd ..
+          npm run build:universal
+          cd dist && npm install --omit=dev && cd ..
+          echo "✅ Build completed for ${{ matrix.platform }}"
+      
+      # Windows构建
+      - name: Build QCE V4 (Windows)
+        if: matrix.shell == 'cmd'
+        run: |
+          echo "🚀 Building QCE V4 for Windows-x64"
+          cd NapCatQQ
+          npm install
+          cd napcat.webui
+          npm install
+          cd ..
+          npm run build:universal
+          cd dist
+          npm install --omit=dev
+          cd ..
+          echo "✅ Build completed for Windows"
+      
+      # 创建平台特定的启动脚本
+      - name: Create Platform Launcher (Unix)
+        if: matrix.shell == 'bash'
+        run: |
+          cd NapCatQQ/dist
+          # 创建Unix启动脚本
+          cat > napcat-launcher.sh << 'EOF'
+          #!/bin/bash
+          
+          # NapCat QCE V4 Launcher
+          # Platform: ${{ matrix.platform }}
+          
+          SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+          cd "$SCRIPT_DIR"
+          
+          echo "🐱 Starting NapCat QCE V4..."
+          echo "Platform: ${{ matrix.platform }}-${{ matrix.arch }}"
+          echo "Node.js Version: $(node --version)"
+          echo "Working Directory: $PWD"
+          echo ""
+          
+          # 启动NapCat
+          node napcat.mjs "$@"
+          EOF
+          
+          chmod +x napcat-launcher.sh
+          echo "✅ Created launcher script for ${{ matrix.platform }}"
+      
+      - name: Create Platform Launcher (Windows)
+        if: matrix.shell == 'cmd'
+        run: |
+          cd NapCatQQ/dist
+          # 创建Windows启动脚本 (CLI版本)
+          echo @echo off > napcat-launcher-cli.bat
+          echo chcp 65001 >> napcat-launcher-cli.bat
+          echo. >> napcat-launcher-cli.bat
+          echo REM NapCat QCE V4 CLI Launcher >> napcat-launcher-cli.bat
+          echo REM Platform: Windows-x64 >> napcat-launcher-cli.bat
+          echo. >> napcat-launcher-cli.bat
+          echo echo 🐱 Starting NapCat QCE V4 CLI... >> napcat-launcher-cli.bat
+          echo echo Platform: Windows-x64 >> napcat-launcher-cli.bat
+          echo echo Node.js Version: >> napcat-launcher-cli.bat
+          echo node --version >> napcat-launcher-cli.bat
+          echo echo Working Directory: %%CD%% >> napcat-launcher-cli.bat
+          echo echo. >> napcat-launcher-cli.bat
+          echo. >> napcat-launcher-cli.bat
+          echo REM 启动NapCat CLI模式 >> napcat-launcher-cli.bat
+          echo node napcat.mjs %%* >> napcat-launcher-cli.bat
+          
+          echo "✅ Created CLI launcher script for Windows"
+      
+      - name: Package Distribution
+        run: |
+          cd NapCatQQ/dist
+          # 创建版本信息文件
+          cat > VERSION.txt << EOF
+          NapCat QCE V4
+          Version: ${{ github.ref_name }}
+          Platform: ${{ matrix.platform }}-${{ matrix.arch }}
+          Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          Build Commit: ${{ github.sha }}
+          
+          Features:
+          - QQ Chat Exporter V4
+          - Web UI Management
+          - Multi-format Export (HTML/JSON/TXT)
+          - Resource Management
+          - CLI Support
+          
+          Usage:
+          ${{ matrix.platform == 'Windows' && '- Run: napcat-launcher-cli.bat' || '- Run: ./napcat-launcher.sh' }}
+          - Web UI: http://localhost:6099
+          - QCE Tool: http://localhost:6099/qce-v4-tool
+          EOF
+          
+          echo "📦 Created version info file"
+          ls -la
+      
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NapCat.QCE.V4-${{ matrix.platform }}-${{ matrix.arch }}
+          path: NapCatQQ/dist
+
+  release-qce-v4:
+    needs: [Build-QCE-V4-Multi-Platform]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Main Repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'NapNeko/NapCatQQ'
+          submodules: true
+          ref: main
+          token: ${{ secrets.NAPCAT_BUILD }}
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        
+      - name: Extract version from tag
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+      
+      - name: Package Releases
+        run: |
+          echo "📦 Packaging QCE V4 releases..."
+          
+          # 为每个平台创建压缩包
+          for platform_dir in NapCat.QCE.V4-*; do
+            if [ -d "$platform_dir" ]; then
+              platform_name=$(echo "$platform_dir" | sed 's/NapCat\.QCE\.V4-//')
+              echo "Packaging $platform_name..."
+              
+              cd "$platform_dir"
+              if [[ "$platform_name" == *"Windows"* ]]; then
+                zip -q -r "../NapCat.QCE.V4-${platform_name}.zip" .
+              else
+                tar -czf "../NapCat.QCE.V4-${platform_name}.tar.gz" .
+              fi
+              cd ..
+              
+              echo "✅ Created package for $platform_name"
+            fi
+          done
+          
+          # 创建通用包（所有平台）
+          mkdir -p NapCat.QCE.V4-Universal
+          cp -r NapCat.QCE.V4-*/* NapCat.QCE.V4-Universal/ 2>/dev/null || true
+          cd NapCat.QCE.V4-Universal
+          zip -q -r ../NapCat.QCE.V4-Universal.zip .
+          cd ..
+          
+          echo "📋 Available packages:"
+          ls -la *.zip *.tar.gz 2>/dev/null || true
+
+      - name: Clone Changes Log
+        run: |
+          if curl -f -o CHANGELOG.md "https://fastly.jsdelivr.net/gh/NapNeko/NapCatQQ@main/docs/changelogs/CHANGELOG.v${{ env.VERSION }}.md"; then
+            echo "✅ Successfully downloaded changelog"
+          else
+            echo "⚠️ Changelog not found, creating default"
+            cat > CHANGELOG.md << EOF
+          # NapCat QCE V4 - Version ${{ env.VERSION }}
+          
+          ### Multi-Platform Support
+          - ✅ Windows (CLI + GUI)
+          - ✅ macOS (CLI)
+          - ✅ Linux (CLI)
+
+          ## 📥 Download
+          
+          Choose the package for your platform:
+          - **Windows**: \`NapCat.QCE.V4-Windows-x64.zip\`
+          - **macOS**: \`NapCat.QCE.V4-macOS-x64.tar.gz\`
+          - **Linux**: \`NapCat.QCE.V4-Linux-x64.tar.gz\`
+          - **Universal**: \`NapCat.QCE.V4-Universal.zip\` (all platforms)
+          
+          ## 🚀 Quick Start
+          
+          1. Download and extract the package for your platform
+          2. Run the launcher script:
+             - Windows: \`napcat-launcher-cli.bat\`
+             - Unix: \`./napcat-launcher.sh\`
+          3. Open http://localhost:6099 in your browser
+          4. Access QCE V4 Tool at http://localhost:6099/qce-v4-tool
+          
+          EOF
+          fi
+        
+      - name: Create Release Draft and Upload Artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          name: NapCat QCE V${{ env.VERSION }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body_path: CHANGELOG.md
+          files: |
+            NapCat.QCE.V4-Windows-x64.zip
+            NapCat.QCE.V4-macOS-x64.tar.gz
+            NapCat.QCE.V4-Linux-x64.tar.gz
+            NapCat.QCE.V4-Universal.zip
+          draft: true
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+
+  build-docker:
+    needs: release-qce-v4
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch Docker Build
+        run: |
+          curl -X POST \
+          -H "Authorization: Bearer ${{ secrets.NAPCAT_BUILD }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          https://api.github.com/repos/NapNeko/NapCat-Docker/actions/workflows/docker-publish.yml/dispatches \
+          -d '{"ref": "main"}'
