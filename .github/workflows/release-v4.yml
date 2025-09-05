@@ -162,7 +162,7 @@ jobs:
           "- CLI Support" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
           "" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
           "Usage:" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
-          "- Run: launcher-user.bat (or launcher.bat for admin mode)" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "- Run: launcher-user.bat" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
           "- Web UI: http://localhost:40653" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
           "- QCE Tool: http://localhost:40653/qce-v4-tool" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
           
@@ -237,7 +237,7 @@ jobs:
           
           1. 下载并解压对应平台的安装包
           2. 运行启动脚本：
-             - Windows: \`launcher-user.bat\` 或 \`launcher.bat\` (管理员模式)
+             - Windows: \`launcher-user.bat\`
              - Unix: \`./napcat-launcher.sh\`
           3. 在浏览器中打开 http://localhost:40653
           4. 访问 QCE V4 工具: http://localhost:40653/qce-v4-tool
