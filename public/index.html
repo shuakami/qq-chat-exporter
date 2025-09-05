@@ -322,260 +322,94 @@
 <body>
     <button class="theme-toggle" id="theme-toggle" title="切换主题">🌓</button>
     
-    <h1>QQ Chat Exporter Pro V3</h1>
-    <p>全新的Go版本QQ聊天记录导出工具，更稳定、更强大、更可靠。支持HTML、JSON、TXT多种格式导出，具备实时保存和断点续传功能。</p>
-    <strong>V3版本相比之前有重大改进，建议先全部看完再开始操作。</strong>
-    
-    <h2>V3版本新特性</h2>
+    <h1>QQ Chat Exporter Pro V4</h1>
+    <p>欢迎使用全新的 V4 版本！这是一款基于 Web 技术的 QQ 聊天记录导出工具，提供了现代化的图形用户界面，让您可以在浏览器中轻松完成所有操作。</p>
+    <strong>V4 版本是项目的未来方向，带来了全新的使用体验，请仔细阅读以下文档。</strong>
+
+    <h2>V4 版本新特性</h2>
     <div class="prerequisite-steps">
         <div class="step">
             <strong>核心改进</strong>
-            <div class="sub-step"><strong>独立程序</strong>：不再依赖Devtools，使用命令行程序，更稳定可靠</div>
-            <div class="sub-step"><strong>数据库存储</strong>：所有数据保存在本地数据库，支持断点续传</div>
-            <div class="sub-step"><strong>实时保存</strong>：每30秒自动保存进度，再也不怕数据丢失</div>
-            <div class="sub-step"><strong>多格式导出</strong>：支持HTML、JSON、TXT三种格式</div>
-            <div class="sub-step"><strong>时间范围过滤</strong>：可以指定导出特定时间段的聊天记录</div>
-            <div class="sub-step"><strong>会话管理</strong>：支持多个聊天会话，方便管理不同的导出任务</div>
+            <div class="sub-step"><strong>现代化 Web 界面</strong>：无需命令行，所有操作均在浏览器中完成，直观易用。</div>
+            <div class="sub-step"><strong>功能仪表板</strong>：集中展示系统状态、任务统计和会话信息，一目了然。</div>
+            <div class="sub-step"><strong>会话管理</strong>：轻松浏览您的群组和好友，并一键发起导出。</div>
+            <div class="sub-step"><strong>任务中心</strong>：创建、监控和管理您的导出任务，查看实时进度。</div>
+            <div class="sub-step"><strong>定时导出</strong>：设置自动化任务，定期备份您的聊天记录，省心省力。</div>
+            <div class="sub-step"><strong>多格式支持</strong>：支持 HTML, JSON, TXT 多种格式导出。</div>
         </div>
     </div>
 
     <h2>使用步骤</h2>
     <div class="prerequisite-steps">
         <div class="step">
-            <strong>1. 下载程序</strong>
-            <p>从GitHub下载最新版本的QQ Chat Exporter Pro V3：</p>
+            <strong>1. 启动 NapCatQQ</strong>
+            <p>V4 版本的 Web UI 已集成到 NapCatQQ 主程序中。您只需要下载并运行最新版的 NapCatQQ 即可。</p>
             <div class="sub-step">
-                访问 <a href="https://github.com/shuakami/qq-chat-exporter/releases/latest" target="_blank">https://github.com/shuakami/qq-chat-exporter/releases/latest</a>
+                访问 <a href="https://github.com/shuakami/qq-chat-exporter/releases/latest" target="_blank">https://github.com/shuakami/qq-chat-exporter/releases/latest</a> 下载最新版本。
             </div>
             <div class="sub-step">
-                下载适合你操作系统的版本（Windows用户下载 <span class="highlight">qq-chat-exporter.exe</span>）
+                解压后，双击运行 <strong>NapCatWinBootMain.exe</strong> (Windows) 或对应系统的启动程序。
             </div>
-        </div>
-        
-        <div class="step">
-            <strong>2. 设置NapCat</strong>
-            <p>V3版本需要NapCat作为QQ接口，按以下步骤详细配置：</p>
-            
             <div class="sub-step">
-                <strong>第1步：下载 NapCat</strong>
-                <ul>
-                    <li>访问 GitHub 发布页面：<a href="https://github.com/NapNeko/NapCatQQ/releases/latest" target="_blank">https://github.com/NapNeko/NapCatQQ/releases/latest</a></li>
-                    <li>下载适合您系统的版本（通常是Windows的 .zip 文件）</li>
-                    <li>解压到任意文件夹（建议桌面或文档文件夹）</li>
-                </ul>
+                使用手机 QQ 扫描二维码登录。
             </div>
-            
-            <div class="sub-step">
-                <strong>第2步：启动 NapCat</strong>
-                <ul>
-                    <li>双击运行 <strong>NapCatWinBootMain.exe</strong></li>
-                    <li>程序启动后会显示二维码</li>
-                    <li>使用手机 QQ 扫码登录</li>
-                </ul>
-            </div>
-            
-            <div class="sub-step">
-                <strong>第3步：打开 QQ 设置</strong>
-                <p>登录成功后，在QQ界面中找到并点击设置按钮：</p>
-                
-                <div class="image-container">
-                    <img src="https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAALpwGiyi-p4GtK7qN2ESOHW6sZjZ2FpAAKuFQACnJuYVSfqH1oM7srYNgQ.png" alt="在QQ中打开设置">
-                    <div class="image-caption">在QQ界面中找到并点击设置按钮</div>
-                </div>
-            </div>
-            
-            <div class="sub-step">
-                <strong>第4步：打开 NapCat 网页界面和配置 WebSocket</strong>
-                <p>在浏览器中打开管理界面地址：</p>
-                
-                <div class="image-container">
-                    <img src="https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAALpwWiyjBjizXS61Zt8BcHEHBBZDUevAAKvFQACnJuYVVhjvrvAR2DeNgQ.png" alt="打开NapCat网页管理界面">
-                    <div class="image-caption">NapCat网页管理界面</div>
-                </div>
-                
-                <p>然后点击"网络配置"：</p>
-                
-                <div class="image-container">
-                    <img src="https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAALpwmiyjGTqVpHT5ti5P17yCmwMyzu_AAKwFQACnJuYVaDZ6FpR7Cw9NgQ.png" alt="在Napcat设置中准备添加Websocket客户端">
-                    <div class="image-caption">在Napcat设置中准备添加Websocket客户端</div>
-                </div>
-                
-                <p>在网络配置中新建WebSocket客户端：</p>
-                
-                <div class="image-container">
-                    <img src="https://img.remit.ee/api/file/BQACAgUAAyEGAASHRsPbAALpw2iyjKGDreGNTh1ALe6zzenJlPfpAAKxFQACnJuYVS_YQrH6tykSNgQ.png" alt="Websocket客户端的设置">
-                    <div class="image-caption">WebSocket客户端配置界面</div>
-                </div>
-                
-                <p><strong>重要配置参数：</strong></p>
-                <ul>
-                    <li><strong>启用</strong>：开启（打开开关）</li>
-                    <li><strong>名称</strong>：QQ Chat Exporter</li>
-                    <li><strong>URL</strong>：<code>ws://localhost:3032</code></li>
-                    <li><strong>消息格式</strong>：Array</li>
-                    <li><strong>重连间隔</strong>：<code>5000</code>（重要！必须设置为5000）</li>
-                    <li><strong>Token</strong>：（留空）</li>
-                    <li><strong>其他选项</strong>：保持默认</li>
-                </ul>
-                
-                <p>配置完成后点击保存。</p>
-            </div>
-            
             <div class="warning">
-                <strong>重要提醒：</strong>
-                <ul>
-                    <li>必须保持NapCat运行状态，V3版本通过WebSocket与QQ通信</li>
-                    <li>WebSocket URL必须是 <code>ws://localhost:3032</code>，这是V3版本的默认连接地址</li>
-                    <li>确保QQ处于登录状态，否则无法采集消息</li>
-                </ul>
+                <strong>重要提醒：</strong> 必须保持 NapCatQQ 程序在后台运行，因为它是所有功能的后端服务。
             </div>
         </div>
         
         <div class="step">
-            <strong>3. 运行导出程序</strong>
-            <p>V3版本使用非常简单，直接双击即可运行：</p>
-            
+            <strong>2. 访问 Web 管理界面</strong>
+            <p>NapCatQQ 启动并成功登录后，V4 的 Web 界面就会自动在本地运行。您可以通过以下地址访问：</p>
             <div class="sub-step">
-                将下载的 <code>qq-chat-exporter.exe</code> 放到一个专门的文件夹中
+                在浏览器中打开 <a href="http://localhost:1337" target="_blank">http://localhost:1337</a>
             </div>
-            
-            <div class="sub-step">
-                <strong>双击运行</strong> <code>qq-chat-exporter.exe</code> 文件
-            </div>
-            
-            <div class="sub-step">
-                首次运行会进入交互式配置向导，按提示设置NapCat连接
-            </div>
-            
-            <div class="sub-step">
-                配置完成后，程序会显示操作菜单，选择相应功能即可
-            </div>
-            
-            <div class="warning">
-                <strong>提示：</strong> 如果需要使用命令行参数（如批处理脚本），也可以在终端中运行 <code>./qq-chat-exporter.exe [命令]</code>
-            </div>
+            <p>如果一切正常，您将看到 V4 的仪表板，显示当前的连接状态和系统信息。整个界面是图形化的，您可以通过点击导航栏来访问不同功能。</p>
+        </div>
+
+        <div class="step">
+            <strong>3. 开始使用</strong>
+            <p>所有操作都在 Web 界面中完成，主要功能模块位于页面顶部的导航栏：</p>
+            <div class="sub-step"><strong>仪表板</strong>：查看系统状态、任务统计和快速操作入口。</div>
+            <div class="sub-step"><strong>会话管理</strong>：浏览您的好友和群组列表。点击任意会话旁的“导出聊天记录”即可开始创建一个新的导出任务。</div>
+            <div class="sub-step"><strong>导出任务</strong>：查看所有导出任务的列表，包括正在进行的和已完成的。您可以在这里监控进度、下载导出的文件或删除任务。</div>
+            <div class="sub-step"><strong>定时导出</strong>：创建和管理自动化的导出任务。您可以设定任务按天、周、月等周期自动执行。</div>
+            <div class="sub-step"><strong>设置</strong>：查看详细的系统信息和项目信息。</div>
         </div>
     </div>
-    
-    <h2>使用流程</h2>
-    <p>双击运行程序后，你会看到交互式菜单，按照以下流程操作：</p>
-    
-    <div class="prerequisite-steps">
-        <div class="step">
-            <strong>主菜单选项</strong>
-            <div class="sub-step"><strong>开始导出</strong> - 创建新的导出任务</div>
-            <div class="sub-step"><strong>查看历史</strong> - 管理已有的导出任务和会话</div>
-            <div class="sub-step"><strong>系统配置</strong> - 配置NapCat连接和导出设置</div>
-            <div class="sub-step"><strong>帮助信息</strong> - 查看详细使用说明</div>
-        </div>
-        
-        <div class="step">
-            <strong>导出操作步骤</strong>
-            <div class="sub-step">选择聊天类型（好友/群聊）</div>
-            <div class="sub-step">输入QQ号或群号</div>
-            <div class="sub-step">选择导出格式（HTML/JSON/TXT）</div>
-            <div class="sub-step">设置时间范围（可选）</div>
-            <div class="sub-step">确认开始导出，程序会自动采集和保存</div>
-        </div>
-        
-        <div class="step">
-            <strong>高级用法（命令行）</strong>
-            <p>如果需要批处理或自动化，也支持命令行参数：</p>
-            <div class="code-container">
-                <pre><code><span class="comment"># 导出好友聊天记录</span>
-./qq-chat-exporter.exe export friend 123456789 --format html
-
-<span class="comment"># 导出群聊记录</span>
-./qq-chat-exporter.exe export group 987654321 --format json
-
-<span class="comment"># 导出指定时间范围</span>
-./qq-chat-exporter.exe export friend 123456789 --start-time "2024-01-01" --end-time "2024-12-31"</code></pre>
-                <div class="copy-indicator" id="copy-button">复制</div>
-            </div>
-        </div>
-    </div>
-
-
-    <h2>常用命令</h2>
-    <div class="code-container">
-        <pre><code><span class="comment"># 查看所有可用命令</span>
-./qq-chat-exporter.exe --help
-
-<span class="comment"># 查看历史导出记录</span>
-./qq-chat-exporter.exe history
-
-<span class="comment"># 查看会话列表</span>
-./qq-chat-exporter.exe sessions
-
-<span class="comment"># 删除指定会话</span>
-./qq-chat-exporter.exe sessions delete &lt;session_id&gt;
-
-<span class="comment"># 配置NapCat连接（交互式）</span>
-./qq-chat-exporter.exe config</code></pre>
-        <div class="copy-indicator" id="commands-copy-button">复制</div>
-    </div>
-
-    <h2>控制选项</h2>
-    <ul>
-        <li><span class="highlight">Ctrl + C</span>: 安全中断导出（会保存当前进度）</li>
-        <li><span class="highlight">--max-count N</span>: 限制导出消息数量</li>
-        <li><span class="highlight">--format html/json/txt</span>: 指定导出格式</li>
-        <li><span class="highlight">--output-dir</span>: 指定输出目录</li>
-    </ul>
 
     <h2>注意事项和使用技巧</h2>
-        <p>V3版本支持图片、文字、表情、@消息等多种消息类型，导出的HTML文件可以直接在浏览器中查看，体验接近原生QQ。</p>
-        
-        <div class="notes-section">
-            <p><strong>断点续传功能</strong></p>
-            <p>V3版本最大的优势是支持断点续传：</p>
-            <ul>
-                <li>程序每30秒自动保存进度到数据库</li>
-                <li>如果程序意外中断，重新运行相同命令会从中断处继续</li>
-                <li>使用 <code>Ctrl + C</code> 安全退出，不会丢失已采集的数据</li>
-                <li>可以随时查看采集进度和历史记录</li>
-            </ul>
-        </div>
+    <div class="notes-section">
+        <p><strong>数据安全</strong></p>
+        <ul>
+            <li>所有聊天记录的获取和导出过程都在您的本地计算机上完成，数据不会上传到任何服务器，请放心使用。</li>
+            <li>导出的文件也保存在您的本地硬盘上。</li>
+        </ul>
+    </div>
 
-        <div class="notes-section">
-            <p><strong>数据管理</strong></p>
-            <ul>
-                <li>所有数据存储在本地SQLite数据库中</li>
-                <li>支持多个聊天会话同时管理</li>
-                <li>可以为不同联系人创建不同的导出任务</li>
-                <li>支持删除过期的会话和导出任务</li>
-            </ul>
-        </div>
+    <div class="notes-section">
+        <p><strong>使用技巧</strong></p>
+        <ul>
+            <li><strong>首次使用</strong>：建议先到“会话管理”页面，点击“刷新列表”以确保获取到最新的好友和群组信息。</li>
+            <li><strong>大批量导出</strong>：对于包含大量消息的会话，导出可能需要较长时间。您可以在“导出任务”页面观察实时进度。任务在后台运行，您可以关闭浏览器标签页，但不能关闭 NapCatQQ 程序。</li>
+            <li><strong>定时备份</strong>：对于重要的聊天，强烈建议使用“定时导出”功能设置每日或每周的自动备份，以防万一。</li>
+            <li><strong>格式选择</strong>：推荐使用 HTML 格式，因为它能最好地还原聊天界面，方便阅读。JSON 格式适合需要进行二次开发或数据分析的用户。</li>
+        </ul>
+    </div>
 
-        <div class="notes-section">
-            <p><strong>⚠️ 安全提醒</strong></p>
-            <p class="note-warning">🎉 根据最新反馈，腾讯现在通常只会发出警告提示，不再进行封号处理。</p>
-        </div>
-        
-        <p>如果你的聊天数据主要在手机上，建议先在QQ设置中同步聊天记录到电脑，然后再进行导出。</p>
-        
-        <p><strong>相比旧版本的优势：</strong>V3版本不再需要浏览器操作，避免了JS注入的不稳定性，同时数据持久化存储让断点续传成为可能，大大提升了使用体验。</p>
+    <div class="notes-section">
+        <p><strong>⚠️ 安全提醒</strong></p>
+        <p class="note-warning">使用本工具可能违反 QQ 用户协议。根据最新反馈，腾讯现在通常只会发出警告提示，不再进行封号处理，但政策可能随时变化，请自行承担风险。</p>
+    </div>
 
-        <div class="notes-section">
-            <p><strong>💡 V3版本使用技巧</strong></p>
-            <ul>
-                <li><strong>批量导出：</strong>可以为多个好友/群组分别创建导出会话，程序会自动管理</li>
-                <li><strong>定时导出：</strong>定期运行相同命令，只会导出新增的消息（增量备份）</li>
-                <li><strong>格式选择：</strong>推荐HTML格式用于查看，JSON格式用于数据分析</li>
-                <li><strong>性能优化：</strong>程序使用15条/批的小批量请求，平衡速度和稳定性</li>
-                <li><strong>错误恢复：</strong>如果网络中断，重新运行命令会自动从中断处继续</li>
-            </ul>
-        </div>
-
-        <div class="notes-section">
-            <p><strong>🔧 故障排除</strong></p>
-            <ul>
-                <li><strong>连接失败：</strong>检查NapCat是否正常运行，WebSocket配置是否正确</li>
-                <li><strong>无法获取消息：</strong>确认QQ账号已登录，且目标聊天存在</li>
-                <li><strong>导出空文件：</strong>可能是时间范围设置过窄，或该时间段无消息</li>
-                <li><strong>程序卡住：</strong>按 Ctrl+C 安全退出，检查网络连接后重试</li>
-            </ul>
-        </div>
+    <div class="notes-section">
+        <p><strong>🔧 故障排除</strong></p>
+        <ul>
+            <li><strong>无法访问 Web 界面</strong>：请检查 NapCatQQ 程序是否已成功启动并登录。检查端口 `1337` 是否被其他程序占用。</li>
+            <li><strong>无法获取好友/群组列表</strong>：请确保您的 QQ 账号在线，并在 Web 界面中尝试点击“刷新列表”。</li>
+            <li><strong>任务失败</strong>：任务失败通常会有错误提示。请检查 NapCatQQ 的日志或 Web 界面上的错误信息以定位问题。</li>
+        </ul>
+    </div>
 
     <h2>源代码</h2>
     <p>本项目的源代码托管在：<a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a></p>

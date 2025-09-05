@@ -31,6 +31,8 @@ jobs:
       # Linux/macOS 构建
       - name: Build QCE V4 (Unix)
         if: runner.os != 'Windows'
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
           cd NapCatQQ
           npm install
@@ -41,6 +43,8 @@ jobs:
       # Windows 构建
       - name: Build QCE V4 (Windows)
         if: runner.os == 'Windows'
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
           cd NapCatQQ
           npm install
