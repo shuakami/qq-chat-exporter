@@ -2,17 +2,6 @@
 /node_modules
 .package-lock.json
 
-# Build outputs (with exceptions for NapCat runtime files)
-*.exe
-*.dll
-*.so
-*.dylib
-!NapCatQQ/launcher/NapCatWinBootMain.exe
-!NapCatQQ/launcher/NapCatWinBootHook.dll
-!NapCatQQ/src/native/pty/**/*.exe
-!NapCatQQ/src/native/pty/**/*.dll
-
-
 
 # Configuration files with sensitive data
 config.yaml
