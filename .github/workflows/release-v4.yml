@@ -115,7 +115,8 @@ jobs:
           
           echo "✅ Created CLI launcher script for Windows"
       
-      - name: Package Distribution
+      - name: Package Distribution (Unix)
+        if: matrix.shell == 'bash'
         run: |
           cd NapCatQQ/dist
           # 创建版本信息文件
@@ -134,13 +135,38 @@ jobs:
           - CLI Support
           
           Usage:
-          ${{ matrix.platform == 'Windows' && '- Run: launcher-user.bat (or launcher.bat for admin mode)' || '- Run: ./napcat-launcher.sh' }}
+          - Run: ./napcat-launcher.sh
           - Web UI: http://localhost:40653
           - QCE Tool: http://localhost:40653/qce-v4-tool
           EOF
           
           echo "📦 Created version info file"
           ls -la
+      
+      - name: Package Distribution (Windows)
+        if: matrix.shell == 'cmd'
+        run: |
+          cd NapCatQQ/dist
+          echo NapCat QCE V4 > VERSION.txt
+          echo Version: ${{ github.ref_name }} >> VERSION.txt
+          echo Platform: ${{ matrix.platform }}-${{ matrix.arch }} >> VERSION.txt
+          echo Build Date: %date% %time% >> VERSION.txt
+          echo Build Commit: ${{ github.sha }} >> VERSION.txt
+          echo. >> VERSION.txt
+          echo Features: >> VERSION.txt
+          echo - QQ Chat Exporter V4 >> VERSION.txt
+          echo - Web UI Management >> VERSION.txt
+          echo - Multi-format Export (HTML/JSON/TXT) >> VERSION.txt
+          echo - Resource Management >> VERSION.txt
+          echo - CLI Support >> VERSION.txt
+          echo. >> VERSION.txt
+          echo Usage: >> VERSION.txt
+          echo - Run: launcher-user.bat (or launcher.bat for admin mode) >> VERSION.txt
+          echo - Web UI: http://localhost:40653 >> VERSION.txt
+          echo - QCE Tool: http://localhost:40653/qce-v4-tool >> VERSION.txt
+          
+          echo "📦 Created version info file"
+          dir
       
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
