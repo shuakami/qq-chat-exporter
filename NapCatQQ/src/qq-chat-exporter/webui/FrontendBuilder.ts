@@ -21,22 +21,25 @@ export class FrontendBuilder {
     constructor() {
         // 智能检测静态资源路径
         const cwd = process.cwd();
-        if (cwd.endsWith('dist')) {
-            // 如果当前目录已经是dist目录，直接使用相对路径
-            this.staticPath = path.join(cwd, 'static', 'qce-v4-tool');
-        } else {
-            // 否则从项目根目录构建路径
-            this.staticPath = path.join(cwd, 'dist', 'static', 'qce-v4-tool');
-        }
+        
+        // 检测可能的静态资源路径
+        const possiblePaths = [
+            path.join(cwd, 'static', 'qce-v4-tool'),           // Release包直接运行
+            path.join(cwd, 'dist', 'static', 'qce-v4-tool'),   // 开发环境从项目根目录运行
+            path.join(cwd, '..', 'static', 'qce-v4-tool'),     // 其他可能的情况
+        ];
+        
+        // 找到第一个存在的路径
+        this.staticPath = possiblePaths.find(p => fs.existsSync(p)) || possiblePaths[0]!;
         
         // NextJS项目路径智能检测
-        if (cwd.endsWith('dist')) {
-            // 如果在dist目录中运行，NextJS项目在../../qce-v4-tool
-            this.nextjsProjectPath = path.join(cwd, '..', '..', 'qce-v4-tool');
-        } else {
-            // 否则NextJS项目与NapCatQQ同级
-            this.nextjsProjectPath = path.join(cwd, '..', 'qce-v4-tool');
-        }
+        const possibleNextjsPaths = [
+            path.join(cwd, '..', '..', 'qce-v4-tool'),   // 从dist目录运行
+            path.join(cwd, '..', 'qce-v4-tool'),         // 从项目根目录运行
+            path.join(cwd, 'qce-v4-tool'),               // 特殊情况
+        ];
+        
+        this.nextjsProjectPath = possibleNextjsPaths.find(p => fs.existsSync(p)) || possibleNextjsPaths[1]!;
         
         // 检查是否在开发环境
         this.isDevMode = process.env['NODE_ENV'] !== 'production' && process.env['QCE_DEV_MODE'] === 'true';
@@ -111,8 +114,20 @@ export class FrontendBuilder {
      */
     private async checkStaticAssets(): Promise<void> {
         try {
-            if (!fs.existsSync(this.staticPath)) {
+            console.log('[FrontendBuilder] 正在检查静态资源路径:', this.staticPath);
+            
+            if (fs.existsSync(this.staticPath)) {
+                // 检查关键文件
+                const indexFile = path.join(this.staticPath, 'index.html');
+                if (fs.existsSync(indexFile)) {
+                    console.log('[FrontendBuilder] ✅ QCE V4 前端静态资源已就绪');
+                } else {
+                    console.warn('[FrontendBuilder] ⚠️ 静态资源目录存在，但缺少 index.html 文件');
+                }
+            } else {
                 console.warn('[FrontendBuilder] ⚠️ 前端静态资源未找到，请运行 npm run build:universal');
+                console.log('[FrontendBuilder] 当前工作目录:', process.cwd());
+                console.log('[FrontendBuilder] 期望的静态资源路径:', this.staticPath);
             }
         } catch (error) {
             console.error('[FrontendBuilder] 检查静态资源失败:', error);

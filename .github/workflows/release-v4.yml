@@ -53,6 +53,16 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
           echo "🚀 Building QCE V4 for ${{ matrix.platform }}-${{ matrix.arch }}"
+          
+          # 构建 QCE V4 工具前端
+          echo "📦 Building QCE V4 Tool frontend..."
+          cd qce-v4-tool
+          pnpm install
+          NODE_ENV=production pnpm run build
+          cd ..
+          
+          # 构建 NapCat 主体
+          echo "📦 Building NapCat..."
           cd NapCatQQ
           npm install
           cd napcat.webui && npm install --force && cd ..
@@ -67,6 +77,14 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
           echo "🚀 Building QCE V4 for Windows-x64"
+          
+          echo "📦 Building QCE V4 Tool frontend..."
+          cd qce-v4-tool
+          pnpm install
+          set NODE_ENV=production && pnpm run build
+          cd ..
+          
+          echo "📦 Building NapCat..."
           cd NapCatQQ
           npm install
           cd napcat.webui
