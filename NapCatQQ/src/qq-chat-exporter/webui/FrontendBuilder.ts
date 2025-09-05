@@ -152,7 +152,7 @@ export class FrontendBuilder {
             }));
 
             // 处理前端应用的根级静态资源请求
-            app.get('/text-logo.png', (req, res) => {
+            app.get('/text-logo.png', (_req, res) => {
                 const filePath = path.join(this.staticPath, 'text-logo.png');
                 if (fs.existsSync(filePath)) {
                     res.sendFile(filePath);
@@ -161,7 +161,7 @@ export class FrontendBuilder {
                 }
             });
 
-            app.get('/text-full-logo.png', (req, res) => {
+            app.get('/text-full-logo.png', (_req, res) => {
                 const filePath = path.join(this.staticPath, 'text-full-logo.png');
                 if (fs.existsSync(filePath)) {
                     res.sendFile(filePath);
@@ -170,7 +170,7 @@ export class FrontendBuilder {
                 }
             });
 
-            app.get('/placeholder-logo.png', (req, res) => {
+            app.get('/placeholder-logo.png', (_req, res) => {
                 const filePath = path.join(this.staticPath, 'placeholder-logo.png');
                 if (fs.existsSync(filePath)) {
                     res.sendFile(filePath);
@@ -179,7 +179,7 @@ export class FrontendBuilder {
                 }
             });
 
-            app.get('/placeholder-logo.svg', (req, res) => {
+            app.get('/placeholder-logo.svg', (_req, res) => {
                 const filePath = path.join(this.staticPath, 'placeholder-logo.svg');
                 if (fs.existsSync(filePath)) {
                     res.sendFile(filePath);
@@ -188,7 +188,7 @@ export class FrontendBuilder {
                 }
             });
 
-            app.get('/placeholder-user.jpg', (req, res) => {
+            app.get('/placeholder-user.jpg', (_req, res) => {
                 const filePath = path.join(this.staticPath, 'placeholder-user.jpg');
                 if (fs.existsSync(filePath)) {
                     res.sendFile(filePath);
@@ -197,7 +197,7 @@ export class FrontendBuilder {
                 }
             });
 
-            app.get('/placeholder.jpg', (req, res) => {
+            app.get('/placeholder.jpg', (_req, res) => {
                 const filePath = path.join(this.staticPath, 'placeholder.jpg');
                 if (fs.existsSync(filePath)) {
                     res.sendFile(filePath);
@@ -206,7 +206,7 @@ export class FrontendBuilder {
                 }
             });
 
-            app.get('/placeholder.svg', (req, res) => {
+            app.get('/placeholder.svg', (_req, res) => {
                 const filePath = path.join(this.staticPath, 'placeholder.svg');
                 if (fs.existsSync(filePath)) {
                     res.sendFile(filePath);
@@ -227,7 +227,7 @@ export class FrontendBuilder {
             });
 
             // 添加前端应用的入口路由
-            app.get('/qce-v4-tool', (req, res) => {
+            app.get('/qce-v4-tool', (_req, res) => {
                 const indexPath = path.join(this.staticPath, 'index.html');
                 if (fs.existsSync(indexPath)) {
                     // 总是返回前端应用，让前端自己处理认证
