@@ -323,58 +323,74 @@
     <button class="theme-toggle" id="theme-toggle" title="切换主题">🌓</button>
     
     <h1>QQ Chat Exporter Pro V4</h1>
-    <p>欢迎使用全新的 V4 版本！这是一款基于 Web 技术的 QQ 聊天记录导出工具，提供了现代化的图形用户界面，让您可以在浏览器中轻松完成所有操作。</p>
-    <strong>V4 版本是项目的未来方向，带来了全新的使用体验，请仔细阅读以下文档。</strong>
+    <p>欢迎使用全新的 V4 版本！基于 NapCatQQ 的聊天记录导出工具，提供现代化的 Web 界面和强大的导出功能。</p>
+    <strong>V4 版本完全重构，集成到 NapCatQQ 框架中，提供更稳定、更强大的导出体验。</strong>
 
-    <h2>V4 版本新特性</h2>
+    <h2>V4 版本核心特性</h2>
     <div class="prerequisite-steps">
         <div class="step">
-            <strong>核心改进</strong>
-            <div class="sub-step"><strong>现代化 Web 界面</strong>：无需命令行，所有操作均在浏览器中完成，直观易用。</div>
-            <div class="sub-step"><strong>功能仪表板</strong>：集中展示系统状态、任务统计和会话信息，一目了然。</div>
-            <div class="sub-step"><strong>会话管理</strong>：轻松浏览您的群组和好友，并一键发起导出。</div>
-            <div class="sub-step"><strong>任务中心</strong>：创建、监控和管理您的导出任务，查看实时进度。</div>
-            <div class="sub-step"><strong>定时导出</strong>：设置自动化任务，定期备份您的聊天记录，省心省力。</div>
-            <div class="sub-step"><strong>多格式支持</strong>：支持 HTML, JSON, TXT 多种格式导出。</div>
+            <strong>架构升级</strong>
+            <div class="sub-step"><strong>集成设计</strong>：完全集成到 NapCatQQ 框架中，无需单独安装</div>
+            <div class="sub-step"><strong>Web 界面</strong>：基于 React + NextUI 的现代化管理界面</div>
+            <div class="sub-step"><strong>API 驱动</strong>：完整的 RESTful API 和 WebSocket 实时通信</div>
+            <div class="sub-step"><strong>数据持久化</strong>：SQLite 数据库存储，支持断点续传和任务恢复</div>
+            <div class="sub-step"><strong>定时任务</strong>：cron 表达式支持的灵活定时导出系统</div>
+            <div class="sub-step"><strong>多格式导出</strong>：HTML、JSON、TXT 三种格式，满足不同需求</div>
         </div>
     </div>
 
     <h2>使用步骤</h2>
     <div class="prerequisite-steps">
         <div class="step">
-            <strong>1. 启动 NapCatQQ</strong>
-            <p>V4 版本的 Web UI 已集成到 NapCatQQ 主程序中。您只需要下载并运行最新版的 NapCatQQ 即可。</p>
+            <strong>1. 下载并启动 NapCatQQ</strong>
+            <p>V4 版本已完全集成到 NapCatQQ 中，您只需下载包含 QCE 功能的版本即可。</p>
             <div class="sub-step">
-                访问 <a href="https://github.com/shuakami/qq-chat-exporter/releases/latest" target="_blank">https://github.com/shuakami/qq-chat-exporter/releases/latest</a> 下载最新版本。
+                访问 <a href="https://github.com/shuakami/qq-chat-exporter/releases/latest" target="_blank">项目 Releases 页面</a> 下载最新版本
             </div>
             <div class="sub-step">
-                解压后，双击运行 <strong>NapCatWinBootMain.exe</strong> (Windows) 或对应系统的启动程序。
+                解压到任意目录，运行 <strong>NapCatWinBootMain.exe</strong> (Windows)
             </div>
             <div class="sub-step">
-                使用手机 QQ 扫描二维码登录。
+                程序启动后会显示二维码，使用手机 QQ 扫码登录
             </div>
-            <div class="warning">
-                <strong>重要提醒：</strong> 必须保持 NapCatQQ 程序在后台运行，因为它是所有功能的后端服务。
+            <div class="sub-step">
+                登录成功后，程序会在后台运行并启动 Web 服务
             </div>
         </div>
         
         <div class="step">
-            <strong>2. 访问 Web 管理界面</strong>
-            <p>NapCatQQ 启动并成功登录后，V4 的 Web 界面就会自动在本地运行。您可以通过以下地址访问：</p>
+            <strong>2. 访问 NapCat 管理界面</strong>
+            <p>登录成功后，访问 NapCatQQ 的 Web 管理界面：</p>
             <div class="sub-step">
-                在浏览器中打开 <a href="http://localhost:1337" target="_blank">http://localhost:1337</a>
+                在浏览器中打开 <a href="http://localhost:40653" target="_blank">http://localhost:40653</a>
+                如果你是服务器的话，请开端口40653，然后用服务器ip:40653访问
             </div>
-            <p>如果一切正常，您将看到 V4 的仪表板，显示当前的连接状态和系统信息。整个界面是图形化的，您可以通过点击导航栏来访问不同功能。</p>
+            <div class="sub-step">
+                使用控制台显示的密钥登录管理界面
+            </div>
+            <div class="sub-step">
+                在管理界面中找到 "QQ 聊天记录导出" 模块入口
+            </div>
         </div>
 
         <div class="step">
-            <strong>3. 开始使用</strong>
-            <p>所有操作都在 Web 界面中完成，主要功能模块位于页面顶部的导航栏：</p>
-            <div class="sub-step"><strong>仪表板</strong>：查看系统状态、任务统计和快速操作入口。</div>
-            <div class="sub-step"><strong>会话管理</strong>：浏览您的好友和群组列表。点击任意会话旁的“导出聊天记录”即可开始创建一个新的导出任务。</div>
-            <div class="sub-step"><strong>导出任务</strong>：查看所有导出任务的列表，包括正在进行的和已完成的。您可以在这里监控进度、下载导出的文件或删除任务。</div>
-            <div class="sub-step"><strong>定时导出</strong>：创建和管理自动化的导出任务。您可以设定任务按天、周、月等周期自动执行。</div>
-            <div class="sub-step"><strong>设置</strong>：查看详细的系统信息和项目信息。</div>
+            <strong>3. 进入 QCE V4 界面</strong>
+            <p>通过 NapCat 管理界面访问 QCE V4 功能：</p>
+            <div class="sub-step">
+                点击侧边栏的 "QQ 聊天记录导出" 进入 V4 界面
+            </div>
+            <div class="sub-step">
+                首次进入会自动检测 QQ 连接状态和可用会话</div>
+        </div>
+
+        <div class="step">
+            <strong>4. 开始导出任务</strong>
+            <p>在 V4 界面中，您可以通过以下功能模块完成导出：</p>
+            <div class="sub-step"><strong>仪表板</strong>：查看系统状态、任务统计和 NapCatQQ 连接状态</div>
+            <div class="sub-step"><strong>会话管理</strong>：浏览好友和群组列表，选择要导出的聊天对象</div>
+            <div class="sub-step"><strong>导出任务</strong>：创建、监控和管理导出任务，支持暂停、恢复和下载</div>
+            <div class="sub-step"><strong>定时导出</strong>：设置自动化定时任务，支持 cron 表达式和预设周期</div>
+            <div class="sub-step"><strong>系统设置</strong>：配置导出参数、存储路径和系统选项</div>
         </div>
     </div>
 
@@ -405,7 +421,7 @@
     <div class="notes-section">
         <p><strong>🔧 故障排除</strong></p>
         <ul>
-            <li><strong>无法访问 Web 界面</strong>：请检查 NapCatQQ 程序是否已成功启动并登录。检查端口 `1337` 是否被其他程序占用。</li>
+            <li><strong>无法访问 Web 界面</strong>：请检查 NapCatQQ 程序是否已成功启动并登录。</li>
             <li><strong>无法获取好友/群组列表</strong>：请确保您的 QQ 账号在线，并在 Web 界面中尝试点击“刷新列表”。</li>
             <li><strong>任务失败</strong>：任务失败通常会有错误提示。请检查 NapCatQQ 的日志或 Web 界面上的错误信息以定位问题。</li>
         </ul>
@@ -490,4 +506,5 @@
         }
     </script>
 </body>
+</html> 
 </html> 
