@@ -34,7 +34,7 @@ jobs:
         run: |
           cd NapCatQQ
           npm install
-          cd napcat.webui && npm install && cd ..
+          cd napcat.webui && npm install --force && cd ..
           npm run build:universal
           cd dist && npm install --omit=dev && cd ..
       
@@ -45,7 +45,7 @@ jobs:
           cd NapCatQQ
           npm install
           cd napcat.webui
-          npm install
+          npm install --force
           cd ..
           npm run build:universal
           cd dist
