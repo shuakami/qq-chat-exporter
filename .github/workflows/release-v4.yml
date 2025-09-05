@@ -145,28 +145,29 @@ jobs:
       
       - name: Package Distribution (Windows)
         if: matrix.shell == 'cmd'
+        shell: pwsh
         run: |
           cd NapCatQQ/dist
-          echo NapCat QCE V4 > VERSION.txt
-          echo Version: ${{ github.ref_name }} >> VERSION.txt
-          echo Platform: ${{ matrix.platform }}-${{ matrix.arch }} >> VERSION.txt
-          echo Build Date: %date% %time% >> VERSION.txt
-          echo Build Commit: ${{ github.sha }} >> VERSION.txt
-          echo. >> VERSION.txt
-          echo Features: >> VERSION.txt
-          echo - QQ Chat Exporter V4 >> VERSION.txt
-          echo - Web UI Management >> VERSION.txt
-          echo - Multi-format Export (HTML/JSON/TXT) >> VERSION.txt
-          echo - Resource Management >> VERSION.txt
-          echo - CLI Support >> VERSION.txt
-          echo. >> VERSION.txt
-          echo Usage: >> VERSION.txt
-          echo - Run: launcher-user.bat (or launcher.bat for admin mode) >> VERSION.txt
-          echo - Web UI: http://localhost:40653 >> VERSION.txt
-          echo - QCE Tool: http://localhost:40653/qce-v4-tool >> VERSION.txt
+          "NapCat QCE V4" | Out-File -FilePath VERSION.txt -Encoding UTF8
+          "Version: ${{ github.ref_name }}" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "Platform: ${{ matrix.platform }}-${{ matrix.arch }}" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "Build Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "Build Commit: ${{ github.sha }}" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "Features:" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "- QQ Chat Exporter V4" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "- Web UI Management" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "- Multi-format Export (HTML/JSON/TXT)" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "- Resource Management" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "- CLI Support" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "Usage:" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "- Run: launcher-user.bat (or launcher.bat for admin mode)" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "- Web UI: http://localhost:40653" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
+          "- QCE Tool: http://localhost:40653/qce-v4-tool" | Out-File -FilePath VERSION.txt -Append -Encoding UTF8
           
-          echo "📦 Created version info file"
-          dir
+          Write-Output "📦 Created version info file"
+          Get-ChildItem
       
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
