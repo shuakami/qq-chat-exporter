@@ -1,3 +1,5 @@
+import path from 'path'
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   eslint: {
@@ -16,6 +18,18 @@ const nextConfig = {
   assetPrefix: process.env.NODE_ENV === 'production' ? '/static/qce-v4-tool' : '',
   // 确保构建输出目录为 out (默认值)
   distDir: '.next',
+  webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
+    // 添加路径别名配置
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': path.resolve('.'),
+      '@/components': path.resolve('./components'),
+      '@/lib': path.resolve('./lib'),
+      '@/hooks': path.resolve('./hooks'),
+      '@/types': path.resolve('./types'),
+    }
+    return config
+  },
 }
 
 export default nextConfig
