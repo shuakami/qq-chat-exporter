@@ -2,11 +2,7 @@
 /node_modules
 .package-lock.json
 
-# Build outputs
-*.exe
-*.dll
-*.so
-*.dylib
+
 
 # Configuration files with sensitive data
 config.yaml

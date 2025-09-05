@@ -110,22 +110,8 @@ jobs:
         if: matrix.shell == 'cmd'
         run: |
           cd NapCatQQ/dist
-          # 创建Windows启动脚本 (CLI版本)
-          echo @echo off > napcat-launcher-cli.bat
-          echo chcp 65001 >> napcat-launcher-cli.bat
-          echo. >> napcat-launcher-cli.bat
-          echo REM NapCat QCE V4 CLI Launcher >> napcat-launcher-cli.bat
-          echo REM Platform: Windows-x64 >> napcat-launcher-cli.bat
-          echo. >> napcat-launcher-cli.bat
-          echo echo 🐱 Starting NapCat QCE V4 CLI... >> napcat-launcher-cli.bat
-          echo echo Platform: Windows-x64 >> napcat-launcher-cli.bat
-          echo echo Node.js Version: >> napcat-launcher-cli.bat
-          echo node --version >> napcat-launcher-cli.bat
-          echo echo Working Directory: %%CD%% >> napcat-launcher-cli.bat
-          echo echo. >> napcat-launcher-cli.bat
-          echo. >> napcat-launcher-cli.bat
-          echo REM 启动NapCat CLI模式 >> napcat-launcher-cli.bat
-          echo node napcat.mjs %%* >> napcat-launcher-cli.bat
+          # Windows平台已包含原生launcher.bat文件，无需创建额外启动脚本
+          echo "✅ Windows platform uses existing launcher.bat files"
           
           echo "✅ Created CLI launcher script for Windows"
       
@@ -148,9 +134,9 @@ jobs:
           - CLI Support
           
           Usage:
-          ${{ matrix.platform == 'Windows' && '- Run: napcat-launcher-cli.bat' || '- Run: ./napcat-launcher.sh' }}
-          - Web UI: http://localhost:6099
-          - QCE Tool: http://localhost:6099/qce-v4-tool
+          ${{ matrix.platform == 'Windows' && '- Run: launcher-user.bat (or launcher.bat for admin mode)' || '- Run: ./napcat-launcher.sh' }}
+          - Web UI: http://localhost:40653
+          - QCE Tool: http://localhost:40653/qce-v4-tool
           EOF
           
           echo "📦 Created version info file"
@@ -224,10 +210,10 @@ jobs:
           
           1. 下载并解压对应平台的安装包
           2. 运行启动脚本：
-             - Windows: \`napcat-launcher-cli.bat\`
+             - Windows: \`launcher-user.bat\` 或 \`launcher.bat\` (管理员模式)
              - Unix: \`./napcat-launcher.sh\`
-          3. 在浏览器中打开 http://localhost:6099
-          4. 访问 QCE V4 工具: http://localhost:6099/qce-v4-tool
+          3. 在浏览器中打开 http://localhost:40653
+          4. 访问 QCE V4 工具: http://localhost:40653/qce-v4-tool
           
           ## 重要声明
           
