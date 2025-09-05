@@ -9,31 +9,7 @@ on:
 permissions: write-all
 
 jobs:
-  check-version:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone Repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract version from tag
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
-
-      - name: Use Node.js 20.X
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20.x
-
-      - name: Check Version
-        run: | 
-          ls
-          cd NapCatQQ
-          node ./script/checkVersion.cjs
-          sh ./checkVersion.sh
-
   Build-QCE-V4-Multi-Platform:
-    needs: [check-version]
     strategy:
       matrix:
         include:
@@ -58,11 +34,6 @@ jobs:
     steps:
       - name: Clone Main Repository
         uses: actions/checkout@v4
-        with:
-          repository: 'NapNeko/NapCatQQ'
-          submodules: true
-          ref: main
-          token: ${{ secrets.NAPCAT_BUILD }}
       
       - name: Use Node.js 20.X
         uses: actions/setup-node@v4
@@ -78,11 +49,13 @@ jobs:
       # Unix系统构建 (Linux/macOS)
       - name: Build QCE V4 (Unix)
         if: matrix.shell == 'bash'
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
           echo "🚀 Building QCE V4 for ${{ matrix.platform }}-${{ matrix.arch }}"
           cd NapCatQQ
           npm install
-          cd napcat.webui && npm install && cd ..
+          cd napcat.webui && npm install --force && cd ..
           npm run build:universal
           cd dist && npm install --omit=dev && cd ..
           echo "✅ Build completed for ${{ matrix.platform }}"
@@ -90,12 +63,14 @@ jobs:
       # Windows构建
       - name: Build QCE V4 (Windows)
         if: matrix.shell == 'cmd'
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
           echo "🚀 Building QCE V4 for Windows-x64"
           cd NapCatQQ
           npm install
           cd napcat.webui
-          npm install
+          npm install --force
           cd ..
           npm run build:universal
           cd dist
@@ -193,11 +168,6 @@ jobs:
     steps:
       - name: Clone Main Repository
         uses: actions/checkout@v4
-        with:
-          repository: 'NapNeko/NapCatQQ'
-          submodules: true
-          ref: main
-          token: ${{ secrets.NAPCAT_BUILD }}
 
       - name: Download All Artifacts
         uses: actions/download-artifact@v4
@@ -237,39 +207,33 @@ jobs:
           echo "📋 Available packages:"
           ls -la *.zip *.tar.gz 2>/dev/null || true
 
-      - name: Clone Changes Log
+      - name: Create Release Notes
         run: |
-          if curl -f -o CHANGELOG.md "https://fastly.jsdelivr.net/gh/NapNeko/NapCatQQ@main/docs/changelogs/CHANGELOG.v${{ env.VERSION }}.md"; then
-            echo "✅ Successfully downloaded changelog"
-          else
-            echo "⚠️ Changelog not found, creating default"
-            cat > CHANGELOG.md << EOF
-          # NapCat QCE V4 - Version ${{ env.VERSION }}
+          cat > CHANGELOG.md << EOF
+          # QQ Chat Exporter V4 - Version ${{ env.VERSION }}
           
-          ### Multi-Platform Support
-          - ✅ Windows (CLI + GUI)
-          - ✅ macOS (CLI)
-          - ✅ Linux (CLI)
-
-          ## 📥 Download
+          ## 下载说明
           
-          Choose the package for your platform:
+          请根据您的平台选择对应的安装包：
           - **Windows**: \`NapCat.QCE.V4-Windows-x64.zip\`
           - **macOS**: \`NapCat.QCE.V4-macOS-x64.tar.gz\`
           - **Linux**: \`NapCat.QCE.V4-Linux-x64.tar.gz\`
-          - **Universal**: \`NapCat.QCE.V4-Universal.zip\` (all platforms)
+          - **通用包**: \`NapCat.QCE.V4-Universal.zip\` (包含所有平台)
           
-          ## 🚀 Quick Start
+          ## 快速开始
           
-          1. Download and extract the package for your platform
-          2. Run the launcher script:
+          1. 下载并解压对应平台的安装包
+          2. 运行启动脚本：
              - Windows: \`napcat-launcher-cli.bat\`
              - Unix: \`./napcat-launcher.sh\`
-          3. Open http://localhost:6099 in your browser
-          4. Access QCE V4 Tool at http://localhost:6099/qce-v4-tool
+          3. 在浏览器中打开 http://localhost:6099
+          4. 访问 QCE V4 工具: http://localhost:6099/qce-v4-tool
+          
+          ## 重要声明
+          
+          本软件完全免费开源！如果您付费购买了此软件，请立即申请退款并举报销售者。
           
           EOF
-          fi
         
       - name: Create Release Draft and Upload Artifacts
         uses: softprops/action-gh-release@v1
@@ -284,15 +248,3 @@ jobs:
             NapCat.QCE.V4-Universal.zip
           draft: true
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
-
-  build-docker:
-    needs: release-qce-v4
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dispatch Docker Build
-        run: |
-          curl -X POST \
-          -H "Authorization: Bearer ${{ secrets.NAPCAT_BUILD }}" \
-          -H "Accept: application/vnd.github.v3+json" \
-          https://api.github.com/repos/NapNeko/NapCat-Docker/actions/workflows/docker-publish.yml/dispatches \
-          -d '{"ref": "main"}'
