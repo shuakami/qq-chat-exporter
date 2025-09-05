@@ -15,7 +15,6 @@ jobs:
       - name: Clone Repository
         uses: actions/checkout@v4
         with:
-          ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract version from tag
