@@ -1127,11 +1127,11 @@ export class QQChatExporterApiServer {
 
             switch (format.toUpperCase()) {
                 case 'TXT':
-                    exporter = new TextExporter(exportOptions);
+                    exporter = new TextExporter(exportOptions, {}, this.core);
                     await exporter.export(messagesToExport, chatInfo);
                     break;
                 case 'JSON':
-                    exporter = new JsonExporter(exportOptions);
+                    exporter = new JsonExporter(exportOptions, {}, this.core);
                     await exporter.export(messagesToExport, chatInfo);
                     break;
                 case 'HTML':

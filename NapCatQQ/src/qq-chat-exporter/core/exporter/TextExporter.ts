@@ -44,8 +44,8 @@ export class TextExporter extends BaseExporter {
      * @param options 基础导出选项
      * @param textOptions 文本格式选项
      */
-    constructor(options: ExportOptions, textOptions: Partial<TextFormatOptions> = {}) {
-        super(ExportFormat.TXT, options);
+    constructor(options: ExportOptions, textOptions: Partial<TextFormatOptions> = {}, core?: NapCatCore) {
+        super(ExportFormat.TXT, options, core);
         
         this.textOptions = {
             messageSeparator: '\n',
@@ -68,12 +68,11 @@ export class TextExporter extends BaseExporter {
         chatInfo?: { name?: string; type?: string; avatar?: string; participantCount?: number }
     ): Promise<string> {
         // 需要使用MessageParser先解析消息
-        const core = (global as any).napCatCore as NapCatCore;
-        if (!core) {
+        if (!this.core) {
             throw new Error('NapCatCore实例不可用，无法解析消息');
         }
         
-        const parser = this.getMessageParser(core);
+        const parser = this.getMessageParser(this.core);
         const parsedMessages = await parser.parseMessages(messages);
         
         const lines: string[] = [];

@@ -114,8 +114,8 @@ export class HtmlExporter extends BaseExporter {
      * @param options 基础导出选项
      * @param htmlOptions HTML格式选项
      */
-    constructor(options: ExportOptions, htmlOptions: Partial<HtmlFormatOptions> = {}) {
-        super(ExportFormat.HTML, options);
+    constructor(options: ExportOptions, htmlOptions: Partial<HtmlFormatOptions> = {}, core?: NapCatCore) {
+        super(ExportFormat.HTML, options, core);
         
         this.htmlOptions = {
             theme: PREDEFINED_THEMES['default']!,
@@ -140,12 +140,11 @@ export class HtmlExporter extends BaseExporter {
         chatInfo?: any
     ): Promise<string> {
         // Parse raw messages into parsed messages
-        const core = (global as any).napCatCore as NapCatCore;
-        if (!core) {
+        if (!this.core) {
             throw new Error('NapCatCore实例不可用，无法解析消息');
         }
         
-        const parser = this.getMessageParser(core);
+        const parser = this.getMessageParser(this.core);
         const parsedMessages = await parser.parseMessages(messages);
 
         const html = `

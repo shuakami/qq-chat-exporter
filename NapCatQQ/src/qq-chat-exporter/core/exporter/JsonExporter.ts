@@ -119,8 +119,8 @@ export class JsonExporter extends BaseExporter {
      * @param options 基础导出选项
      * @param jsonOptions JSON格式选项
      */
-    constructor(options: ExportOptions, jsonOptions: Partial<JsonFormatOptions> = {}) {
-        super(ExportFormat.JSON, options);
+    constructor(options: ExportOptions, jsonOptions: Partial<JsonFormatOptions> = {}, core?: NapCatCore) {
+        super(ExportFormat.JSON, options, core);
         
         this.jsonOptions = {
             pretty: true,

@@ -55,6 +55,7 @@ export type ProgressCallback = (progress: {
 export abstract class BaseExporter {
     protected readonly format: ExportFormat;
     protected readonly options: ExportOptions;
+    protected readonly core?: NapCatCore; // 添加NapCatCore实例
     protected cancelled: boolean;
     protected progressCallback: ProgressCallback | null;
 
@@ -62,9 +63,11 @@ export abstract class BaseExporter {
      * 构造函数
      * @param format 导出格式
      * @param options 导出选项
+     * @param core NapCatCore实例（可选）
      */
-    constructor(format: ExportFormat, options: ExportOptions) {
+    constructor(format: ExportFormat, options: ExportOptions, core?: NapCatCore) {
         this.format = format;
+        this.core = core;
         this.options = {
             outputPath: options.outputPath,
             includeResourceLinks: options.includeResourceLinks ?? true,
