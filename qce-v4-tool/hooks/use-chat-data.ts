@@ -9,7 +9,7 @@ export function useChatData() {
   const [error, setError] = useState<string | null>(null)
   const { apiCall } = useApi()
 
-  const loadGroups = useCallback(async (page = 1, limit = 50) => {
+  const loadGroups = useCallback(async (page = 1, limit = 999) => {
     try {
       setLoading(true)
       setError(null)
@@ -26,7 +26,7 @@ export function useChatData() {
     }
   }, [apiCall])
 
-  const loadFriends = useCallback(async (page = 1, limit = 50) => {
+  const loadFriends = useCallback(async (page = 1, limit = 999) => {
     try {
       setLoading(true)
       setError(null)

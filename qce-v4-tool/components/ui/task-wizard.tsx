@@ -97,11 +97,11 @@ export function TaskWizard({ isOpen, onClose, onSubmit, isLoading, prefilledData
   React.useEffect(() => {
     if (isOpen && groups.length > 0 && groupSearchRef.current.allData.length === 0) {
       console.log("[TaskWizard] Initializing group search data...")
-      groupSearchRef.current.load(1, 50)
+      groupSearchRef.current.load(1, 999)
     }
     if (isOpen && friends.length > 0 && friendSearchRef.current.allData.length === 0) {
       console.log("[TaskWizard] Initializing friend search data...")
-      friendSearchRef.current.load(1, 50)
+      friendSearchRef.current.load(1, 999)
     }
   }, [isOpen, groups.length, friends.length])
 
@@ -333,9 +333,9 @@ export function TaskWizard({ isOpen, onClose, onSubmit, isLoading, prefilledData
               size="sm"
               onClick={() => {
                 if (currentChatTypeRef.current === 2) {
-                  groupSearchRef.current.load(1, 50)
+                  groupSearchRef.current.load(1, 999)
                 } else {
-                  friendSearchRef.current.load(1, 50)
+                  friendSearchRef.current.load(1, 999)
                 }
               }}
               disabled={currentSearchState.loading}

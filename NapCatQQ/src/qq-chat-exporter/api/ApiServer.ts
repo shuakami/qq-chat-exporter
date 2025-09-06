@@ -242,12 +242,12 @@ export class QQChatExporterApiServer {
                         'GET /health - 健康检查'
                     ],
                     '群组管理': [
-                        'GET /api/groups?page=1&limit=20&forceRefresh=false - 获取所有群组（支持分页）',
+                        'GET /api/groups?page=1&limit=999&forceRefresh=false - 获取所有群组（支持分页）',
                         'GET /api/groups/:groupCode?forceRefresh=false - 获取群组详情',
                         'GET /api/groups/:groupCode/members?forceRefresh=false - 获取群成员'
                     ],
                     '好友管理': [
-                        'GET /api/friends?page=1&limit=20 - 获取所有好友（支持分页）',
+                        'GET /api/friends?page=1&limit=999 - 获取所有好友（支持分页）',
                         'GET /api/friends/:uid?no_cache=false - 获取好友详情'
                     ],
                     '消息处理': [
@@ -392,7 +392,7 @@ export class QQChatExporterApiServer {
             try {
                 const forceRefresh = req.query['forceRefresh'] === 'true';
                 const page = parseInt(req.query['page'] as string) || 1;
-                const limit = parseInt(req.query['limit'] as string) || 20;
+                const limit = parseInt(req.query['limit'] as string) || 999;
                 
                 const groups = await this.core.apis.GroupApi.getGroups(forceRefresh);
                 
@@ -467,7 +467,7 @@ export class QQChatExporterApiServer {
         this.app.get('/api/friends', async (req, res) => {
             try {
                 const page = parseInt(req.query['page'] as string) || 1;
-                const limit = parseInt(req.query['limit'] as string) || 20;
+                const limit = parseInt(req.query['limit'] as string) || 999;
                 
                 const friends = await this.core.apis.FriendApi.getBuddy();
                 

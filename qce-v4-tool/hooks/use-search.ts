@@ -61,7 +61,7 @@ export function useSearch() {
   }, [])
 
   // 加载群组数据
-  const loadGroups = useCallback(async (page = 1, limit = 20, append = false) => {
+  const loadGroups = useCallback(async (page = 1, limit = 999, append = false) => {
     setGroupSearchState(prev => ({ ...prev, loading: true, error: null }))
 
     try {
@@ -98,7 +98,7 @@ export function useSearch() {
   }, [filterGroups])
 
   // 加载好友数据
-  const loadFriends = useCallback(async (page = 1, limit = 20, append = false) => {
+  const loadFriends = useCallback(async (page = 1, limit = 999, append = false) => {
     setFriendSearchState(prev => ({ ...prev, loading: true, error: null }))
 
     try {
