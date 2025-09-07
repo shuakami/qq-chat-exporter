@@ -96,9 +96,37 @@ export function loadQQWrapper(QQVersion: string): WrapperNodeApi {
     if (!fs.existsSync(wrapperNodePath)) {
         wrapperNodePath = path.join(path.dirname(qqBasePath), `./resources/app/versions/${QQVersion}/wrapper.node`);
     }
-    const nativemodule: { exports: WrapperNodeApi } = { exports: {} as WrapperNodeApi };
-    process.dlopen(nativemodule, wrapperNodePath);
-    return nativemodule.exports;
+
+    // Linux环境下设置动态库搜索路径
+    if (os.platform() === 'linux') {
+        const originalLdLibraryPath = process.env['LD_LIBRARY_PATH'] || '';
+        const qqLibPaths = [
+            appPath, // resources/app
+            path.dirname(qqBasePath), // QQ安装目录
+            path.join(path.dirname(qqBasePath), 'lib'), // 可能的lib目录
+        ].filter(p => fs.existsSync(p));
+        
+        // 临时设置LD_LIBRARY_PATH
+        const newLdLibraryPath = [...qqLibPaths, originalLdLibraryPath].filter(Boolean).join(':');
+        process.env['LD_LIBRARY_PATH'] = newLdLibraryPath;
+        
+        try {
+            const nativemodule: { exports: WrapperNodeApi } = { exports: {} as WrapperNodeApi };
+            process.dlopen(nativemodule, wrapperNodePath);
+            return nativemodule.exports;
+        } finally {
+            // 恢复原始LD_LIBRARY_PATH
+            if (originalLdLibraryPath) {
+                process.env['LD_LIBRARY_PATH'] = originalLdLibraryPath;
+            } else {
+                delete process.env['LD_LIBRARY_PATH'];
+            }
+        }
+    } else {
+        const nativemodule: { exports: WrapperNodeApi } = { exports: {} as WrapperNodeApi };
+        process.dlopen(nativemodule, wrapperNodePath);
+        return nativemodule.exports;
+    }
 }
 export function getMajorPath(QQVersion: string): string {
     // major.node

@@ -107,18 +107,78 @@ jobs:
           
           # NapCat QCE V4 Launcher
           # Platform: ${{ matrix.platform }}
+          # 修复版本 - 解决Linux路径和动态库问题
+          
+          set -e  # 遇到错误立即退出
           
           SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-          cd "$SCRIPT_DIR"
           
           echo "🐱 Starting NapCat QCE V4..."
           echo "Platform: ${{ matrix.platform }}-${{ matrix.arch }}"
           echo "Node.js Version: $(node --version)"
-          echo "Working Directory: $PWD"
+          echo "NapCat Directory: $SCRIPT_DIR"
           echo ""
           
+          # 检测QQ安装路径
+          detect_qq_path() {
+              local qq_paths=(
+                  "/opt/QQ"
+                  "/usr/local/bin/qq"
+                  "/snap/qq/current"
+                  "/var/lib/flatpak/app/com.qq.QQ/current/active/files"
+              )
+              
+              for path in "${qq_paths[@]}"; do
+                  if [ -d "$path" ] && [ -f "$path/resources/app/package.json" ]; then
+                      echo "$path"
+                      return 0
+                  fi
+              done
+              
+              return 1
+          }
+          
+          # Linux特殊处理
+          if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+              echo "🐧 Linux环境检测..."
+              
+              # 检查是否在QQ目录中运行
+              if [ -f "./resources/app/package.json" ]; then
+                  echo "✅ 检测到在QQ安装目录中运行"
+                  QQ_DIR="$(pwd)"
+              elif [ -n "$NAPCAT_QQ_PATH" ] && [ -d "$NAPCAT_QQ_PATH" ]; then
+                  echo "✅ 使用环境变量指定的QQ路径: $NAPCAT_QQ_PATH"
+                  QQ_DIR="$(dirname "$NAPCAT_QQ_PATH")"
+              else
+                  echo "🔍 正在搜索QQ安装路径..."
+                  if QQ_DIR=$(detect_qq_path); then
+                      echo "✅ 找到QQ安装路径: $QQ_DIR"
+                  else
+                      echo "❌ 未找到QQ安装，请："
+                      echo "   1. 确保已安装Linux版QQ"
+                      echo "   2. 将NapCat解压到QQ安装目录 (/opt/QQ) 中运行"
+                      echo "   3. 或设置环境变量: export NAPCAT_QQ_PATH=/path/to/qq"
+                      exit 1
+                  fi
+              fi
+              
+              # 设置动态库搜索路径
+              export LD_LIBRARY_PATH="$QQ_DIR/resources/app:$QQ_DIR:${LD_LIBRARY_PATH:-}"
+              echo "📚 设置库路径: $LD_LIBRARY_PATH"
+              
+              # 切换到QQ目录运行（重要！）
+              cd "$QQ_DIR"
+              echo "📁 切换到QQ目录: $(pwd)"
+          else
+              # 非Linux系统，从NapCat目录运行
+              cd "$SCRIPT_DIR"
+          fi
+          
+          echo ""
+          echo "🚀 启动NapCat..."
+          
           # 启动NapCat
-          node napcat.mjs "$@"
+          node "$SCRIPT_DIR/napcat.mjs" "$@"
           EOF
           
           chmod +x napcat-launcher.sh
@@ -153,7 +213,9 @@ jobs:
           - CLI Support
           
           Usage:
-          - Run: ./napcat-launcher.sh
+          - Linux: 将文件解压到QQ安装目录 (/opt/QQ) 后运行 ./napcat-launcher.sh
+          - macOS: 直接运行 ./napcat-launcher.sh  
+          - 或设置环境变量: export NAPCAT_QQ_PATH=/path/to/qq
           - Web UI: http://localhost:40653
           - QCE Tool: http://localhost:40653/qce-v4-tool
           EOF
@@ -254,11 +316,27 @@ jobs:
           ## 快速开始
           
           1. 下载并解压对应平台的安装包
-          2. 运行启动脚本：
+          2. **Linux用户**: 将解压后的文件放入QQ安装目录 (/opt/QQ)
+          3. 运行启动脚本：
              - Windows: \`launcher-user.bat\`
-             - Unix: \`./napcat-launcher.sh\`
-          3. 在浏览器中打开 http://localhost:40653
-          4. 访问 QCE V4 工具: http://localhost:40653/qce-v4-tool
+             - Linux: 在QQ目录中运行 \`./napcat-launcher.sh\`
+             - macOS: \`./napcat-launcher.sh\`
+          4. 在浏览器中打开 http://localhost:40653
+          5. 访问 QCE V4 工具: http://localhost:40653/qce-v4-tool
+          
+          ### Linux特别说明
+          
+          **重要**: Linux用户必须将NapCat放在QQ安装目录中运行，或设置环境变量:
+          \`\`\`bash
+          # 方法1: 解压到QQ目录 (推荐)
+          cd /opt/QQ
+          tar -xzf NapCat.QCE.V4-Linux-x64.tar.gz
+          ./napcat-launcher.sh
+          
+          # 方法2: 设置环境变量
+          export NAPCAT_QQ_PATH=/opt/QQ/qq
+          ./napcat-launcher.sh
+          \`\`\`
           
           ## 重要声明
           
