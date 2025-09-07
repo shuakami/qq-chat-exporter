@@ -41,14 +41,52 @@ export enum NapCatCoreWorkingEnv {
     Framework = 2,
 }
 
+/**
+ * 获取QQ基础路径（智能检测）
+ */
+function getQQBasePath(): string {
+    // 1. 优先使用环境变量
+    const envQQPath = process.env['NAPCAT_QQ_PATH'];
+    if (envQQPath && fs.existsSync(envQQPath)) {
+        return envQQPath;
+    }
+
+    // 2. Linux环境下检查当前工作目录
+    if (os.platform() === 'linux') {
+        const cwd = process.cwd();
+        const cwdPackageJson = path.join(cwd, 'resources/app/package.json');
+        
+        if (fs.existsSync(cwdPackageJson)) {
+            return path.join(cwd, 'qq'); // 返回QQ可执行文件路径
+        }
+
+        // 3. 尝试常见Linux安装路径
+        const commonPaths = [
+            '/opt/QQ/qq',
+            '/usr/local/bin/qq',
+            '/snap/qq/current/qq'
+        ];
+
+        for (const qqPath of commonPaths) {
+            if (fs.existsSync(qqPath)) {
+                return qqPath;
+            }
+        }
+    }
+
+    // 4. 回退到process.execPath
+    return process.execPath;
+}
+
 export function loadQQWrapper(QQVersion: string): WrapperNodeApi {
+    const qqBasePath = getQQBasePath();
     let appPath;
     if (os.platform() === 'darwin') {
-        appPath = path.resolve(path.dirname(process.execPath), '../Resources/app');
+        appPath = path.resolve(path.dirname(qqBasePath), '../Resources/app');
     } else if (os.platform() === 'linux') {
-        appPath = path.resolve(path.dirname(process.execPath), './resources/app');
+        appPath = path.resolve(path.dirname(qqBasePath), './resources/app');
     } else {
-        appPath = path.resolve(path.dirname(process.execPath), `./versions/${QQVersion}/`);
+        appPath = path.resolve(path.dirname(qqBasePath), `./versions/${QQVersion}/`);
     }
     let wrapperNodePath = path.resolve(appPath, 'wrapper.node');
     if (!fs.existsSync(wrapperNodePath)) {
@@ -56,7 +94,7 @@ export function loadQQWrapper(QQVersion: string): WrapperNodeApi {
     }
     //老版本兼容 未来去掉
     if (!fs.existsSync(wrapperNodePath)) {
-        wrapperNodePath = path.join(path.dirname(process.execPath), `./resources/app/versions/${QQVersion}/wrapper.node`);
+        wrapperNodePath = path.join(path.dirname(qqBasePath), `./resources/app/versions/${QQVersion}/wrapper.node`);
     }
     const nativemodule: { exports: WrapperNodeApi } = { exports: {} as WrapperNodeApi };
     process.dlopen(nativemodule, wrapperNodePath);
@@ -64,13 +102,14 @@ export function loadQQWrapper(QQVersion: string): WrapperNodeApi {
 }
 export function getMajorPath(QQVersion: string): string {
     // major.node
+    const qqBasePath = getQQBasePath();
     let appPath;
     if (os.platform() === 'darwin') {
-        appPath = path.resolve(path.dirname(process.execPath), '../Resources/app');
+        appPath = path.resolve(path.dirname(qqBasePath), '../Resources/app');
     } else if (os.platform() === 'linux') {
-        appPath = path.resolve(path.dirname(process.execPath), './resources/app');
+        appPath = path.resolve(path.dirname(qqBasePath), './resources/app');
     } else {
-        appPath = path.resolve(path.dirname(process.execPath), `./versions/${QQVersion}/`);
+        appPath = path.resolve(path.dirname(qqBasePath), `./versions/${QQVersion}/`);
     }
     let majorPath = path.resolve(appPath, 'major.node');
     if (!fs.existsSync(majorPath)) {
@@ -78,7 +117,7 @@ export function getMajorPath(QQVersion: string): string {
     }
     //老版本兼容 未来去掉
     if (!fs.existsSync(majorPath)) {
-        majorPath = path.join(path.dirname(process.execPath), `./resources/app/versions/${QQVersion}/major.node`);
+        majorPath = path.join(path.dirname(qqBasePath), `./resources/app/versions/${QQVersion}/major.node`);
     }
     return majorPath;
 }
