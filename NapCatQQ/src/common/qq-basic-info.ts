@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { systemPlatform } from '@/common/system';
 import { getDefaultQQVersionConfigInfo, getQQPackageInfoPath, getQQVersionConfigPath, parseAppidFromMajor } from './helper';
 import AppidTable from '@/core/external/appid.json';
@@ -20,7 +22,7 @@ export class QQBasicInfoWrapper {
     constructor(context: { logger: LogWrapper }) {
         //基础目录获取
         this.context = context;
-        this.QQMainPath = process.execPath;
+        this.QQMainPath = this.getQQMainPath();
         this.QQVersionConfigPath = getQQVersionConfigPath(this.QQMainPath);
 
 
@@ -102,6 +104,71 @@ export class QQBasicInfoWrapper {
         const majorPath = getMajorPath(QQVersion);
         const appid = parseAppidFromMajor(majorPath);
         return appid;
+    }
+
+    /**
+     * 获取QQ主程序路径
+     * Linux环境下智能检测QQ安装位置
+     */
+    private getQQMainPath(): string {
+        // 1. 优先使用环境变量指定的QQ路径
+        const envQQPath = process.env['NAPCAT_QQ_PATH'];
+        if (envQQPath) {
+            if (fs.existsSync(envQQPath)) {
+                this.context.logger.log(`[QQ路径] 使用环境变量指定的路径: ${envQQPath}`);
+                return envQQPath;
+            } else {
+                this.context.logger.logError(`[QQ路径] 环境变量指定的路径不存在: ${envQQPath}`);
+            }
+        }
+
+        // 2. Linux平台：优先使用当前工作目录（如果包含QQ相关文件）
+        if (os.platform() === 'linux') {
+            const cwd = process.cwd();
+            const cwdPackageJson = path.join(cwd, 'resources/app/package.json');
+            
+            // 检查当前目录是否是QQ目录
+            if (fs.existsSync(cwdPackageJson)) {
+                this.context.logger.log(`[QQ路径] 使用当前工作目录: ${cwd}`);
+                return path.join(cwd, 'qq'); // 返回QQ可执行文件路径
+            }
+
+            // 尝试常见的Linux QQ安装路径
+            const commonLinuxPaths = [
+                '/opt/QQ/qq',  // 官方包安装路径
+                '/usr/local/bin/qq',  // 手动安装路径
+                '/snap/qq/current/qq',  // Snap包路径
+                '/var/lib/flatpak/app/com.qq.QQ/current/active/files/qq',  // Flatpak路径
+                path.join(os.homedir(), '.local/share/applications/qq'),  // 用户安装路径
+            ];
+
+            for (const qqPath of commonLinuxPaths) {
+                if (fs.existsSync(qqPath)) {
+                    this.context.logger.log(`[QQ路径] 自动检测到QQ: ${qqPath}`);
+                    return qqPath;
+                }
+            }
+
+            // 在PATH中查找
+            const pathEnv = process.env['PATH'] || '';
+            const pathDirs = pathEnv.split(':');
+            for (const dir of pathDirs) {
+                const qqPath = path.join(dir, 'qq');
+                if (fs.existsSync(qqPath)) {
+                    this.context.logger.log(`[QQ路径] 在PATH中找到QQ: ${qqPath}`);
+                    return qqPath;
+                }
+            }
+
+            // Linux下找不到QQ时的警告
+            this.context.logger.logError(
+                `[QQ路径] Linux上未找到QQ安装路径。请确保NapCat运行在QQ目录中，或设置环境变量 NAPCAT_QQ_PATH`
+            );
+        }
+
+        // 3. 回退到原来的行为（Windows/macOS或Linux检测失败时）
+        this.context.logger.log(`[QQ路径] 使用进程路径: ${process.execPath}`);
+        return process.execPath;
     }
 
 }
