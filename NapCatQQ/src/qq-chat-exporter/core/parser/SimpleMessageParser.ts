@@ -554,10 +554,11 @@ export class SimpleMessageParser {
                 for (let i = 0; i < message.content.resources.length && i < resources.length; i++) {
                     const resourceInfo = resources[i];
                     if (resourceInfo.localPath) {
-                        // 转换为相对路径用于导出
-                        const relativePath = `resources/${resourceInfo.type}s/${path.basename(resourceInfo.localPath)}`;
-                        message.content.resources[i]!.localPath = relativePath;
-                        message.content.resources[i]!.url = relativePath;
+                        // 使用文件名，让ModernHtmlExporter根据类型正确解析路径
+                        const fileName = path.basename(resourceInfo.localPath);
+                        message.content.resources[i]!.localPath = fileName;
+                        message.content.resources[i]!.url = `resources/${resourceInfo.type}s/${fileName}`;
+                        message.content.resources[i]!.type = resourceInfo.type;
                     }
                 }
                 
@@ -566,10 +567,10 @@ export class SimpleMessageParser {
                     if (element.data && typeof element.data === 'object') {
                         const resourceInfo = resources.find(r => r.fileName === element.data.filename);
                         if (resourceInfo && resourceInfo.localPath) {
-                            const relativePath = `resources/${resourceInfo.type}s/${path.basename(resourceInfo.localPath)}`;
-                            (element.data as any).localPath = relativePath;
+                            const fileName = path.basename(resourceInfo.localPath);
+                            (element.data as any).localPath = fileName;
                             if (element.type === 'image' || element.type === 'video' || element.type === 'audio' || element.type === 'file') {
-                                (element.data as any).url = relativePath;
+                                (element.data as any).url = `resources/${resourceInfo.type}s/${fileName}`;
                             }
                         }
                     }

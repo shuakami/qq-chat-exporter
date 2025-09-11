@@ -171,8 +171,25 @@ export class ModernHtmlExporter {
             return resourcePath;
         }
         
-        // 如果是相对路径，可能需要基于 qq-chat-exporter 配置目录解析
+        // 资源根目录
         const resourceRoot = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'resources');
+        
+        // 如果是以resources/开头的相对路径，去掉resources/前缀
+        if (resourcePath.startsWith('resources/')) {
+            return path.resolve(resourceRoot, resourcePath.substring(10)); // 去掉'resources/'
+        }
+        
+        // 如果只是文件名，需要结合资源类型来确定完整路径
+        // 这种情况下，我们需要遍历资源目录查找文件
+        const resourceTypes = ['images', 'videos', 'audios', 'files'];
+        for (const type of resourceTypes) {
+            const fullPath = path.join(resourceRoot, type, resourcePath);
+            if (fs.existsSync(fullPath)) {
+                return fullPath;
+            }
+        }
+        
+        // 如果找不到，默认解析到资源根目录
         return path.resolve(resourceRoot, resourcePath);
     }
     
@@ -186,7 +203,9 @@ export class ModernHtmlExporter {
         
         const trimmed = resourcePath.trim();
         return trimmed !== '' && 
-               (trimmed.startsWith('resources/') || path.isAbsolute(trimmed));
+               (trimmed.startsWith('resources/') || path.isAbsolute(trimmed) || 
+                // 允许单纯的文件名
+                (trimmed.length > 0 && !trimmed.includes('\\') && !trimmed.includes('/')));
     }
 
     /**

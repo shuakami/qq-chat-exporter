@@ -205,6 +205,7 @@ export class DatabaseManager {
         let duplicateCount = 0;
         const seenTaskIds = new Set<string>();
         const seenRecordIds = new Set<number>();
+        const taskIdToLatestRecord = new Map<string, TaskDbRecord>();
         
         for await (const line of rl) {
             lineCount++;
@@ -216,8 +217,21 @@ export class DatabaseManager {
                     if (seenTaskIds.has(task.taskId)) {
                         duplicateCount++;
                         console.warn(`[DatabaseManager] 发现重复的taskId: ${task.taskId}, 记录ID: ${task.id}`);
+                        
+                        // 保留最新的记录（基于updatedAt或记录ID）
+                        const existingRecord = taskIdToLatestRecord.get(task.taskId);
+                        if (existingRecord) {
+                            const existingTime = new Date(existingRecord.updatedAt || existingRecord.createdAt).getTime();
+                            const currentTime = new Date(task.updatedAt || task.createdAt).getTime();
+                            
+                            if (currentTime > existingTime || task.id > existingRecord.id) {
+                                taskIdToLatestRecord.set(task.taskId, task);
+                                console.log(`[DatabaseManager] 保留较新的记录: taskId=${task.taskId}, recordId=${task.id}`);
+                            }
+                        }
                     } else {
                         seenTaskIds.add(task.taskId);
+                        taskIdToLatestRecord.set(task.taskId, task);
                     }
                     
                     // 检查记录ID重复情况
@@ -227,13 +241,6 @@ export class DatabaseManager {
                         seenRecordIds.add(task.id);
                     }
                     
-                    // 使用记录ID作为Map的key，确保每条记录都被保留
-                    const recordIdStr = task.id.toString();
-                    this.indexes.tasks.set(recordIdStr, task);
-                    
-                    // 维护 taskId 到记录ID的映射（最新的记录会覆盖旧的）
-                    this.taskIdToRecordId.set(task.taskId, recordIdStr);
-                    
                     loadedCount++;
                 } catch (error) {
                     console.warn('解析任务数据行失败:', line, error);
@@ -241,8 +248,22 @@ export class DatabaseManager {
             }
         }
         
+        // 只保留每个taskId的最新记录
+        for (const [taskId, task] of taskIdToLatestRecord.entries()) {
+            const recordIdStr = task.id.toString();
+            this.indexes.tasks.set(recordIdStr, task);
+            this.taskIdToRecordId.set(taskId, recordIdStr);
+        }
+        
         console.info(`[DatabaseManager] 任务索引加载完成: 处理了 ${lineCount} 行, 成功加载 ${loadedCount} 个任务, 发现 ${duplicateCount} 个重复taskId`);
         console.info(`[DatabaseManager] 内存中的任务记录数量: ${this.indexes.tasks.size}, 唯一taskId数量: ${this.taskIdToRecordId.size}`);
+        
+        // 如果发现重复记录，自动清理
+        if (duplicateCount > 0) {
+            console.warn(`[DatabaseManager] 发现 ${duplicateCount} 个重复记录，将自动清理...`);
+            await this.rebuildTaskFile();
+            console.info(`[DatabaseManager] 重复记录清理完成`);
+        }
     }
 
     /**
@@ -400,17 +421,50 @@ export class DatabaseManager {
     async saveTask(config: ExportTaskConfig, state: ExportTaskState): Promise<void> {
         this.ensureInitialized();
 
-        const taskRecord: TaskDbRecord = {
-            id: Date.now(), // 简单的ID生成
-            taskId: config.taskId,
-            config: JSON.stringify(config),
-            state: JSON.stringify(state),
-            createdAt: new Date(),
-            updatedAt: new Date()
-        };
+        // 检查是否已存在该任务
+        const existingRecordId = this.taskIdToRecordId.get(config.taskId);
+        let taskRecord: TaskDbRecord;
+        
+        if (existingRecordId) {
+            // 更新现有记录
+            const existingRecord = this.indexes.tasks.get(existingRecordId);
+            if (existingRecord) {
+                taskRecord = {
+                    ...existingRecord,
+                    config: JSON.stringify(config),
+                    state: JSON.stringify(state),
+                    updatedAt: new Date()
+                };
+                console.log(`[DatabaseManager] 更新现有任务: ${config.taskId}, 记录ID: ${existingRecordId}`);
+            } else {
+                // 记录不存在，创建新记录
+                taskRecord = {
+                    id: Date.now(),
+                    taskId: config.taskId,
+                    config: JSON.stringify(config),
+                    state: JSON.stringify(state),
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                };
+                console.log(`[DatabaseManager] 创建新任务记录: ${config.taskId}, 记录ID: ${taskRecord.id}`);
+                this.taskIdToRecordId.set(config.taskId, taskRecord.id.toString());
+            }
+        } else {
+            // 创建新记录
+            taskRecord = {
+                id: Date.now(),
+                taskId: config.taskId,
+                config: JSON.stringify(config),
+                state: JSON.stringify(state),
+                createdAt: new Date(),
+                updatedAt: new Date()
+            };
+            console.log(`[DatabaseManager] 创建新任务: ${config.taskId}, 记录ID: ${taskRecord.id}`);
+            this.taskIdToRecordId.set(config.taskId, taskRecord.id.toString());
+        }
 
-        // 更新内存索引
-        this.indexes.tasks.set(config.taskId, taskRecord);
+        // 更新内存索引（使用记录ID作为key）
+        this.indexes.tasks.set(taskRecord.id.toString(), taskRecord);
 
         // 添加到写入队列
         this.queueWrite(this.files.tasks, taskRecord);
@@ -506,6 +560,10 @@ export class DatabaseManager {
         
         console.log(`[DatabaseManager] 开始删除任务: ${taskId}`);
 
+        // 首先刷新写入队列，确保没有未写入的数据
+        console.log(`[DatabaseManager] 刷新写入队列...`);
+        await this.flushWriteQueue();
+
         // 通过 taskId 查找记录ID
         const recordId = this.taskIdToRecordId.get(taskId);
         if (recordId) {
@@ -515,6 +573,16 @@ export class DatabaseManager {
             this.taskIdToRecordId.delete(taskId);
         } else {
             console.warn(`[DatabaseManager] 未找到任务的记录ID: ${taskId}`);
+            
+            // 遍历所有任务记录查找可能的匹配
+            for (const [recordIdStr, taskRecord] of this.indexes.tasks.entries()) {
+                if (taskRecord.taskId === taskId) {
+                    console.log(`[DatabaseManager] 通过遍历找到任务记录: ${recordIdStr}`);
+                    this.indexes.tasks.delete(recordIdStr);
+                    this.taskIdToRecordId.delete(taskId);
+                    break;
+                }
+            }
         }
         
         // 删除相关消息
@@ -527,6 +595,10 @@ export class DatabaseManager {
         // 重新构建文件以反映删除操作
         console.log(`[DatabaseManager] 重建数据库文件...`);
         await this.rebuildFiles();
+        
+        // 再次刷新写入队列，确保删除操作立即生效
+        await this.flushWriteQueue();
+        
         console.log(`[DatabaseManager] 任务 ${taskId} 已彻底删除`);
     }
 
