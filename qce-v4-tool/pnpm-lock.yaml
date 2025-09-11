@@ -92,6 +92,18 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: 1.1.6
         version: 1.1.6(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@tailwindcss/postcss':
+        specifier: ^4.1.9
+        version: 4.1.12
+      '@types/node':
+        specifier: ^22
+        version: 22.18.0
+      '@types/react':
+        specifier: ^18
+        version: 18.3.24
+      '@types/react-dom':
+        specifier: ^18
+        version: 18.3.7(@types/react@18.3.24)
       '@vercel/analytics':
         specifier: 1.3.1
         version: 1.3.1(next@14.2.16(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
@@ -131,6 +143,9 @@ importers:
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      postcss:
+        specifier: ^8.5
+        version: 8.5.6
       react:
         specifier: ^18
         version: 18.3.1
@@ -155,9 +170,15 @@ importers:
       tailwind-merge:
         specifier: ^2.5.5
         version: 2.6.0
+      tailwindcss:
+        specifier: ^4.1.9
+        version: 4.1.12
       tailwindcss-animate:
         specifier: ^1.0.7
         version: 1.0.7(tailwindcss@4.1.12)
+      typescript:
+        specifier: ^5
+        version: 5.9.2
       vaul:
         specifier: ^0.9.9
         version: 0.9.9(@types/react-dom@18.3.7(@types/react@18.3.24))(@types/react@18.3.24)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -165,30 +186,9 @@ importers:
         specifier: 3.25.67
         version: 3.25.67
     devDependencies:
-      '@tailwindcss/postcss':
-        specifier: ^4.1.9
-        version: 4.1.12
-      '@types/node':
-        specifier: ^22
-        version: 22.18.0
-      '@types/react':
-        specifier: ^18
-        version: 18.3.24
-      '@types/react-dom':
-        specifier: ^18
-        version: 18.3.7(@types/react@18.3.24)
-      postcss:
-        specifier: ^8.5
-        version: 8.5.6
-      tailwindcss:
-        specifier: ^4.1.9
-        version: 4.1.12
       tw-animate-css:
         specifier: 1.3.3
         version: 1.3.3
-      typescript:
-        specifier: ^5
-        version: 5.9.2
 
 packages:
 

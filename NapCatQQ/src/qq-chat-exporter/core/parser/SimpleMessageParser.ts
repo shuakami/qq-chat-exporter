@@ -105,7 +105,17 @@ export class SimpleMessageParser {
      * 解析单条消息
      */
     private async parseMessage(message: RawMessage): Promise<CleanMessage> {
-        const timestamp = parseInt(message.msgTime) * 1000;
+        const parsedTime = parseInt(message.msgTime);
+        // 如果时间戳无效，使用当前时间作为fallback
+        const timestamp = isNaN(parsedTime) || parsedTime <= 0 ? Date.now() : parsedTime * 1000;
+        
+        // 改进发送者名称逻辑：群名片 > 好友备注 > 昵称 > QQ号 > UID
+        const senderName = message.sendMemberName ||  // 群名片优先
+                          message.sendRemarkName ||   // 好友备注
+                          message.sendNickName ||     // 昵称
+                          message.senderUin ||        // QQ号
+                          message.senderUid ||        // UID
+                          '未知用户';
         
         const cleanMessage: CleanMessage = {
             id: message.msgId,
@@ -115,7 +125,7 @@ export class SimpleMessageParser {
             sender: {
                 uid: message.senderUid,
                 uin: message.senderUin,
-                name: message.sendNickName || message.sendRemarkName || message.senderUid,
+                name: senderName,
                 remark: message.sendRemarkName || undefined
             },
             type: this.getMessageTypeString(message.msgType),
@@ -384,7 +394,7 @@ export class SimpleMessageParser {
                 return { text: faceText, html: faceText };
             
             case 'market_face':
-                const marketText = `[${element.data.name}]`;
+                const marketText = `[${element.data.name || '表情'}]`;
                 return { text: marketText, html: marketText };
             
             case 'image':
@@ -445,16 +455,23 @@ export class SimpleMessageParser {
      * 判断是否为系统消息
      */
     private isSystemMessage(message: RawMessage): boolean {
-        return message.msgType === NTMsgType.KMSGTYPEGRAYTIPS || 
-               message.senderUid === '0' || 
-               message.senderUid === '';
+        return message.msgType === NTMsgType.KMSGTYPEGRAYTIPS;
     }
     
     /**
      * 创建错误消息
      */
     private createErrorMessage(message: RawMessage, error: any): CleanMessage {
-        const timestamp = parseInt(message.msgTime) * 1000;
+        const parsedTime = parseInt(message.msgTime);
+        const timestamp = isNaN(parsedTime) || parsedTime <= 0 ? Date.now() : parsedTime * 1000;
+        
+        // 改进发送者名称逻辑：群名片 > 好友备注 > 昵称 > QQ号 > UID
+        const senderName = message.sendMemberName ||  // 群名片优先
+                          message.sendRemarkName ||   // 好友备注
+                          message.sendNickName ||     // 昵称
+                          message.senderUin ||        // QQ号
+                          message.senderUid ||        // UID
+                          '未知用户';
         
         return {
             id: message.msgId,
@@ -464,7 +481,7 @@ export class SimpleMessageParser {
             sender: {
                 uid: message.senderUid,
                 uin: message.senderUin,
-                name: message.sendNickName || '未知用户'
+                name: senderName
             },
             type: 'error',
             content: {
@@ -516,23 +533,31 @@ export class SimpleMessageParser {
         
         // 统计消息
         for (const message of messages) {
+            // 防护：确保消息对象完整
+            if (!message || !message.content) {
+                console.warn('[SimpleMessageParser] 跳过无效消息:', message);
+                continue;
+            }
+            
             // 按类型统计
             stats.byType[message.type] = (stats.byType[message.type] || 0) + 1;
             
             // 按发送者统计
-            const sender = message.sender.name;
+            const sender = message.sender?.name || message.sender?.uid || '未知用户';
             if (!stats.bySender[sender]) {
                 stats.bySender[sender] = {
-                    uid: message.sender.uid,
+                    uid: message.sender?.uid || 'unknown',
                     count: 0
                 };
             }
             stats.bySender[sender]!.count++;
             
             // 资源统计
-            for (const resource of message.content.resources) {
+            const resources = message.content.resources || [];
+            for (const resource of resources) {
                 stats.resources.total++;
-                stats.resources.byType[resource.type] = (stats.resources.byType[resource.type] || 0) + 1;
+                const resourceType = resource.type || 'unknown';
+                stats.resources.byType[resourceType] = (stats.resources.byType[resourceType] || 0) + 1;
                 
                 // 累加文件大小（确保数字运算）
                 const size = resource.size || 0;

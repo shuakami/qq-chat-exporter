@@ -567,18 +567,103 @@ export function TaskWizard({ isOpen, onClose, onSubmit, isLoading, prefilledData
         <Separator />
 
         {/* 导出格式 */}
-        <div className="space-y-2">
-          <Label>导出格式</Label>
-          <Select value={form.format} onValueChange={(value) => setForm(prev => ({ ...prev, format: value }))}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="JSON">JSON - 结构化数据格式</SelectItem>
-              <SelectItem value="HTML">HTML - 网页格式，便于查看</SelectItem>
-              <SelectItem value="TXT">TXT - 纯文本格式</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="space-y-3">
+          <div>
+            <Label className="text-base font-medium">导出格式</Label>
+            <p className="text-sm text-neutral-600 mt-1">选择最适合您需求的格式</p>
+          </div>
+          
+          <div className="space-y-3">
+            {/* JSON 格式 */}
+            <div 
+              className={`relative cursor-pointer rounded-lg border-2 p-4 transition-all hover:shadow-md ${
+                form.format === 'JSON' 
+                  ? 'border-primary bg-primary/5 shadow-sm' 
+                  : 'border-neutral-200 hover:border-neutral-300'
+              }`}
+              onClick={() => setForm(prev => ({ ...prev, format: 'JSON' }))}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`flex-shrink-0 mt-0.5 ${form.format === 'JSON' ? 'text-primary' : 'text-neutral-500'}`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-medium text-neutral-900">JSON</h3>
+                    <span className="text-xs bg-neutral-100 text-neutral-600 px-2 py-0.5 rounded">结构化</span>
+                  </div>
+                  <p className="text-sm text-neutral-600 mt-1">适合程序处理的结构化数据格式，保留完整信息</p>
+                </div>
+                {form.format === 'JSON' && (
+                  <div className="flex-shrink-0">
+                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* HTML 格式 */}
+            <div 
+              className={`relative cursor-pointer rounded-lg border-2 p-4 transition-all hover:shadow-md ${
+                form.format === 'HTML' 
+                  ? 'border-primary bg-primary/5 shadow-sm' 
+                  : 'border-neutral-200 hover:border-neutral-300'
+              }`}
+              onClick={() => setForm(prev => ({ ...prev, format: 'HTML' }))}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`flex-shrink-0 mt-0.5 ${form.format === 'HTML' ? 'text-primary' : 'text-neutral-500'}`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-medium text-neutral-900">HTML</h3>
+                    <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded">推荐</span>
+                  </div>
+                  <p className="text-sm text-neutral-600 mt-1">网页格式，便于浏览器查看和打印，支持富文本显示</p>
+                </div>
+                {form.format === 'HTML' && (
+                  <div className="flex-shrink-0">
+                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* TXT 格式 */}
+            <div 
+              className={`relative cursor-pointer rounded-lg border-2 p-4 transition-all hover:shadow-md ${
+                form.format === 'TXT' 
+                  ? 'border-primary bg-primary/5 shadow-sm' 
+                  : 'border-neutral-200 hover:border-neutral-300'
+              }`}
+              onClick={() => setForm(prev => ({ ...prev, format: 'TXT' }))}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`flex-shrink-0 mt-0.5 ${form.format === 'TXT' ? 'text-primary' : 'text-neutral-500'}`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-medium text-neutral-900">TXT</h3>
+                    <span className="text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded">兼容</span>
+                  </div>
+                  <p className="text-sm text-neutral-600 mt-1">纯文本格式，兼容性最好，任何设备都能打开</p>
+                </div>
+                {form.format === 'TXT' && (
+                  <div className="flex-shrink-0">
+                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* 时间范围 */}
@@ -590,21 +675,35 @@ export function TaskWizard({ isOpen, onClose, onSubmit, isLoading, prefilledData
           
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="startTime">开始时间</Label>
+              <Label htmlFor="startTime" className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                开始时间
+              </Label>
               <Input
                 id="startTime"
                 type="datetime-local"
+                placeholder="年/月/日 --:--"
                 value={form.startTime}
                 onChange={(e) => setForm(prev => ({ ...prev, startTime: e.target.value }))}
+                className="font-mono"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="endTime">结束时间</Label>
+              <Label htmlFor="endTime" className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                结束时间
+              </Label>
               <Input
                 id="endTime"
                 type="datetime-local"
+                placeholder="年/月/日 --:--"
                 value={form.endTime}
                 onChange={(e) => setForm(prev => ({ ...prev, endTime: e.target.value }))}
+                className="font-mono"
               />
             </div>
           </div>

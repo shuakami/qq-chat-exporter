@@ -136,6 +136,9 @@ export class DatabaseManager {
             this.setSystemInfo('schema_version', DB_SCHEMA_VERSION.toString());
             this.setSystemInfo('initialized_at', new Date().toISOString());
 
+            // 清理失败的任务
+            await this.cleanupFailedTasks();
+
             this.initialized = true;
 
         } catch (error) {
@@ -650,6 +653,74 @@ export class DatabaseManager {
             .join('\n') + (this.indexes.resources.size > 0 ? '\n' : '');
         
         await fsPromises.writeFile(this.files.resources, content, 'utf8');
+    }
+
+    /**
+     * 清理失败的任务
+     * 删除状态为PENDING或RUNNING但进度为0%的任务
+     */
+    private async cleanupFailedTasks(): Promise<void> {
+        const tasksToDelete: string[] = [];
+        
+        console.info('[DatabaseManager] 开始清理失败的任务...');
+        
+        for (const [, taskRecord] of this.indexes.tasks) {
+            try {
+                const config = JSON.parse(taskRecord.config) as ExportTaskConfig;
+                const state = JSON.parse(taskRecord.state) as ExportTaskState;
+                
+                // 计算进度百分比
+                const progress = state.totalMessages > 0 ? 
+                    Math.round((state.processedMessages / state.totalMessages) * 100) : 0;
+                
+                // 清理规则：PENDING或RUNNING状态但进度为0%
+                if ((state.status === 'pending' || state.status === 'running') && progress === 0) {
+                    tasksToDelete.push(config.taskId);
+                    console.warn(`[DatabaseManager] 标记清理任务: ${config.chatName}(${config.taskId}) - 状态${state.status}进度0%`);
+                }
+                
+            } catch (error) {
+                console.error(`[DatabaseManager] 解析任务记录失败，将删除: ${taskRecord.taskId}`, error);
+                tasksToDelete.push(taskRecord.taskId);
+            }
+        }
+        
+        // 执行删除操作
+        if (tasksToDelete.length > 0) {
+            console.info(`[DatabaseManager] 找到 ${tasksToDelete.length} 个需要清理的失败任务`);
+            
+            for (const taskId of tasksToDelete) {
+                try {
+                    // 直接从内存索引中删除
+                    const recordId = this.taskIdToRecordId.get(taskId);
+                    if (recordId) {
+                        this.indexes.tasks.delete(recordId);
+                        this.taskIdToRecordId.delete(taskId);
+                    } else {
+                        // 遍历查找并删除
+                        for (const [recordIdStr, taskRecord] of this.indexes.tasks.entries()) {
+                            if (taskRecord.taskId === taskId) {
+                                this.indexes.tasks.delete(recordIdStr);
+                                this.taskIdToRecordId.delete(taskId);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 删除相关消息
+                    this.indexes.messages.delete(taskId);
+                    
+                } catch (error) {
+                    console.error(`[DatabaseManager] 删除失败任务时出错: ${taskId}`, error);
+                }
+            }
+            
+            // 重建文件以反映删除操作
+            await this.rebuildFiles();
+            console.info(`[DatabaseManager] 已清理 ${tasksToDelete.length} 个失败任务`);
+        } else {
+            console.info(`[DatabaseManager] 未发现需要清理的失败任务`);
+        }
     }
 
     /**

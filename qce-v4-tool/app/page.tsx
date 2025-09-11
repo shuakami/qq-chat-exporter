@@ -493,9 +493,6 @@ export default function QCEDashboard() {
                     {tasks.slice(0, 3).map((task) => (
                       <div key={task.id} className="flex items-center justify-between p-3 border border-neutral-100 rounded-lg hover:border-neutral-200 hover:bg-neutral-50 transition-all duration-200">
                         <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <div className="flex-shrink-0">
-                            {getStatusIcon(task.status)}
-                            </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
                               <h4 className="font-medium text-neutral-900 truncate text-sm">{task.sessionName}</h4>
@@ -757,11 +754,6 @@ export default function QCEDashboard() {
                       <div className="flex items-center justify-between">
                         {/* Left: Status + Info */}
                         <div className="flex items-center gap-3 flex-1 min-w-0">
-                          {/* Status Icon */}
-                          <div className="flex-shrink-0">
-                            {getStatusIcon(task.status)}
-                          </div>
-
                           {/* Main Info */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">

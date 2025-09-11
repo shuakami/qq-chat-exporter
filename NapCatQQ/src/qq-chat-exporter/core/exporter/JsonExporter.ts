@@ -7,6 +7,7 @@
 import { ExportFormat } from '../../types';
 import { BaseExporter, ExportOptions } from './BaseExporter';
 import { CleanMessage, SimpleMessageParser } from '../parser/SimpleMessageParser';
+import { NapCatCore } from '@/core';
 
 /**
  * JSON格式选项接口
@@ -140,8 +141,37 @@ export class JsonExporter extends BaseExporter {
         messages: any[], 
         chatInfo: { name: string; type: string; avatar?: string; participantCount?: number }
     ): Promise<string> {
-        // 确保messages是CleanMessage[]类型
-        const cleanMessages = messages as CleanMessage[];
+        console.log(`[JsonExporter] ==================== 开始JSON导出 ====================`);
+        console.log(`[JsonExporter] 输入消息数量: ${messages.length} 条`);
+        console.log(`[JsonExporter] 聊天信息: ${chatInfo.name} (${chatInfo.type})`);
+        console.log(`[JsonExporter] =====================================================`);
+        
+        // 检查是否需要解析消息
+        let cleanMessages: CleanMessage[];
+        
+        // 更精确的类型检测：检查是否有RawMessage特有的字段
+        if (messages.length > 0 && messages[0] && 
+            typeof messages[0].msgId === 'string' && 
+            messages[0].elements !== undefined &&
+            messages[0].senderUid !== undefined &&
+            messages[0].msgTime !== undefined) {
+            // 这是RawMessage[]，需要解析
+            console.log(`[JsonExporter] 检测到RawMessage[]，开始解析 ${messages.length} 条消息`);
+            const parser = new SimpleMessageParser();
+            cleanMessages = await parser.parseMessages(messages);
+            console.log(`[JsonExporter] 解析完成，得到 ${cleanMessages.length} 条CleanMessage`);
+        } else if (messages.length > 0 && messages[0] && 
+                   messages[0].content !== undefined &&
+                   messages[0].sender !== undefined) {
+            // 这是CleanMessage[]，直接使用
+            console.log(`[JsonExporter] 检测到CleanMessage[]，直接使用 ${messages.length} 条消息`);
+            cleanMessages = messages as CleanMessage[];
+        } else {
+            // 兜底：当作RawMessage处理
+            console.warn(`[JsonExporter] 无法确定消息类型，当作RawMessage处理`);
+            const parser = new SimpleMessageParser();
+            cleanMessages = await parser.parseMessages(messages);
+        }
         // 构建JSON数据结构
         const exportData: JsonExportData = {
             metadata: this.generateMetadata(),

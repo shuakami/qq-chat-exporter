@@ -66,7 +66,7 @@ export class BatchMessageFetcher {
     constructor(core: NapCatCore, config: Partial<BatchFetchConfig> = {}) {
         this.core = core;
         this.config = {
-            batchSize: 5000, // 默认5000条/批次，可根据性能调整
+            batchSize: 5000, // 默认5000条/批次，适合QQ API限制
             timeout: 30000, // 30秒超时
             retryCount: 3,
             retryInterval: 1000,
@@ -155,8 +155,8 @@ export class BatchMessageFetcher {
      * 适用于需要获取特定时间段内所有消息的场景
      * 
      * @param peer 聊天对象
-     * @param startTime 开始时间（Unix时间戳，秒）
-     * @param endTime 结束时间（Unix时间戳，秒）
+     * @param startTime 开始时间（Unix时间戳，毫秒）
+     * @param endTime 结束时间（Unix时间戳，毫秒）
      * @param additionalFilter 额外筛选条件
      * @returns 所有消息的异步迭代器
      */
@@ -276,7 +276,7 @@ export class BatchMessageFetcher {
                     peer,
                     startMessageId,
                     this.config.batchSize,
-                    true // 获取历史消息（向前获取更早的消息）
+                    true // 改回true，这应该是获取历史消息的正确方向
                 );
             }
         });
@@ -371,23 +371,7 @@ export class BatchMessageFetcher {
         // 判断是否还有更多消息
         let hasMore = messages.length > 0; // 有消息就继续获取
         
-        // 如果有时间筛选，检查最早的消息是否已经超出范围
-        if (filter?.startTime && messages.length > 0) {
-            // 检查这批消息中最早的时间
-            let earliestTime = Number.MAX_SAFE_INTEGER;
-            for (const msg of messages) {
-                if (msg.msgTime) {
-                    const msgTime = parseInt(msg.msgTime);
-                    const messageTime = msgTime < 2147483647 ? msgTime * 1000 : msgTime;
-                    earliestTime = Math.min(earliestTime, messageTime);
-                }
-            }
-            
-            if (earliestTime < filter.startTime) {
-                hasMore = false; // 已经获取到时间范围之外的消息，停止获取
-                console.info(`[BatchMessageFetcher] 最早消息时间 ${earliestTime} 早于起始时间 ${filter.startTime}，停止获取`);
-            }
-        }
+        // 继续获取更多历史消息，直到API无更多数据为止
         
         // 获取下一批次的标识符
         let nextMessageId: string | undefined;
@@ -408,7 +392,6 @@ export class BatchMessageFetcher {
                 
                 // 检查是否返回了与当前查询起点相同的消息（防止无限循环）
                 if (currentMessageId && nextMessageId === currentMessageId) {
-                    console.info(`[BatchMessageFetcher] 检测到循环：返回的消息ID ${nextMessageId} 与当前查询起点相同，停止获取`);
                     hasMore = false;
                     nextMessageId = undefined;
                     nextSeq = undefined;
@@ -432,27 +415,34 @@ export class BatchMessageFetcher {
      * 客户端筛选，用于序列号获取后的二次筛选
      */
     private applyClientSideFilter(messages: RawMessage[], filter: MessageFilter): RawMessage[] {
+        console.info(`[BatchMessageFetcher] 开始客户端筛选，输入消息数量: ${messages.length}`);
         let filtered = messages;
 
         // 时间筛选
         if (filter.startTime || filter.endTime) {
+            const beforeTimeFilter = filtered.length;
+            console.info(`[BatchMessageFetcher] 开始时间筛选，筛选前消息数量: ${beforeTimeFilter}, 筛选范围: ${filter.startTime} - ${filter.endTime}`);
+            
             filtered = filtered.filter(msg => {
                 let msgTime = parseInt(msg.msgTime);
                 
-                // 如果消息时间是秒级时间戳（小于2^31），转换为毫秒级
-                if (msgTime < 2147483647) {
+                // 检查时间戳是否为秒级（10位数）并转换为毫秒级
+                // 秒级时间戳范围大约：1000000000 (2001年) - 9999999999 (2286年)
+                if (msgTime > 1000000000 && msgTime < 10000000000) {
                     msgTime = msgTime * 1000;
                 }
                 
-                console.info(`[BatchMessageFetcher] 时间筛选: 原始消息时间=${msg.msgTime}, 转换后=${msgTime}, 筛选范围=${filter.startTime}-${filter.endTime}, 通过=${
-                    (!filter.startTime || msgTime >= filter.startTime) && 
-                    (!filter.endTime || msgTime <= filter.endTime)
-                }`);
+                const passes = (!filter.startTime || msgTime >= filter.startTime) && 
+                             (!filter.endTime || msgTime <= filter.endTime);
                 
-                if (filter.startTime && msgTime < filter.startTime) return false;
-                if (filter.endTime && msgTime > filter.endTime) return false;
-                return true;
+                if (!passes) {
+                    console.info(`[BatchMessageFetcher] 消息被时间筛选过滤: msgId=${msg.msgId}, 原始时间=${msg.msgTime}, 转换后=${msgTime}, 筛选范围=${filter.startTime}-${filter.endTime}`);
+                }
+                
+                return passes;
             });
+            
+            console.info(`[BatchMessageFetcher] 时间筛选完成，筛选后消息数量: ${filtered.length}, 过滤掉: ${beforeTimeFilter - filtered.length}`);
         }
 
         // 发送者筛选
@@ -478,6 +468,7 @@ export class BatchMessageFetcher {
             });
         }
 
+        console.info(`[BatchMessageFetcher] 客户端筛选完成，最终输出消息数量: ${filtered.length} (输入: ${messages.length}, 过滤掉: ${messages.length - filtered.length})`);
         return filtered;
     }
 

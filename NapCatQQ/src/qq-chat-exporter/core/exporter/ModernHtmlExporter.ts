@@ -58,6 +58,17 @@ export class ModernHtmlExporter {
         // 复制资源文件到导出目录
         if (this.options.includeResourceLinks) {
             await this.copyResources(messages, outputDir);
+            
+            // 输出使用说明
+            console.log(`[ModernHtmlExporter] HTML导出完成！`);
+            console.log(`[ModernHtmlExporter] 📁 HTML文件位置: ${this.options.outputPath}`);
+            console.log(`[ModernHtmlExporter] 📁 资源文件位置: ${outputDir}/resources/`);
+            console.log(`[ModernHtmlExporter] ⚠️  重要提示：要正确显示图片、音频、视频等资源，请确保：`);
+            console.log(`[ModernHtmlExporter]    1. HTML文件和resources文件夹在同一目录下`);
+            console.log(`[ModernHtmlExporter]    2. 不要单独移动HTML文件，请将整个导出目录一起移动`);
+            console.log(`[ModernHtmlExporter]    3. 在浏览器中打开HTML文件时，确保上述目录结构完整`);
+        } else {
+            console.log(`[ModernHtmlExporter] HTML导出完成！文件位置: ${this.options.outputPath}`);
         }
     }
 
@@ -777,11 +788,20 @@ export class ModernHtmlExporter {
      * 渲染图片元素
      */
     private renderImageElement(data: any): string {
-        const url = data.url || data.localPath || '';
         const filename = data.filename || '图片';
         
-        if (url) {
-            return `<div class="image-content"><img src="${url}" alt="${this.escapeHtml(filename)}" loading="lazy" onclick="showImageModal('${url}')"></div>`;
+        // 优先使用本地路径，将其转换为相对路径
+        let src = '';
+        if (data.localPath && this.isValidResourcePath(data.localPath)) {
+            // 转换为相对于HTML的路径格式
+            src = `resources/images/${data.filename || path.basename(data.localPath)}`;
+        } else if (data.url) {
+            // 备用：使用远程URL
+            src = data.url;
+        }
+        
+        if (src) {
+            return `<div class="image-content"><img src="${src}" alt="${this.escapeHtml(filename)}" loading="lazy" onclick="showImageModal('${src}')"></div>`;
         }
         
         return `<span class="text-content">📷 ${this.escapeHtml(filename)}</span>`;
@@ -791,11 +811,18 @@ export class ModernHtmlExporter {
      * 渲染音频元素
      */
     private renderAudioElement(data: any): string {
-        const url = data.url || data.localPath || '';
         const duration = data.duration || 0;
         
-        if (url) {
-            return `<audio src="${url}" controls class="message-audio" preload="metadata">[语音:${duration}秒]</audio>`;
+        // 优先使用本地路径
+        let src = '';
+        if (data.localPath && this.isValidResourcePath(data.localPath)) {
+            src = `resources/audios/${data.filename || path.basename(data.localPath)}`;
+        } else if (data.url) {
+            src = data.url;
+        }
+        
+        if (src) {
+            return `<audio src="${src}" controls class="message-audio" preload="metadata">[语音:${duration}秒]</audio>`;
         }
         
         return `<span class="text-content">🎤 [语音:${duration}秒]</span>`;
@@ -805,11 +832,18 @@ export class ModernHtmlExporter {
      * 渲染视频元素
      */
     private renderVideoElement(data: any): string {
-        const url = data.url || data.localPath || '';
         const filename = data.filename || '视频';
         
-        if (url) {
-            return `<video src="${url}" controls class="message-video" preload="metadata">[视频: ${this.escapeHtml(filename)}]</video>`;
+        // 优先使用本地路径
+        let src = '';
+        if (data.localPath && this.isValidResourcePath(data.localPath)) {
+            src = `resources/videos/${data.filename || path.basename(data.localPath)}`;
+        } else if (data.url) {
+            src = data.url;
+        }
+        
+        if (src) {
+            return `<video src="${src}" controls class="message-video" preload="metadata">[视频: ${this.escapeHtml(filename)}]</video>`;
         }
         
         return `<span class="text-content">🎬 ${this.escapeHtml(filename)}</span>`;
@@ -819,11 +853,18 @@ export class ModernHtmlExporter {
      * 渲染文件元素
      */
     private renderFileElement(data: any): string {
-        const url = data.url || data.localPath || '';
         const filename = data.filename || '文件';
         
-        if (url) {
-            return `<a href="${url}" class="message-file" download="${this.escapeHtml(filename)}">📎 ${this.escapeHtml(filename)}</a>`;
+        // 优先使用本地路径
+        let href = '';
+        if (data.localPath && this.isValidResourcePath(data.localPath)) {
+            href = `resources/files/${data.filename || path.basename(data.localPath)}`;
+        } else if (data.url) {
+            href = data.url;
+        }
+        
+        if (href) {
+            return `<a href="${href}" class="message-file" download="${this.escapeHtml(filename)}">📎 ${this.escapeHtml(filename)}</a>`;
         }
         
         return `<span class="text-content">📎 ${this.escapeHtml(filename)}</span>`;
@@ -842,10 +883,16 @@ export class ModernHtmlExporter {
      */
     private renderMarketFaceElement(data: any): string {
         const name = data.name || '商城表情';
+        
+        console.log(`[ModernHtmlExporter] renderMarketFaceElement被调用: name=${name}, url=${data.url}, filename=${data.filename}`);
+        
+        // 商城表情通常使用远程URL，不需要本地化
         const url = data.url || '';
         
         if (url) {
-            return `<img src="${url}" alt="${this.escapeHtml(name)}" class="market-face" title="${this.escapeHtml(name)}">`;
+            const htmlResult = `<img src="${url}" alt="${this.escapeHtml(name)}" class="market-face" title="${this.escapeHtml(name)}">`;
+            console.log(`[ModernHtmlExporter] 生成的商城表情HTML: ${htmlResult}`);
+            return htmlResult;
         }
         
         return `<span class="text-content">[${this.escapeHtml(name)}]</span>`;

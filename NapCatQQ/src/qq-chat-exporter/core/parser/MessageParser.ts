@@ -212,9 +212,8 @@ export class MessageParser {
             try {
                 const message = messages[i];
                 
-                // 跳过无效消息
-                if (!message || message.senderUin === '0' || message.senderUin === '' || 
-                    message.peerUin === '0' || message.peerUin === '') {
+                // 跳过空消息
+                if (!message || !message.msgId) {
                     continue;
                 }
                 
@@ -235,6 +234,11 @@ export class MessageParser {
                     // 转换OneBot消息为我们的格式
                     const parsed = this.convertOB11MessageToParsedMessage(ob11Result.arrayMsg, message);
                     results.push(parsed);
+                } else {
+                    // OneBot解析失败，创建基础消息记录
+                    this.log(`OneBot解析失败，使用fallback处理消息 ${message.msgId}`, 'warn');
+                    const fallbackMessage = this.createFallbackMessage(message);
+                    results.push(fallbackMessage);
                 }
 
                 // 每100条消息输出一次进度
@@ -1101,6 +1105,74 @@ export class MessageParser {
         } catch (error) {
             return '原消息';
         }
+    }
+
+    /**
+     * 创建fallback消息记录（当OneBot解析失败时使用）
+     */
+    private createFallbackMessage(message: RawMessage): ParsedMessage {
+        const timestamp = new Date(parseInt(message.msgTime) * 1000);
+        
+        // 提取文本内容
+        let textContent = '';
+        if (message.elements && message.elements.length > 0) {
+            textContent = message.elements
+                .filter(e => e.textElement)
+                .map(e => e.textElement?.content || '')
+                .join('')
+                .trim();
+            
+            // 如果没有文本内容，尝试生成描述性文本
+            if (!textContent) {
+                const elementTypes = message.elements.map(e => {
+                    if (e.picElement) return '[图片]';
+                    if (e.videoElement) return '[视频]';
+                    if (e.fileElement) return '[文件]';
+                    if (e.pttElement) return '[语音]';
+                    if (e.faceElement) return '[表情]';
+                    if (e.marketFaceElement) return '[表情包]';
+                    if (e.replyElement) return '[回复]';
+                    return '[消息]';
+                }).join('');
+                textContent = elementTypes || '[消息内容]';
+            }
+        }
+        
+        return {
+            messageId: message.msgId,
+            messageSeq: message.msgSeq,
+            msgRandom: message.msgRandom,
+            timestamp,
+            sender: {
+                uid: message.senderUid || '0',
+                uin: message.senderUin || '0',
+                name: message.sendNickName || message.sendRemarkName || '未知用户'
+            },
+            receiver: {
+                uid: message.peerUid,
+                type: message.chatType === 2 ? 'group' : 'private'
+            },
+            messageType: message.msgType,
+            isSystemMessage: this.isSystemMessage(message),
+            isRecalled: message.recallTime !== '0' && message.recallTime !== undefined,
+            isTempMessage: false,
+            content: {
+                text: textContent,
+                html: this.escapeHtml(textContent),
+                raw: JSON.stringify(message.elements || []),
+                mentions: [],
+                resources: [],
+                emojis: [],
+                special: []
+            },
+            stats: {
+                elementCount: message.elements?.length || 0,
+                resourceCount: 0,
+                textLength: textContent.length,
+                processingTime: 0
+            },
+            rawMessage: message
+        };
     }
 
     /**

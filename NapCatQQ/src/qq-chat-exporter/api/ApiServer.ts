@@ -555,8 +555,8 @@ export class QQChatExporterApiServer {
                 const allMessages: RawMessage[] = [];
                 const messageGenerator = fetcher.fetchAllMessagesInTimeRange(
                     peer,
-                    filter?.startTime ? filter.startTime * 1000 : 0,
-                    filter?.endTime ? filter.endTime * 1000 : Date.now()
+                    filter?.startTime ? filter.startTime : 0,
+                    filter?.endTime ? filter.endTime : Date.now()
                 );
                 
                 for await (const batch of messageGenerator) {
@@ -989,8 +989,23 @@ export class QQChatExporterApiServer {
                 retryCount: 3
             });
 
-            const startTimeMs = filter?.startTime ? filter.startTime * 1000 : 0;
-            const endTimeMs = filter?.endTime ? filter.endTime * 1000 : Date.now();
+            // 检测时间戳单位并转换为毫秒级
+            let startTimeMs = filter?.startTime ? filter.startTime : 0;
+            let endTimeMs = filter?.endTime ? filter.endTime : Date.now();
+            
+            // 检查时间戳是否为秒级（10位数）并转换为毫秒级
+            // 秒级时间戳范围大约：1000000000 (2001年) - 9999999999 (2286年)
+            if (startTimeMs > 1000000000 && startTimeMs < 10000000000) {
+                console.log(`[ApiServer] 检测到秒级时间戳 startTime=${startTimeMs}，转换为毫秒级`);
+                startTimeMs = startTimeMs * 1000;
+            }
+            if (endTimeMs > 1000000000 && endTimeMs < 10000000000) {
+                console.log(`[ApiServer] 检测到秒级时间戳 endTime=${endTimeMs}，转换为毫秒级`);
+                endTimeMs = endTimeMs * 1000;
+            }
+            
+            console.log(`[ApiServer] 时间范围参数: startTime=${startTimeMs}, endTime=${endTimeMs}`);
+            console.log(`[ApiServer] 时间范围: ${new Date(startTimeMs).toISOString()} - ${new Date(endTimeMs).toISOString()}`);
             
             const allMessages: RawMessage[] = [];
             const messageGenerator = fetcher.fetchAllMessagesInTimeRange(peer, startTimeMs, endTimeMs);
@@ -1022,8 +1037,13 @@ export class QQChatExporterApiServer {
                     }
                 });
             }
-
-            console.log(`[ApiServer] 消息收集完成: ${allMessages.length} 条`);
+            
+            console.log(`[ApiServer] ==================== 消息收集汇总 ====================`);
+            console.log(`[ApiServer] 时间范围: ${new Date(startTimeMs).toISOString()} - ${new Date(endTimeMs).toISOString()}`);
+            console.log(`[ApiServer] 总批次数: ${batchCount}`);
+            console.log(`[ApiServer] 收集到的消息总数: ${allMessages.length} 条`);
+            console.log(`[ApiServer] 平均每批次: ${batchCount > 0 ? Math.round(allMessages.length / batchCount) : 0} 条`);
+            console.log(`[ApiServer] ====================================================`);
 
             // 所有格式都需要通过OneBot解析器处理
             task = this.exportTasks.get(taskId);
@@ -1046,17 +1066,13 @@ export class QQChatExporterApiServer {
                 }
             });
 
-            // 使用简化消息解析器解析所有消息
-            const parser = new SimpleMessageParser();
-            const messagesToExport = await parser.parseMessages(allMessages);
-
             // 处理资源下载
             task = this.exportTasks.get(taskId);
             if (task) {
                 await this.updateTaskStatus(taskId, {
                     progress: 70,
                     message: '正在下载资源...',
-                    messageCount: messagesToExport.length
+                    messageCount: allMessages.length
                 });
             }
             
@@ -1067,7 +1083,7 @@ export class QQChatExporterApiServer {
                     status: 'running',
                     progress: 70,
                     message: '正在下载资源...',
-                    messageCount: messagesToExport.length
+                    messageCount: allMessages.length
                 }
             });
 
@@ -1075,16 +1091,13 @@ export class QQChatExporterApiServer {
             const resourceMap = await this.resourceHandler.processMessageResources(allMessages);
             console.info(`[ApiServer] 处理了 ${resourceMap.size} 个消息的资源`);
 
-            // 更新消息中的资源路径
-            await parser.updateResourcePaths(messagesToExport, resourceMap);
-
             // 导出文件
             task = this.exportTasks.get(taskId);
             if (task) {
                 await this.updateTaskStatus(taskId, {
                     progress: 85,
                     message: '正在生成文件...',
-                    messageCount: messagesToExport.length
+                    messageCount: allMessages.length
                 });
             }
             
@@ -1095,7 +1108,7 @@ export class QQChatExporterApiServer {
                     status: 'running',
                     progress: 85,
                     message: '正在生成文件...',
-                    messageCount: messagesToExport.length
+                    messageCount: allMessages.length
                 }
             });
 
@@ -1125,24 +1138,39 @@ export class QQChatExporterApiServer {
                 type: (peer.chatType === ChatType.KCHATTYPEGROUP ? 'group' : 'private') as 'group' | 'private'
             };
 
+            console.log(`[ApiServer] ==================== 开始导出 ====================`);
+            console.log(`[ApiServer] 导出格式: ${format.toUpperCase()}`);
+            console.log(`[ApiServer] 传递给导出器的消息数量: ${allMessages.length} 条`);
+            console.log(`[ApiServer] 导出文件路径: ${filePath}`);
+            console.log(`[ApiServer] =================================================`);
+            
             switch (format.toUpperCase()) {
                 case 'TXT':
+                    console.log(`[ApiServer] 调用 TextExporter，传入 ${allMessages.length} 条 RawMessage`);
                     exporter = new TextExporter(exportOptions, {}, this.core);
-                    await exporter.export(messagesToExport, chatInfo);
+                    await exporter.export(allMessages, chatInfo);
                     break;
                 case 'JSON':
+                    console.log(`[ApiServer] 调用 JsonExporter，传入 ${allMessages.length} 条 RawMessage`);
                     exporter = new JsonExporter(exportOptions, {}, this.core);
-                    await exporter.export(messagesToExport, chatInfo);
+                    await exporter.export(allMessages, chatInfo);
                     break;
                 case 'HTML':
-                    // 使用新的ModernHtmlExporter
+                    // HTML导出需要CleanMessage格式，先解析消息
+                    const parser = new SimpleMessageParser();
+                    const cleanMessages = await parser.parseMessages(allMessages);
+                    
+                    // 🔧 关键修复：更新资源路径为本地路径
+                    await parser.updateResourcePaths(cleanMessages, resourceMap);
+                    console.log(`[ApiServer] 已更新${cleanMessages.length}条消息的资源路径为本地路径`);
+                    
                     const htmlExporter = new ModernHtmlExporter({
                         outputPath: filePath,
                         includeResourceLinks: exportOptions.includeResourceLinks,
                         includeSystemMessages: exportOptions.includeSystemMessages,
                         encoding: exportOptions.encoding
                     });
-                    await htmlExporter.export(messagesToExport, chatInfo);
+                    await htmlExporter.export(cleanMessages, chatInfo);
                     break;
                 default:
                     throw new SystemError(ErrorType.VALIDATION_ERROR, '不支持的导出格式', 'INVALID_FORMAT');
@@ -1157,7 +1185,7 @@ export class QQChatExporterApiServer {
                     status: 'completed',
                     progress: 100,
                     message: '导出完成',
-                    messageCount: messagesToExport.length,
+                    messageCount: allMessages.length,
                     fileSize: stats.size,
                     completedAt: new Date().toISOString()
                 });
@@ -1171,7 +1199,7 @@ export class QQChatExporterApiServer {
                     status: 'completed',
                     progress: 100,
                     message: '导出完成',
-                    messageCount: messagesToExport.length,
+                    messageCount: allMessages.length,
                     fileName,
                     filePath,
                     fileSize: stats.size,

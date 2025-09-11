@@ -4,11 +4,12 @@
  * 支持多种文本布局和格式化选项
  */
 
-import { ExportFormat, ExportResult } from '../../types';
+import { ExportFormat } from '../../types';
 import { BaseExporter, ExportOptions } from './BaseExporter';
 import { RawMessage } from '@/core';
 import { NapCatCore } from '../../../core';
 import { ParsedMessage } from '../parser/MessageParser';
+import { SimpleMessageParser, CleanMessage } from '../parser/SimpleMessageParser';
 
 /**
  * 文本格式选项接口
@@ -67,13 +68,29 @@ export class TextExporter extends BaseExporter {
         messages: RawMessage[], 
         chatInfo?: { name?: string; type?: string; avatar?: string; participantCount?: number }
     ): Promise<string> {
-        // 需要使用MessageParser先解析消息
-        if (!this.core) {
-            throw new Error('NapCatCore实例不可用，无法解析消息');
-        }
+        let parsedMessages: ParsedMessage[] = [];
         
-        const parser = this.getMessageParser(this.core);
-        const parsedMessages = await parser.parseMessages(messages);
+        // 尝试使用MessageParser解析消息
+        if (this.core) {
+            try {
+                const parser = this.getMessageParser(this.core);
+                parsedMessages = await parser.parseMessages(messages);
+                console.log(`[TextExporter] MessageParser解析了 ${parsedMessages.length} 条消息`);
+                
+                // 如果MessageParser解析结果为空，使用fallback
+                if (parsedMessages.length === 0 && messages.length > 0) {
+                    console.log(`[TextExporter] MessageParser解析结果为空，使用SimpleMessageParser作为fallback`);
+                    parsedMessages = await this.useFallbackParser(messages);
+                }
+            } catch (error) {
+                console.error(`[TextExporter] MessageParser解析失败，使用SimpleMessageParser作为fallback:`, error);
+                parsedMessages = await this.useFallbackParser(messages);
+            }
+        } else {
+            // 没有NapCatCore实例，直接使用SimpleMessageParser
+            console.log(`[TextExporter] 没有NapCatCore实例，使用SimpleMessageParser`);
+            parsedMessages = await this.useFallbackParser(messages);
+        }
         
         const lines: string[] = [];
         
@@ -111,6 +128,61 @@ export class TextExporter extends BaseExporter {
         lines.push(...this.generateFooter(parsedMessages));
         
         return lines.join('\n');
+    }
+
+    /**
+     * 使用SimpleMessageParser作为fallback解析器
+     */
+    private async useFallbackParser(messages: RawMessage[]): Promise<ParsedMessage[]> {
+        const simpleParser = new SimpleMessageParser();
+        const cleanMessages = await simpleParser.parseMessages(messages);
+        
+        // 将CleanMessage转换为ParsedMessage格式
+        return cleanMessages.map((cleanMsg: CleanMessage): ParsedMessage => ({
+            messageId: cleanMsg.id,
+            messageSeq: cleanMsg.seq,
+            timestamp: new Date(cleanMsg.timestamp),
+            sender: {
+                uid: cleanMsg.sender.uid,
+                uin: cleanMsg.sender.uin,
+                name: cleanMsg.sender.name || cleanMsg.sender.uid
+            },
+            receiver: {
+                uid: 'unknown',
+                type: 'unknown' as 'group' | 'private'
+            },
+            messageType: cleanMsg.type as any,
+            isSystemMessage: cleanMsg.system,
+            isRecalled: cleanMsg.recalled,
+            isTempMessage: false,
+            content: {
+                text: cleanMsg.content.text,
+                html: cleanMsg.content.html,
+                raw: JSON.stringify(cleanMsg.content.elements),
+                mentions: [],
+                resources: cleanMsg.content.resources.map(r => ({
+                    type: r.type as 'image' | 'video' | 'audio' | 'file',
+                    fileName: r.filename,
+                    fileSize: r.size,
+                    originalUrl: r.url || '',
+                    localPath: r.localPath,
+                    md5: '',
+                    mimeType: 'application/octet-stream',
+                    status: 'downloaded' as any,
+                    accessible: true,
+                    checkedAt: new Date()
+                })),
+                emojis: [],
+                special: []
+            },
+            stats: {
+                elementCount: cleanMsg.content.elements.length,
+                resourceCount: cleanMsg.content.resources.length,
+                textLength: cleanMsg.content.text.length,
+                processingTime: 0
+            },
+            rawMessage: {} as any // 没有原始消息数据
+        }));
     }
 
     /**
@@ -203,6 +275,19 @@ export class TextExporter extends BaseExporter {
         const content = message.content.text.trim();
         if (content) {
             lines.push(`内容: ${content}`);
+        } else if (message.content.resources.length > 0) {
+            // 如果没有文本但有资源，显示资源类型
+            const resourceTypes = message.content.resources.map(r => r.type).join('、');
+            lines.push(`内容: [${resourceTypes}消息]`);
+        } else if (message.isSystemMessage) {
+            // 系统消息
+            lines.push(`内容: [系统消息]`);
+        } else if (message.content.emojis.length > 0) {
+            // 表情消息
+            lines.push(`内容: [表情消息]`);
+        } else {
+            // 其他无内容消息
+            lines.push(`内容: [无文本内容]`);
         }
         
         // 资源信息（可选）
