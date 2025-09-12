@@ -8,6 +8,8 @@ import { ExportFormat } from '../../types';
 import { BaseExporter, ExportOptions } from './BaseExporter';
 import { CleanMessage, SimpleMessageParser } from '../parser/SimpleMessageParser';
 import { NapCatCore } from '@/core';
+import { RawMessage } from '@/core';
+import { ParsedMessage } from '../parser/MessageParser';
 
 /**
  * JSON格式选项接口
@@ -135,7 +137,7 @@ export class JsonExporter extends BaseExporter {
     }
 
     /**
-     * 生成JSON内容 - 直接使用原始消息数据
+     * 生成JSON内容 - 使用与TXT导出器相同的双重解析机制
      */
     protected async generateContent(
         messages: any[], 
@@ -156,9 +158,8 @@ export class JsonExporter extends BaseExporter {
             messages[0].senderUid !== undefined &&
             messages[0].msgTime !== undefined) {
             // 这是RawMessage[]，需要解析
-            console.log(`[JsonExporter] 检测到RawMessage[]，开始解析 ${messages.length} 条消息`);
-            const parser = new SimpleMessageParser();
-            cleanMessages = await parser.parseMessages(messages);
+            console.log(`[JsonExporter] 检测到RawMessage[]，使用双重解析机制解析 ${messages.length} 条消息`);
+            cleanMessages = await this.parseWithDualStrategy(messages as RawMessage[]);
             console.log(`[JsonExporter] 解析完成，得到 ${cleanMessages.length} 条CleanMessage`);
         } else if (messages.length > 0 && messages[0] && 
                    messages[0].content !== undefined &&
@@ -169,8 +170,7 @@ export class JsonExporter extends BaseExporter {
         } else {
             // 兜底：当作RawMessage处理
             console.warn(`[JsonExporter] 无法确定消息类型，当作RawMessage处理`);
-            const parser = new SimpleMessageParser();
-            cleanMessages = await parser.parseMessages(messages);
+            cleanMessages = await this.parseWithDualStrategy(messages as RawMessage[]);
         }
         // 构建JSON数据结构
         const exportData: JsonExportData = {
@@ -190,6 +190,156 @@ export class JsonExporter extends BaseExporter {
 
         // 序列化为JSON
         return this.serializeJson(exportData);
+    }
+
+    /**
+     * 使用双重解析策略解析消息（与TXT导出器相同的机制）
+     * 首先尝试使用MessageParser，失败时fallback到SimpleMessageParser
+     */
+    private async parseWithDualStrategy(messages: RawMessage[]): Promise<CleanMessage[]> {
+        let parsedMessages: ParsedMessage[] = [];
+        
+        // 尝试使用MessageParser解析消息
+        if (this.core) {
+            try {
+                console.log(`[JsonExporter] 尝试使用MessageParser解析 ${messages.length} 条消息`);
+                const parser = this.getMessageParser(this.core);
+                parsedMessages = await parser.parseMessages(messages);
+                console.log(`[JsonExporter] MessageParser解析了 ${parsedMessages.length} 条消息`);
+                
+                // 如果MessageParser解析结果为空，使用fallback
+                if (parsedMessages.length === 0 && messages.length > 0) {
+                    console.log(`[JsonExporter] MessageParser解析结果为空，使用SimpleMessageParser作为fallback`);
+                    return await this.useFallbackParser(messages);
+                }
+            } catch (error) {
+                console.error(`[JsonExporter] MessageParser解析失败，使用SimpleMessageParser作为fallback:`, error);
+                return await this.useFallbackParser(messages);
+            }
+        } else {
+            // 没有NapCatCore实例，直接使用SimpleMessageParser
+            console.log(`[JsonExporter] 没有NapCatCore实例，使用SimpleMessageParser`);
+            return await this.useFallbackParser(messages);
+        }
+        
+        // 将ParsedMessage转换为CleanMessage格式
+        return this.convertParsedMessagesToCleanMessages(parsedMessages);
+    }
+
+    /**
+     * 使用SimpleMessageParser作为fallback解析器
+     */
+    private async useFallbackParser(messages: RawMessage[]): Promise<CleanMessage[]> {
+        const simpleParser = new SimpleMessageParser();
+        return await simpleParser.parseMessages(messages);
+    }
+
+    /**
+     * 将ParsedMessage数组转换为CleanMessage数组
+     */
+    private convertParsedMessagesToCleanMessages(parsedMessages: ParsedMessage[]): CleanMessage[] {
+        return parsedMessages.map((parsedMsg: ParsedMessage): CleanMessage => ({
+            id: parsedMsg.messageId,
+            seq: parsedMsg.messageSeq,
+            timestamp: parsedMsg.timestamp.getTime(),
+            time: parsedMsg.timestamp.toISOString(),
+            sender: {
+                uid: parsedMsg.sender.uid,
+                uin: parsedMsg.sender.uin,
+                name: parsedMsg.sender.name || parsedMsg.sender.uid,
+                remark: undefined // ParsedMessage中没有remark字段
+            },
+            type: this.getMessageTypeFromNTMsgType(parsedMsg.messageType),
+            content: {
+                text: parsedMsg.content.text,
+                html: parsedMsg.content.html,
+                elements: this.convertContentToElements(parsedMsg.content),
+                resources: parsedMsg.content.resources.map(r => ({
+                    type: r.type,
+                    filename: r.fileName,
+                    size: r.fileSize,
+                    url: r.originalUrl,
+                    localPath: r.localPath,
+                    width: undefined,
+                    height: undefined,
+                    duration: undefined
+                }))
+            },
+            recalled: parsedMsg.isRecalled,
+            system: parsedMsg.isSystemMessage
+        }));
+    }
+
+    /**
+     * 将ParsedMessageContent转换为MessageElementData数组
+     */
+    private convertContentToElements(content: any): any[] {
+        const elements: any[] = [];
+        
+        // 添加文本元素
+        if (content.text) {
+            elements.push({
+                type: 'text',
+                data: { text: content.text }
+            });
+        }
+        
+        // 添加资源元素
+        for (const resource of content.resources) {
+            elements.push({
+                type: resource.type,
+                data: {
+                    filename: resource.fileName,
+                    size: resource.fileSize,
+                    url: resource.originalUrl
+                }
+            });
+        }
+        
+        // 添加提及元素
+        for (const mention of content.mentions) {
+            elements.push({
+                type: 'at',
+                data: {
+                    uid: mention.uid,
+                    name: mention.name
+                }
+            });
+        }
+        
+        // 添加表情元素
+        for (const emoji of content.emojis) {
+            elements.push({
+                type: emoji.type === 'market' ? 'market_face' : 'face',
+                data: {
+                    id: emoji.id,
+                    name: emoji.name,
+                    url: emoji.url
+                }
+            });
+        }
+        
+        // 添加回复元素
+        if (content.reply) {
+            elements.push({
+                type: 'reply',
+                data: {
+                    messageId: content.reply.messageId,
+                    senderName: content.reply.senderName,
+                    content: content.reply.content
+                }
+            });
+        }
+        
+        return elements;
+    }
+
+    /**
+     * 将NTMsgType转换为字符串类型
+     */
+    private getMessageTypeFromNTMsgType(msgType: any): string {
+        // 这里可以根据需要添加更多类型映射
+        return `type_${msgType}`;
     }
 
     /**

@@ -65,12 +65,14 @@ enum CircuitBreakerState {
 }
 
 /**
- * 熔断器
+ * 智能熔断器
+ * 区分不同类型的错误，只有严重错误才计入熔断
  */
 class CircuitBreaker {
     private state: CircuitBreakerState = CircuitBreakerState.CLOSED;
     private failureCount: number = 0;
     private lastFailureTime: Date | null = null;
+    private consecutiveFailures: number = 0;
     
     constructor(
         private threshold: number,
@@ -84,8 +86,12 @@ class CircuitBreaker {
         if (this.state === CircuitBreakerState.OPEN) {
             if (this.shouldAttemptReset()) {
                 this.state = CircuitBreakerState.HALF_OPEN;
+                console.log('[CircuitBreaker] 尝试从熔断状态恢复，切换到半开状态');
             } else {
-                throw new Error('熔断器已开启，拒绝执行操作');
+                // 输出更详细的信息，帮助用户理解问题
+                const timeUntilRecovery = this.getTimeUntilRecovery();
+                console.warn(`[CircuitBreaker] 熔断器已开启，拒绝执行操作。预计 ${Math.ceil(timeUntilRecovery / 1000)} 秒后可尝试恢复`);
+                throw new Error(`熔断器已开启，拒绝执行操作。预计 ${Math.ceil(timeUntilRecovery / 1000)} 秒后可尝试恢复`);
             }
         }
 
@@ -94,7 +100,8 @@ class CircuitBreaker {
             this.onSuccess();
             return result;
         } catch (error) {
-            this.onFailure();
+            // 智能错误处理：只有特定类型的错误才计入熔断
+            this.onFailure(error);
             throw error;
         }
     }
@@ -104,19 +111,64 @@ class CircuitBreaker {
      */
     private onSuccess(): void {
         this.failureCount = 0;
+        this.consecutiveFailures = 0;
+        if (this.state === CircuitBreakerState.HALF_OPEN) {
+            console.log('[CircuitBreaker] 半开状态下操作成功，恢复到关闭状态');
+        }
         this.state = CircuitBreakerState.CLOSED;
     }
 
     /**
-     * 失败回调
+     * 智能失败处理
+     * 只有特定类型的错误才计入熔断，避免因为404等正常错误触发熔断
      */
-    private onFailure(): void {
-        this.failureCount++;
-        this.lastFailureTime = new Date();
+    private onFailure(error: any): void {
+        const errorMessage = error?.message || String(error);
+        const shouldCountTowardsBreaker = this.shouldCountAsFailure(errorMessage);
         
-        if (this.failureCount >= this.threshold) {
-            this.state = CircuitBreakerState.OPEN;
+        if (shouldCountTowardsBreaker) {
+            this.failureCount++;
+            this.consecutiveFailures++;
+            this.lastFailureTime = new Date();
+            
+            console.warn(`[CircuitBreaker] 严重错误计入熔断统计: ${errorMessage} (${this.failureCount}/${this.threshold})`);
+            
+            if (this.failureCount >= this.threshold) {
+                this.state = CircuitBreakerState.OPEN;
+                console.error(`[CircuitBreaker] 熔断器已开启，连续失败 ${this.failureCount} 次，将在 ${this.recoveryTime / 1000} 秒后尝试恢复`);
+            }
+        } else {
+            // 轻微错误不计入熔断，但重置连续成功计数
+            this.consecutiveFailures++;
+            console.log(`[CircuitBreaker] 轻微错误不计入熔断: ${errorMessage}`);
         }
+    }
+
+    /**
+     * 判断错误是否应该计入熔断统计
+     */
+    private shouldCountAsFailure(errorMessage: string): boolean {
+        // 不应该计入熔断的错误类型
+        const ignoredErrors = [
+            '404',           // 资源不存在
+            'not found',     // 文件未找到
+            'forbidden',     // 权限错误
+            'unauthorized',  // 认证错误
+            'file exists',   // 文件已存在
+            'disk quota',    // 磁盘空间不足
+        ];
+        
+        const lowerErrorMsg = errorMessage.toLowerCase();
+        return !ignoredErrors.some(ignored => lowerErrorMsg.includes(ignored));
+    }
+
+    /**
+     * 获取距离恢复尝试的剩余时间
+     */
+    private getTimeUntilRecovery(): number {
+        if (!this.lastFailureTime) return 0;
+        const elapsed = Date.now() - this.lastFailureTime.getTime();
+        return Math.max(0, this.recoveryTime - elapsed);
     }
 
     /**
@@ -235,11 +287,11 @@ export class ResourceHandler {
         
         this.config = {
             storageRoot: path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'resources'),
-            downloadTimeout: 60000, // 60秒
-            maxConcurrentDownloads: 3,
-            maxRetries: 3,
-            circuitBreakerThreshold: 5,
-            circuitBreakerRecoveryTime: 300000, // 5分钟
+            downloadTimeout: 30000, // 30秒（缩短超时时间，更快失败重试）
+            maxConcurrentDownloads: 2, // 降低并发数，减少服务器压力
+            maxRetries: 5, // 增加重试次数
+            circuitBreakerThreshold: 20, // 大幅提高熔断阈值（5→20）
+            circuitBreakerRecoveryTime: 60000, // 大幅缩短恢复时间（5分钟→1分钟）
             healthCheckInterval: 600000, // 10分钟
             enableLocalCache: true,
             cacheCleanupThreshold: 30, // 30天
@@ -514,7 +566,12 @@ export class ResourceHandler {
         if (this.isProcessing) return;
         
         this.isProcessing = true;
-        console.log(`[ResourceHandler] 开始处理下载队列，队列长度: ${this.downloadQueue.length}`);
+        const initialQueueSize = this.downloadQueue.length;
+        console.log(`[ResourceHandler] 开始处理下载队列，队列长度: ${initialQueueSize}`);
+        
+        let successCount = 0;
+        let failureCount = 0;
+        let skippedCount = 0;
         
         try {
             while (this.downloadQueue.length > 0) {
@@ -526,24 +583,54 @@ export class ResourceHandler {
                 const task = this.downloadQueue.shift();
                 if (!task) continue;
                 
-                console.log(`[ResourceHandler] 开始执行下载任务: ${task.resourceInfo.fileName} (剩余队列: ${this.downloadQueue.length}, 活跃下载: ${this.activeDownloads.size})`);
+                const progress = Math.round(((initialQueueSize - this.downloadQueue.length) / initialQueueSize) * 100);
+                console.log(`[ResourceHandler] [${progress}%] 开始执行下载任务: ${task.resourceInfo.fileName} (剩余队列: ${this.downloadQueue.length}, 活跃下载: ${this.activeDownloads.size})`);
                 
                 // 启动下载任务
-                const downloadPromise = this.executeDownload(task);
+                const downloadPromise = this.executeDownload(task)
+                    .then(result => {
+                        if (result) {
+                            successCount++;
+                            console.log(`[ResourceHandler] ✅ 下载成功: ${task.resourceInfo.fileName}`);
+                        } else {
+                            // 空字符串表示延迟重试或跳过
+                            if (task.resourceInfo.status === ResourceStatus.SKIPPED) {
+                                skippedCount++;
+                                console.log(`[ResourceHandler] ⏭️ 已跳过: ${task.resourceInfo.fileName}`);
+                            }
+                        }
+                        return result;
+                    })
+                    .catch(error => {
+                        failureCount++;
+                        console.error(`[ResourceHandler] ❌ 下载失败: ${task.resourceInfo.fileName} - ${error.message}`);
+                        return '';
+                    });
+                
                 this.activeDownloads.set(task.id, downloadPromise);
                 
                 // 清理完成的任务
                 downloadPromise.finally(() => {
                     this.activeDownloads.delete(task.id);
-                    console.log(`[ResourceHandler] 下载任务完成: ${task.resourceInfo.fileName} (剩余活跃下载: ${this.activeDownloads.size})`);
                 });
             }
             
             console.log(`[ResourceHandler] 所有下载任务已启动，等待完成...`);
             
-            // 等待所有下载完成
-            await Promise.allSettled(Array.from(this.activeDownloads.values()));
+            // 等待所有下载完成，使用allSettled避免因个别失败而中断
+            const results = await Promise.allSettled(Array.from(this.activeDownloads.values()));
             
+            // 统计最终结果
+            console.log(`[ResourceHandler] 📊 下载统计: 成功 ${successCount}, 失败 ${failureCount}, 跳过 ${skippedCount}, 总计 ${successCount + failureCount + skippedCount}`);
+            
+            // 检查是否有意外失败
+            const rejectedResults = results.filter(r => r.status === 'rejected');
+            if (rejectedResults.length > 0) {
+                console.warn(`[ResourceHandler] ⚠️ 有 ${rejectedResults.length} 个下载任务异常终止`);
+            }
+            
+        } catch (error) {
+            console.error(`[ResourceHandler] 下载队列处理出现严重错误:`, error);
         } finally {
             this.isProcessing = false;
             console.log(`[ResourceHandler] 下载队列处理完成`);
@@ -637,21 +724,98 @@ export class ResourceHandler {
         } catch (error) {
             task.retries++;
             task.resourceInfo.downloadAttempts = (task.resourceInfo.downloadAttempts || 0) + 1;
-            task.resourceInfo.status = ResourceStatus.FAILED;
-            task.resourceInfo.lastError = error instanceof Error ? error.message : String(error);
+            
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const isRetriableError = this.isRetriableError(errorMessage);
+            
+            // 分类处理不同类型的错误
+            if (this.isNonRetriableError(errorMessage)) {
+                // 不可重试的错误，直接标记为跳过
+                task.resourceInfo.status = ResourceStatus.SKIPPED;
+                task.resourceInfo.lastError = `已跳过：${errorMessage}`;
+                console.log(`[ResourceHandler] 资源不可下载，已跳过: ${task.resourceInfo.fileName} - ${errorMessage}`);
+            } else {
+                // 可重试的错误
+                task.resourceInfo.status = ResourceStatus.FAILED;
+                task.resourceInfo.lastError = errorMessage;
+            }
             
             await this.dbManager.saveResourceInfo(task.resourceInfo);
             
-            // 重试逻辑
-            if (task.retries < this.config.maxRetries) {
-                console.warn(`[ResourceHandler] 下载失败，重试 ${task.retries}/${this.config.maxRetries}:`, error);
-                this.downloadQueue.unshift(task); // 重新添加到队列前端
+            // 重试逻辑（仅对可重试错误）
+            if (isRetriableError && task.retries < this.config.maxRetries) {
+                // 使用指数退避策略
+                const retryDelay = Math.min(1000 * Math.pow(2, task.retries - 1), 10000);
+                console.warn(`[ResourceHandler] 下载失败，${retryDelay}ms后重试 ${task.retries}/${this.config.maxRetries}: ${task.resourceInfo.fileName} - ${errorMessage}`);
+                
+                setTimeout(() => {
+                    this.downloadQueue.unshift(task); // 重新添加到队列前端
+                    
+                    // 如果队列处理器已停止，重新启动
+                    if (!this.isProcessing && this.downloadQueue.length > 0) {
+                        this.processDownloadQueue().catch(err => {
+                            console.error('[ResourceHandler] 重新启动队列处理失败:', err);
+                        });
+                    }
+                }, retryDelay);
+                
+                return ''; // 返回空字符串表示延迟重试
             } else {
-                console.error(`[ResourceHandler] 下载最终失败:`, error);
+                console.error(`[ResourceHandler] 下载最终失败: ${task.resourceInfo.fileName} - ${errorMessage}`);
             }
             
-            throw error;
+            // 对于不可重试错误或重试次数耗尽的情况，不要抛出错误
+            // 这样可以继续处理其他资源
+            return '';
         }
+    }
+
+    /**
+     * 判断是否为可重试的错误
+     */
+    private isRetriableError(errorMessage: string): boolean {
+        const lowerMsg = errorMessage.toLowerCase();
+        
+        // 网络和临时错误可以重试
+        const retriableErrors = [
+            'timeout',
+            'connect',
+            'network',
+            'temporary',
+            'server error',
+            '500',
+            '502',
+            '503',
+            '504',
+            'econnreset',
+            'enotfound',
+            'econnrefused'
+        ];
+        
+        return retriableErrors.some(pattern => lowerMsg.includes(pattern));
+    }
+
+    /**
+     * 判断是否为明确不可重试的错误
+     */
+    private isNonRetriableError(errorMessage: string): boolean {
+        const lowerMsg = errorMessage.toLowerCase();
+        
+        // 这些错误不应该重试
+        const nonRetriableErrors = [
+            '404',
+            '403',
+            '401',
+            'not found',
+            'forbidden',
+            'unauthorized',
+            'invalid url',
+            'malformed',
+            'file exists',
+            'disk quota'
+        ];
+        
+        return nonRetriableErrors.some(pattern => lowerMsg.includes(pattern));
     }
 
     /**

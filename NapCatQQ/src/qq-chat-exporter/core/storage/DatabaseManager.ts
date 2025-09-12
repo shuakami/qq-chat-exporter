@@ -312,6 +312,24 @@ export class DatabaseManager {
             if (line.trim()) {
                 try {
                     const resource = JSON.parse(line) as ResourceInfo;
+                    
+                    // 修复日期字段类型：确保checkedAt是Date对象
+                    if (resource.checkedAt) {
+                        if (typeof resource.checkedAt === 'string') {
+                            resource.checkedAt = new Date(resource.checkedAt);
+                        } else if (typeof resource.checkedAt === 'number') {
+                            resource.checkedAt = new Date(resource.checkedAt);
+                        }
+                        // 验证日期是否有效
+                        if (isNaN(resource.checkedAt.getTime())) {
+                            console.warn(`[DatabaseManager] 资源 ${resource.md5} 的checkedAt字段无效，使用当前时间`);
+                            resource.checkedAt = new Date();
+                        }
+                    } else {
+                        // 如果没有checkedAt字段，设置为当前时间
+                        resource.checkedAt = new Date();
+                    }
+                    
                     if (resource.md5) {
                         this.indexes.resources.set(resource.md5, resource);
                     }
@@ -1103,10 +1121,25 @@ export class DatabaseManager {
             }
         }
 
-        // 按检查时间倒序排列
-        return resources.sort((a, b) => 
-            b.checkedAt.getTime() - a.checkedAt.getTime()
-        );
+        // 按检查时间倒序排列，增加类型安全检查
+        return resources.sort((a, b) => {
+            try {
+                // 确保checkedAt是有效的Date对象
+                const aTime = a.checkedAt instanceof Date ? a.checkedAt.getTime() : new Date(a.checkedAt).getTime();
+                const bTime = b.checkedAt instanceof Date ? b.checkedAt.getTime() : new Date(b.checkedAt).getTime();
+                
+                // 检查是否为有效时间
+                if (isNaN(aTime) || isNaN(bTime)) {
+                    console.warn(`[DatabaseManager] 发现无效的checkedAt时间戳: a=${a.checkedAt}, b=${b.checkedAt}`);
+                    return 0; // 无效时间保持原有顺序
+                }
+                
+                return bTime - aTime;
+            } catch (error) {
+                console.error(`[DatabaseManager] 排序资源时发生错误:`, error);
+                return 0; // 发生错误时保持原有顺序
+            }
+        });
     }
 
     /**
@@ -1117,15 +1150,36 @@ export class DatabaseManager {
         
         const resources: ResourceInfo[] = [];
         for (const resource of this.indexes.resources.values()) {
-            if (resource.checkedAt.getTime() < cutoffTime.getTime()) {
-                resources.push(resource);
+            try {
+                // 确保checkedAt是有效的Date对象
+                const resourceTime = resource.checkedAt instanceof Date ? 
+                    resource.checkedAt.getTime() : 
+                    new Date(resource.checkedAt).getTime();
+                
+                if (!isNaN(resourceTime) && resourceTime < cutoffTime.getTime()) {
+                    resources.push(resource);
+                }
+            } catch (error) {
+                console.warn(`[DatabaseManager] 跳过无效checkedAt的资源 ${resource.md5}:`, error);
             }
         }
 
-        // 按检查时间正序排列
-        return resources.sort((a, b) => 
-            a.checkedAt.getTime() - b.checkedAt.getTime()
-        );
+        // 按检查时间正序排列，增加类型安全检查
+        return resources.sort((a, b) => {
+            try {
+                const aTime = a.checkedAt instanceof Date ? a.checkedAt.getTime() : new Date(a.checkedAt).getTime();
+                const bTime = b.checkedAt instanceof Date ? b.checkedAt.getTime() : new Date(b.checkedAt).getTime();
+                
+                if (isNaN(aTime) || isNaN(bTime)) {
+                    return 0; // 无效时间保持原有顺序
+                }
+                
+                return aTime - bTime;
+            } catch (error) {
+                console.error(`[DatabaseManager] 排序资源时发生错误:`, error);
+                return 0;
+            }
+        });
     }
 
     /**

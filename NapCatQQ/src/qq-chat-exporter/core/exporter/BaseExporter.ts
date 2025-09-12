@@ -114,7 +114,11 @@ export abstract class BaseExporter {
             // 过滤掉空消息
             const validMessages = messages.filter(m => m);
             
-            const content = await this.generateContent(validMessages, chatInfo);
+            // 按时间戳排序消息，确保时间顺序正确
+            const sortedMessages = this.sortMessagesByTimestamp(validMessages);
+            console.log(`[${this.format}Exporter] 消息排序完成: ${validMessages.length} → ${sortedMessages.length} 条`);
+            
+            const content = await this.generateContent(sortedMessages, chatInfo);
             
             if (this.cancelled) {
                 throw new Error('导出已取消');
@@ -122,9 +126,9 @@ export abstract class BaseExporter {
             
             await this.writeToFile(content);
             
-            this.updateProgress(validMessages.length, validMessages.length, '导出完成');
+            this.updateProgress(sortedMessages.length, sortedMessages.length, '导出完成');
             
-            const resourceCount = validMessages.reduce((acc, msg) => {
+            const resourceCount = sortedMessages.reduce((acc, msg) => {
                 const elements = msg.elements || [];
                 return acc + elements.filter(e => e.picElement || e.fileElement).length;
             }, 0);
@@ -134,7 +138,7 @@ export abstract class BaseExporter {
                 format: this.format,
                 filePath: this.options.outputPath,
                 fileSize: this.getFileSize(),
-                messageCount: validMessages.length,
+                messageCount: sortedMessages.length,
                 resourceCount: resourceCount,
                 exportTime: Date.now() - startTime,
                 completedAt: new Date()
@@ -289,5 +293,55 @@ export abstract class BaseExporter {
             timestamp: new Date(),
             context: { operation, options: this.options }
         });
+    }
+
+    /**
+     * 按时间戳排序消息
+     * 确保消息按发送时间从早到晚的顺序排列
+     * 
+     * @param messages 原始消息数组
+     * @returns 按时间排序后的消息数组
+     */
+    protected sortMessagesByTimestamp(messages: RawMessage[]): RawMessage[] {
+        const sortedMessages = [...messages].sort((a, b) => {
+            // 解析时间戳
+            let timeA = parseInt(a.msgTime || '0');
+            let timeB = parseInt(b.msgTime || '0');
+            
+            // 处理无效时间戳
+            if (isNaN(timeA) || timeA <= 0) {
+                console.warn(`[BaseExporter] 消息 ${a.msgId} 的时间戳无效: ${a.msgTime}`);
+                timeA = 0; // 无效时间戳放到最前面
+            }
+            if (isNaN(timeB) || timeB <= 0) {
+                console.warn(`[BaseExporter] 消息 ${b.msgId} 的时间戳无效: ${b.msgTime}`);
+                timeB = 0;
+            }
+            
+            // 检查是否为秒级时间戳并转换为毫秒级进行比较
+            // 但保持原始数据不变
+            let compareTimeA = timeA;
+            let compareTimeB = timeB;
+            
+            // 如果是秒级时间戳（10位数），转换为毫秒级用于比较
+            if (timeA > 1000000000 && timeA < 10000000000) {
+                compareTimeA = timeA * 1000;
+            }
+            if (timeB > 1000000000 && timeB < 10000000000) {
+                compareTimeB = timeB * 1000;
+            }
+            
+            // 按时间从早到晚排序
+            return compareTimeA - compareTimeB;
+        });
+        
+        // 输出排序统计信息
+        if (sortedMessages.length > 0) {
+            const firstTime = sortedMessages[0]?.msgTime;
+            const lastTime = sortedMessages[sortedMessages.length - 1]?.msgTime;
+            console.log(`[BaseExporter] 消息排序: 时间范围从 ${firstTime} 到 ${lastTime}`);
+        }
+        
+        return sortedMessages;
     }
 }

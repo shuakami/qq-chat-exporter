@@ -220,10 +220,10 @@ export class TextExporter extends BaseExporter {
         if (messages && messages.length > 0) {
             lines.push(`消息总数: ${messages.length}`);
             
-            const firstMsg = messages[0];
-            const lastMsg = messages[messages.length - 1];
-            if (firstMsg && lastMsg) {
-                lines.push(`时间范围: ${this.formatTimestamp(firstMsg.timestamp)} - ${this.formatTimestamp(lastMsg.timestamp)}`);
+            // 计算实际的时间范围（防止消息排序问题）
+            const timeRange = this.calculateTimeRange(messages);
+            if (timeRange) {
+                lines.push(`时间范围: ${timeRange}`);
             }
         }
         lines.push('');
@@ -325,6 +325,45 @@ export class TextExporter extends BaseExporter {
             chunks.push(line.substring(i, i + this.textOptions.lineWidth));
         }
         return chunks.join('\n' + this.textOptions.indentChar);
+    }
+
+    /**
+     * 计算消息的实际时间范围
+     * 遍历所有消息，找到真正的最早和最晚时间
+     */
+    private calculateTimeRange(messages: ParsedMessage[]): string | null {
+        if (!messages || messages.length === 0) {
+            return null;
+        }
+        
+        let earliestTime: Date | null = null;
+        let latestTime: Date | null = null;
+        
+        // 遍历所有消息，找到真正的时间范围
+        for (const message of messages) {
+            if (!message || !message.timestamp) continue;
+            
+            const messageTime = message.timestamp;
+            
+            if (!earliestTime || messageTime < earliestTime) {
+                earliestTime = messageTime;
+            }
+            
+            if (!latestTime || messageTime > latestTime) {
+                latestTime = messageTime;
+            }
+        }
+        
+        if (!earliestTime || !latestTime) {
+            return null;
+        }
+        
+        // 格式化时间范围
+        const startTime = this.formatTimestamp(earliestTime);
+        const endTime = this.formatTimestamp(latestTime);
+        
+        console.log(`[TextExporter] 计算时间范围: ${startTime} 到 ${endTime}`);
+        return `${startTime} - ${endTime}`;
     }
 
     /**

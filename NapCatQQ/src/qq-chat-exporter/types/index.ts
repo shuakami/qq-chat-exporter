@@ -169,7 +169,8 @@ export enum ResourceStatus {
     DOWNLOADING = 'downloading', // 下载中
     DOWNLOADED = 'downloaded',   // 已下载
     FAILED = 'failed',          // 失败
-    CORRUPTED = 'corrupted'     // 损坏
+    CORRUPTED = 'corrupted',    // 损坏
+    SKIPPED = 'skipped'         // 已跳过（不可下载）
 }
 
 /**
