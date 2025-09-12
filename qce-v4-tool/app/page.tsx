@@ -11,6 +11,7 @@ import { GettingStarted } from "@/components/ui/getting-started"
 import { TaskWizard } from "@/components/ui/task-wizard"
 import { ScheduledExportWizard } from "@/components/ui/scheduled-export-wizard"
 import { ExecutionHistoryModal } from "@/components/ui/execution-history-modal"
+import { MessagePreviewModal } from "@/components/ui/message-preview-modal"
 import { EmptyState } from "@/components/ui/empty-state"
 import {
   Download,
@@ -51,6 +52,13 @@ export default function QCEDashboard() {
   const [selectedScheduledPreset, setSelectedScheduledPreset] = useState<Partial<CreateScheduledExportForm> | undefined>()
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false)
   const [selectedHistoryTask, setSelectedHistoryTask] = useState<{id: string, name: string} | null>(null)
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
+  const [previewingChat, setPreviewingChat] = useState<{
+    type: 'group' | 'friend',
+    id: string,
+    name: string,
+    peer: { chatType: number, peerUid: string }
+  } | null>(null)
   const tasksLoadedRef = useRef(false)
   const scheduledExportsLoadedRef = useRef(false)
 
@@ -109,6 +117,11 @@ export default function QCEDashboard() {
   const handleOpenTaskWizard = (preset?: Partial<CreateTaskForm>) => {
     setSelectedPreset(preset)
     setIsTaskWizardOpen(true)
+  }
+
+  const handlePreviewChat = (type: 'group' | 'friend', id: string, name: string, peer: { chatType: number, peerUid: string }) => {
+    setPreviewingChat({ type, id, name, peer })
+    setIsPreviewModalOpen(true)
   }
 
   const handleCloseTaskWizard = () => {
@@ -623,16 +636,30 @@ export default function QCEDashboard() {
                         </div>
                       </div>
 
-                            <Button
-                              size="sm"
-                              onClick={() => handleOpenTaskWizard({
-                                chatType: 2,
-                                peerUid: group.groupCode,
-                                sessionName: group.groupName,
-                              })}
-                            >
-                              导出聊天记录
-                            </Button>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handlePreviewChat(
+                                  'group',
+                                  group.groupCode,
+                                  group.groupName,
+                                  { chatType: 2, peerUid: group.groupCode }
+                                )}
+                              >
+                                预览消息
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenTaskWizard({
+                                  chatType: 2,
+                                  peerUid: group.groupCode,
+                                  sessionName: group.groupName,
+                                })}
+                              >
+                                导出聊天记录
+                              </Button>
+                            </div>
                       </div>
                         ))}
                       </CardContent>
@@ -687,16 +714,30 @@ export default function QCEDashboard() {
                               </div>
                       </div>
 
-                            <Button
-                              size="sm"
-                              onClick={() => handleOpenTaskWizard({
-                                chatType: 1,
-                                peerUid: friend.uid,
-                                sessionName: friend.remark || friend.nick,
-                              })}
-                            >
-                              导出聊天记录
-                            </Button>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handlePreviewChat(
+                                  'friend',
+                                  friend.uid,
+                                  friend.remark || friend.nick,
+                                  { chatType: 1, peerUid: friend.uid }
+                                )}
+                              >
+                                预览消息
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenTaskWizard({
+                                  chatType: 1,
+                                  peerUid: friend.uid,
+                                  sessionName: friend.remark || friend.nick,
+                                })}
+                              >
+                                导出聊天记录
+                              </Button>
+                            </div>
                         </div>
                         ))}
                       </CardContent>
@@ -1456,13 +1497,20 @@ export default function QCEDashboard() {
         groups={groups}
         friends={friends}
         onLoadData={loadChatData}
+        onPreview={(chat) => {
+          setPreviewingChat(chat)
+          setIsPreviewModalOpen(true)
+        }}
       />
 
       {/* Scheduled Export Wizard */}
       <ScheduledExportWizard
         isOpen={isScheduledExportWizardOpen}
         onClose={handleCloseScheduledExportWizard}
-        onSubmit={handleCreateScheduledExport}
+        onSubmit={async (form) => {
+          await createScheduledExport(form)
+          return true
+        }}
         isLoading={scheduledLoading}
         prefilledData={selectedScheduledPreset}
         groups={groups}
@@ -1480,6 +1528,22 @@ export default function QCEDashboard() {
           onGetHistory={getExecutionHistory}
         />
       )}
+
+      {/* Message Preview Modal */}
+      <MessagePreviewModal
+        open={isPreviewModalOpen}
+        onClose={() => setIsPreviewModalOpen(false)}
+        chat={previewingChat}
+        onExport={(peer, timeRange) => {
+          handleOpenTaskWizard({
+            chatType: peer.chatType,
+            peerUid: peer.peerUid,
+            sessionName: previewingChat?.name,
+            startTime: timeRange?.startTime?.toString(),
+            endTime: timeRange?.endTime?.toString()
+          })
+        }}
+      />
     </div>
   )
 }

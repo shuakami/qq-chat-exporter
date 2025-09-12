@@ -14,6 +14,7 @@ import {
     ErrorType 
 } from '../../types';
 import { MessageParser, MessageParserConfig } from '../parser/MessageParser';
+import { SimpleMessageParser } from '../parser/SimpleMessageParser';
 import { NapCatCore } from '../../../core';
 
 /**
@@ -26,6 +27,8 @@ export interface ExportOptions {
     includeResourceLinks: boolean;
     /** 是否包含系统消息 */
     includeSystemMessages: boolean;
+    /** 是否过滤掉纯图片消息 */
+    filterPureImageMessages: boolean;
     /** 时间格式 */
     timeFormat: string;
     /** 是否美化输出（适用于JSON等格式） */
@@ -72,6 +75,7 @@ export abstract class BaseExporter {
             outputPath: options.outputPath,
             includeResourceLinks: options.includeResourceLinks ?? true,
             includeSystemMessages: options.includeSystemMessages ?? true,
+            filterPureImageMessages: options.filterPureImageMessages ?? false,
             timeFormat: options.timeFormat || 'YYYY-MM-DD HH:mm:ss',
             prettyFormat: options.prettyFormat ?? true,
             encoding: options.encoding || 'utf-8',
@@ -118,7 +122,11 @@ export abstract class BaseExporter {
             const sortedMessages = this.sortMessagesByTimestamp(validMessages);
             console.log(`[${this.format}Exporter] 消息排序完成: ${validMessages.length} → ${sortedMessages.length} 条`);
             
-            const content = await this.generateContent(sortedMessages, chatInfo);
+            // 应用纯图片消息过滤
+            const filteredMessages = await this.applyPureImageFilter(sortedMessages);
+            console.log(`[${this.format}Exporter] 消息过滤完成: ${sortedMessages.length} → ${filteredMessages.length} 条`);
+            
+            const content = await this.generateContent(filteredMessages, chatInfo);
             
             if (this.cancelled) {
                 throw new Error('导出已取消');
@@ -126,9 +134,9 @@ export abstract class BaseExporter {
             
             await this.writeToFile(content);
             
-            this.updateProgress(sortedMessages.length, sortedMessages.length, '导出完成');
+            this.updateProgress(filteredMessages.length, filteredMessages.length, '导出完成');
             
-            const resourceCount = sortedMessages.reduce((acc, msg) => {
+            const resourceCount = filteredMessages.reduce((acc, msg) => {
                 const elements = msg.elements || [];
                 return acc + elements.filter(e => e.picElement || e.fileElement).length;
             }, 0);
@@ -138,7 +146,7 @@ export abstract class BaseExporter {
                 format: this.format,
                 filePath: this.options.outputPath,
                 fileSize: this.getFileSize(),
-                messageCount: sortedMessages.length,
+                messageCount: filteredMessages.length,
                 resourceCount: resourceCount,
                 exportTime: Date.now() - startTime,
                 completedAt: new Date()
@@ -293,6 +301,34 @@ export abstract class BaseExporter {
             timestamp: new Date(),
             context: { operation, options: this.options }
         });
+    }
+
+    /**
+     * 应用纯图片消息过滤
+     * 如果启用了过滤选项，会过滤掉只包含图片、表情等非文字元素的消息
+     */
+    protected async applyPureImageFilter(messages: RawMessage[]): Promise<RawMessage[]> {
+        if (!this.options.filterPureImageMessages) {
+            return messages;
+        }
+
+        const simpleParser = new SimpleMessageParser();
+        const filteredMessages: RawMessage[] = [];
+
+        for (const message of messages) {
+            try {
+                const cleanMessage = await simpleParser.parseSingleMessage(message as any);
+                if (!simpleParser.isPureImageMessage(cleanMessage)) {
+                    filteredMessages.push(message);
+                }
+            } catch (error) {
+                // 解析失败的消息保留，避免丢失数据
+                console.warn(`[BaseExporter] 过滤消息解析失败，保留消息: ${message.msgId}`, error);
+                filteredMessages.push(message);
+            }
+        }
+
+        return filteredMessages;
     }
 
     /**

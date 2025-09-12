@@ -252,7 +252,7 @@ export class QQChatExporterApiServer {
                     ],
                     '消息处理': [
                         'POST /api/messages/fetch - 批量获取消息',
-                        'POST /api/messages/export - 导出消息'
+                        'POST /api/messages/export - 导出消息（支持过滤纯图片消息）'
                     ],
                     '任务管理': [
                         'GET /api/tasks - 获取所有导出任务',
@@ -562,6 +562,8 @@ export class QQChatExporterApiServer {
                 for await (const batch of messageGenerator) {
                     allMessages.push(...batch);
                 }
+                // 按时间戳排序，最新的消息在前面
+                allMessages.sort((a, b) => Number(b.msgTime) - Number(a.msgTime));
 
                 // 分页处理
                 const startIndex = (page - 1) * limit;
@@ -1045,13 +1047,36 @@ export class QQChatExporterApiServer {
             console.log(`[ApiServer] 平均每批次: ${batchCount > 0 ? Math.round(allMessages.length / batchCount) : 0} 条`);
             console.log(`[ApiServer] ====================================================`);
 
+            // 应用纯图片消息过滤（如果启用）
+            let filteredMessages = allMessages;
+            if (options?.filterPureImageMessages) {
+                const parser = new SimpleMessageParser();
+                const tempFilteredMessages: RawMessage[] = [];
+                
+                for (const message of allMessages) {
+                    try {
+                        const cleanMessage = await parser.parseSingleMessage(message);
+                        if (!parser.isPureImageMessage(cleanMessage)) {
+                            tempFilteredMessages.push(message);
+                        }
+                    } catch (error) {
+                        // 解析失败的消息保留，避免丢失数据
+                        console.warn(`[ApiServer] 过滤消息解析失败，保留消息: ${message.msgId}`, error);
+                        tempFilteredMessages.push(message);
+                    }
+                }
+                
+                filteredMessages = tempFilteredMessages;
+                console.log(`[ApiServer] 纯图片消息过滤完成: ${allMessages.length} → ${filteredMessages.length} 条`);
+            }
+
             // 所有格式都需要通过OneBot解析器处理
             task = this.exportTasks.get(taskId);
             if (task) {
                 await this.updateTaskStatus(taskId, {
                     progress: 60,
                     message: '正在解析消息...',
-                    messageCount: allMessages.length
+                    messageCount: filteredMessages.length
                 });
             }
             
@@ -1062,17 +1087,17 @@ export class QQChatExporterApiServer {
                     status: 'running',
                     progress: 60,
                     message: '正在解析消息...',
-                    messageCount: allMessages.length
+                    messageCount: filteredMessages.length
                 }
             });
 
-            // 处理资源下载
+            // 处理资源下载（只处理过滤后的消息资源）
             task = this.exportTasks.get(taskId);
             if (task) {
                 await this.updateTaskStatus(taskId, {
                     progress: 70,
                     message: '正在下载资源...',
-                    messageCount: allMessages.length
+                    messageCount: filteredMessages.length
                 });
             }
             
@@ -1083,12 +1108,12 @@ export class QQChatExporterApiServer {
                     status: 'running',
                     progress: 70,
                     message: '正在下载资源...',
-                    messageCount: allMessages.length
+                    messageCount: filteredMessages.length
                 }
             });
 
-            // 下载和处理资源
-            const resourceMap = await this.resourceHandler.processMessageResources(allMessages);
+            // 下载和处理资源（使用过滤后的消息列表）
+            const resourceMap = await this.resourceHandler.processMessageResources(filteredMessages);
             console.info(`[ApiServer] 处理了 ${resourceMap.size} 个消息的资源`);
 
             // 导出文件
@@ -1097,7 +1122,7 @@ export class QQChatExporterApiServer {
                 await this.updateTaskStatus(taskId, {
                     progress: 85,
                     message: '正在生成文件...',
-                    messageCount: allMessages.length
+                    messageCount: filteredMessages.length
                 });
             }
             
@@ -1108,7 +1133,7 @@ export class QQChatExporterApiServer {
                     status: 'running',
                     progress: 85,
                     message: '正在生成文件...',
-                    messageCount: allMessages.length
+                    messageCount: filteredMessages.length
                 }
             });
 
@@ -1125,6 +1150,7 @@ export class QQChatExporterApiServer {
                 outputPath: filePath,
                 includeResourceLinks: options?.includeResourceLinks ?? true,
                 includeSystemMessages: options?.includeSystemMessages ?? true,
+                filterPureImageMessages: options?.filterPureImageMessages ?? false,
                 prettyFormat: options?.prettyFormat ?? true,
                 timeFormat: 'YYYY-MM-DD HH:mm:ss',
                 encoding: 'utf-8'
@@ -1140,25 +1166,25 @@ export class QQChatExporterApiServer {
 
             console.log(`[ApiServer] ==================== 开始导出 ====================`);
             console.log(`[ApiServer] 导出格式: ${format.toUpperCase()}`);
-            console.log(`[ApiServer] 传递给导出器的消息数量: ${allMessages.length} 条`);
+            console.log(`[ApiServer] 传递给导出器的消息数量: ${filteredMessages.length} 条`);
             console.log(`[ApiServer] 导出文件路径: ${filePath}`);
             console.log(`[ApiServer] =================================================`);
             
             switch (format.toUpperCase()) {
                 case 'TXT':
-                    console.log(`[ApiServer] 调用 TextExporter，传入 ${allMessages.length} 条 RawMessage`);
+                    console.log(`[ApiServer] 调用 TextExporter，传入 ${filteredMessages.length} 条 RawMessage`);
                     exporter = new TextExporter(exportOptions, {}, this.core);
-                    await exporter.export(allMessages, chatInfo);
+                    await exporter.export(filteredMessages, chatInfo);
                     break;
                 case 'JSON':
-                    console.log(`[ApiServer] 调用 JsonExporter，传入 ${allMessages.length} 条 RawMessage`);
+                    console.log(`[ApiServer] 调用 JsonExporter，传入 ${filteredMessages.length} 条 RawMessage`);
                     exporter = new JsonExporter(exportOptions, {}, this.core);
-                    await exporter.export(allMessages, chatInfo);
+                    await exporter.export(filteredMessages, chatInfo);
                     break;
                 case 'HTML':
                     // HTML导出需要CleanMessage格式，先解析消息
                     const parser = new SimpleMessageParser();
-                    const cleanMessages = await parser.parseMessages(allMessages);
+                    const cleanMessages = await parser.parseMessages(filteredMessages);
                     
                     // 🔧 关键修复：更新资源路径为本地路径
                     await parser.updateResourcePaths(cleanMessages, resourceMap);
@@ -1185,7 +1211,7 @@ export class QQChatExporterApiServer {
                     status: 'completed',
                     progress: 100,
                     message: '导出完成',
-                    messageCount: allMessages.length,
+                    messageCount: filteredMessages.length,
                     fileSize: stats.size,
                     completedAt: new Date().toISOString()
                 });
@@ -1199,7 +1225,7 @@ export class QQChatExporterApiServer {
                     status: 'completed',
                     progress: 100,
                     message: '导出完成',
-                    messageCount: allMessages.length,
+                    messageCount: filteredMessages.length,
                     fileName,
                     filePath,
                     fileSize: stats.size,

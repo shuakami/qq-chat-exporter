@@ -1,5 +1,6 @@
 import { useCallback } from "react"
 import type { APIResponse } from "@/types/api"
+import AuthManager from "@/lib/auth"
 
 const API_BASE = "http://localhost:40653"
 
@@ -13,6 +14,15 @@ export function useApi() {
       },
       ...options,
     })
+
+    // 如果返回401或403，清除token并重定向（双重保险）
+    if (response.status === 401 || response.status === 403) {
+      const authManager = AuthManager.getInstance()
+      authManager.clearToken()
+      window.location.href = '/qce-v4-tool/auth'
+      const data = await response.json()
+      throw new Error(data.error?.message || `HTTP ${response.status}`)
+    }
 
     const data = await response.json()
 

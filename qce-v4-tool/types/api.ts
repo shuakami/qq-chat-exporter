@@ -127,6 +127,8 @@ export interface CreateTaskForm {
   endTime?: string
   keywords?: string
   includeRecalled: boolean
+  includeSystemMessages: boolean
+  filterPureImageMessages: boolean
 }
 
 export interface CreateTaskRequest {
@@ -145,6 +147,8 @@ export interface CreateTaskRequest {
   options: {
     batchSize: number
     includeResourceLinks: boolean
+    includeSystemMessages: boolean
+    filterPureImageMessages: boolean
     prettyFormat: boolean
   }
 }
@@ -223,6 +227,7 @@ export interface ScheduledExport {
   options: {
     includeResourceLinks?: boolean
     includeSystemMessages?: boolean
+    filterPureImageMessages?: boolean
     prettyFormat?: boolean
   }
   outputDir?: string
@@ -262,6 +267,9 @@ export interface CreateScheduledExportForm {
   format: string
   enabled: boolean
   outputDir?: string
+  includeResourceLinks?: boolean
+  includeSystemMessages?: boolean
+  filterPureImageMessages?: boolean
 }
 
 export interface ScheduledExportsResponse {

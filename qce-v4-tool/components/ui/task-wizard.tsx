@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./car
 import { Badge } from "./badge"
 import { Separator } from "./separator"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
-import { ArrowLeft, ArrowRight, CheckCircle, Clock, FileText, Users, User, Search, Loader2, ChevronDown, RefreshCw, Settings } from "lucide-react"
+import { ArrowLeft, ArrowRight, CheckCircle, Clock, FileText, Users, User, Search, Loader2, ChevronDown, RefreshCw, Settings, Eye } from "lucide-react"
 import { useSearch } from "@/hooks/use-search"
 import type { CreateTaskForm, Group, Friend } from "@/types/api"
 
@@ -24,10 +24,16 @@ interface TaskWizardProps {
   groups?: Group[]
   friends?: Friend[]
   onLoadData?: () => void
+  onPreview?: (chat: {
+    type: 'group' | 'friend',
+    id: string,
+    name: string,
+    peer: { chatType: number, peerUid: string }
+  }) => void
 }
 
 
-export function TaskWizard({ isOpen, onClose, onSubmit, isLoading, prefilledData, groups = [], friends = [], onLoadData }: TaskWizardProps) {
+export function TaskWizard({ isOpen, onClose, onSubmit, isLoading, prefilledData, groups = [], friends = [], onLoadData, onPreview }: TaskWizardProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedTarget, setSelectedTarget] = useState<Group | Friend | null>(null)
   const [showTargetSelector, setShowTargetSelector] = useState(false) // 控制是否显示目标选择器
@@ -42,6 +48,8 @@ export function TaskWizard({ isOpen, onClose, onSubmit, isLoading, prefilledData
     endTime: "",
     keywords: "",
     includeRecalled: false,
+    includeSystemMessages: true,
+    filterPureImageMessages: false,
   })
 
   const { groupSearch, friendSearch } = useSearch()
@@ -58,6 +66,8 @@ export function TaskWizard({ isOpen, onClose, onSubmit, isLoading, prefilledData
         endTime: prefilledData.endTime || "",
         keywords: prefilledData.keywords || "",
         includeRecalled: prefilledData.includeRecalled || false,
+        includeSystemMessages: prefilledData.includeSystemMessages !== undefined ? prefilledData.includeSystemMessages : true,
+        filterPureImageMessages: prefilledData.filterPureImageMessages || false,
       })
     }
   }, [prefilledData, isOpen])
@@ -126,6 +136,8 @@ export function TaskWizard({ isOpen, onClose, onSubmit, isLoading, prefilledData
         endTime: "",
         keywords: "",
         includeRecalled: false,
+        includeSystemMessages: true,
+        filterPureImageMessages: false,
       })
     }
   }, [isOpen])
@@ -539,14 +551,37 @@ export function TaskWizard({ isOpen, onClose, onSubmit, isLoading, prefilledData
                       }
                     </p>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleChangeTarget}
-                  >
-                    <RefreshCw className="w-3 h-3 mr-1" />
-                    更换
-                  </Button>
+                  <div className="flex gap-2">
+                    {onPreview && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const isGroup = 'groupName' in selectedTarget
+                          onPreview({
+                            type: isGroup ? 'group' : 'friend',
+                            id: isGroup ? selectedTarget.groupCode : selectedTarget.uid,
+                            name: isGroup ? selectedTarget.groupName : (selectedTarget.remark || selectedTarget.nick),
+                            peer: {
+                              chatType: isGroup ? 2 : 1,
+                              peerUid: isGroup ? selectedTarget.groupCode : selectedTarget.uid
+                            }
+                          })
+                        }}
+                      >
+                        <Eye className="w-3 h-3 mr-1" />
+                        预览
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleChangeTarget}
+                    >
+                      <RefreshCw className="w-3 h-3 mr-1" />
+                      更换
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -719,6 +754,79 @@ export function TaskWizard({ isOpen, onClose, onSubmit, isLoading, prefilledData
             onChange={(e) => setForm(prev => ({ ...prev, keywords: e.target.value }))}
             rows={3}
           />
+        </div>
+
+        {/* 高级选项 */}
+        <div className="space-y-3">
+          <div>
+            <Label className="text-base font-medium">高级选项</Label>
+            <p className="text-sm text-neutral-600 mt-1">自定义导出内容的详细设置</p>
+          </div>
+          
+          <div className="space-y-4 pl-4 border-l-2 border-neutral-100">
+            {/* 包含撤回消息 */}
+            <div className="flex items-start space-x-3">
+              <div className="flex items-center h-5">
+                <input
+                  id="includeRecalled"
+                  type="checkbox"
+                  checked={form.includeRecalled}
+                  onChange={(e) => setForm(prev => ({ ...prev, includeRecalled: e.target.checked }))}
+                  className="w-4 h-4 text-blue-600 bg-neutral-50 border-neutral-300 rounded focus:ring-blue-500 focus:ring-2"
+                />
+              </div>
+              <div className="text-sm">
+                <label htmlFor="includeRecalled" className="font-medium text-neutral-900 cursor-pointer">
+                  包含已撤回的消息
+                </label>
+                <p className="text-neutral-600 text-xs mt-0.5">
+                  包含那些已经被撤回但仍在记录中的消息
+                </p>
+              </div>
+            </div>
+
+            {/* 包含系统消息 */}
+            <div className="flex items-start space-x-3">
+              <div className="flex items-center h-5">
+                <input
+                  id="includeSystemMessages"
+                  type="checkbox"
+                  checked={form.includeSystemMessages}
+                  onChange={(e) => setForm(prev => ({ ...prev, includeSystemMessages: e.target.checked }))}
+                  className="w-4 h-4 text-blue-600 bg-neutral-50 border-neutral-300 rounded focus:ring-blue-500 focus:ring-2"
+                />
+              </div>
+              <div className="text-sm">
+                <label htmlFor="includeSystemMessages" className="font-medium text-neutral-900 cursor-pointer">
+                  包含系统消息
+                </label>
+                <p className="text-neutral-600 text-xs mt-0.5">
+                  包含入群通知、撤回提示等系统提示消息
+                </p>
+              </div>
+            </div>
+
+            {/* 过滤纯多媒体消息 */}
+            <div className="flex items-start space-x-3">
+              <div className="flex items-center h-5">
+                <input
+                  id="filterPureImageMessages"
+                  type="checkbox"
+                  checked={form.filterPureImageMessages}
+                  onChange={(e) => setForm(prev => ({ ...prev, filterPureImageMessages: e.target.checked }))}
+                  className="w-4 h-4 text-blue-600 bg-neutral-50 border-neutral-300 rounded focus:ring-blue-500 focus:ring-2"
+                />
+              </div>
+              <div className="text-sm">
+                <label htmlFor="filterPureImageMessages" className="font-medium text-neutral-900 cursor-pointer">
+                  过滤纯多媒体消息
+                </label>
+                <p className="text-neutral-600 text-xs mt-0.5">
+                  过滤掉只包含图片、视频、音频、文件、表情等没有文字的消息记录
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     )

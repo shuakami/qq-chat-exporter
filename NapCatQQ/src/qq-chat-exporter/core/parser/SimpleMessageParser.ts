@@ -102,6 +102,13 @@ export class SimpleMessageParser {
     }
     
     /**
+     * 解析单条消息（公开方法）
+     */
+    async parseSingleMessage(message: RawMessage): Promise<CleanMessage> {
+        return this.parseMessage(message);
+    }
+
+    /**
      * 解析单条消息
      */
     private async parseMessage(message: RawMessage): Promise<CleanMessage> {
@@ -503,6 +510,91 @@ export class SimpleMessageParser {
         };
     }
     
+    /**
+     * 检测是否为纯多媒体消息（只包含图片、视频等多媒体内容，没有文字内容）
+     */
+    isPureMediaMessage(message: CleanMessage): boolean {
+        // 检查是否包含多媒体元素（图片、视频、音频、文件、表情等）
+        const hasMedia = message.content.elements.some(element => 
+            ['image', 'video', 'audio', 'file', 'face'].includes(element.type)
+        );
+        if (!hasMedia) {
+            return false;
+        }
+        
+        // 检查是否有真正的文字内容（排除CQ码）
+        const hasRealText = this.hasRealTextContent(message);
+        if (hasRealText) {
+            return false;
+        }
+        
+        // 检查是否只包含多媒体、表情等非文字元素
+        const nonTextElements = message.content.elements.filter(element => 
+            !['text', 'reply', 'forward', 'json', 'location', 'system'].includes(element.type)
+        );
+        
+        // 如果所有元素都是非文字元素（图片、视频、表情等），或者只有包含CQ码的text元素，则认为是纯多媒体消息
+        const textElements = message.content.elements.filter(element => element.type === 'text');
+        const allTextElementsAreCQCodes = textElements.length > 0 && textElements.every(element => 
+            this.isOnlyCQCode(element.data?.text || '')
+        );
+        
+        return message.content.elements.length > 0 && 
+               hasMedia &&
+               (message.content.elements.length === nonTextElements.length || allTextElementsAreCQCodes);
+    }
+
+    /**
+     * @deprecated 使用 isPureMediaMessage 代替
+     * 检测是否为纯图片消息（只包含图片，没有文字内容）
+     */
+    isPureImageMessage(message: CleanMessage): boolean {
+        return this.isPureMediaMessage(message);
+    }
+
+    /**
+     * 检查消息是否包含真正的文字内容（排除CQ码）
+     */
+    private hasRealTextContent(message: CleanMessage): boolean {
+        // 检查每个text类型的元素
+        const textElements = message.content.elements.filter(element => element.type === 'text');
+        
+        for (const element of textElements) {
+            const text = element.data?.text || '';
+            if (text.trim().length > 0 && !this.isOnlyCQCode(text)) {
+                return true; // 找到真正的文字内容
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * 检查文本是否只包含CQ码（没有其他文字内容）
+     */
+    private isOnlyCQCode(text: string): boolean {
+        if (!text || text.trim().length === 0) {
+            return true; // 空文本视为没有内容
+        }
+        
+        // 移除所有CQ码，看是否还有剩余内容
+        // CQ码格式：[CQ:type,param1=value1,param2=value2,...]
+        const withoutCQCodes = text.replace(/\[CQ:[^\]]+\]/g, '').trim();
+        
+        return withoutCQCodes.length === 0;
+    }
+
+    /**
+     * 过滤消息列表，可选择是否包含纯图片消息
+     */
+    filterMessages(messages: CleanMessage[], includePureImages: boolean = true): CleanMessage[] {
+        if (includePureImages) {
+            return messages;
+        }
+        
+        return messages.filter(message => !this.isPureImageMessage(message));
+    }
+
     /**
      * 计算消息统计信息
      */

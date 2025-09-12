@@ -70,6 +70,8 @@ export interface MessageFilter {
     includeRecalled?: boolean;
     /** 是否包含系统消息 */
     includeSystem?: boolean;
+    /** 是否过滤掉纯多媒体消息（图片、视频、音频、文件等） */
+    filterPureImageMessages?: boolean;
 }
 
 /**

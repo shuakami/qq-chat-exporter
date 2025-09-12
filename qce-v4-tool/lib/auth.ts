@@ -111,8 +111,8 @@ export class AuthManager {
       try {
         const response = await originalFetch(input, options);
         
-        // 如果返回401，清除token并重定向
-        if (response.status === 401) {
+        // 如果返回401或403，清除token并重定向
+        if (response.status === 401 || response.status === 403) {
           this.clearToken();
           window.location.href = '/qce-v4-tool/auth';
           return response;

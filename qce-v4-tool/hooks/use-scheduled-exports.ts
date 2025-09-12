@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useApi } from './use-api';
-import type { APIResponse } from '@/types/api';
+import type { APIResponse, CreateScheduledExportForm } from '@/types/api';
 
 export interface ScheduledExportConfig {
     id?: string;
@@ -23,6 +23,7 @@ export interface ScheduledExportConfig {
     options: {
         includeResourceLinks?: boolean;
         includeSystemMessages?: boolean;
+        filterPureImageMessages?: boolean;
         prettyFormat?: boolean;
     };
     enabled: boolean;
@@ -74,9 +75,32 @@ export function useScheduledExports() {
     }, [apiCall]);
 
     // 创建定时导出任务
-    const createTask = useCallback(async (config: ScheduledExportConfig) => {
+    const createTask = useCallback(async (formData: CreateScheduledExportForm) => {
         try {
             setLoading(true);
+            
+            // 将表单数据转换为API配置格式
+            const config: ScheduledExportConfig = {
+                name: formData.name,
+                peer: {
+                    chatType: formData.chatType,
+                    peerUid: formData.peerUid,
+                    guildId: "",
+                },
+                scheduleType: formData.scheduleType,
+                executeTime: formData.executeTime,
+                cronExpression: formData.cronExpression,
+                timeRangeType: formData.timeRangeType,
+                customTimeRange: formData.customTimeRange,
+                format: formData.format as 'JSON' | 'HTML' | 'TXT',
+                options: {
+                    includeResourceLinks: formData.includeResourceLinks ?? true,
+                    includeSystemMessages: formData.includeSystemMessages ?? true,
+                    filterPureImageMessages: formData.filterPureImageMessages ?? false,
+                    prettyFormat: true,
+                },
+                enabled: formData.enabled,
+            };
             
             const response = await apiCall('/api/scheduled-exports', {
                 method: 'POST',
@@ -310,6 +334,7 @@ export const PRESET_CONFIGS = {
         options: {
             includeResourceLinks: true,
             includeSystemMessages: true,
+            filterPureImageMessages: false,
             prettyFormat: true
         },
         enabled: true
@@ -323,6 +348,7 @@ export const PRESET_CONFIGS = {
         options: {
             includeResourceLinks: true,
             includeSystemMessages: false,
+            filterPureImageMessages: false,
             prettyFormat: true
         },
         enabled: true
@@ -336,6 +362,7 @@ export const PRESET_CONFIGS = {
         options: {
             includeResourceLinks: true,
             includeSystemMessages: true,
+            filterPureImageMessages: false,
             prettyFormat: true
         },
         enabled: true

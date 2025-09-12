@@ -56,6 +56,9 @@ export function ScheduledExportWizard({
     timeRangeType: "yesterday",
     format: "HTML",
     enabled: true,
+    includeResourceLinks: true,
+    includeSystemMessages: true,
+    filterPureImageMessages: false,
   })
 
   const [searchTerm, setSearchTerm] = useState("")
@@ -77,6 +80,9 @@ export function ScheduledExportWizard({
         format: prefilledData.format || "HTML",
         enabled: prefilledData.enabled !== false,
         outputDir: prefilledData.outputDir,
+        includeResourceLinks: prefilledData.includeResourceLinks !== undefined ? prefilledData.includeResourceLinks : true,
+        includeSystemMessages: prefilledData.includeSystemMessages !== undefined ? prefilledData.includeSystemMessages : true,
+        filterPureImageMessages: prefilledData.filterPureImageMessages || false,
       })
     }
   }, [prefilledData, isOpen])
@@ -94,6 +100,9 @@ export function ScheduledExportWizard({
         timeRangeType: "yesterday",
         format: "HTML",
         enabled: true,
+        includeResourceLinks: true,
+        includeSystemMessages: true,
+        filterPureImageMessages: false,
       })
       setSearchTerm("")
       setShowTargetDropdown(false)
@@ -674,6 +683,78 @@ export function ScheduledExportWizard({
               <p className="text-sm text-blue-800">
                 将导出：{getTimeRangeDescription()}
               </p>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* 导出选项 */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium">导出选项</h3>
+            
+            <div className="space-y-3 pl-4 border-l-2 border-neutral-100">
+              {/* 包含资源链接 */}
+              <div className="flex items-start space-x-3">
+                <div className="flex items-center h-5">
+                  <input
+                    id="includeResourceLinks"
+                    type="checkbox"
+                    checked={form.includeResourceLinks ?? true}
+                    onChange={(e) => setForm(prev => ({ ...prev, includeResourceLinks: e.target.checked }))}
+                    className="w-4 h-4 text-blue-600 bg-neutral-50 border-neutral-300 rounded focus:ring-blue-500 focus:ring-2"
+                  />
+                </div>
+                <div className="text-sm">
+                  <label htmlFor="includeResourceLinks" className="font-medium text-neutral-900 cursor-pointer">
+                    包含资源链接
+                  </label>
+                  <p className="text-neutral-600 text-xs mt-0.5">
+                    在导出中包含图片、文件等资源的下载链接
+                  </p>
+                </div>
+              </div>
+
+              {/* 包含系统消息 */}
+              <div className="flex items-start space-x-3">
+                <div className="flex items-center h-5">
+                  <input
+                    id="includeSystemMessages"
+                    type="checkbox"
+                    checked={form.includeSystemMessages ?? true}
+                    onChange={(e) => setForm(prev => ({ ...prev, includeSystemMessages: e.target.checked }))}
+                    className="w-4 h-4 text-blue-600 bg-neutral-50 border-neutral-300 rounded focus:ring-blue-500 focus:ring-2"
+                  />
+                </div>
+                <div className="text-sm">
+                  <label htmlFor="includeSystemMessages" className="font-medium text-neutral-900 cursor-pointer">
+                    包含系统消息
+                  </label>
+                  <p className="text-neutral-600 text-xs mt-0.5">
+                    包含入群通知、撤回提示等系统提示消息
+                  </p>
+                </div>
+              </div>
+
+              {/* 过滤纯多媒体消息 */}
+              <div className="flex items-start space-x-3">
+                <div className="flex items-center h-5">
+                  <input
+                    id="filterPureImageMessages"
+                    type="checkbox"
+                    checked={form.filterPureImageMessages ?? false}
+                    onChange={(e) => setForm(prev => ({ ...prev, filterPureImageMessages: e.target.checked }))}
+                    className="w-4 h-4 text-blue-600 bg-neutral-50 border-neutral-300 rounded focus:ring-blue-500 focus:ring-2"
+                  />
+                </div>
+                <div className="text-sm">
+                  <label htmlFor="filterPureImageMessages" className="font-medium text-neutral-900 cursor-pointer">
+                    过滤纯多媒体消息
+                  </label>
+                  <p className="text-neutral-600 text-xs mt-0.5">
+                    过滤掉只包含图片、视频、音频、文件、表情等没有文字的消息记录
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 

@@ -109,6 +109,8 @@ export function useExportTasks() {
         options: {
           batchSize: 5000,
           includeResourceLinks: true,
+          includeSystemMessages: form.includeSystemMessages,
+          filterPureImageMessages: form.filterPureImageMessages,
           prettyFormat: true,
         },
       }

@@ -59,6 +59,8 @@ interface UserConfig {
     resourceLinkStrategy: 'keep' | 'download' | 'placeholder';
     /** 导出时是否包含系统消息 */
     includeSystemMessages: boolean;
+    /** 是否过滤掉纯多媒体消息（只包含图片、视频、音频、文件、表情等，无文字内容） */
+    filterPureImageMessages: boolean;
     /** 是否启用通知 */
     enableNotifications: boolean;
     /** WebUI访问密码（可选） */
@@ -77,6 +79,7 @@ const DEFAULT_USER_CONFIG: UserConfig = {
     showAdvancedOptions: false,
     resourceLinkStrategy: 'keep',
     includeSystemMessages: true,
+    filterPureImageMessages: false,
     enableNotifications: true
 };
 
