@@ -242,7 +242,15 @@ export class JsonExporter extends BaseExporter {
             id: parsedMsg.messageId,
             seq: parsedMsg.messageSeq,
             timestamp: parsedMsg.timestamp.getTime(),
-            time: parsedMsg.timestamp.toISOString(),
+            time: parsedMsg.timestamp.toLocaleString('zh-CN', { 
+                year: 'numeric', 
+                month: '2-digit', 
+                day: '2-digit', 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit',
+                hour12: false 
+            }).replace(/\//g, '-'),
             sender: {
                 uid: parsedMsg.sender.uid,
                 uin: parsedMsg.sender.uin,
