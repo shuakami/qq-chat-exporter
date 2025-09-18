@@ -18,7 +18,7 @@ for %%a in ("%RetString%") do (
 
 SET QQPath=%pathWithoutUninstall%QQ.exe
 
-if not exist "%QQpath%" (
+if not exist "%QQPath%" (
     echo provided QQ path is invalid
     pause
     exit /b
@@ -27,6 +27,6 @@ if not exist "%QQpath%" (
 set NAPCAT_MAIN_PATH=%NAPCAT_MAIN_PATH:\=/%
 echo (async () =^> {await import("file:///%NAPCAT_MAIN_PATH%")})() > "%NAPCAT_LOAD_PATH%"
 
-"%NAPCAT_LAUNCHER_PATH%" "%QQPath%" "%NAPCAT_INJECT_PATH%" %1
+"%NAPCAT_LAUNCHER_PATH%" "%QQPath%" "%NAPCAT_INJECT_PATH%"
 
 pause
