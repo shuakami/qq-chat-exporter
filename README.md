@@ -5,8 +5,6 @@
 ![Platform](https://img.shields.io/badge/平台-Win/Mac/Linux-48bb78?style=flat-square)
 [![使用教程](https://img.shields.io/badge/使用教程-点击查看-f6ad55?style=flat-square)](https://qce.luoxiaohei.cn)
 
-## 界面预览
-
 ![QCE V4 界面截图](image.png)
 
 ## 这是什么
