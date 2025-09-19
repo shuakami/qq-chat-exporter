@@ -1,51 +1,93 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import Image from "next/image"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { GettingStarted } from "@/components/ui/getting-started"
 import { TaskWizard } from "@/components/ui/task-wizard"
 import { ScheduledExportWizard } from "@/components/ui/scheduled-export-wizard"
 import { ExecutionHistoryModal } from "@/components/ui/execution-history-modal"
 import { MessagePreviewModal } from "@/components/ui/message-preview-modal"
-import { EmptyState } from "@/components/ui/empty-state"
 import {
   Download,
-  Settings,
-  Activity,
-  FileText,
-  Users,
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  X,
   RefreshCw,
-  Wifi,
-  User,
-  ArrowRight,
-  Circle,
-  Play,
-  Heart,
+  X,
+  AlertCircle,
   Star,
   ExternalLink,
-  Github,
-  Calendar,
-  Timer,
   ToggleLeft,
   ToggleRight,
-  History,
   Zap,
+  History,
 } from "lucide-react"
 import type { CreateTaskForm, CreateScheduledExportForm } from "@/types/api"
 import { useQCE } from "@/hooks/use-qce"
 import { useScheduledExports } from "@/hooks/use-scheduled-exports"
 
+// ✨ 动效核心：统一的 Bezier 曲线与时长
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
+
+// 曲线：inOut 更沉稳、out 更灵动、in 用于元素消失
+const EASE = {
+  inOut: [0.22, 1, 0.36, 1] as [number, number, number, number], // standard in-out
+  out:   [0.16, 1, 0.3, 1]  as [number, number, number, number], // swift out
+  in:    [0.3, 0, 0.7, 1]   as [number, number, number, number], // gentle in
+}
+
+// 时长：fast 用于 hover/press，normal 为默认，slow 用于大型容器
+const DUR = {
+  fast: 0.18,
+  normal: 0.36,
+  slow: 0.6,
+}
+
+// 级联容器与子项 variants
+const makeStagger = (delay = 0.04, r = false) => ({
+  container: {
+    animate: {
+      transition: r
+        ? { staggerChildren: 0, when: "beforeChildren" }
+        : { staggerChildren: delay, when: "beforeChildren" },
+    },
+  },
+  item: {
+    initial: { opacity: 0, y: 8 },
+    animate: { opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } },
+    exit:    { opacity: 0, y: 6, transition: { duration: DUR.fast, ease: EASE.in } },
+  },
+})
+
+// 卡片悬停/按压微动
+const hoverLift = {
+  whileHover: { y: -2, scale: 1.01, transition: { duration: DUR.fast, ease: EASE.out } },
+  whileTap:   { scale: 0.995, transition: { duration: DUR.fast, ease: EASE.inOut } },
+}
+
+// 通用淡入淡出（用于 Tab 切换）
+const fadeSlide = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0, transition: { duration: DUR.slow, ease: EASE.inOut } },
+  exit:    { opacity: 0, y: -8, transition: { duration: DUR.normal, ease: EASE.in } },
+}
+
+// Toast 弹入
+const toastAnim = {
+  initial: { opacity: 0, y: 12, scale: 0.98 },
+  animate: { opacity: 1, y: 0, scale: 1, transition: { duration: DUR.normal, ease: EASE.out } },
+  exit:    { opacity: 0, y: 10, scale: 0.98, transition: { duration: DUR.fast, ease: EASE.in } },
+}
+
+// 状态点呼吸（通过 framer 的 animate 属性实现）
+const statusPulse = {
+  animate: {
+    scale: [1, 1.06, 1],
+    transition: { duration: 2.4, ease: EASE.inOut, repeat: Infinity, repeatDelay: 0.2 },
+  },
+}
+
 export default function QCEDashboard() {
-  const [activeTab, setActiveTabState] = useState("dashboard")
+  const [activeTab, setActiveTabState] = useState("overview")
   const [isTaskWizardOpen, setIsTaskWizardOpen] = useState(false)
   const [selectedPreset, setSelectedPreset] = useState<Partial<CreateTaskForm> | undefined>()
   const [isScheduledExportWizardOpen, setIsScheduledExportWizardOpen] = useState(false)
@@ -59,10 +101,14 @@ export default function QCEDashboard() {
     name: string,
     peer: { chatType: number, peerUid: string }
   } | null>(null)
+  const [showStarToast, setShowStarToast] = useState(false)
   const tasksLoadedRef = useRef(false)
   const scheduledExportsLoadedRef = useRef(false)
+  const previousTasksRef = useRef<typeof tasks>([])  // 跟踪任务状态变化
 
-  // Custom setActiveTab with localStorage persistence
+  // 是否偏好降级动画
+  const reduceMotion = useReducedMotion() ?? false
+
   const setActiveTab = (tabId: string) => {
     setActiveTabState(tabId)
     if (typeof window !== "undefined") {
@@ -70,11 +116,10 @@ export default function QCEDashboard() {
     }
   }
 
-  // Restore active tab from localStorage on mount
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedTab = localStorage.getItem("qce-active-tab")
-      if (savedTab && ["dashboard", "sessions", "tasks", "scheduled", "settings"].includes(savedTab)) {
+      if (savedTab && ["overview", "sessions", "tasks", "scheduled", "about"].includes(savedTab)) {
         setActiveTabState(savedTab)
       }
     }
@@ -119,7 +164,12 @@ export default function QCEDashboard() {
     setIsTaskWizardOpen(true)
   }
 
-  const handlePreviewChat = (type: 'group' | 'friend', id: string, name: string, peer: { chatType: number, peerUid: string }) => {
+  const handlePreviewChat = (
+    type: 'group' | 'friend',
+    id: string,
+    name: string,
+    peer: { chatType: number, peerUid: string }
+  ) => {
     setPreviewingChat({ type, id, name, peer })
     setIsPreviewModalOpen(true)
   }
@@ -149,1345 +199,1114 @@ export default function QCEDashboard() {
     setSelectedHistoryTask(null)
   }
 
-  // Auto-load tasks when switching to tasks tab (only once)
   useEffect(() => {
     if (activeTab === "tasks" && !tasksLoadedRef.current) {
-      console.log("[QCE] Loading tasks for tasks tab...")
       loadTasks().then(() => {
         tasksLoadedRef.current = true
       })
     }
   }, [activeTab, loadTasks])
   
-  // Auto-load scheduled exports when switching to scheduled tab (only once)
   useEffect(() => {
     if (activeTab === "scheduled" && !scheduledExportsLoadedRef.current) {
-      console.log("[QCE] Loading scheduled exports for scheduled tab...")
       loadScheduledExports().then(() => {
         scheduledExportsLoadedRef.current = true
       })
     }
   }, [activeTab, loadScheduledExports])
   
-  // Reset tasks loaded flag when manually refreshing
   const handleLoadTasks = async () => {
     tasksLoadedRef.current = false
     await loadTasks()
     tasksLoadedRef.current = true
   }
 
-  // Reset scheduled exports loaded flag when manually refreshing
   const handleLoadScheduledExports = async () => {
     scheduledExportsLoadedRef.current = false
     await loadScheduledExports()
     scheduledExportsLoadedRef.current = true
   }
 
-  // Handle task creation and refresh list
   const handleCreateTask = async (form: CreateTaskForm) => {
     const success = await createTask(form)
     if (success) {
-      // 重置加载标志，以便任务列表能显示新任务
       tasksLoadedRef.current = false
     }
     return success
   }
 
-  // Handle scheduled export creation and refresh list
   const handleCreateScheduledExport = async (form: CreateScheduledExportForm) => {
     const success = await createScheduledExport(form)
     if (success) {
-      // 重置加载标志，以便定时导出列表能显示新任务
       scheduledExportsLoadedRef.current = false
     }
     return success
   }
 
-  // Load chat data when switching to sessions tab
   useEffect(() => {
     if (activeTab === "sessions" && groups.length === 0 && friends.length === 0) {
       loadChatData()
     }
   }, [activeTab, groups.length, friends.length, loadChatData])
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "running":
-        return <Clock className="w-4 h-4 text-blue-500" />
-      case "completed":
-        return <CheckCircle className="w-4 h-4 text-green-500" />
-      case "failed":
-        return <AlertCircle className="w-4 h-4 text-red-500" />
-      default:
-        return <Clock className="w-4 h-4 text-neutral-400" />
+  // 监听任务完成，显示 Star toast
+  useEffect(() => {
+    const previousTasks = previousTasksRef.current
+    const currentTasks = tasks
+
+    const newlyCompletedTasks = currentTasks.filter(currentTask => {
+      const previousTask = previousTasks.find(prevTask => prevTask.id === currentTask.id)
+      return currentTask.status === "completed" && previousTask && previousTask.status !== "completed"
+    })
+
+    if (newlyCompletedTasks.length > 0) {
+      setShowStarToast(true)
+      setTimeout(() => setShowStarToast(false), 10000)
     }
-  }
+
+    previousTasksRef.current = currentTasks
+  }, [tasks])
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case "running":
-        return "进行中"
-      case "completed":
-        return "已完成"
-      case "failed":
-        return "失败"
-      default:
-        return "等待中"
+      case "running": return "进行中"
+      case "completed": return "已完成"
+      case "failed": return "失败"
+      default: return "等待中"
     }
   }
 
-  const sidebarItems = [
-    { id: "dashboard", label: "仪表板", icon: Activity },
-    { id: "sessions", label: "会话管理", icon: Users },
-    { id: "tasks", label: "导出任务", icon: FileText },
-    { id: "scheduled", label: "定时导出", icon: Timer },
-    { id: "settings", label: "设置", icon: Settings },
-  ]
+  // 级联动画 variants（受 reduced-motion 影响）
+  const STAG = useMemo(() => makeStagger(reduceMotion ? 0 : 0.06, reduceMotion), [reduceMotion])
 
   return (
-    <div className="flex flex-col min-h-screen bg-neutral-50">
+    <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white">
       {/* Header */}
-      <header className="bg-white border-b border-neutral-200 px-8 py-4">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-8">
-            <div className="flex items-center gap-3">
-              <Image
-                src="/text-logo.png"
-                alt="QCE Logo"
-                width={120}
-                height={32}
-                className="h-8 w-auto"
-                priority
+      <motion.div
+        className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-neutral-100"
+        initial={{ y: -12, opacity: 0 }}
+        animate={{ y: 0, opacity: 1, transition: { duration: DUR.normal, ease: EASE.out } }}
+      >
+        <div className="max-w-5xl mx-auto flex items-center justify-between h-16">
+          {/* Navigation */}
+          <nav className="flex gap-8">
+            {[
+              ["overview", "概览"],
+              ["sessions", "会话"],
+              ["tasks", "任务"],
+              ["scheduled", "定时"],
+              ["about", "关于"]
+            ].map(([id, label]) => (
+              <motion.button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`text-sm transition-all duration-300 ${
+                  activeTab === id
+                    ? "text-black"
+                    : "text-neutral-500 hover:text-neutral-800"
+                }`}
+                whileTap={{ scale: 0.98, transition: { duration: DUR.fast, ease: EASE.inOut } }}
+              >
+                <span
+                  className={`inline-block pb-1 border-b ${
+                    activeTab === id ? "border-neutral-900" : "border-transparent"
+                  } transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]`}
+                >
+                  {label}
+                </span>
+              </motion.button>
+            ))}
+          </nav>
+          
+          {/* Status & Actions */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <motion.span
+                className={`w-2 h-2 rounded-full ${
+                  !wsConnected ? "bg-red-400" :
+                  !systemInfo?.napcat.online ? "bg-yellow-400" : "bg-green-400"
+                }`}
+                {...statusPulse}
               />
-              <div>
-                <p className="text-sm text-neutral-600 font-medium">Chat Export Tool v4.0.0</p>
-              </div>
+              <span className="text-sm text-neutral-600">
+                {!wsConnected ? "离线" : systemInfo?.napcat.online ? "在线" : "QQ离线"}
+              </span>
             </div>
-
-            {/* Navigation */}
-            <nav className="hidden md:flex items-center gap-6">
-              {sidebarItems.map((item) => {
-                const Icon = item.icon
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => setActiveTab(item.id)}
-                    className={`flex items-center gap-2 text-sm px-3 py-2 rounded-md transition-colors ${
-                      activeTab === item.id
-                        ? "bg-neutral-100 text-neutral-900"
-                        : "text-neutral-600 hover:text-neutral-900 hover:bg-neutral-50"
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span>{item.label}</span>
-                  </button>
-                )
-              })}
-            </nav>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {wsConnected ? (
-              systemInfo?.napcat.online ? (
-                <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
-                  <Wifi className="w-3 h-3 mr-2" />
-                  在线
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="text-yellow-600 border-yellow-200 bg-yellow-50">
-                  <AlertCircle className="w-3 h-3 mr-2" />
-                  QQ离线
-                </Badge>
-              )
-            ) : (
-              <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50">
-                <AlertCircle className="w-3 h-3 mr-2" />
-                未连接
-              </Badge>
-            )}
-
-            <button
+            <motion.button
               onClick={refreshSystemInfo}
-              className="text-neutral-500 hover:text-neutral-700 p-2 rounded-md transition-colors"
-              title="刷新系统状态"
+              className="p-1 text-neutral-400 hover:text-neutral-600 transition-colors"
+              whileTap={{ rotate: -20, scale: 0.95, transition: { duration: DUR.fast, ease: EASE.inOut } }}
+              title="刷新"
             >
               <RefreshCw className="w-4 h-4" />
-            </button>
+            </motion.button>
           </div>
         </div>
-      </header>
+      </motion.div>
 
-      {/* Error Banner */}
-      {error && (
-        <div className="bg-red-50 border-b border-red-200 px-8 py-3">
-          <div className="flex items-center gap-2 text-red-700">
-            <AlertCircle className="w-4 h-4" />
-            <span>{error}</span>
-            <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-red-700">
+      {/* Toasts */}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            key="error-toast"
+            className="fixed bottom-6 right-6 z-50 w-full max-w-sm rounded-2xl border border-neutral-200 bg-white/80 p-5 shadow-2xl shadow-neutral-500/10 backdrop-blur-lg"
+            {...toastAnim}
+          >
+            <button 
+              onClick={() => setError(null)}
+              className="absolute top-3 right-3 rounded-full p-1.5 text-neutral-500 transition-colors"
+            >
               <X className="w-4 h-4" />
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Main Content */}
-      <main className="flex-1 px-8 py-6">
-        <div className="max-w-6xl mx-auto">
-          {/* Dashboard Tab */}
-          {activeTab === "dashboard" && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-2xl font-light text-neutral-900 mb-2">仪表板</h2>
-                <p className="text-neutral-600">轻松备份您的聊天记录</p>
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0 rounded-full border border-neutral-200 bg-neutral-100 p-2.5">
+                <AlertCircle className="w-5 h-5 text-neutral-600" />
               </div>
-
-              <GettingStarted
-                wsConnected={wsConnected}
-                qqOnline={systemInfo?.napcat.online || false}
-                hasGroups={groups.length > 0}
-                hasFriends={friends.length > 0}
-                hasTasks={tasks.length > 0}
-                onLoadChatData={loadChatData}
-                onCreateTask={() => handleOpenTaskWizard()}
-              />
-
-              {/* System Status Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-base">系统状态</CardTitle>
-                    {wsConnected && systemInfo?.napcat.online ? (
-                      <CheckCircle className="w-5 h-5 text-green-500" />
-                    ) : (
-                      <AlertCircle className="w-5 h-5 text-yellow-500" />
-                    )}
-                  </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-neutral-600">WebSocket</span>
-                      <span className={wsConnected ? "text-green-600" : "text-red-600"}>
-                        {wsConnected ? "已连接" : "未连接"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-neutral-600">QQ状态</span>
-                      <span className={systemInfo?.napcat.online ? "text-green-600" : "text-yellow-600"}>
-                        {systemInfo?.napcat.online ? "在线" : "离线"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-neutral-600">版本</span>
-                      <span className="text-neutral-900">{systemInfo?.version || "4.0.0"}</span>
-                    </div>
-                    {systemInfo?.napcat.selfInfo && (
-                      <div className="flex justify-between">
-                        <span className="text-neutral-600">账号</span>
-                        <span className="text-neutral-900">{systemInfo.napcat.selfInfo.nick}</span>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-base">导出任务</CardTitle>
-                    <FileText className="w-5 h-5 text-neutral-400" />
-                  </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-neutral-600">总任务</span>
-                      <span className="text-neutral-900">{getTaskStats().total}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-neutral-600">进行中</span>
-                      <span className="text-blue-600">{getTaskStats().running}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-neutral-600">已完成</span>
-                      <span className="text-green-600">{getTaskStats().completed}</span>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-base">会话统计</CardTitle>
-                    <Users className="w-5 h-5 text-neutral-400" />
-                  </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-neutral-600">群组</span>
-                      <span className="text-neutral-900">{groups.length}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-neutral-600">好友</span>
-                      <span className="text-neutral-900">{friends.length}</span>
-                    </div>
-                  </CardContent>
-                </Card>
-                  </div>
-
-              {/* Quick Actions */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>快速操作</CardTitle>
-                  <CardDescription>选择一个操作开始使用QCE工具</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Button
-                      variant="outline"
-                      className="justify-start h-auto p-4"
-                      onClick={() => setActiveTab("sessions")}
-                    >
-                      <div className="flex items-center gap-3 w-full">
-                        <Users className="w-6 h-6 text-blue-600" />
-                        <div className="text-left">
-                          <div className="font-medium">浏览会话</div>
-                          <div className="text-sm text-neutral-600">查看群组和好友列表</div>
-                </div>
+              <div className="flex-1 pt-0.5">
+                <h3 className="text-base font-semibold text-neutral-900">发生错误</h3>
+                <p className="mt-1 text-sm text-neutral-600">{error}</p>
               </div>
-                    </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-                    <Button
-                      variant="outline"
-                      className="justify-start h-auto p-4"
-                      onClick={() => handleOpenTaskWizard()}
-                    >
-                      <div className="flex items-center gap-3 w-full">
-                        <FileText className="w-6 h-6 text-green-600" />
-                        <div className="text-left">
-                          <div className="font-medium">创建任务</div>
-                          <div className="text-sm text-neutral-600">导出聊天记录</div>
-                </div>
-                      </div>
-                    </Button>
+      <AnimatePresence>
+        {scheduledError && (
+          <motion.div
+            key="scheduled-error-toast"
+            className="fixed bottom-6 right-6 z-50 w-full max-w-sm rounded-2xl border border-neutral-200 bg-white/80 p-5 shadow-2xl shadow-neutral-500/10 backdrop-blur-lg"
+            style={{ bottom: error ? '140px' : '24px' }}
+            {...toastAnim}
+          >
+            <button 
+              onClick={() => setScheduledError(null)}
+              className="absolute top-3 right-3 rounded-full p-1.5 text-neutral-500 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0 rounded-full border border-neutral-200 bg-neutral-100 p-2.5">
+                <AlertCircle className="w-5 h-5 text-neutral-600" />
+              </div>
+              <div className="flex-1 pt-0.5">
+                <h3 className="text-base font-semibold text-neutral-900">定时任务错误</h3>
+                <p className="mt-1 text-sm text-neutral-600">{scheduledError}</p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-                      <Button
-                      variant="outline"
-                      className="justify-start h-auto p-4"
-                      onClick={() => setActiveTab("tasks")}
-                    >
-                      <div className="flex items-center gap-3 w-full">
-                        <Download className="w-6 h-6 text-purple-600" />
-                        <div className="text-left">
-                          <div className="font-medium">查看任务</div>
-                          <div className="text-sm text-neutral-600">管理导出任务</div>
-                        </div>
-                      </div>
-                      </Button>
-                    </div>
-                </CardContent>
-              </Card>
+      <AnimatePresence>
+        {showStarToast && (
+          <motion.div
+            key="star-toast"
+            className="fixed bottom-6 right-6 z-50 w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-5 shadow-2xl shadow-neutral-500/10 backdrop-blur-lg"
+            style={{ bottom: (error || scheduledError) ? (error && scheduledError ? '280px' : '140px') : '24px' }}
+            {...toastAnim}
+          >
+            <button 
+              onClick={() => setShowStarToast(false)}
+              className="absolute top-3 right-3 rounded-full p-1.5 text-neutral-500 transition-colors hover:bg-neutral-100"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0 rounded-full border border-yellow-200 bg-yellow-50 p-2.5">
+                <Star className="w-5 h-5 text-yellow-600 fill-current" />
+              </div>
+              <div className="flex-1 pt-0.5">
+                <h3 className="text-base font-semibold text-neutral-900">兄弟....</h3>
+                <p className="mt-1 text-sm text-neutral-600">如果有帮助到你，给我点个 Star 吧喵</p>
+                <motion.button
+                  onClick={() => window.open('https://github.com/shuakami/qq-chat-exporter', '_blank')}
+                  className="mt-3 flex items-center gap-2 rounded-full bg-yellow-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-yellow-600"
+                  whileHover={{ y: -1, transition: { duration: DUR.fast, ease: EASE.out } }}
+                  whileTap={{ scale: 0.98, transition: { duration: DUR.fast, ease: EASE.inOut } }}
+                >
+                  <Star className="w-4 h-4 fill-current" />
+                  前往 GitHub
+                  <ExternalLink className="w-3 h-3" />
+                </motion.button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-              {/* Recent Tasks Preview */}
-              {tasks.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle>最近任务</CardTitle>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setActiveTab("tasks")}
+      {/* Main */}
+      <main className="px-6 pb-16">
+        <div className="max-w-5xl mx-auto">
+          {/* 使用 AnimatePresence 做 Tab 内容的进出场 */}
+          <AnimatePresence mode="wait">
+            {activeTab === "overview" && (
+              <motion.div key="tab-overview" {...fadeSlide} className="space-y-10 pt-10">
+                {/* Hero */}
+                <section className="space-y-4">
+                  <motion.h1
+                    className="text-4xl md:text-5xl font-semibold tracking-tight text-neutral-900"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                  >
+                    QQ 聊天记录导出工具
+                  </motion.h1>
+                  <motion.p
+                    className="text-neutral-600 text-lg"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut, delay: 0.05 } }}
+                  >
+                    现代化的聊天记录导出解决方案，支持多种格式和定时备份
+                  </motion.p>
+                  <motion.div
+                    className="flex flex-wrap gap-3 pt-2"
+                    initial="initial"
+                    animate="animate"
+                    variants={STAG.container}
+                  >
+                    {[
+                      { key: "browse", text: "浏览会话", onClick: () => setActiveTab("sessions"), variant: "outline" as const },
+                      { key: "new", text: "新建任务", onClick: () => handleOpenTaskWizard(), variant: undefined },
+                      { key: "view", text: "查看任务", onClick: () => setActiveTab("tasks"), variant: "outline" as const },
+                    ].map((b, i) => (
+                      <motion.div key={b.key} variants={STAG.item}>
+                        <Button
+                          className="rounded-full transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                          onClick={b.onClick}
+                          variant={b.variant}
+                        >
+                          {b.text}
+                        </Button>
+                      </motion.div>
+                    ))}
+                  </motion.div>
+                </section>
+
+                {/* Status Row */}
+                <motion.section
+                  className="rounded-2xl border border-neutral-200 bg-white/60 backdrop-blur px-5 py-4"
+                  variants={STAG.container}
+                  initial="initial"
+                  animate="animate"
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {[
+                      {
+                        label: "连接",
+                        dotClass: wsConnected ? "bg-green-500" : "bg-red-500",
+                        textClass: wsConnected ? "text-green-700" : "text-red-700",
+                        text: wsConnected ? "已连接" : "未连接",
+                      },
+                      {
+                        label: "QQ状态",
+                        dotClass: systemInfo?.napcat.online ? "bg-green-500" : "bg-amber-500",
+                        textClass: systemInfo?.napcat.online ? "text-green-700" : "text-amber-700",
+                        text: systemInfo?.napcat.online ? "在线" : "离线",
+                      },
+                      {
+                        label: "版本",
+                        textOnly: systemInfo?.version || "4.0.0",
+                      },
+                    ].map((it, idx) => (
+                      <motion.div
+                        key={idx}
+                        className="flex items-center justify-between rounded-xl px-3 py-2"
+                        variants={STAG.item}
+                        {...hoverLift}
                       >
-                        查看全部
-                        <ArrowRight className="w-4 h-4 ml-1" />
+                        <span className="text-sm text-neutral-600">{it.label}</span>
+                        {"textOnly" in it ? (
+                          <span className="text-sm font-medium text-neutral-900">{it.textOnly}</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-2">
+                            <span className={["inline-block w-2 h-2 rounded-full", it.dotClass].join(" ")} />
+                            <span className={`${it.textClass} text-sm`}>{it.text}</span>
+                          </span>
+                        )}
+                      </motion.div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-3 pt-4">
+                    <motion.div whileTap={{ scale: 0.98 }}>
+                      <Button
+                        onClick={refreshSystemInfo}
+                        variant="outline"
+                        size="sm"
+                        className="rounded-full h-8"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        刷新系统状态
                       </Button>
+                    </motion.div>
+                    {systemInfo?.napcat.selfInfo && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                      >
+                        <Badge variant="outline" className="rounded-full h-8 px-3 flex items-center">
+                          {systemInfo.napcat.selfInfo.nick} · QQ {systemInfo.napcat.selfInfo.uin}
+                        </Badge>
+                      </motion.div>
+                    )}
+                  </div>
+                </motion.section>
+
+                {/* Quick stats */}
+                <motion.section
+                  className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+                  variants={STAG.container}
+                  initial="initial"
+                  animate="animate"
+                >
+                  {[
+                    {
+                      title: "导出任务",
+                      value: getTaskStats().total,
+                      sub: `进行中 ${getTaskStats().running} · 完成 ${getTaskStats().completed}`,
+                    },
+                    { title: "群组", value: groups.length },
+                    { title: "好友", value: friends.length },
+                  ].map((s, idx) => (
+                    <motion.div
+                      key={idx}
+                      className="rounded-2xl border border-neutral-200 bg-white/60 p-4"
+                      variants={STAG.item}
+                      {...hoverLift}
+                    >
+                      <p className="text-sm text-neutral-600">{s.title}</p>
+                      <div className="mt-2 flex items-baseline gap-3">
+                        <span className="text-2xl font-semibold">{s.value}</span>
+                        {s.sub && <span className="text-xs text-neutral-500">{s.sub}</span>}
+                      </div>
+                    </motion.div>
+                  ))}
+                </motion.section>
+
+                {/* Recent tasks preview */}
+                {tasks.length > 0 && (
+                  <section className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-base font-medium text-neutral-900">最近任务</h3>
+                      <motion.div whileTap={{ scale: 0.98 }}>
+                        <Button
+                          variant="ghost"
+                          className="rounded-full"
+                          onClick={() => setActiveTab("tasks")}
+                        >
+                          查看全部
+                        </Button>
+                      </motion.div>
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {tasks.slice(0, 3).map((task) => (
-                      <div key={task.id} className="flex items-center justify-between p-3 border border-neutral-100 rounded-lg hover:border-neutral-200 hover:bg-neutral-50 transition-all duration-200">
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-medium text-neutral-900 truncate text-sm">{task.sessionName}</h4>
+                    <motion.div
+                      className="space-y-2"
+                      variants={STAG.container}
+                      initial="initial"
+                      animate="animate"
+                      exit="exit"
+                    >
+                      {tasks.slice(0, 3).map((task) => (
+                        <motion.div
+                          key={task.id}
+                          className="flex items-center justify-between rounded-2xl border border-neutral-200 bg-white/70 px-4 py-3 hover:bg-white transition"
+                          variants={STAG.item}
+                          {...hoverLift}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="truncate font-medium text-neutral-900">{task.sessionName}</p>
                               <Badge
                                 variant="outline"
-                                className={`text-xs ${
+                                className={
                                   task.status === "completed"
-                                    ? "text-green-600 border-green-200 bg-green-50"
+                                    ? "rounded-full text-green-700 border-green-200 bg-green-50"
                                     : task.status === "running"
-                                      ? "text-blue-600 border-blue-200 bg-blue-50"
-                                      : task.status === "failed"
-                                        ? "text-red-600 border-red-200 bg-red-50"
-                                        : "text-neutral-600 border-neutral-200"
-                                }`}
+                                    ? "rounded-full text-blue-700 border-blue-200 bg-blue-50"
+                                    : task.status === "failed"
+                                    ? "rounded-full text-red-700 border-red-200 bg-red-50"
+                                    : "rounded-full"
+                                }
                               >
                                 {getStatusText(task.status)}
                               </Badge>
-                          </div>
-                            <div className="flex items-center gap-3 text-xs text-neutral-500">
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-neutral-500">
                               <span>{task.format}</span>
                               <span>{new Date(task.createdAt).toLocaleDateString()}</span>
-                              {task.messageCount && <span>{task.messageCount.toLocaleString()}条</span>}
-                              {(task.startTime || task.endTime) && (
-                                <span className="font-medium">
-                                  {task.startTime && task.endTime 
-                                    ? `${new Date(task.startTime * 1000).toLocaleDateString()} ~ ${new Date(task.endTime * 1000).toLocaleDateString()}`
-                                    : task.startTime 
-                                      ? `从 ${new Date(task.startTime * 1000).toLocaleDateString()}`
-                                      : `到 ${new Date(task.endTime! * 1000).toLocaleDateString()}`
-                                  }
-                                </span>
-                              )}
+                              {task.messageCount && <span>{task.messageCount.toLocaleString()} 条</span>}
                             </div>
                           </div>
-                        </div>
-                        
-                        <div className="flex items-center gap-2 ml-3">
-                          {task.status === "running" && (
-                            <>
-                              <Progress value={task.progress} className="w-16 h-1.5" />
-                              <span className="text-xs text-blue-600 min-w-[2.5rem] text-right font-medium">
-                                {task.progress}%
-                              </span>
-                            </>
-                          )}
-                          {task.status === "completed" && (
-                            <Button size="sm" variant="outline" onClick={() => downloadTask(task)} className="h-7">
-                              <Download className="w-3 h-3 mr-1" />
-                              下载
-                            </Button>
-                          )}
-                        </div>
-                    </div>
-                    ))}
-                  </CardContent>
-                </Card>
-                  )}
-            </div>
-          )}
+                          <div className="ml-4 flex items-center gap-2">
+                            {task.status === "running" && (
+                              <>
+                                {/* 进度条 & 数字同步缓动 */}
+                                <div className="w-24">
+                                  <Progress
+                                    value={task.progress}
+                                    className="w-24 h-1.5 rounded-full transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                                  />
+                                </div>
+                                <motion.span
+                                  key={task.progress} // 数字变化时做一个小淡入
+                                  className="text-xs text-blue-700 font-medium min-w-[2.5rem] text-right"
+                                  initial={{ opacity: 0, y: 2 }}
+                                  animate={{ opacity: 1, y: 0, transition: { duration: DUR.fast, ease: EASE.out } }}
+                                >
+                                  {task.progress}%
+                                </motion.span>
+                              </>
+                            )}
+                            {task.status === "completed" && (
+                              <motion.div whileTap={{ scale: 0.98 }}>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 rounded-full"
+                                  onClick={() => downloadTask(task)}
+                                >
+                                  <Download className="w-3 h-3 mr-1" />
+                                  下载
+                                </Button>
+                              </motion.div>
+                            )}
+                          </div>
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                  </section>
+                )}
+              </motion.div>
+            )}
 
-          {/* Sessions Tab */}
-          {activeTab === "sessions" && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-2xl font-light text-neutral-900 mb-2">会话管理</h2>
-                  <p className="text-neutral-600">浏览您的QQ群组和好友列表，点击"导出聊天记录"开始导出</p>
-                </div>
-                <Button
-                  onClick={loadChatData}
-                  disabled={isLoading}
-                  variant="outline"
-                >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  {isLoading ? "加载中..." : "刷新列表"}
+            {activeTab === "sessions" && (
+              <motion.div key="tab-sessions" {...fadeSlide} className="space-y-10 pt-10">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-neutral-900">会话管理</h2>
+                    <p className="text-neutral-600 mt-1">浏览群组与好友，选择要导出的聊天记录</p>
+                  </div>
+                  <motion.div whileTap={{ scale: 0.98 }}>
+                    <Button onClick={loadChatData} disabled={isLoading} variant="outline" className="rounded-full">
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      {isLoading ? "加载中..." : "刷新列表"}
                     </Button>
-              </div>
-
-              {(groups.length === 0 && friends.length === 0) ? (
-                <EmptyState
-                  icon={<Users className="w-16 h-16" />}
-                  title={isLoading ? "正在加载..." : "暂无会话数据"}
-                  description={isLoading 
-                    ? "正在从QQ获取您的群组和好友列表，请稍等..."
-                    : "无法获取到您的群组和好友信息。请确保QQ正常连接，然后点击\"刷新列表\"重试。"
-                  }
-                  action={!isLoading ? {
-                    label: "刷新列表",
-                    onClick: loadChatData
-                  } : undefined}
-                />
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Groups */}
-                  {groups.length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Users className="w-5 h-5" />
-                          群组 ({groups.length})
-                        </CardTitle>
-                        <CardDescription>点击任意群组开始导出聊天记录</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-3 max-h-96 overflow-y-auto">
-                        {groups.map((group) => (
-                          <div
-                            key={group.groupCode}
-                            className="flex items-center gap-3 p-3 border border-neutral-100 rounded-lg hover:bg-neutral-50 transition-colors"
-                          >
-                            <Avatar className="w-12 h-12">
-                              <AvatarImage 
-                                src={group.avatarUrl || `https://p.qlogo.cn/gh/${group.groupCode}/${group.groupCode}/640/`} 
-                                alt={group.groupName} 
-                              />
-                              <AvatarFallback>
-                                {group.groupName.charAt(0).toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                            
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-medium text-neutral-900 truncate">
-                                {group.groupName}
-                              </h3>
-                              <div className="flex items-center gap-2 text-sm text-neutral-600">
-                                <span>{group.memberCount} 成员</span>
-                                <span className="text-neutral-400">•</span>
-                                <span className="font-mono text-xs">{group.groupCode}</span>
-                        </div>
-                      </div>
-
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handlePreviewChat(
-                                  'group',
-                                  group.groupCode,
-                                  group.groupName,
-                                  { chatType: 2, peerUid: group.groupCode }
-                                )}
-                              >
-                                预览消息
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={() => handleOpenTaskWizard({
-                                  chatType: 2,
-                                  peerUid: group.groupCode,
-                                  sessionName: group.groupName,
-                                })}
-                              >
-                                导出聊天记录
-                              </Button>
-                            </div>
-                      </div>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Friends */}
-                  {friends.length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <User className="w-5 h-5" />
-                          好友 ({friends.length})
-                        </CardTitle>
-                        <CardDescription>点击任意好友开始导出聊天记录</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-3 max-h-96 overflow-y-auto">
-                        {friends.map((friend) => (
-                          <div
-                            key={friend.uid}
-                            className="flex items-center gap-3 p-3 border border-neutral-100 rounded-lg hover:bg-neutral-50 transition-colors"
-                          >
-                            <Avatar className="w-12 h-12">
-                              <AvatarImage 
-                                src={friend.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${friend.uin}&s=640`} 
-                                alt={friend.remark || friend.nick} 
-                              />
-                              <AvatarFallback>
-                                {(friend.remark || friend.nick).charAt(0).toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                            
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h3 className="font-medium text-neutral-900 truncate">
-                                  {friend.remark || friend.nick}
-                                </h3>
-                                {friend.isOnline && (
-                                  <div className="flex items-center gap-1">
-                                    <Circle className="w-2 h-2 fill-green-500 text-green-500" />
-                                  </div>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 text-sm text-neutral-600">
-                                <span className="font-mono text-xs">{friend.uin}</span>
-                                {friend.remark && friend.nick !== friend.remark && (
-                                  <>
-                                    <span className="text-neutral-400">•</span>
-                                    <span className="text-xs text-neutral-500 truncate">{friend.nick}</span>
-                                  </>
-                                )}
-                              </div>
-                      </div>
-
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handlePreviewChat(
-                                  'friend',
-                                  friend.uid,
-                                  friend.remark || friend.nick,
-                                  { chatType: 1, peerUid: friend.uid }
-                                )}
-                              >
-                                预览消息
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={() => handleOpenTaskWizard({
-                                  chatType: 1,
-                                  peerUid: friend.uid,
-                                  sessionName: friend.remark || friend.nick,
-                                })}
-                              >
-                                导出聊天记录
-                              </Button>
-                            </div>
-                        </div>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  )}
-                        </div>
-              )}
-                      </div>
-          )}
-
-          {/* Tasks Tab */}
-          {activeTab === "tasks" && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-2xl font-light text-neutral-900 mb-2">导出任务</h2>
-                  <p className="text-neutral-600">查看和管理您的所有导出任务，下载完成的文件</p>
-                  <p className="text-sm text-neutral-500 mt-1">如果消息数量为0，请先尝试刷新</p>
+                  </motion.div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                      <Button
-                    onClick={handleLoadTasks}
-                        disabled={isLoading}
-                    variant="outline"
+                {groups.length === 0 && friends.length === 0 ? (
+                  <motion.div
+                    className="rounded-2xl border border-dashed border-neutral-300 bg-white/60 py-14 text-center"
+                    initial={{ opacity: 0, scale: 0.98, y: 6 }}
+                    animate={{ opacity: 1, scale: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
                   >
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    {isLoading ? "加载中..." : "刷新列表"}
-                  </Button>
-                  <Button 
-                    onClick={() => handleOpenTaskWizard()}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    <FileText className="w-4 h-4 mr-2" />
-                    新建任务
-                      </Button>
-                    </div>
-              </div>
-
-              {/* Tasks List */}
-                {tasks.length === 0 ? (
-                <EmptyState
-                  icon={<FileText className="w-16 h-16" />}
-                  title="暂无导出任务"
-                  description="您还没有创建任何导出任务。建议先去“会话管理”查看您的群组和好友，然后选择要导出的聊天记录。您也可以直接创建新任务。"
-                  action={{
-                    label: "去查看会话列表",
-                    onClick: () => setActiveTab("sessions")
-                  }}
-                />
-              ) : (
-                <div className="space-y-3">
-                    {tasks.map((task) => (
-                    <div key={task.id} className="group border border-neutral-200 rounded-lg p-4 hover:border-neutral-300 hover:shadow-sm transition-all duration-200 bg-white">
-                      <div className="flex items-center justify-between">
-                        {/* Left: Status + Info */}
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          {/* Main Info */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h3 className="font-medium text-neutral-900 truncate">{task.sessionName}</h3>
-                            <Badge
-                              variant="outline"
-                                className={`text-xs ${
-                                task.status === "completed"
-                                    ? "text-green-600 border-green-200 bg-green-50"
-                                  : task.status === "running"
-                                      ? "text-blue-600 border-blue-200 bg-blue-50"
-                                    : task.status === "failed"
-                                        ? "text-red-600 border-red-200 bg-red-50"
-                                      : "text-neutral-600 border-neutral-200"
-                                }`}
+                    <p className="text-neutral-700">暂无会话数据</p>
+                    <p className="text-neutral-500 mt-1">请确认 QQ 已连接，然后点击 "刷新列表"</p>
+                  </motion.div>
+                ) : (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Groups */}
+                    {groups.length > 0 && (
+                      <section className="space-y-3">
+                        <h3 className="text-sm font-medium text-neutral-900">群组（{groups.length}）</h3>
+                        <motion.div
+                          className="space-y-2"
+                          variants={STAG.container}
+                          initial="initial"
+                          animate="animate"
+                          exit="exit"
+                        >
+                          {groups.map((group, idx) => (
+                            <motion.div
+                              key={group.groupCode}
+                              className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white/70 px-4 py-3 hover:bg-white transition"
+                              variants={STAG.item}
+                              {...hoverLift}
                             >
-                              {getStatusText(task.status)}
-                            </Badge>
-                        </div>
+                              <Avatar className="w-10 h-10 rounded-xl overflow-hidden">
+                                <motion.div
+                                  initial={{ opacity: 0 }}
+                                  animate={{ opacity: 1, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                                >
+                                  <AvatarImage
+                                    src={group.avatarUrl || `https://p.qlogo.cn/gh/${group.groupCode}/${group.groupCode}/640/`}
+                                    alt={group.groupName}
+                                  />
+                                </motion.div>
+                                <AvatarFallback className="rounded-xl">
+                                  {group.groupName.charAt(0).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-medium text-neutral-900">{group.groupName}</p>
+                                <div className="mt-0.5 flex items-center gap-2 text-xs text-neutral-600">
+                                  <span>{group.memberCount} 成员</span>
+                                  <span className="text-neutral-400">•</span>
+                                  <span className="font-mono">{group.groupCode}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <motion.div whileTap={{ scale: 0.98 }}>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="rounded-full h-8"
+                                    onClick={() => handlePreviewChat('group', group.groupCode, group.groupName, { chatType: 2, peerUid: group.groupCode })}
+                                  >
+                                    预览
+                                  </Button>
+                                </motion.div>
+                                <motion.div whileTap={{ scale: 0.98 }}>
+                                  <Button
+                                    size="sm"
+                                    className="rounded-full h-8"
+                                    onClick={() => handleOpenTaskWizard({
+                                      chatType: 2,
+                                      peerUid: group.groupCode,
+                                      sessionName: group.groupName,
+                                    })}
+                                  >
+                                    导出
+                                  </Button>
+                                </motion.div>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </motion.div>
+                      </section>
+                    )}
 
-                            <div className="flex items-center gap-4 text-xs text-neutral-500">
-                              <span className="font-mono">{task.peer.peerUid}</span>
+                    {/* Friends */}
+                    {friends.length > 0 && (
+                      <section className="space-y-3">
+                        <h3 className="text-sm font-medium text-neutral-900">好友（{friends.length}）</h3>
+                        <motion.div
+                          className="space-y-2"
+                          variants={STAG.container}
+                          initial="initial"
+                          animate="animate"
+                          exit="exit"
+                        >
+                          {friends.map((friend) => (
+                            <motion.div
+                              key={friend.uid}
+                              className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white/70 px-4 py-3 hover:bg-white transition"
+                              variants={STAG.item}
+                              {...hoverLift}
+                            >
+                              <Avatar className="w-10 h-10 rounded-xl overflow-hidden">
+                                <motion.div
+                                  initial={{ opacity: 0 }}
+                                  animate={{ opacity: 1, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                                >
+                                  <AvatarImage
+                                    src={friend.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${friend.uin}&s=640`}
+                                    alt={friend.remark || friend.nick}
+                                  />
+                                </motion.div>
+                                <AvatarFallback className="rounded-xl">
+                                  {(friend.remark || friend.nick).charAt(0).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="truncate font-medium text-neutral-900">{friend.remark || friend.nick}</p>
+                                  {friend.isOnline && (
+                                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" />
+                                  )}
+                                </div>
+                                <div className="mt-0.5 flex items-center gap-2 text-xs text-neutral-600">
+                                  <span className="font-mono">{friend.uin}</span>
+                                  {friend.remark && friend.nick !== friend.remark && (
+                                    <>
+                                      <span className="text-neutral-400">•</span>
+                                      <span className="truncate text-neutral-500">{friend.nick}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <motion.div whileTap={{ scale: 0.98 }}>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="rounded-full h-8"
+                                    onClick={() => handlePreviewChat('friend', friend.uid, friend.remark || friend.nick, { chatType: 1, peerUid: friend.uid })}
+                                  >
+                                    预览
+                                  </Button>
+                                </motion.div>
+                                <motion.div whileTap={{ scale: 0.98 }}>
+                                  <Button
+                                    size="sm"
+                                    className="rounded-full h-8"
+                                    onClick={() => handleOpenTaskWizard({
+                                      chatType: 1,
+                                      peerUid: friend.uid,
+                                      sessionName: friend.remark || friend.nick,
+                                    })}
+                                  >
+                                    导出
+                                  </Button>
+                                </motion.div>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </motion.div>
+                      </section>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {activeTab === "tasks" && (
+              <motion.div key="tab-tasks" {...fadeSlide} className="space-y-10 pt-10">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-neutral-900">导出任务</h2>
+                    <p className="text-neutral-600 mt-1">查看与管理任务，下载完成文件</p>
+                    <p className="text-sm text-neutral-500 mt-1">如果消息数量为 0，请先尝试刷新</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <motion.div whileTap={{ scale: 0.98 }}>
+                      <Button onClick={handleLoadTasks} disabled={isLoading} variant="outline" className="rounded-full">
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        {isLoading ? "加载中..." : "刷新列表"}
+                      </Button>
+                    </motion.div>
+                    <motion.div whileTap={{ scale: 0.98 }}>
+                      <Button onClick={() => handleOpenTaskWizard()} className="rounded-full">
+                        新建任务
+                      </Button>
+                    </motion.div>
+                  </div>
+                </div>
+
+                {tasks.length === 0 ? (
+                  <motion.div
+                    className="rounded-2xl border border-dashed border-neutral-300 bg-white/60 py-14 text-center"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                  >
+                    <p className="text-neutral-700">暂无导出任务</p>
+                    <p className="text-neutral-500 mt-1">从「会话」中选择一个会话来创建任务，或点击右上角「新建任务」</p>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    className="space-y-3"
+                    variants={STAG.container}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                  >
+                    {tasks.map((task) => (
+                      <motion.div
+                        key={task.id}
+                        className="rounded-2xl border border-neutral-200 bg-white/70 px-5 py-4 hover:bg-white transition"
+                        variants={STAG.item}
+                        {...hoverLift}
+                      >
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="truncate font-medium text-neutral-900">{task.sessionName}</h3>
+                              <Badge
+                                variant="outline"
+                                className={
+                                  task.status === "completed"
+                                    ? "rounded-full text-green-700 border-green-200 bg-green-50"
+                                    : task.status === "running"
+                                    ? "rounded-full text-blue-700 border-blue-200 bg-blue-50"
+                                    : task.status === "failed"
+                                    ? "rounded-full text-red-700 border-red-200 bg-red-50"
+                                    : "rounded-full"
+                                }
+                              >
+                                {getStatusText(task.status)}
+                              </Badge>
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-4 text-xs text-neutral-500">
+                              <span className="font-mono">{task.peer?.peerUid}</span>
                               <span>{task.format}</span>
                               <span>{new Date(task.createdAt).toLocaleDateString()}</span>
                               {task.messageCount && <span>{task.messageCount.toLocaleString()} 条消息</span>}
                               {(task.startTime || task.endTime) && (
                                 <span className="font-medium">
-                                  {task.startTime && task.endTime 
+                                  {task.startTime && task.endTime
                                     ? `${new Date(task.startTime * 1000).toLocaleDateString()} ~ ${new Date(task.endTime * 1000).toLocaleDateString()}`
-                                    : task.startTime 
-                                      ? `从 ${new Date(task.startTime * 1000).toLocaleDateString()}`
-                                      : `到 ${new Date(task.endTime! * 1000).toLocaleDateString()}`
-                                  }
+                                    : task.startTime
+                                    ? `从 ${new Date(task.startTime * 1000).toLocaleDateString()}`
+                                    : `到 ${new Date(task.endTime! * 1000).toLocaleDateString()}`}
                                 </span>
                               )}
-                          </div>
-                      </div>
-                  </div>
-
-                        {/* Right: Actions */}
-                        <div className="flex items-center gap-2 ml-4">
-                            {task.status === "completed" && (
-                            <Button size="sm" variant="outline" onClick={() => downloadTask(task)} className="h-8">
-                              <Download className="w-3 h-3 mr-1" />
-                                下载
-                </Button>
-                            )}
-                          
-                          {(task.status === "completed" || task.status === "failed") && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                              onClick={async () => {
-                                if (confirm("确定要删除这个任务吗？")) {
-                                  const success = await deleteTask(task.id)
-                                  if (success) {
-                                    tasksLoadedRef.current = false
-                                  }
-                                }
-                              }}
-                              className="h-8 text-red-600 hover:text-red-700 hover:border-red-300"
-                            >
-                              <X className="w-3 h-3" />
-                              </Button>
-                    )}
-                  </div>
-                </div>
-
-                      {/* Progress Bar (only for running tasks) */}
-                        {task.status === "running" && (
-                        <div className="mt-3 space-y-1">
-                            <div className="flex justify-between items-center">
-                            <span className="text-xs text-neutral-600">导出进度</span>
-                            <span className="text-xs font-medium text-blue-600">{task.progress}%</span>
-                  </div>
-                          <Progress value={task.progress} className="h-1.5" />
-                              </div>
-                        )}
-
-                      {/* Error Message */}
-                        {task.error && (
-                        <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
-                          {task.error}
                             </div>
-                        )}
                           </div>
-                        ))}
-                      </div>
-                    )}
-            </div>
-          )}
 
-          {/* Scheduled Exports Tab */}
-          {activeTab === "scheduled" && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-2xl font-light text-neutral-900 mb-2">定时导出</h2>
-                  <p className="text-neutral-600">管理自动化的聊天记录定时导出任务</p>
+                          <div className="flex items-center gap-2">
+                            {task.status === "completed" && (
+                              <motion.div whileTap={{ scale: 0.98 }}>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 rounded-full"
+                                  onClick={() => downloadTask(task)}
+                                >
+                                  <Download className="w-3 h-3 mr-1" />
+                                  下载
+                                </Button>
+                              </motion.div>
+                            )}
+                            {(task.status === "completed" || task.status === "failed") && (
+                              <motion.div whileTap={{ scale: 0.96 }}>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 rounded-full text-red-600 hover:text-red-700 hover:border-red-300 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                                  onClick={async () => {
+                                    if (confirm("确定要删除这个任务吗？")) {
+                                      const success = await deleteTask(task.id)
+                                      if (success) {
+                                        tasksLoadedRef.current = false
+                                      }
+                                    }
+                                  }}
+                                  title="删除"
+                                >
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </motion.div>
+                            )}
+                          </div>
+                        </div>
+
+                        {task.status === "running" && (
+                          <div className="mt-3">
+                            <div className="flex items-center justify-between text-xs text-neutral-600 mb-1">
+                              <span>导出进度</span>
+                              <motion.span
+                                key={task.progress}
+                                className="font-medium text-blue-700"
+                                initial={{ opacity: 0, y: 2 }}
+                                animate={{ opacity: 1, y: 0, transition: { duration: DUR.fast, ease: EASE.out } }}
+                              >
+                                {task.progress}%
+                              </motion.span>
+                            </div>
+                            <Progress
+                              value={task.progress}
+                              className="h-1.5 rounded-full transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                            />
+                          </div>
+                        )}
+
+                        {task.error && (
+                          <motion.div
+                            className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                          >
+                            {task.error}
+                          </motion.div>
+                        )}
+                      </motion.div>
+                    ))}
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
+
+            {activeTab === "scheduled" && (
+              <motion.div key="tab-scheduled" {...fadeSlide} className="space-y-10 pt-10">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-neutral-900">定时导出</h2>
+                    <p className="text-neutral-600 mt-1">管理自动化的定时导出任务</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <motion.div whileTap={{ scale: 0.98 }}>
+                      <Button
+                        onClick={handleLoadScheduledExports}
+                        disabled={scheduledLoading}
+                        variant="outline"
+                        className="rounded-full"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        {scheduledLoading ? "加载中..." : "刷新列表"}
+                      </Button>
+                    </motion.div>
+                    <motion.div whileTap={{ scale: 0.98 }}>
+                      <Button onClick={() => handleOpenScheduledExportWizard()} className="rounded-full">
+                        新建定时任务
+                      </Button>
+                    </motion.div>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Button
-                    onClick={handleLoadScheduledExports}
-                    disabled={scheduledLoading}
-                    variant="outline"
-                  >
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    {scheduledLoading ? "加载中..." : "刷新列表"}
-                  </Button>
-                  <Button 
-                    onClick={() => handleOpenScheduledExportWizard()}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    <Timer className="w-4 h-4 mr-2" />
-                    新建定时任务
-                  </Button>
-                </div>
-              </div>
-
-              {/* Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-neutral-600">总任务数</p>
-                        <p className="text-2xl font-bold">{getScheduledStats().total}</p>
-                      </div>
-                      <Calendar className="w-8 h-8 text-neutral-400" />
-                    </div>
-                  </CardContent>
-                </Card>
-                
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-neutral-600">已启用</p>
-                        <p className="text-2xl font-bold text-green-600">{getScheduledStats().enabled}</p>
-                      </div>
-                      <CheckCircle className="w-8 h-8 text-green-500" />
-                    </div>
-                  </CardContent>
-                </Card>
-                
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-neutral-600">已禁用</p>
-                        <p className="text-2xl font-bold text-neutral-500">{getScheduledStats().disabled}</p>
-                      </div>
-                      <X className="w-8 h-8 text-neutral-400" />
-                    </div>
-                  </CardContent>
-                </Card>
-                
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-neutral-600">每日任务</p>
-                        <p className="text-2xl font-bold text-blue-600">{getScheduledStats().daily}</p>
-                      </div>
-                      <Clock className="w-8 h-8 text-blue-500" />
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Scheduled Exports List */}
-              {scheduledExports.length === 0 ? (
-                <EmptyState
-                  icon={<Timer className="w-16 h-16" />}
-                  title="暂无定时导出任务"
-                  description="您还没有创建任何定时导出任务。定时导出可以帮您自动备份聊天记录，无需手动操作。"
-                  action={{
-                    label: "创建首个定时任务",
-                    onClick: () => handleOpenScheduledExportWizard()
-                  }}
-                />
-              ) : (
-                <div className="space-y-3">
-                  {scheduledExports.map((scheduledExport) => (
-                    <div 
-                      key={scheduledExport.id} 
-                      className="group flex items-center gap-4 px-6 py-4 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-lg shadow-sm transition-all duration-150"
+                {/* Stats */}
+                <motion.section
+                  className="grid grid-cols-1 sm:grid-cols-4 gap-3"
+                  variants={STAG.container}
+                  initial="initial"
+                  animate="animate"
+                >
+                  {[
+                    { label: "总任务数", value: getScheduledStats().total, color: "" },
+                    { label: "已启用", value: getScheduledStats().enabled, color: "text-green-700" },
+                    { label: "已禁用", value: getScheduledStats().disabled, color: "text-neutral-700" },
+                    { label: "每日任务", value: getScheduledStats().daily, color: "text-blue-700" },
+                  ].map((s, i) => (
+                    <motion.div
+                      key={i}
+                      className="rounded-2xl border border-neutral-200 bg-white/60 p-4"
+                      variants={STAG.item}
+                      {...hoverLift}
                     >
-                      {/* Status Dot */}
-                      <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                        scheduledExport.enabled ? 'bg-green-500' : 'bg-neutral-300'
-                      }`} />
+                      <p className="text-sm text-neutral-600">{s.label}</p>
+                      <p className={`mt-2 text-2xl font-semibold ${s.color}`}>{s.value}</p>
+                    </motion.div>
+                  ))}
+                </motion.section>
 
-                      {/* Main Content */}
-                      <div className="flex-1 min-w-0 flex items-center justify-between">
-                        <div className="flex items-center gap-4 flex-1 min-w-0">
-                          {/* Task Name */}
+                {/* List */}
+                {scheduledExports.length === 0 ? (
+                  <motion.div
+                    className="rounded-2xl border border-dashed border-neutral-300 bg-white/60 py-14 text-center"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                  >
+                    <p className="text-neutral-700">暂无定时导出任务</p>
+                    <p className="text-neutral-500 mt-1">点击右上角「新建定时任务」开始</p>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    className="space-y-2"
+                    variants={STAG.container}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                  >
+                    {scheduledExports.map((scheduledExport) => (
+                      <motion.div
+                        key={scheduledExport.id}
+                        className="flex items-center gap-4 rounded-2xl border border-neutral-200 bg-white/70 px-5 py-4 hover:bg-white transition"
+                        variants={STAG.item}
+                        {...hoverLift}
+                      >
+                        <span
+                          className={[
+                            "inline-block w-1.5 h-1.5 rounded-full",
+                            scheduledExport.enabled ? "bg-green-500" : "bg-neutral-300",
+                          ].join(" ")}
+                        />
+                        <div className="min-w-0 flex-1 flex items-center justify-between gap-4">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="font-medium text-sm text-neutral-900 truncate">
-                                {scheduledExport.name}
+                              <span className="truncate text-sm font-medium text-neutral-900">{scheduledExport.name}</span>
+                              <span
+                                className={[
+                                  "text-xs px-2 py-0.5 rounded-full transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                                  scheduledExport.enabled
+                                    ? "bg-green-100 text-green-700"
+                                    : "bg-neutral-100 text-neutral-600",
+                                ].join(" ")}
+                              >
+                                {scheduledExport.enabled ? "启用" : "禁用"}
                               </span>
-                              <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                                scheduledExport.enabled 
-                                  ? 'bg-green-100 text-green-700' 
-                                  : 'bg-neutral-100 text-neutral-600'
-                              }`}>
-                                {scheduledExport.enabled ? '启用' : '禁用'}
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-neutral-600">
+                              <span className="rounded-full bg-neutral-100 px-2 py-0.5">
+                                {scheduledExport.scheduleType === "daily" && "每天"}
+                                {scheduledExport.scheduleType === "weekly" && "每周"}
+                                {scheduledExport.scheduleType === "monthly" && "每月"}
+                                {scheduledExport.scheduleType === "custom" && "自定义"}
                               </span>
+                              <span className="font-mono">{scheduledExport.format}</span>
+                              <span>
+                                {scheduledExport.scheduleType === "custom" && scheduledExport.cronExpression
+                                  ? scheduledExport.cronExpression
+                                  : scheduledExport.executeTime}
+                              </span>
+                              <span>
+                                {(scheduledExport.timeRangeType === "yesterday" && "昨天") ||
+                                  (scheduledExport.timeRangeType === "last-week" && "上周") ||
+                                  (scheduledExport.timeRangeType === "last-month" && "上月") ||
+                                  (scheduledExport.timeRangeType === "last-7-days" && "最近7天") ||
+                                  (scheduledExport.timeRangeType === "last-30-days" && "最近30天") ||
+                                  "自定义"}
+                              </span>
+                              {scheduledExport.nextRun && (
+                                <span className="text-blue-700 font-medium">
+                                  下次 {new Date(scheduledExport.nextRun).toLocaleString("zh-CN", {
+                                    month: "numeric",
+                                    day: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
+                              )}
                             </div>
                           </div>
 
-                          {/* Schedule Info */}
-                          <div className="flex items-center gap-4 text-sm text-neutral-600">
-                            <span className="px-1.5 py-0.5 bg-neutral-100 rounded">
-                              {scheduledExport.scheduleType === 'daily' && '每天'}
-                              {scheduledExport.scheduleType === 'weekly' && '每周'}
-                              {scheduledExport.scheduleType === 'monthly' && '每月'}
-                              {scheduledExport.scheduleType === 'custom' && '自定义'}
-                            </span>
-                            <span className="font-mono">
-                              {scheduledExport.format}
-                            </span>
-                            <span>
-                              {scheduledExport.scheduleType === 'custom' && scheduledExport.cronExpression
-                                ? scheduledExport.cronExpression
-                                : scheduledExport.executeTime
-                              }
-                            </span>
-                            <span>
-                              {scheduledExport.timeRangeType === 'yesterday' && '昨天' ||
-                               scheduledExport.timeRangeType === 'last-week' && '上周' ||
-                               scheduledExport.timeRangeType === 'last-month' && '上月' ||
-                               scheduledExport.timeRangeType === 'last-7-days' && '最近7天' ||
-                               scheduledExport.timeRangeType === 'last-30-days' && '最近30天' ||
-                               '自定义'
-                              }
-                            </span>
+                          <div className="flex items-center gap-1">
+                            <motion.div whileTap={{ scale: 0.96 }}>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-9 px-3 rounded-full"
+                                onClick={() => toggleScheduledExport(scheduledExport.id, !scheduledExport.enabled)}
+                              >
+                                {scheduledExport.enabled ? (
+                                  <>
+                                    <ToggleRight className="w-4 h-4 text-green-600 mr-1" />
+                                    <span className="text-xs text-green-700">禁用</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ToggleLeft className="w-4 h-4 text-neutral-500 mr-1" />
+                                    <span className="text-xs text-neutral-600">启用</span>
+                                  </>
+                                )}
+                              </Button>
+                            </motion.div>
+                            <motion.div whileTap={{ scale: 0.96 }}>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-9 px-3 rounded-full"
+                                onClick={() => triggerScheduledExport(scheduledExport.id)}
+                              >
+                                <Zap className="w-4 h-4 text-blue-700 mr-1" />
+                                <span className="text-xs text-blue-700">执行</span>
+                              </Button>
+                            </motion.div>
+                            <motion.div whileTap={{ scale: 0.96 }}>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-9 px-3 rounded-full"
+                                onClick={() => handleOpenHistoryModal(scheduledExport.id, scheduledExport.name)}
+                              >
+                                <History className="w-4 h-4 text-purple-700 mr-1" />
+                                <span className="text-xs text-purple-700">历史</span>
+                              </Button>
+                            </motion.div>
+                            <motion.div whileTap={{ scale: 0.94 }}>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-9 px-3 rounded-full text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={async () => {
+                                  if (confirm(`确定要删除定时任务"${scheduledExport.name}"吗？`)) {
+                                    const success = await deleteScheduledExport(scheduledExport.id)
+                                    if (success) scheduledExportsLoadedRef.current = false
+                                  }
+                                }}
+                              >
+                                <X className="w-4 h-4 mr-1" />
+                                <span className="text-xs">删除</span>
+                              </Button>
+                            </motion.div>
                           </div>
-
-                          {/* Next Run */}
-                          {scheduledExport.nextRun && (
-                            <div className="text-sm text-blue-600 font-medium">
-                              下次: {new Date(scheduledExport.nextRun).toLocaleString('zh-CN', {
-                                month: 'numeric',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </div>
-                          )}
                         </div>
+                      </motion.div>
+                    ))}
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
 
-                        {/* Actions - Always visible with larger buttons */}
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toggleScheduledExport(scheduledExport.id, !scheduledExport.enabled)}
-                            className="h-9 px-3"
-                            title={scheduledExport.enabled ? "禁用任务" : "启用任务"}
-                          >
-                            {scheduledExport.enabled ? (
-                              <>
-                                <ToggleRight className="w-4 h-4 text-green-600 mr-1" />
-                                <span className="text-xs text-green-600">禁用</span>
-                              </>
-                            ) : (
-                              <>
-                                <ToggleLeft className="w-4 h-4 text-neutral-400 mr-1" />
-                                <span className="text-xs text-neutral-500">启用</span>
-                              </>
-                            )}
-                          </Button>
-                          
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => triggerScheduledExport(scheduledExport.id)}
-                            className="h-9 px-3"
-                            title="立即执行一次"
-                          >
-                            <Zap className="w-4 h-4 text-blue-600 mr-1" />
-                            <span className="text-xs text-blue-600">执行</span>
-                          </Button>
-                          
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenHistoryModal(scheduledExport.id, scheduledExport.name)}
-                            className="h-9 px-3"
-                            title="查看执行历史"
-                          >
-                            <History className="w-4 h-4 text-purple-600 mr-1" />
-                            <span className="text-xs text-purple-600">历史</span>
-                          </Button>
-                          
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={async () => {
-                              if (confirm(`确定要删除定时任务"${scheduledExport.name}"吗？`)) {
-                                const success = await deleteScheduledExport(scheduledExport.id)
-                                if (success) {
-                                  scheduledExportsLoadedRef.current = false
-                                }
-                              }
-                            }}
-                            className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                            title="删除任务"
-                          >
-                            <X className="w-4 h-4 mr-1" />
-                            <span className="text-xs">删除</span>
-                          </Button>
-                        </div>
+            {activeTab === "about" && (
+              <motion.div key="tab-about" {...fadeSlide} className="min-h-[80vh] flex flex-col items-center justify-center space-y-16 pt-20 pb-20">
+                {/* Hero Section */}
+                <div className="text-center space-y-8 max-w-4xl">
+                  <div className="space-y-6">
+                    <div className="space-y-3">
+                      <div className="text-xs font-medium text-neutral-400 tracking-wider uppercase">
+                        About
                       </div>
+                      <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-neutral-900">
+                        QQ 聊天记录导出工具
+                      </h1>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Settings Tab */}
-          {activeTab === "settings" && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-2xl font-light text-neutral-900 mb-2">设置</h2>
-                <p className="text-neutral-600">查看系统信息和配置参数</p>
-              </div>
-
-              {/* Project Info Card */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="flex items-center gap-2">
-                      <Github className="w-5 h-5" />
-                      项目信息
-                    </CardTitle>
-                    <a 
-                      href="https://github.com/shuakami/qq-chat-exporter"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 transition-colors"
-                    >
-                      <span>GitHub</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                  <CardDescription>
-                    QQChatExporter V4 - 免费开源的QQ聊天记录导出工具
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Basic Info */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <span className="text-neutral-600">项目名称</span>
-                      <p className="font-medium">QQChatExporter V4</p>
-                    </div>
-                    <div>
-                      <span className="text-neutral-600">当前版本</span>
-                      <p className="font-medium">v4.0.0</p>
-                    </div>
-                    <div>
-                      <span className="text-neutral-600">许可证</span>
-                      <p className="font-medium">GPL v3</p>
-                    </div>
+                    <p className="text-neutral-600 leading-relaxed max-w-2xl mx-auto">
+                      简单高效的聊天记录导出解决方案
+                    </p>
                   </div>
 
-                  {/* Important Declarations */}
-                  <div className="space-y-4">
-                    <a
-                      href="https://github.com/shuakami/qq-chat-exporter"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-start gap-3 p-4 bg-neutral-50 border border-neutral-200 rounded-lg hover:shadow-sm transition-all cursor-pointer"
-                    >
-                      <Heart className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="font-medium text-neutral-900 mb-1">
-                          反倒卖声明
-                        </h4>
-                        <p className="text-neutral-700 text-sm leading-relaxed">
-                          本软件完全免费且开源！如果您是花钱购买的，请立即要求退款并举报卖家。
-                          我们从未授权任何个人或组织销售此软件。
+                  {/* NapCat Tribute */}
+                  <div className="pt-12 pb-8">
+                    <div className="flex items-center justify-center gap-8">
+                      <div className="text-left space-y-4 max-w-md">
+                        <h2 className="text-2xl font-medium text-neutral-900">致谢 NapCat</h2>
+                        <p className="text-neutral-600 leading-relaxed">
+                          感谢 NapCat 提供了访问 QQ 客户端数据的能力，让我们能够读取和导出聊天记录。
                         </p>
                       </div>
-                    </a>
-
-                    <a
-                      href="https://github.com/shuakami/qq-chat-exporter"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-start gap-3 p-4 bg-neutral-50 border border-neutral-200 rounded-lg hover:shadow-sm transition-all cursor-pointer"
-                    >
-                      <Star className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="font-medium text-neutral-900 mb-1">
-                          支持我们
-                        </h4>
-                        <p className="text-neutral-700 text-sm leading-relaxed">
-                          如果这个工具对您有帮助，请考虑给我们的GitHub仓库点个Star！
-                          您的支持是我们持续改进的动力。
-                        </p>
-                      </div>
-                    </a>
-
-                    <div className="flex items-start gap-3 p-4 bg-neutral-50 border border-neutral-200 rounded-lg">
-                      <Github className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="font-medium text-neutral-900 mb-1">
-                          开源地址
-                        </h4>
-                        <a 
-                          href="https://github.com/shuakami/qq-chat-exporter"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-neutral-700 text-sm hover:text-neutral-800 underline break-all"
-                        >
-                          https://github.com/shuakami/qq-chat-exporter
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Features */}
-                  <div>
-                    <h4 className="font-medium text-neutral-900 mb-3">主要特性</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-neutral-600">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                        <span>支持多种导出格式 (JSON/HTML/TXT)</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                        <span>定时导出任务</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                        <span>现代化Web界面</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                        <span>完全免费开源</span>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* User Info Card */}
-              {systemInfo?.napcat.selfInfo && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>当前账号</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center gap-4">
-                      <Avatar className="w-16 h-16">
-                        <AvatarImage 
-                          src={systemInfo.napcat.selfInfo.avatarUrl || 
-                               `https://q1.qlogo.cn/g?b=qq&nk=${systemInfo.napcat.selfInfo.uin}&s=640`}
-                          alt={systemInfo.napcat.selfInfo.nick} 
+                      <motion.div
+                        className="flex-shrink-0"
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                      >
+                        <img 
+                          src="https://napneko.github.io/assets/logos/napcat_8.png" 
+                          alt="NapCat" 
+                          className="w-32 h-48 object-contain"
                         />
-                        <AvatarFallback className="text-lg">
-                          {systemInfo.napcat.selfInfo.nick.charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <h3 className="text-lg font-medium text-neutral-900">
-                          {systemInfo.napcat.selfInfo.nick}
-                        </h3>
-                        <p className="text-neutral-600">QQ: {systemInfo.napcat.selfInfo.uin}</p>
-                        {systemInfo.napcat.selfInfo.longNick && (
-                          <p className="text-sm text-neutral-500 mt-1">
-                            {systemInfo.napcat.selfInfo.longNick}
-                          </p>
-                        )}
-                      </div>
-                            </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* System Info */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>系统信息</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {systemInfo ? (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div className="space-y-3">
-                      <div>
-                            <span className="text-neutral-600">工具版本</span>
-                            <p className="font-medium">{systemInfo.version}</p>
-                      </div>
-                      <div>
-                            <span className="text-neutral-600">NapCat版本</span>
-                            <p className="font-medium">{systemInfo.napcat.version}</p>
-                      </div>
-                      <div>
-                            <span className="text-neutral-600">Node.js版本</span>
-                            <p className="font-medium">{systemInfo.runtime.nodeVersion}</p>
-                      </div>
+                      </motion.div>
                     </div>
-
-                        <div className="space-y-3">
-                          <div>
-                            <span className="text-neutral-600">运行平台</span>
-                            <p className="font-medium">
-                              {systemInfo.runtime.platform}
-                              {systemInfo.runtime.arch && ` (${systemInfo.runtime.arch})`}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="text-neutral-600">运行时间</span>
-                            <p className="font-medium">
-                              {Math.floor(systemInfo.runtime.uptime / 3600)}小时 
-                              {Math.floor((systemInfo.runtime.uptime % 3600) / 60)}分钟
-                            </p>
-                          </div>
-                          {systemInfo.runtime.memory && (
-                            <div>
-                              <span className="text-neutral-600">内存使用</span>
-                              <p className="font-medium">
-                                {Math.round(systemInfo.runtime.memory.heapUsed / 1024 / 1024)}MB
-                              </p>
-                        </div>
-                          )}
-                          </div>
-                      </div>
-                      
-                      {systemInfo.napcat.selfInfo?.qqLevel && (
-                        <div className="pt-4 border-t border-neutral-200">
-                          <span className="text-neutral-600 text-sm">QQ等级</span>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-yellow-600">☀ {systemInfo.napcat.selfInfo.qqLevel.sunNum}</span>
-                            <span className="text-blue-600">🌙 {systemInfo.napcat.selfInfo.qqLevel.moonNum}</span>
-                            <span className="text-purple-600">⭐ {systemInfo.napcat.selfInfo.qqLevel.starNum}</span>
-                            {systemInfo.napcat.selfInfo.vipFlag && (
-                              <Badge variant="outline" className="text-yellow-600 border-yellow-200">
-                                VIP{systemInfo.napcat.selfInfo.vipLevel}
-                              </Badge>
-                    )}
                   </div>
-                      </div>
-                    )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex justify-center">
+                  <div className="flex items-center gap-4">
+                    <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.98 }}>
+                      <Button 
+                        onClick={() => window.open('https://github.com/shuakami/qq-chat-exporter', '_blank')}
+                        className="rounded-full bg-neutral-900 hover:bg-neutral-800 text-white"
+                      >
+                        <Star className="w-4 h-4 mr-2" />
+                        Star on GitHub
+                      </Button>
+                    </motion.div>
+                    <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.98 }}>
+                      <Button 
+                        onClick={() => window.open('https://napneko.github.io/', '_blank')}
+                        variant="outline"
+                        className="rounded-full"
+                      >
+                        <ExternalLink className="w-4 h-4 mr-2" />
+                        了解 NapCat
+                      </Button>
+                    </motion.div>
                   </div>
-                ) : (
-                    <div className="text-center py-8">
-                      <RefreshCw className="w-8 h-8 text-neutral-300 mx-auto mb-2 animate-spin" />
-                  <p className="text-neutral-500">加载系统信息中...</p>
-            </div>
-          )}
-                </CardContent>
-              </Card>
+                </div>
 
-              {/* Help Section */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>使用说明</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4 text-sm">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                        <h4 className="font-medium text-neutral-900 mb-2">基本流程</h4>
-                        <ol className="space-y-1 text-neutral-600">
-                          <li>1. 确保QQ在线状态</li>
-                          <li>2. 在"会话管理"中浏览群组/好友</li>
-                          <li>3. 点击"导出聊天记录"创建任务</li>
-                          <li>4. 等待导出完成后下载文件</li>
-                        </ol>
-              </div>
-
-                      <div>
-                        <h4 className="font-medium text-neutral-900 mb-2">导出格式说明</h4>
-                        <ul className="space-y-1 text-neutral-600">
-                          <li><strong>JSON</strong> - 结构化数据，便于程序处理</li>
-                          <li><strong>HTML</strong> - 网页格式，便于查看和打印</li>
-                          <li><strong>TXT</strong> - 纯文本格式，兼容性最好</li>
-                        </ul>
-                      </div>
-                      </div>
-                      </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+                {/* Legal Notice */}
+                <motion.div
+                  className="text-center space-y-4 pt-12 w-full"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                >
+                  <h3 className="text-lg font-medium text-neutral-900">使用声明</h3>
+                  <div className="space-y-3 text-sm text-neutral-600 max-w-2xl mx-auto leading-relaxed">
+                    <p>
+                      本工具仅供学习和个人使用，请勿用于商业用途。请遵守相关法律法规和平台服务条款。
+                    </p>
+                    <p>
+                      <strong>反倒卖声明：</strong>本项目完全开源免费，任何个人或组织不得将此工具进行商业销售或倒卖。
+                    </p>
+                    <p>
+                      如果这个工具对你有帮助，请在 GitHub 上给我们一个 Star ⭐
+                    </p>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </main>
 
-      {/* Footer with Anti-Resale Declaration */}
-      <footer className="bg-white border-t border-neutral-200 mt-8">
-        <div className="max-w-6xl mx-auto px-8 py-6">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            {/* Left Side - Project Info */}
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-3">
-                <Image
-                  src="/text-logo.png"
-                  alt="QCE Logo"
-                  width={80}
-                  height={20}
-                  className="h-5 w-auto opacity-80"
-                />
-                <div className="text-sm text-neutral-600">
-                  <span className="font-medium">QQChatExporter</span>
-                  <span className="mx-2">•</span>
-                  <span>v4.0.0</span>
-                </div>
-              </div>
-              
-              <a 
-                href="https://github.com/shuakami/qq-chat-exporter"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 transition-colors"
-              >
-                <Github className="w-4 h-4" />
-                <span>GitHub</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-
-            {/* Right Side - Declaration */}
-            <div className="flex items-center gap-6 text-center md:text-right">
-              <a
-                href="https://github.com/shuakami/qq-chat-exporter"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-lg hover:shadow-sm transition-all cursor-pointer"
-              >
-                <Heart className="w-4 h-4 text-red-500 flex-shrink-0" />
-                <div className="text-sm">
-                  <p className="text-neutral-700 font-medium">
-                    免费开源项目！如果您是买来的，请立即退款！
-                  </p>
-                </div>
-              </a>
-              
-              <a
-                href="https://github.com/shuakami/qq-chat-exporter"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2 bg-neutral-50 border border-neutral-200 rounded-lg hover:shadow-sm transition-all cursor-pointer"
-              >
-                <Star className="w-4 h-4 text-yellow-500 flex-shrink-0" />
-                <div className="text-sm">
-                  <p className="text-neutral-700 font-medium">
-                    如果有帮助到您，欢迎给我点个Star~
-                  </p>
-                </div>
-              </a>
-            </div>
-          </div>
-          
-          {/* Mobile Layout */}
-          <div className="block md:hidden mt-4 pt-4 border-t border-neutral-100">
-            <div className="flex flex-col gap-3 text-center">
-              <a
-                href="https://github.com/shuakami/qq-chat-exporter"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg hover:shadow-sm transition-all cursor-pointer"
-              >
-                <Heart className="w-4 h-4 text-red-500 flex-shrink-0" />
-                <p className="text-sm text-neutral-700 font-medium">
-                  免费开源项目！如果您是买来的，请立即退款！
-                </p>
-              </a>
-              
-              <a
-                href="https://github.com/shuakami/qq-chat-exporter"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-lg hover:shadow-sm transition-all cursor-pointer"
-              >
-                <Star className="w-4 h-4 text-yellow-500 flex-shrink-0" />
-                <p className="text-sm text-neutral-700 font-medium">
-                  如果有帮助到您，欢迎给我点个Star~
-                </p>
-              </a>
-            </div>
-          </div>
-        </div>
-      </footer>
-
-      {/* Task Wizard */}
+      {/* Modals */}
       <TaskWizard
         isOpen={isTaskWizardOpen}
         onClose={handleCloseTaskWizard}
@@ -1503,7 +1322,6 @@ export default function QCEDashboard() {
         }}
       />
 
-      {/* Scheduled Export Wizard */}
       <ScheduledExportWizard
         isOpen={isScheduledExportWizardOpen}
         onClose={handleCloseScheduledExportWizard}
@@ -1518,7 +1336,6 @@ export default function QCEDashboard() {
         onLoadData={loadChatData}
       />
 
-      {/* Execution History Modal */}
       {selectedHistoryTask && (
         <ExecutionHistoryModal
           isOpen={isHistoryModalOpen}
@@ -1529,7 +1346,6 @@ export default function QCEDashboard() {
         />
       )}
 
-      {/* Message Preview Modal */}
       <MessagePreviewModal
         open={isPreviewModalOpen}
         onClose={() => setIsPreviewModalOpen(false)}

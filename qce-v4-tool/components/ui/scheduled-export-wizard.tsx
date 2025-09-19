@@ -11,17 +11,8 @@ import { Separator } from "./separator"
 import { Badge } from "./badge"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import {
-  Settings, 
-  Clock, 
-  Calendar, 
-  FileText, 
-  AlertCircle, 
-  CheckCircle,
-  RefreshCw,
-  Play,
-  Search,
-  ChevronDown,
-  X
+  Settings, Clock, Calendar, FileText, AlertCircle, CheckCircle,
+  RefreshCw, Play, Search, ChevronDown, X, Users, User
 } from "lucide-react"
 import type { CreateScheduledExportForm, Group, Friend } from "@/types/api"
 
@@ -36,15 +27,15 @@ interface ScheduledExportWizardProps {
   onLoadData?: () => void
 }
 
-export function ScheduledExportWizard({ 
-  isOpen, 
-  onClose, 
-  onSubmit, 
-  isLoading, 
+export function ScheduledExportWizard({
+  isOpen,
+  onClose,
+  onSubmit,
+  isLoading,
   prefilledData,
   groups = [],
   friends = [],
-  onLoadData
+  onLoadData,
 }: ScheduledExportWizardProps) {
   const [form, setForm] = useState<CreateScheduledExportForm>({
     name: "",
@@ -60,11 +51,9 @@ export function ScheduledExportWizard({
     includeSystemMessages: true,
     filterPureImageMessages: false,
   })
-
   const [searchTerm, setSearchTerm] = useState("")
   const [showTargetDropdown, setShowTargetDropdown] = useState(false)
 
-  // Update form when prefilled data changes
   useEffect(() => {
     if (prefilledData && isOpen) {
       setForm({
@@ -87,7 +76,6 @@ export function ScheduledExportWizard({
     }
   }, [prefilledData, isOpen])
 
-  // Reset form when dialog closes
   useEffect(() => {
     if (!isOpen) {
       setForm({
@@ -109,99 +97,62 @@ export function ScheduledExportWizard({
     }
   }, [isOpen])
 
-  // Auto-load data when dialog opens
   useEffect(() => {
     if (isOpen && onLoadData) {
-      // 如果没有群组和好友数据，自动加载
-      if (groups.length === 0 && friends.length === 0) {
-        console.log("[ScheduledExportWizard] Auto-loading chat data...")
-        onLoadData()
-      }
+      if (groups.length === 0 && friends.length === 0) onLoadData()
     }
   }, [isOpen, onLoadData, groups.length, friends.length])
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Element
-      if (showTargetDropdown && !target.closest('[data-target-selector]')) {
-        setShowTargetDropdown(false)
-        setSearchTerm("")
-      }
-    }
-
-    if (showTargetDropdown) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showTargetDropdown])
-
   const handleSubmit = async () => {
     const success = await onSubmit(form)
-    if (success) {
-      onClose()
-    }
+    if (success) onClose()
   }
 
-  const canSubmit = () => {
-    return form.name.trim() !== "" && form.peerUid.trim() !== "" && form.sessionName.trim() !== ""
-  }
+  const canSubmit = () => form.name.trim() !== "" && form.peerUid.trim() !== "" && form.sessionName.trim() !== ""
 
-  // Filter targets based on search term
   const getFilteredTargets = () => {
     const targets = form.chatType === 2 ? groups : friends
-    if (!searchTerm.trim()) {
-      return targets
-    }
-
-    return targets.filter(target => {
+    if (!searchTerm.trim()) return targets
+    return targets.filter((t) => {
       if (form.chatType === 2) {
-        const group = target as Group
-        return group.groupName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-               group.groupCode.includes(searchTerm)
+        const g = t as Group
+        return g.groupName.toLowerCase().includes(searchTerm.toLowerCase()) || g.groupCode.includes(searchTerm)
       } else {
-        const friend = target as Friend
-        return friend.nick.toLowerCase().includes(searchTerm.toLowerCase()) ||
-               (friend.remark && friend.remark.toLowerCase().includes(searchTerm.toLowerCase())) ||
-               friend.uid.includes(searchTerm)
+        const f = t as Friend
+        return (
+          f.nick.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (f.remark && f.remark.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          f.uid.includes(searchTerm)
+        )
       }
     })
   }
 
-  const handleSelectTarget = (target: Group | Friend) => {
-    const id = 'groupCode' in target ? target.groupCode : target.uid
-    const name = 'groupCode' in target ? target.groupName : (target.remark || target.nick)
-    
-    setForm(prev => ({
-      ...prev,
-      peerUid: id,
-      sessionName: name
-    }))
+  const handleSelectTarget = (t: Group | Friend) => {
+    const id = "groupCode" in t ? t.groupCode : t.uid
+    const name = "groupCode" in t ? t.groupName : t.remark || t.nick
+    setForm((p) => ({ ...p, peerUid: id, sessionName: name }))
     setShowTargetDropdown(false)
     setSearchTerm("")
   }
 
-  // Find selected target info
-  const selectedTarget = form.peerUid ? 
-    (form.chatType === 2 ? 
-      groups.find(g => g.groupCode === form.peerUid) :
-      friends.find(f => f.uid === form.peerUid)
-    ) : null
+  const selectedTarget = form.peerUid
+    ? form.chatType === 2
+      ? groups.find((g) => g.groupCode === form.peerUid)
+      : friends.find((f) => f.uid === form.peerUid)
+    : null
 
   const getScheduleDescription = () => {
     const time = form.executeTime
     switch (form.scheduleType) {
-      case 'daily':
+      case "daily":
         return `每天 ${time} 执行`
-      case 'weekly':
+      case "weekly":
         return `每周一 ${time} 执行`
-      case 'monthly':
+      case "monthly":
         return `每月1号 ${time} 执行`
-      case 'custom':
-        return form.cronExpression ? `自定义: ${form.cronExpression}` : '自定义调度'
+      case "custom":
+        return form.cronExpression ? `自定义: ${form.cronExpression}` : "自定义调度"
       default:
         return `每天 ${time} 执行`
     }
@@ -209,41 +160,44 @@ export function ScheduledExportWizard({
 
   const getTimeRangeDescription = () => {
     switch (form.timeRangeType) {
-      case 'yesterday':
-        return '昨天（00:00-23:59）'
-      case 'last-week':
-        return '上周（完整一周）'
-      case 'last-month':
-        return '上月（完整一月）'
-      case 'last-7-days':
-        return '最近7天'
-      case 'last-30-days':
-        return '最近30天'
-      case 'custom':
-        return '自定义时间范围'
+      case "yesterday":
+        return "昨天（00:00-23:59）"
+      case "last-week":
+        return "上周（完整一周）"
+      case "last-month":
+        return "上月（完整一月）"
+      case "last-7-days":
+        return "最近7天"
+      case "last-30-days":
+        return "最近30天"
+      case "custom":
+        return "自定义时间范围"
       default:
-        return '昨天（00:00-23:59）'
+        return "昨天（00:00-23:59）"
     }
   }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl h-[85vh] flex flex-col">
+      <DialogContent
+        overlayClassName="bg-white/60 backdrop-blur-xl"
+        className="max-w-4xl h-[85vh] flex flex-col p-0"
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings className="w-5 h-5" />
             创建定时导出任务
           </DialogTitle>
         </DialogHeader>
-        
-        <div className="flex-1 overflow-y-auto space-y-6 pr-2">
+
+        <div className="flex-1 overflow-y-auto space-y-6 px-6 py-6">
           {/* 基本信息 */}
           <div className="space-y-4">
-            <h3 className="text-lg font-medium flex items-center gap-2">
+            <h3 className="text-base font-medium flex items-center gap-2">
               <FileText className="w-5 h-5" />
               基本信息
             </h3>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="name">任务名称</Label>
@@ -251,17 +205,19 @@ export function ScheduledExportWizard({
                   id="name"
                   placeholder="例如：每日备份-工作群"
                   value={form.name}
-                  onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
+                  onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+                  className="rounded-xl"
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="sessionName">会话名称</Label>
                 <Input
                   id="sessionName"
                   placeholder="群组或好友名称"
                   value={form.sessionName}
-                  onChange={(e) => setForm(prev => ({ ...prev, sessionName: e.target.value }))}
+                  onChange={(e) => setForm((p) => ({ ...p, sessionName: e.target.value }))}
+                  className="rounded-xl"
                 />
               </div>
             </div>
@@ -269,15 +225,15 @@ export function ScheduledExportWizard({
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>聊天类型</Label>
-                <Select 
-                  value={form.chatType.toString()} 
-                  onValueChange={(value) => {
-                    setForm(prev => ({ ...prev, chatType: parseInt(value), peerUid: "", sessionName: "" }))
+                <Select
+                  value={form.chatType.toString()}
+                  onValueChange={(v) => {
+                    setForm((p) => ({ ...p, chatType: parseInt(v), peerUid: "", sessionName: "" }))
                     setSearchTerm("")
                     setShowTargetDropdown(false)
                   }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="rounded-xl">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -295,60 +251,51 @@ export function ScheduledExportWizard({
                     size="sm"
                     onClick={() => onLoadData?.()}
                     disabled={isLoading}
-                    className="h-6 px-2 text-xs"
+                    className="h-6 px-2 text-xs rounded-full"
                   >
-                    {isLoading ? (
-                      <RefreshCw className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <>
-                        <RefreshCw className="w-3 h-3 mr-1" />
-                        刷新
-                      </>
-                    )}
+                    {isLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <>
+                      <RefreshCw className="w-3 h-3 mr-1" />
+                      刷新
+                    </>}
                   </Button>
                 </div>
+
                 <div className="relative" data-target-selector>
-                  {/* Custom Select Button */}
                   <div
-                    className={`flex items-center justify-between w-full px-3 py-2 text-sm bg-white border border-neutral-200 rounded-md cursor-pointer hover:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                      isLoading ? 'opacity-50 cursor-not-allowed' : ''
-                    }`}
+                    className={[
+                      "flex items-center justify-between w-full px-3 py-2 text-sm bg-white border border-neutral-200",
+                      "rounded-xl cursor-pointer hover:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    ].join(" ")}
                     onClick={() => !isLoading && setShowTargetDropdown(!showTargetDropdown)}
                   >
                     <span className={form.peerUid ? "text-neutral-900" : "text-neutral-500"}>
                       {form.peerUid ? (
-                        selectedTarget ? (
-                          'groupName' in selectedTarget ? selectedTarget.groupName : (selectedTarget.remark || selectedTarget.nick)
-                        ) : form.sessionName
+                        selectedTarget ? ("groupName" in selectedTarget ? selectedTarget.groupName : (selectedTarget.remark || selectedTarget.nick)) : form.sessionName
                       ) : (
                         (form.chatType === 2 ? groups.length === 0 : friends.length === 0) && !isLoading
-                          ? `暂无${form.chatType === 1 ? '好友' : '群组'}数据，点击刷新加载`
-                          : isLoading
-                          ? "加载中..."
-                          : `选择${form.chatType === 1 ? '好友' : '群组'}`
+                          ? `暂无${form.chatType === 1 ? "好友" : "群组"}数据，点击刷新加载`
+                          : isLoading ? "加载中..." : `选择${form.chatType === 1 ? "好友" : "群组"}`
                       )}
                     </span>
                     <ChevronDown className="w-4 h-4 text-neutral-500" />
                   </div>
 
-                  {/* Dropdown Menu */}
                   {showTargetDropdown && (
-                    <div className="absolute z-50 w-full mt-1 bg-white border border-neutral-200 rounded-md shadow-lg max-h-64 overflow-hidden">
-                      {/* Search Box */}
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-neutral-200 rounded-xl shadow-lg max-h-64 overflow-hidden">
                       <div className="p-2 border-b border-neutral-200">
                         <div className="relative">
-                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
                           <Input
                             placeholder={form.chatType === 1 ? "搜索好友昵称、备注..." : "搜索群组名称、群号..."}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-10 h-8"
+                            className="pl-10 h-8 rounded-full"
                             autoFocus
                           />
                           {searchTerm && (
                             <button
                               onClick={() => setSearchTerm("")}
-                              className="absolute right-2 top-1/2 transform -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
                             >
                               <X className="w-4 h-4" />
                             </button>
@@ -356,7 +303,6 @@ export function ScheduledExportWizard({
                         </div>
                       </div>
 
-                      {/* Options List */}
                       <div className="max-h-48 overflow-y-auto">
                         {(form.chatType === 2 ? groups : friends).length === 0 ? (
                           <div className="p-4 text-center text-neutral-500">
@@ -364,11 +310,11 @@ export function ScheduledExportWizard({
                               {isLoading ? (
                                 <>
                                   <RefreshCw className="w-6 h-6 mx-auto animate-spin" />
-                                  <p className="text-sm">正在加载{form.chatType === 1 ? '好友' : '群组'}列表...</p>
+                                  <p className="text-sm">正在加载{form.chatType === 1 ? "好友" : "群组"}列表...</p>
                                 </>
                               ) : (
                                 <>
-                                  <p className="text-sm">暂无{form.chatType === 1 ? '好友' : '群组'}数据</p>
+                                  <p className="text-sm">暂无{form.chatType === 1 ? "好友" : "群组"}数据</p>
                                   <button
                                     className="text-xs text-blue-600 hover:text-blue-700 underline"
                                     onClick={() => onLoadData?.()}
@@ -381,45 +327,39 @@ export function ScheduledExportWizard({
                             </div>
                           </div>
                         ) : (
-                          getFilteredTargets().map((target) => {
-                            const id = 'groupCode' in target ? target.groupCode : target.uid
-                            const name = 'groupCode' in target ? target.groupName : (target.remark || target.nick)
+                          getFilteredTargets().map((t) => {
+                            const id = "groupCode" in t ? t.groupCode : t.uid
+                            const name = "groupCode" in t ? t.groupName : t.remark || t.nick
                             const isSelected = form.peerUid === id
-                            
                             return (
                               <div
                                 key={id}
-                                className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-neutral-50 ${
-                                  isSelected ? 'bg-blue-50 text-blue-900' : 'text-neutral-900'
-                                }`}
-                                onClick={() => handleSelectTarget(target)}
+                                className={[
+                                  "flex items-center gap-3 px-3 py-2 cursor-pointer",
+                                  "hover:bg-neutral-50",
+                                  isSelected ? "bg-blue-50/60" : ""
+                                ].join(" ")}
+                                onClick={() => handleSelectTarget(t)}
                               >
-                                <Avatar className="w-6 h-6">
-                                  <AvatarImage src={target.avatarUrl} alt={name} />
-                                  <AvatarFallback className="text-xs">
-                                    {name[0]}
-                                  </AvatarFallback>
+                                <Avatar className="w-6 h-6 rounded-lg">
+                                  <AvatarImage src={t.avatarUrl} alt={name} />
+                                  <AvatarFallback className="rounded-lg text-xs">{name[0]}</AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1 min-w-0">
                                   <p className="font-medium text-sm truncate">{name}</p>
                                   <p className="text-xs text-neutral-500 truncate">
-                                    {form.chatType === 2 ? 
-                                      `${(target as Group).memberCount} 成员` : 
-                                      `QQ: ${(target as Friend).uin}`
-                                    }
+                                    {form.chatType === 2 ? `${(t as Group).memberCount} 成员` : `QQ: ${(t as Friend).uin}`}
                                   </p>
                                 </div>
-                                {isSelected && (
-                                  <CheckCircle className="w-4 h-4 text-blue-600" />
-                                )}
+                                {isSelected && <CheckCircle className="w-4 h-4 text-blue-600" />}
                               </div>
                             )
                           })
                         )}
-                        
+
                         {getFilteredTargets().length === 0 && searchTerm && (form.chatType === 2 ? groups : friends).length > 0 && (
                           <div className="p-4 text-center text-neutral-500">
-                            <p className="text-sm">没有找到匹配"{searchTerm}"的{form.chatType === 1 ? '好友' : '群组'}</p>
+                            <p className="text-sm">没有找到匹配 "{searchTerm}" 的{form.chatType === 1 ? "好友" : "群组"}</p>
                           </div>
                         )}
                       </div>
@@ -429,27 +369,26 @@ export function ScheduledExportWizard({
               </div>
             </div>
 
-            {/* 选中的目标信息 */}
             {selectedTarget && (
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="p-3 rounded-2xl border border-neutral-200 bg-white/70">
                 <div className="flex items-center gap-3">
-                  <Avatar className="w-8 h-8">
-                    <AvatarImage src={selectedTarget.avatarUrl} alt={
-                      'groupName' in selectedTarget ? selectedTarget.groupName : selectedTarget.nick
-                    } />
-                    <AvatarFallback className="text-sm">
-                      {('groupName' in selectedTarget ? selectedTarget.groupName : selectedTarget.nick)[0]}
+                  <Avatar className="w-8 h-8 rounded-xl">
+                    <AvatarImage
+                      src={selectedTarget.avatarUrl}
+                      alt={"groupName" in selectedTarget ? selectedTarget.groupName : selectedTarget.nick}
+                    />
+                    <AvatarFallback className="rounded-xl text-sm">
+                      {("groupName" in selectedTarget ? selectedTarget.groupName : selectedTarget.nick)[0]}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1">
-                    <p className="font-medium text-sm text-blue-900">
-                      {'groupName' in selectedTarget ? selectedTarget.groupName : (selectedTarget.remark || selectedTarget.nick)}
+                    <p className="font-medium text-sm">
+                      {"groupName" in selectedTarget
+                        ? selectedTarget.groupName
+                        : selectedTarget.remark || selectedTarget.nick}
                     </p>
-                    <p className="text-xs text-blue-700">
-                      {'groupName' in selectedTarget ? 
-                        `${selectedTarget.memberCount} 成员` : 
-                        `QQ: ${selectedTarget.uin}`
-                      }
+                    <p className="text-xs text-neutral-600">
+                      {"groupName" in selectedTarget ? `${selectedTarget.memberCount} 成员` : `QQ: ${selectedTarget.uin}`}
                     </p>
                   </div>
                 </div>
@@ -461,19 +400,16 @@ export function ScheduledExportWizard({
 
           {/* 调度设置 */}
           <div className="space-y-4">
-            <h3 className="text-lg font-medium flex items-center gap-2">
+            <h3 className="text-base font-medium flex items-center gap-2">
               <Clock className="w-5 h-5" />
               调度设置
             </h3>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>调度类型</Label>
-                <Select 
-                  value={form.scheduleType} 
-                  onValueChange={(value: any) => setForm(prev => ({ ...prev, scheduleType: value }))}
-                >
-                  <SelectTrigger>
+                <Select value={form.scheduleType} onValueChange={(v: any) => setForm((p) => ({ ...p, scheduleType: v }))}>
+                  <SelectTrigger className="rounded-xl">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -485,13 +421,14 @@ export function ScheduledExportWizard({
                 </Select>
               </div>
 
-              {form.scheduleType === 'custom' ? (
+              {form.scheduleType === "custom" ? (
                 <div className="space-y-2">
-                  <Label>Cron表达式</Label>
+                  <Label>Cron 表达式</Label>
                   <Input
                     placeholder="0 2 * * * (分 时 日 月 周)"
                     value={form.cronExpression || ""}
-                    onChange={(e) => setForm(prev => ({ ...prev, cronExpression: e.target.value }))}
+                    onChange={(e) => setForm((p) => ({ ...p, cronExpression: e.target.value }))}
+                    className="rounded-xl"
                   />
                 </div>
               ) : (
@@ -500,13 +437,14 @@ export function ScheduledExportWizard({
                   <Input
                     type="time"
                     value={form.executeTime}
-                    onChange={(e) => setForm(prev => ({ ...prev, executeTime: e.target.value }))}
+                    onChange={(e) => setForm((p) => ({ ...p, executeTime: e.target.value }))}
+                    className="rounded-xl"
                   />
                 </div>
               )}
             </div>
 
-            <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+            <div className="p-3 rounded-2xl border border-green-200 bg-green-50">
               <p className="text-sm text-green-800 flex items-center gap-2">
                 <Calendar className="w-4 h-4" />
                 {getScheduleDescription()}
@@ -518,19 +456,16 @@ export function ScheduledExportWizard({
 
           {/* 导出设置 */}
           <div className="space-y-4">
-            <h3 className="text-lg font-medium flex items-center gap-2">
+            <h3 className="text-base font-medium flex items-center gap-2">
               <FileText className="w-5 h-5" />
               导出设置
             </h3>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>时间范围</Label>
-                <Select 
-                  value={form.timeRangeType} 
-                  onValueChange={(value: any) => setForm(prev => ({ ...prev, timeRangeType: value }))}
-                >
-                  <SelectTrigger>
+                <Select value={form.timeRangeType} onValueChange={(v: any) => setForm((p) => ({ ...p, timeRangeType: v }))}>
+                  <SelectTrigger className="rounded-xl">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -544,121 +479,66 @@ export function ScheduledExportWizard({
                 </Select>
               </div>
 
+              {/* 导出格式 segmented-cards */}
               <div className="space-y-3">
                 <div>
                   <Label className="text-base font-medium">导出格式</Label>
                   <p className="text-sm text-neutral-600 mt-1">选择最适合您需求的格式</p>
                 </div>
-                
-                <div className="space-y-3">
-                  {/* HTML 格式 */}
-                  <div 
-                    className={`relative cursor-pointer rounded-lg border-2 p-3 transition-all hover:shadow-md ${
-                      form.format === 'HTML' 
-                        ? 'border-primary bg-primary/5 shadow-sm' 
-                        : 'border-neutral-200 hover:border-neutral-300'
-                    }`}
-                    onClick={() => setForm(prev => ({ ...prev, format: 'HTML' }))}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={`flex-shrink-0 mt-0.5 ${form.format === 'HTML' ? 'text-primary' : 'text-neutral-500'}`}>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                        </svg>
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-medium text-neutral-900 text-sm">HTML</h4>
-                          <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded">推荐</span>
-                        </div>
-                        <p className="text-xs text-neutral-600 mt-1">网页格式，便于浏览器查看和打印</p>
-                      </div>
-                      {form.format === 'HTML' && (
-                        <div className="flex-shrink-0">
-                          <div className="w-2 h-2 bg-primary rounded-full"></div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
 
-                  {/* JSON 格式 */}
-                  <div 
-                    className={`relative cursor-pointer rounded-lg border-2 p-3 transition-all hover:shadow-md ${
-                      form.format === 'JSON' 
-                        ? 'border-primary bg-primary/5 shadow-sm' 
-                        : 'border-neutral-200 hover:border-neutral-300'
-                    }`}
-                    onClick={() => setForm(prev => ({ ...prev, format: 'JSON' }))}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={`flex-shrink-0 mt-0.5 ${form.format === 'JSON' ? 'text-primary' : 'text-neutral-500'}`}>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 002 2v12a2 2 0 002 2z" />
-                        </svg>
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-medium text-neutral-900 text-sm">JSON</h4>
-                          <span className="text-xs bg-neutral-100 text-neutral-600 px-2 py-0.5 rounded">结构化</span>
+                {(["HTML", "JSON", "TXT"] as const).map((fmt) => {
+                  const active = form.format === fmt
+                  const chip =
+                    fmt === "HTML" ? { txt: "推荐", cls: "bg-blue-100 text-blue-600" } :
+                    fmt === "JSON" ? { txt: "结构化", cls: "bg-neutral-100 text-neutral-600" } :
+                    { txt: "兼容", cls: "bg-green-100 text-green-600" }
+                  const desc =
+                    fmt === "HTML" ? "网页格式，便于浏览器查看和打印" :
+                    fmt === "JSON" ? "适合程序处理的结构化数据格式" :
+                    "纯文本格式，兼容性最好"
+                  return (
+                    <div
+                      key={fmt}
+                      className={[
+                        "relative cursor-pointer rounded-2xl border-2 p-3 transition-all",
+                        active ? "border-blue-500 bg-blue-50/50 shadow-sm" : "border-neutral-200 hover:border-neutral-300"
+                      ].join(" ")}
+                      onClick={() => setForm((p) => ({ ...p, format: fmt }))}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={active ? "text-blue-600" : "text-neutral-500"}>
+                          <FileText className="w-4 h-4" />
                         </div>
-                        <p className="text-xs text-neutral-600 mt-1">适合程序处理的结构化数据格式</p>
-                      </div>
-                      {form.format === 'JSON' && (
-                        <div className="flex-shrink-0">
-                          <div className="w-2 h-2 bg-primary rounded-full"></div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium text-neutral-900 text-sm">{fmt}</h4>
+                            <span className={`text-xs px-2 py-0.5 rounded ${chip.cls}`}>{chip.txt}</span>
+                          </div>
+                          <p className="text-xs text-neutral-600 mt-1">{desc}</p>
                         </div>
-                      )}
+                        {active && <div className="w-2 h-2 bg-blue-600 rounded-full" />}
+                      </div>
                     </div>
-                  </div>
-
-                  {/* TXT 格式 */}
-                  <div 
-                    className={`relative cursor-pointer rounded-lg border-2 p-3 transition-all hover:shadow-md ${
-                      form.format === 'TXT' 
-                        ? 'border-primary bg-primary/5 shadow-sm' 
-                        : 'border-neutral-200 hover:border-neutral-300'
-                    }`}
-                    onClick={() => setForm(prev => ({ ...prev, format: 'TXT' }))}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={`flex-shrink-0 mt-0.5 ${form.format === 'TXT' ? 'text-primary' : 'text-neutral-500'}`}>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-medium text-neutral-900 text-sm">TXT</h4>
-                          <span className="text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded">兼容</span>
-                        </div>
-                        <p className="text-xs text-neutral-600 mt-1">纯文本格式，兼容性最好</p>
-                      </div>
-                      {form.format === 'TXT' && (
-                        <div className="flex-shrink-0">
-                          <div className="w-2 h-2 bg-primary rounded-full"></div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  )
+                })}
               </div>
             </div>
 
-            {form.timeRangeType === 'custom' && (
+            {form.timeRangeType === "custom" && (
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>相对开始时间（秒）</Label>
                   <Input
                     type="number"
                     placeholder="-86400 (昨天开始)"
-                    value={form.customTimeRange?.startTime || ""}
-                    onChange={(e) => setForm(prev => ({ 
-                      ...prev, 
-                      customTimeRange: {
-                        startTime: parseInt(e.target.value) || 0,
-                        endTime: prev.customTimeRange?.endTime || 0
-                      }
-                    }))}
+                    value={form.customTimeRange?.startTime ?? ""}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        customTimeRange: { startTime: parseInt(e.target.value) || 0, endTime: p.customTimeRange?.endTime || 0 }
+                      }))
+                    }
+                    className="rounded-xl"
                   />
                 </div>
                 <div className="space-y-2">
@@ -666,23 +546,21 @@ export function ScheduledExportWizard({
                   <Input
                     type="number"
                     placeholder="0 (现在)"
-                    value={form.customTimeRange?.endTime || ""}
-                    onChange={(e) => setForm(prev => ({ 
-                      ...prev, 
-                      customTimeRange: {
-                        startTime: prev.customTimeRange?.startTime || 0,
-                        endTime: parseInt(e.target.value) || 0
-                      }
-                    }))}
+                    value={form.customTimeRange?.endTime ?? ""}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        customTimeRange: { startTime: p.customTimeRange?.startTime || 0, endTime: parseInt(e.target.value) || 0 }
+                      }))
+                    }
+                    className="rounded-xl"
                   />
                 </div>
               </div>
             )}
 
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800">
-                将导出：{getTimeRangeDescription()}
-              </p>
+            <div className="p-3 rounded-2xl border border-blue-200 bg-blue-50">
+              <p className="text-sm text-blue-800">将导出：{getTimeRangeDescription()}</p>
             </div>
           </div>
 
@@ -690,71 +568,62 @@ export function ScheduledExportWizard({
 
           {/* 导出选项 */}
           <div className="space-y-4">
-            <h3 className="text-lg font-medium">导出选项</h3>
-            
-            <div className="space-y-3 pl-4 border-l-2 border-neutral-100">
-              {/* 包含资源链接 */}
-              <div className="flex items-start space-x-3">
-                <div className="flex items-center h-5">
-                  <input
-                    id="includeResourceLinks"
-                    type="checkbox"
-                    checked={form.includeResourceLinks ?? true}
-                    onChange={(e) => setForm(prev => ({ ...prev, includeResourceLinks: e.target.checked }))}
-                    className="w-4 h-4 text-blue-600 bg-neutral-50 border-neutral-300 rounded focus:ring-blue-500 focus:ring-2"
-                  />
-                </div>
-                <div className="text-sm">
-                  <label htmlFor="includeResourceLinks" className="font-medium text-neutral-900 cursor-pointer">
-                    包含资源链接
-                  </label>
-                  <p className="text-neutral-600 text-xs mt-0.5">
-                    在导出中包含图片、文件等资源的下载链接
-                  </p>
-                </div>
-              </div>
+            <h3 className="text-base font-medium">导出选项</h3>
 
-              {/* 包含系统消息 */}
-              <div className="flex items-start space-x-3">
-                <div className="flex items-center h-5">
-                  <input
-                    id="includeSystemMessages"
-                    type="checkbox"
-                    checked={form.includeSystemMessages ?? true}
-                    onChange={(e) => setForm(prev => ({ ...prev, includeSystemMessages: e.target.checked }))}
-                    className="w-4 h-4 text-blue-600 bg-neutral-50 border-neutral-300 rounded focus:ring-blue-500 focus:ring-2"
-                  />
+            <div className="space-y-3">
+              {[
+                {
+                  id: "includeResourceLinks",
+                  checked: form.includeResourceLinks ?? true,
+                  set: (v: boolean) => setForm((p) => ({ ...p, includeResourceLinks: v })),
+                  title: "包含资源链接",
+                  desc: "在导出中包含图片、文件等资源的下载链接"
+                },
+                {
+                  id: "includeSystemMessages",
+                  checked: form.includeSystemMessages ?? true,
+                  set: (v: boolean) => setForm((p) => ({ ...p, includeSystemMessages: v })),
+                  title: "包含系统消息",
+                  desc: "包含入群通知、撤回提示等系统提示消息"
+                },
+                {
+                  id: "filterPureImageMessages",
+                  checked: form.filterPureImageMessages ?? false,
+                  set: (v: boolean) => setForm((p) => ({ ...p, filterPureImageMessages: v })),
+                  title: "过滤纯多媒体消息",
+                  desc: "过滤掉只包含图片、视频、音频、文件、表情等没有文字的消息记录"
+                }
+              ].map((opt) => (
+                <div
+                  key={opt.id}
+                  className={[
+                    "relative cursor-pointer rounded-2xl border p-4 transition-all",
+                    opt.checked ? "border-neutral-300 bg-neutral-50/50" : "border-neutral-200 hover:border-neutral-300"
+                  ].join(" ")}
+                  onClick={() => opt.set(!opt.checked)}
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="flex-shrink-0 pt-0.5">
+                      <div className={[
+                        "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
+                        opt.checked 
+                          ? "border-neutral-900 bg-neutral-900" 
+                          : "border-neutral-300 hover:border-neutral-400"
+                      ].join(" ")}>
+                        {opt.checked && (
+                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-medium text-neutral-900 text-sm">{opt.title}</h4>
+                      <p className="text-neutral-600 text-sm mt-1 leading-relaxed">{opt.desc}</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-sm">
-                  <label htmlFor="includeSystemMessages" className="font-medium text-neutral-900 cursor-pointer">
-                    包含系统消息
-                  </label>
-                  <p className="text-neutral-600 text-xs mt-0.5">
-                    包含入群通知、撤回提示等系统提示消息
-                  </p>
-                </div>
-              </div>
-
-              {/* 过滤纯多媒体消息 */}
-              <div className="flex items-start space-x-3">
-                <div className="flex items-center h-5">
-                  <input
-                    id="filterPureImageMessages"
-                    type="checkbox"
-                    checked={form.filterPureImageMessages ?? false}
-                    onChange={(e) => setForm(prev => ({ ...prev, filterPureImageMessages: e.target.checked }))}
-                    className="w-4 h-4 text-blue-600 bg-neutral-50 border-neutral-300 rounded focus:ring-blue-500 focus:ring-2"
-                  />
-                </div>
-                <div className="text-sm">
-                  <label htmlFor="filterPureImageMessages" className="font-medium text-neutral-900 cursor-pointer">
-                    过滤纯多媒体消息
-                  </label>
-                  <p className="text-neutral-600 text-xs mt-0.5">
-                    过滤掉只包含图片、视频、音频、文件、表情等没有文字的消息记录
-                  </p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
@@ -762,13 +631,13 @@ export function ScheduledExportWizard({
 
           {/* 其他选项 */}
           <div className="space-y-4">
-            <h3 className="text-lg font-medium">其他选项</h3>
-            
-            <div className="flex items-center space-x-2">
+            <h3 className="text-base font-medium">其他选项</h3>
+
+            <div className="flex items-center gap-2">
               <Switch
                 id="enabled"
                 checked={form.enabled}
-                onCheckedChange={(checked) => setForm(prev => ({ ...prev, enabled: checked }))}
+                onCheckedChange={(checked) => setForm((p) => ({ ...p, enabled: checked }))}
               />
               <Label htmlFor="enabled" className="flex items-center gap-2">
                 启用任务
@@ -783,14 +652,14 @@ export function ScheduledExportWizard({
               <Input
                 placeholder="留空使用默认目录"
                 value={form.outputDir || ""}
-                onChange={(e) => setForm(prev => ({ ...prev, outputDir: e.target.value }))}
+                onChange={(e) => setForm((p) => ({ ...p, outputDir: e.target.value }))}
+                className="rounded-xl"
               />
             </div>
           </div>
         </div>
-        
-        {/* 底部按钮 */}
-        <div className="flex items-center justify-between pt-4 border-t">
+
+        <div className="flex items-center justify-between px-6 py-4 border-t">
           <div className="text-sm text-neutral-500">
             {canSubmit() ? (
               <span className="text-green-600 flex items-center gap-2">
@@ -804,15 +673,15 @@ export function ScheduledExportWizard({
               </span>
             )}
           </div>
-          
+
           <div className="flex gap-3">
-            <Button variant="outline" onClick={onClose}>
+            <Button variant="outline" onClick={onClose} className="rounded-full">
               取消
             </Button>
-            <Button 
+            <Button
               onClick={handleSubmit}
               disabled={!canSubmit() || isLoading}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-blue-600 hover:bg-blue-700 rounded-full"
             >
               {isLoading ? (
                 <>
