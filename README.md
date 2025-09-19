@@ -5,15 +5,16 @@
 ![Platform](https://img.shields.io/badge/平台-Win/Mac/Linux-48bb78?style=flat-square)
 [![使用教程](https://img.shields.io/badge/使用教程-点击查看-f6ad55?style=flat-square)](https://qce.luoxiaohei.cn)
 
+## 界面预览
+
+![QCE V4 界面截图](image.png)
+
 ## 这是什么
 
 这是一款 QQ 聊天记录导出工具，可以将您的 QQ 聊天记录（包括消息、图片、表情等）完整地导出为 `HTML`、`JSON`、`TXT` 等多种格式。
 
 最新的 **V4 版本** 是基于 NapCatQQ 框架的完全重构版本，集成了现代化 Web 界面、SQLite 数据库、定时任务系统和完整的 API 服务，为用户提供企业级的聊天记录管理解决方案。
 
-## 界面预览
-
-![QCE V4 界面截图](image.png)
 
 ## V4 版本核心特性
 
