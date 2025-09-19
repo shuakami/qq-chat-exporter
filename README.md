@@ -1,11 +1,5 @@
 # QQ聊天记录导出工具 Pro
 
-[![GPL3 License](https://img.shields.io/badge/License-GPL3-4a5568?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
-[![Release](https://img.shields.io/github/v/release/shuakami/qq-chat-exporter?include_prereleases&style=flat-square&color=667eea)](https://github.com/shuakami/qq-chat-exporter/releases) 
-![Platform](https://img.shields.io/badge/平台-Win/Mac/Linux-48bb78?style=flat-square)
-[![使用教程](https://img.shields.io/badge/使用教程-点击查看-f6ad55?style=flat-square)](https://qce.luoxiaohei.cn)
-
-
 ![QCE V4 界面截图](image.png)
 
 ## 这是什么
@@ -103,6 +97,10 @@ V2 版本利用了 QQ NT 客户端基于 Electron 的特性，通过向其内置
 如腾讯公司认为本项目存在不当之处，欢迎通过正当渠道联系处理。
 
 **继续使用即表示您已充分理解并同意承担上述所有风险。如有疑虑，请立即停止使用。**
+
+## Star 历史
+
+[![Star History Chart](https://api.star-history.com/svg?repos=shuakami/qq-chat-exporter&type=Date)](https://star-history.com/#shuakami/qq-chat-exporter&Date)
 
 ## 许可证
 
