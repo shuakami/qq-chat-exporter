@@ -889,6 +889,27 @@ export class QQChatExporterApiServer {
             }
         });
 
+        // 获取导出文件列表（用于聊天记录索引页面）
+        this.app.get('/api/exports/files', (req, res) => {
+            try {
+                const exportFiles = this.getExportFiles();
+                this.sendSuccessResponse(res, { files: exportFiles }, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // 获取特定导出文件的详细信息
+        this.app.get('/api/exports/files/:fileName/info', (req, res) => {
+            try {
+                const { fileName } = req.params;
+                const fileInfo = this.getExportFileInfo(fileName);
+                this.sendSuccessResponse(res, fileInfo, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
         // 静态文件服务
         this.app.use('/downloads', express.static(path.join(process.cwd(), 'exports')));
         this.app.use('/scheduled-downloads', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports')));
@@ -1558,5 +1579,180 @@ export class QQChatExporterApiServer {
                 resolve();
             });
         });
+    }
+
+    /**
+     * 获取导出文件列表
+     */
+    private getExportFiles(): any[] {
+        const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+        const scheduledExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
+        
+        const files: any[] = [];
+        
+        try {
+            // 扫描主导出目录
+            if (fs.existsSync(exportDir)) {
+                const mainFiles = fs.readdirSync(exportDir);
+                for (const fileName of mainFiles) {
+                    if (fileName.endsWith('.html')) {
+                        const filePath = path.join(exportDir, fileName);
+                        const stats = fs.statSync(filePath);
+                        const fileInfo = this.parseExportFileName(fileName);
+                        
+                        if (fileInfo) {
+                            files.push({
+                                fileName,
+                                filePath: filePath,
+                                relativePath: `/downloads/${fileName}`,
+                                size: stats.size,
+                                createTime: stats.birthtime,
+                                modifyTime: stats.mtime,
+                                ...fileInfo
+                            });
+                        }
+                    }
+                }
+            }
+            
+            // 扫描定时导出目录
+            if (fs.existsSync(scheduledExportDir)) {
+                const scheduledFiles = fs.readdirSync(scheduledExportDir);
+                for (const fileName of scheduledFiles) {
+                    if (fileName.endsWith('.html')) {
+                        const filePath = path.join(scheduledExportDir, fileName);
+                        const stats = fs.statSync(filePath);
+                        const fileInfo = this.parseExportFileName(fileName);
+                        
+                        if (fileInfo) {
+                            files.push({
+                                fileName,
+                                filePath: filePath,
+                                relativePath: `/scheduled-downloads/${fileName}`,
+                                size: stats.size,
+                                createTime: stats.birthtime,
+                                modifyTime: stats.mtime,
+                                isScheduled: true,
+                                ...fileInfo
+                            });
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('[ApiServer] 获取导出文件列表失败:', error);
+        }
+        
+        // 按修改时间倒序排序
+        return files.sort((a, b) => new Date(b.modifyTime).getTime() - new Date(a.modifyTime).getTime());
+    }
+
+    /**
+     * 解析导出文件名获取基本信息
+     */
+    private parseExportFileName(fileName: string): any | null {
+        // 匹配格式：friend_1234567890_20250830_142843.html 或 group_1234567890_20250830_142843.html
+        const match = fileName.match(/^(friend|group)_(\d+)_(\d{8})_(\d{6})(?:_\d{3}_TEMP)?\.html$/);
+        if (!match) return null;
+        
+        const [, type, id, date, time] = match;
+        if (!date || !time) return null;
+        const dateTime = `${date.substr(0,4)}-${date.substr(4,2)}-${date.substr(6,2)} ${time.substr(0,2)}:${time.substr(2,2)}:${time.substr(4,2)}`;
+        
+        return {
+            chatType: type as 'friend' | 'group',
+            chatId: id,
+            exportDate: dateTime,
+            displayName: `${type === 'friend' ? '好友' : '群聊'} ${id}`,
+            avatarUrl: type === 'friend' ? 
+                `https://q1.qlogo.cn/g?b=qq&nk=${id}&s=100` : 
+                `https://p.qlogo.cn/gh/${id}/${id}/100`
+        };
+    }
+
+    /**
+     * 获取特定导出文件的详细信息
+     */
+    private getExportFileInfo(fileName: string): any {
+        const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+        const scheduledExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
+        
+        let filePath = path.join(exportDir, fileName);
+        let isScheduled = false;
+        
+        if (!fs.existsSync(filePath)) {
+            filePath = path.join(scheduledExportDir, fileName);
+            isScheduled = true;
+        }
+        
+        if (!fs.existsSync(filePath)) {
+            throw new SystemError(ErrorType.VALIDATION_ERROR, '导出文件不存在', 'FILE_NOT_FOUND');
+        }
+        
+        const stats = fs.statSync(filePath);
+        const basicInfo = this.parseExportFileName(fileName);
+        
+        if (!basicInfo) {
+            throw new SystemError(ErrorType.VALIDATION_ERROR, '无效的文件名格式', 'INVALID_FILENAME');
+        }
+        
+        // 尝试从HTML文件中提取更多信息
+        let detailedInfo = null;
+        try {
+            const htmlContent = fs.readFileSync(filePath, 'utf-8');
+            detailedInfo = this.extractChatInfoFromHtml(htmlContent);
+        } catch (error) {
+            console.warn('[ApiServer] 无法解析HTML文件内容:', error);
+        }
+        
+        return {
+            fileName,
+            filePath,
+            relativePath: isScheduled ? `/scheduled-downloads/${fileName}` : `/downloads/${fileName}`,
+            size: stats.size,
+            createTime: stats.birthtime,
+            modifyTime: stats.mtime,
+            isScheduled,
+            ...basicInfo,
+            ...detailedInfo
+        };
+    }
+
+    /**
+     * 从HTML内容中提取聊天信息
+     */
+    private extractChatInfoFromHtml(htmlContent: string): any {
+        const info: any = {};
+        
+        try {
+            // 提取导出时间
+            const exportTimeMatch = htmlContent.match(/<div class="info-value">([^<]+)<\/div>/);
+            if (exportTimeMatch) {
+                info.exportTime = exportTimeMatch[1];
+            }
+            
+            // 提取消息总数
+            const messageCountMatch = htmlContent.match(/消息总数.*?<div class="info-value">(\d+)<\/div>/s);
+            if (messageCountMatch && messageCountMatch[1]) {
+                info.messageCount = parseInt(messageCountMatch[1]);
+            }
+            
+            // 提取聊天对象名称（从第一条消息的发送者）
+            const senderMatch = htmlContent.match(/<span class="sender">([^<]+)<\/span>/);
+            if (senderMatch) {
+                info.senderName = senderMatch[1];
+            }
+            
+            // 提取时间范围
+            const timeRangeMatch = htmlContent.match(/时间范围.*?<div class="info-value">([^<]+)<\/div>/s);
+            if (timeRangeMatch) {
+                info.timeRange = timeRangeMatch[1];
+            }
+            
+        } catch (error) {
+            console.warn('[ApiServer] 解析HTML内容失败:', error);
+        }
+        
+        return info;
     }
 }

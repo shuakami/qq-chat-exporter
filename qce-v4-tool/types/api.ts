@@ -275,3 +275,31 @@ export interface CreateScheduledExportForm {
 export interface ScheduledExportsResponse {
   scheduledExports: ScheduledExport[]
 }
+
+// Chat History File Types
+export interface ChatFile {
+  fileName: string
+  filePath: string
+  relativePath: string
+  size: number
+  createTime: string
+  modifyTime: string
+  chatType: 'friend' | 'group'
+  chatId: string
+  exportDate: string
+  displayName: string
+  avatarUrl: string
+  isScheduled?: boolean
+  messageCount?: number
+  senderName?: string
+  timeRange?: string
+  exportTime?: string
+}
+
+export interface ChatFilesResponse {
+  files: ChatFile[]
+}
+
+export interface ChatFileInfoResponse extends ChatFile {
+  // 可能包含额外的详细信息
+}

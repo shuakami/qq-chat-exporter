@@ -1,934 +1,968 @@
 /**
  * 简化消息解析器
- * 专门为QQ聊天记录导出优化，提供清晰、准确的消息解析
  */
 
 import path from 'path';
 import { RawMessage, MessageElement, NTMsgType } from '@/core/types/msg';
 
+/* ------------------------------ 内部高性能工具 ------------------------------ */
+
+/** 并发限流 map（保持顺序） */
+async function mapLimit<T, R>(
+  arr: readonly T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const len = arr.length;
+  const out = new Array<R>(len);
+  if (len === 0) return out;
+
+  const workers = Math.min((limit >>> 0) || 1, len);
+  let next = 0;
+
+  async function worker() {
+    while (true) {
+      const i = next++;
+      if (i >= len) break;
+      out[i] = await mapper(arr[i]!, i);
+    }
+  }
+  const tasks = new Array(workers);
+  for (let i = 0; i < workers; i++) tasks[i] = worker();
+  await Promise.all(tasks);
+  return out;
+}
+
+function resolveConcurrency(): number {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const os = require('os');
+    const cores = (os?.cpus?.() || []).length || 4;
+    return Math.max(4, Math.min(32, cores * 2));
+  } catch {
+    return 8;
+  }
+}
+
+/** 让出事件循环 */
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof setImmediate === 'function') setImmediate(resolve);
+    else setTimeout(resolve, 0);
+  });
+}
+
+/** Chunked 字符串构建器 */
+class ChunkedBuilder {
+  private chunks: string[] = [];
+  push(s: string | undefined | null) {
+    if (s) this.chunks.push(s);
+  }
+  toString() {
+    return this.chunks.join('');
+  }
+  clear() {
+    this.chunks.length = 0;
+  }
+}
+
+const NEED_ESCAPE_RE = /[&<>"']/;
+function escapeHtmlFast(text: string): string {
+  if (!text) return '';
+  if (!NEED_ESCAPE_RE.test(text)) return text;
+  const len = text.length;
+  let out = '';
+  let last = 0;
+  for (let i = 0; i < len; i++) {
+    const c = text.charCodeAt(i);
+    let rep: string | null = null;
+    if (c === 38) rep = '&amp;';
+    else if (c === 60) rep = '&lt;';
+    else if (c === 62) rep = '&gt;';
+    else if (c === 34) rep = '&quot;';
+    else if (c === 39) rep = '&#39;';
+    if (rep) {
+      if (i > last) out += text.slice(last, i);
+      out += rep;
+      last = i + 1;
+    }
+  }
+  if (last < len) out += text.slice(last);
+  return out;
+}
+
+/** RFC3339（UTC）格式化工具 */
+function pad2(n: number) {
+  return n < 10 ? '0' + n : '' + n;
+}
+function pad3(n: number) {
+  if (n >= 100) return '' + n;
+  if (n >= 10) return '0' + n;
+  return '00' + n;
+}
+function pad4(n: number) {
+  if (n >= 1000) return '' + n;
+  if (n >= 100) return '0' + n;
+  if (n >= 10) return '00' + n;
+  return '000' + n;
+}
+function rfc3339FromMillis(ms: number): string {
+  const d = new Date(ms);
+  return `${pad4(d.getUTCFullYear())}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}T${pad2(
+    d.getUTCHours()
+  )}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}.${pad3(d.getUTCMilliseconds())}Z`;
+}
+function rfc3339FromUnixSeconds(sec: number | string | bigint): string {
+  try {
+    if (typeof sec === 'bigint') {
+      const n = Number(sec * 1000n);
+      return Number.isFinite(n) ? rfc3339FromMillis(n) : '1970-01-01T00:00:00.000Z';
+    }
+    const n = typeof sec === 'string' ? parseInt(sec, 10) : sec;
+    if (!Number.isFinite(n)) return '1970-01-01T00:00:00.000Z';
+    return rfc3339FromMillis(Math.trunc(n * 1000));
+  } catch {
+    return '1970-01-01T00:00:00.000Z';
+  }
+}
+function millisFromUnixSeconds(sec: number | string | bigint): number {
+  try {
+    if (typeof sec === 'bigint') {
+      const n = Number(sec * 1000n);
+      return Number.isFinite(n) ? n : 0;
+    }
+    const n = typeof sec === 'string' ? parseInt(sec, 10) : sec;
+    return Number.isFinite(n) ? Math.trunc(n * 1000) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** 高性能 JSON 解析（SIMD 优先） */
+type FastJsonParser = (s: string) => any;
+let fastJsonParse: FastJsonParser = (s) => JSON.parse(s);
+(function tryLoadSimdJson() {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = typeof require !== 'undefined' ? require('simdjson') : null;
+    if (mod && typeof mod.parse === 'function') {
+      fastJsonParse = (s) => mod.parse(s);
+    }
+  } catch {
+    // 静默降级
+  }
+})();
+
+/* ------------------------------ 导出类型（保持不变） ------------------------------ */
+
 export interface CleanMessage {
-    /** 消息ID */
-    id: string;
-    /** 消息序列号 */
-    seq: string;
-    /** 发送时间戳（毫秒） */
-    timestamp: number;
-    /** 发送时间（ISO字符串） */
-    time: string;
-    /** 发送者信息 */
-    sender: {
-        uid: string;
-        uin?: string;
-        name: string;
-        remark?: string;
-    };
-    /** 消息类型 */
-    type: string;
-    /** 消息内容 */
-    content: MessageContent;
-    /** 是否撤回 */
-    recalled: boolean;
-    /** 是否系统消息 */
-    system: boolean;
+  id: string;
+  seq: string;
+  timestamp: number;
+  time: string;
+  sender: {
+    uid: string;
+    uin?: string;
+    name: string;
+    remark?: string;
+  };
+  type: string;
+  content: MessageContent;
+  recalled: boolean;
+  system: boolean;
 }
 
 export interface MessageContent {
-    /** 纯文本内容 */
-    text: string;
-    /** 富文本内容（HTML） */
-    html: string;
-    /** 消息元素 */
-    elements: MessageElementData[];
-    /** 资源统计 */
-    resources: ResourceData[];
+  text: string;
+  html: string;
+  elements: MessageElementData[];
+  resources: ResourceData[];
 }
 
 export interface MessageElementData {
-    /** 元素类型 */
-    type: string;
-    /** 元素数据 */
-    data: any;
+  type: string;
+  data: any;
 }
 
 export interface ResourceData {
-    type: string;
-    filename: string;
-    size: number;
-    url?: string;
-    localPath?: string;
-    width?: number;
-    height?: number;
-    duration?: number;
+  type: string;
+  filename: string;
+  size: number;
+  url?: string;
+  localPath?: string;
+  width?: number;
+  height?: number;
+  duration?: number;
 }
 
 export interface MessageStatistics {
+  total: number;
+  byType: Record<string, number>;
+  bySender: Record<string, { uid: string; count: number }>;
+  resources: {
     total: number;
     byType: Record<string, number>;
-    bySender: Record<string, { uid: string; count: number }>;
-    resources: {
-        total: number;
-        byType: Record<string, number>;
-        totalSize: number;
-    };
-    timeRange: {
-        start: string;
-        end: string;
-        durationDays: number;
-    };
+    totalSize: number;
+  };
+  timeRange: {
+    start: string;
+    end: string;
+    durationDays: number;
+  };
 }
 
-/**
- * 简化消息解析器类
- */
+/** 轻量解析器配置 */
+export interface SimpleParserOptions {
+  concurrency?: number;
+  progressEvery?: number;
+  yieldEvery?: number;
+  html?: 'full' | 'none';
+  onProgress?: (processed: number, total: number) => void;
+}
+
+const DEFAULT_SIMPLE_OPTIONS: Required<Omit<SimpleParserOptions, 'onProgress'>> = {
+  concurrency: resolveConcurrency(),
+  progressEvery: 100,
+  yieldEvery: 1000,
+  html: 'full'
+};
+
+/* ---------------------------------- 主类 ---------------------------------- */
+
 export class SimpleMessageParser {
-    
-    /**
-     * 解析消息列表
-     */
-    async parseMessages(messages: RawMessage[]): Promise<CleanMessage[]> {
-        const results: CleanMessage[] = [];
-        
-        for (const message of messages) {
-            try {
-                const parsed = await this.parseMessage(message);
-                results.push(parsed);
-            } catch (error) {
-                console.error('解析消息失败:', error, message.msgId);
-                results.push(this.createErrorMessage(message, error));
-            }
+  private readonly options: Required<Omit<SimpleParserOptions, 'onProgress'>>;
+  private readonly onProgress?: (processed: number, total: number) => void;
+
+  private readonly concurrency: number;
+
+  constructor(opts: SimpleParserOptions = {}) {
+    this.options = { ...DEFAULT_SIMPLE_OPTIONS, ...opts };
+    this.onProgress = opts.onProgress;
+    this.concurrency = this.options.concurrency ?? resolveConcurrency();
+  }
+
+  /**
+   * 解析消息列表（高并发 + 有序输出）
+   */
+  async parseMessages(messages: RawMessage[]): Promise<CleanMessage[]> {
+    const total = messages.length;
+    let processed = 0;
+
+    const results = await mapLimit(messages, this.concurrency, async (message, idx) => {
+      try {
+        const cm = await this.parseMessage(message);
+
+        processed++;
+        if (this.onProgress) {
+          this.onProgress(processed, total);
+        } else if (processed % this.options.progressEvery === 0) {
+          console.log(`[SimpleMessageParser] 已解析 ${processed}/${total}`);
         }
-        
-        return results;
+
+        if (this.options.yieldEvery > 0 && (idx + 1) % this.options.yieldEvery === 0) {
+          await yieldToEventLoop();
+        }
+
+        return cm;
+      } catch (error) {
+        console.error('解析消息失败:', error, message?.msgId);
+        return this.createErrorMessage(message, error);
+      }
+    });
+    return results;
+  }
+
+  /**
+   * 解析单条消息（公开）
+   */
+  async parseSingleMessage(message: RawMessage): Promise<CleanMessage> {
+    return this.parseMessage(message);
+  }
+
+  /**
+   * 解析单条消息（内部）
+   */
+  private async parseMessage(message: RawMessage): Promise<CleanMessage> {
+    const tsMs = millisFromUnixSeconds(message.msgTime as any);
+    const timestamp = tsMs > 0 ? tsMs : Date.now();
+
+    // 群名片 > 好友备注 > 昵称 > QQ号 > UID
+    const senderName =
+      message.sendMemberName ||
+      message.sendRemarkName ||
+      message.sendNickName ||
+      message.senderUin ||
+      message.senderUid ||
+      '未知用户';
+
+    const content = await this.parseMessageContent(message);
+
+    const cleanMessage: CleanMessage = {
+      id: message.msgId,
+      seq: message.msgSeq,
+      timestamp,
+      // RFC3339（UTC）
+      time: rfc3339FromMillis(timestamp),
+      sender: {
+        uid: message.senderUid,
+        uin: message.senderUin,
+        name: senderName,
+        remark: message.sendRemarkName || undefined
+      },
+      type: this.getMessageTypeString(message.msgType),
+      content,
+      recalled: message.recallTime !== '0',
+      system: this.isSystemMessage(message)
+    };
+
+    return cleanMessage;
+  }
+
+  private getMessageTypeString(msgType: NTMsgType): string {
+    switch (msgType) {
+      case NTMsgType.KMSGTYPEMIX:
+      case NTMsgType.KMSGTYPENULL:
+        return 'text';
+      case NTMsgType.KMSGTYPEFILE:
+        return 'file';
+      case NTMsgType.KMSGTYPEVIDEO:
+        return 'video';
+      case NTMsgType.KMSGTYPEPTT:
+        return 'audio';
+      case NTMsgType.KMSGTYPEREPLY:
+        return 'reply';
+      case NTMsgType.KMSGTYPEMULTIMSGFORWARD:
+        return 'forward';
+      case NTMsgType.KMSGTYPEGRAYTIPS:
+        return 'system';
+      case NTMsgType.KMSGTYPESTRUCT:
+      case NTMsgType.KMSGTYPEARKSTRUCT:
+        return 'json';
+      default:
+        return `type_${msgType}`;
     }
-    
-    /**
-     * 解析单条消息（公开方法）
-     */
-    async parseSingleMessage(message: RawMessage): Promise<CleanMessage> {
-        return this.parseMessage(message);
+  }
+
+  /**
+   * 单趟解析消息内容
+   */
+  private async parseMessageContent(message: RawMessage): Promise<MessageContent> {
+    const elements = message.elements || [];
+    const parsedElements: MessageElementData[] = new Array(elements.length);
+    const resources: ResourceData[] = [];
+
+    const textB = new ChunkedBuilder();
+    const htmlB = new ChunkedBuilder();
+    const htmlEnabled = this.options.html !== 'none';
+
+    let count = 0;
+    for (let i = 0; i < elements.length; i++) {
+      const element = elements[i]!;
+      const parsed = await this.parseElement(element);
+      if (!parsed) continue;
+      parsedElements[count++] = parsed;
+
+      // 资源抽取
+      const resource = this.extractResource(parsed);
+      if (resource) resources.push(resource);
+
+      // 文本/HTML
+      const { text, html } = this.elementToText(parsed, htmlEnabled);
+      textB.push(text);
+      if (htmlEnabled) htmlB.push(html);
+    }
+    // 压缩 parsedElements 实际长度
+    parsedElements.length = count;
+
+    return {
+      text: textB.toString().trim(),
+      html: htmlEnabled ? htmlB.toString().trim() : '',
+      elements: parsedElements,
+      resources
+    };
+  }
+
+  /**
+   * 元素解析（尽量同步，无额外中间对象）
+   */
+  private async parseElement(element: MessageElement): Promise<MessageElementData | null> {
+    // 文本
+    if (element.textElement) {
+      return {
+        type: 'text',
+        data: { text: element.textElement.content || '' }
+      };
     }
 
-    /**
-     * 解析单条消息
-     */
-    private async parseMessage(message: RawMessage): Promise<CleanMessage> {
-        const parsedTime = parseInt(message.msgTime);
-        // 如果时间戳无效，使用当前时间作为fallback
-        const timestamp = isNaN(parsedTime) || parsedTime <= 0 ? Date.now() : parsedTime * 1000;
-        
-        // 改进发送者名称逻辑：群名片 > 好友备注 > 昵称 > QQ号 > UID
-        const senderName = message.sendMemberName ||  // 群名片优先
-                          message.sendRemarkName ||   // 好友备注
-                          message.sendNickName ||     // 昵称
-                          message.senderUin ||        // QQ号
-                          message.senderUid ||        // UID
-                          '未知用户';
-        
-        const cleanMessage: CleanMessage = {
-            id: message.msgId,
-            seq: message.msgSeq,
-            timestamp,
-            time: new Date(timestamp).toLocaleString('zh-CN', { 
-                year: 'numeric', 
-                month: '2-digit', 
-                day: '2-digit', 
-                hour: '2-digit', 
-                minute: '2-digit', 
-                second: '2-digit',
-                hour12: false 
-            }).replace(/\//g, '-'),
-            sender: {
-                uid: message.senderUid,
-                uin: message.senderUin,
-                name: senderName,
-                remark: message.sendRemarkName || undefined
-            },
-            type: this.getMessageTypeString(message.msgType),
-            content: await this.parseMessageContent(message),
-            recalled: message.recallTime !== '0',
-            system: this.isSystemMessage(message)
+    // 表情
+    if (element.faceElement) {
+      return {
+        type: 'face',
+        data: {
+          id: element.faceElement.faceIndex,
+          name: `表情${element.faceElement.faceIndex}`
+        }
+      };
+    }
+
+    // 商城表情
+    if (element.marketFaceElement) {
+      const emojiId = element.marketFaceElement.emojiId || '';
+      const key = element.marketFaceElement.key || '';
+      const url = emojiId ? this.generateMarketFaceUrl(emojiId) : '';
+
+      return {
+        type: 'market_face',
+        data: {
+          name: element.marketFaceElement.faceName || '商城表情',
+          tabName: (element.marketFaceElement as any).tabName || '',
+          key,
+          emojiId,
+          emojiPackageId: element.marketFaceElement.emojiPackageId,
+          url
+        }
+      };
+    }
+
+    // 图片
+    if (element.picElement) {
+      return {
+        type: 'image',
+        data: {
+          filename: element.picElement.fileName || '图片',
+          size: this.parseSizeString(element.picElement.fileSize),
+          width: element.picElement.picWidth,
+          height: element.picElement.picHeight,
+          md5: element.picElement.md5HexStr,
+          url: element.picElement.originImageUrl || ''
+        }
+      };
+    }
+
+    // 文件
+    if (element.fileElement) {
+      return {
+        type: 'file',
+        data: {
+          filename: element.fileElement.fileName || '文件',
+          size: this.parseSizeString(element.fileElement.fileSize),
+          md5: element.fileElement.fileMd5
+        }
+      };
+    }
+
+    // 视频
+    if (element.videoElement) {
+      return {
+        type: 'video',
+        data: {
+          filename: element.videoElement.fileName || '视频',
+          size: this.parseSizeString(element.videoElement.fileSize),
+          duration: (element.videoElement as any).duration || 0,
+          thumbSize: this.parseSizeString(element.videoElement.thumbSize)
+        }
+      };
+    }
+
+    // 语音
+    if (element.pttElement) {
+      return {
+        type: 'audio',
+        data: {
+          filename: element.pttElement.fileName || '语音',
+          size: this.parseSizeString(element.pttElement.fileSize),
+          duration: element.pttElement.duration || 0
+        }
+      };
+    }
+
+    // 回复
+    if (element.replyElement) {
+      const replyData = this.extractReplyContent(element.replyElement);
+      return {
+        type: 'reply',
+        data: {
+          messageId: replyData.messageId,
+          senderUin: replyData.senderUin,
+          senderName: replyData.senderName,
+          content: replyData.content,
+          timestamp: replyData.timestamp
+        }
+      };
+    }
+
+    // 转发
+    if (element.multiForwardMsgElement) {
+      return {
+        type: 'forward',
+        data: {
+          title: '转发消息',
+          resId: element.multiForwardMsgElement.resId || '',
+          summary: element.multiForwardMsgElement.xmlContent || ''
+        }
+      };
+    }
+
+    // JSON 卡片
+    if (element.arkElement) {
+      const jsonContent = element.arkElement.bytesData || '{}';
+      const parsedJson = this.parseJsonContent(jsonContent);
+      return {
+        type: 'json',
+        data: {
+          content: jsonContent,
+          title: parsedJson.title || 'JSON消息',
+          description: parsedJson.description,
+          url: parsedJson.url,
+          preview: parsedJson.preview,
+          appName: parsedJson.appName,
+          summary: parsedJson.title || parsedJson.description || 'JSON消息'
+        }
+      };
+    }
+
+    // 位置
+    if (element.shareLocationElement) {
+      return {
+        type: 'location',
+        data: {
+          title: '位置消息',
+          summary: '分享了位置'
+        }
+      };
+    }
+
+    // 小灰条（系统提示）
+    if (element.grayTipElement) {
+      return this.parseGrayTipElement(element.grayTipElement);
+    }
+
+    // 未知类型
+    console.warn(`[SimpleMessageParser] 未知消息元素类型: ${element.elementType}`, element);
+    return {
+      type: 'system',
+      data: {
+        elementType: element.elementType,
+        summary: this.getSystemMessageSummary(element),
+        text: this.getSystemMessageSummary(element)
+      }
+    };
+  }
+
+  private extractResource(element: MessageElementData): ResourceData | null {
+    if (!['image', 'file', 'video', 'audio'].includes(element.type)) return null;
+    const d = element.data || {};
+    return {
+      type: element.type,
+      filename: d.filename || '未知',
+      size: d.size || 0,
+      url: d.url,
+      width: d.width,
+      height: d.height,
+      duration: d.duration
+    };
+  }
+
+  private elementToText(element: MessageElementData, htmlEnabled: boolean): { text: string; html: string } {
+    switch (element.type) {
+      case 'text': {
+        const t = element.data.text || '';
+        return { text: t, html: htmlEnabled ? escapeHtmlFast(t) : '' };
+      }
+      case 'face': {
+        const t = `[表情${element.data.id}]`;
+        return { text: t, html: htmlEnabled ? t : '' };
+      }
+      case 'market_face': {
+        const t = `[${element.data.name || '表情'}]`;
+        return { text: t, html: htmlEnabled ? t : '' };
+      }
+      case 'image': {
+        const t = `[图片:${element.data.filename}]`;
+        return { text: t, html: htmlEnabled ? `<img alt="${escapeHtmlFast(element.data.filename)}" class="image">` : '' };
+      }
+      case 'file': {
+        const t = `[文件:${element.data.filename}]`;
+        return { text: t, html: htmlEnabled ? `<span class="file">${escapeHtmlFast(t)}</span>` : '' };
+      }
+      case 'video': {
+        const t = `[视频:${element.data.filename}]`;
+        return { text: t, html: htmlEnabled ? `<span class="video">${escapeHtmlFast(t)}</span>` : '' };
+      }
+      case 'audio': {
+        const t = `[语音:${element.data.duration}秒]`;
+        return { text: t, html: htmlEnabled ? `<span class="audio">${escapeHtmlFast(t)}</span>` : '' };
+      }
+      case 'reply': {
+        const t = `[回复消息]`;
+        return { text: t, html: htmlEnabled ? `<div class="reply">${t}</div>` : '' };
+      }
+      case 'forward': {
+        const t = `[转发消息]`;
+        return { text: t, html: htmlEnabled ? `<div class="forward">${t}</div>` : '' };
+      }
+      case 'location': {
+        const t = `[位置消息]`;
+        return { text: t, html: htmlEnabled ? `<div class="location">${t}</div>` : '' };
+      }
+      case 'json': {
+        const t = `[JSON消息]`;
+        return { text: t, html: htmlEnabled ? `<div class="json">${t}</div>` : '' };
+      }
+      case 'system': {
+        const t = element.data.text || element.data.summary || '系统消息';
+        return { text: t, html: htmlEnabled ? `<div class="system">${escapeHtmlFast(t)}</div>` : '' };
+      }
+      default: {
+        const rawText = element.data.text || element.data.summary || element.data.content || '';
+        return { text: rawText, html: htmlEnabled ? (rawText ? `<span>${escapeHtmlFast(rawText)}</span>` : '') : '' };
+      }
+    }
+  }
+
+  private parseSizeString(size: string | number | undefined): number {
+    if (typeof size === 'number') return size;
+    if (typeof size === 'string') {
+      const n = parseInt(size, 10);
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+  }
+
+  private isSystemMessage(message: RawMessage): boolean {
+    return message.msgType === NTMsgType.KMSGTYPEGRAYTIPS;
+  }
+
+  private createErrorMessage(message: RawMessage, error: any): CleanMessage {
+    const tsMs = millisFromUnixSeconds(message.msgTime as any);
+    const timestamp = tsMs > 0 ? tsMs : Date.now();
+
+    const senderName =
+      message.sendMemberName ||
+      message.sendRemarkName ||
+      message.sendNickName ||
+      message.senderUin ||
+      message.senderUid ||
+      '未知用户';
+
+    const errMsg = (error && (error.message || error.toString?.())) || 'Unknown';
+    return {
+      id: message.msgId,
+      seq: message.msgSeq,
+      timestamp,
+      time: rfc3339FromMillis(timestamp),
+      sender: {
+        uid: message.senderUid,
+        uin: message.senderUin,
+        name: senderName
+      },
+      type: 'error',
+      content: {
+        text: `[解析失败: ${errMsg}]`,
+        html: `<span class="error">[解析失败: ${escapeHtmlFast(errMsg)}]</span>`,
+        elements: [],
+        resources: []
+      },
+      recalled: false,
+      system: false
+    };
+  }
+
+  /** @deprecated 使用 isPureMediaMessage 代替 */
+  isPureImageMessage(message: CleanMessage): boolean {
+    return this.isPureMediaMessage(message);
+  }
+
+  isPureMediaMessage(message: CleanMessage): boolean {
+    const els = message.content.elements || [];
+    const hasMedia = els.some((e) => ['image', 'video', 'audio', 'file', 'face'].includes(e.type));
+    if (!hasMedia) return false;
+
+    const textEls = els.filter((e) => e.type === 'text');
+    const allTextCQOnly = textEls.length > 0 && textEls.every((e) => this.isOnlyCQCode(e.data?.text || ''));
+
+    const nonTextEls = els.filter(
+      (e) => !['text', 'reply', 'forward', 'json', 'location', 'system'].includes(e.type)
+    );
+
+    return els.length > 0 && hasMedia && (els.length === nonTextEls.length || allTextCQOnly);
+  }
+
+  private hasRealTextContent(message: CleanMessage): boolean {
+    const textEls = message.content.elements.filter((e) => e.type === 'text');
+    for (let i = 0; i < textEls.length; i++) {
+      const t = textEls[i]!.data?.text || '';
+      if (t.trim().length > 0 && !this.isOnlyCQCode(t)) return true;
+    }
+    return false;
+  }
+
+  private isOnlyCQCode(text: string): boolean {
+    if (!text || text.trim().length === 0) return true;
+    // 移除所有 CQ 码，检测是否还有实际文字
+    const without = text.replace(/\[CQ:[^\]]+\]/g, '').trim();
+    return without.length === 0;
+  }
+
+  filterMessages(messages: CleanMessage[], includePureImages: boolean = true): CleanMessage[] {
+    if (includePureImages) return messages;
+    return messages.filter((m) => !this.isPureMediaMessage(m));
+  }
+
+  calculateStatistics(messages: CleanMessage[]): MessageStatistics {
+    const stats: MessageStatistics = {
+      total: messages.length,
+      byType: {},
+      bySender: {},
+      resources: {
+        total: 0,
+        byType: {},
+        totalSize: 0
+      },
+      timeRange: {
+        start: '',
+        end: '',
+        durationDays: 0
+      }
+    };
+
+    if (messages.length === 0) return stats;
+
+    // 时间范围
+    const ts = messages.map((m) => m.timestamp).filter((t) => t > 0).sort((a, b) => a - b);
+    if (ts.length > 0) {
+      const start = new Date(ts[0]!);
+      const end = new Date(ts[ts.length - 1]!);
+      stats.timeRange = {
+        start: start.toISOString(),
+        end: end.toISOString(),
+        durationDays: Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+      };
+    }
+
+    // 统计
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i]!;
+      if (!m || !m.content) continue;
+
+      // 类型
+      stats.byType[m.type] = (stats.byType[m.type] || 0) + 1;
+
+      // 发送者
+      const senderKey = m.sender?.name || m.sender?.uid || '未知用户';
+      if (!stats.bySender[senderKey]) {
+        stats.bySender[senderKey] = {
+          uid: m.sender?.uid || 'unknown',
+          count: 0
         };
-        
-        return cleanMessage;
-    }
-    
-    /**
-     * 获取消息类型字符串
-     */
-    private getMessageTypeString(msgType: NTMsgType): string {
-        switch (msgType) {
-            case NTMsgType.KMSGTYPEMIX: return 'text';
-            case NTMsgType.KMSGTYPENULL: return 'text';
-            case NTMsgType.KMSGTYPEFILE: return 'file';
-            case NTMsgType.KMSGTYPEVIDEO: return 'video';
-            case NTMsgType.KMSGTYPEPTT: return 'audio';
-            case NTMsgType.KMSGTYPEREPLY: return 'reply';
-            case NTMsgType.KMSGTYPEMULTIMSGFORWARD: return 'forward';
-            case NTMsgType.KMSGTYPEGRAYTIPS: return 'system';
-            case NTMsgType.KMSGTYPESTRUCT: return 'json';
-            case NTMsgType.KMSGTYPEARKSTRUCT: return 'json';
-            default: return `type_${msgType}`;
-        }
-    }
-    
-    /**
-     * 解析消息内容
-     */
-    private async parseMessageContent(message: RawMessage): Promise<MessageContent> {
-        const elements = message.elements || [];
-        const parsedElements: MessageElementData[] = [];
-        const resources: ResourceData[] = [];
-        let textParts: string[] = [];
-        let htmlParts: string[] = [];
-        
-        for (const element of elements) {
-            const parsed = await this.parseElement(element);
-            if (parsed) {
-                parsedElements.push(parsed);
-                
-                // 提取资源信息
-                const resource = this.extractResource(parsed);
-                if (resource) {
-                    resources.push(resource);
-                }
-                
-                // 构建文本和HTML内容
-                const { text, html } = this.elementToText(parsed);
-                textParts.push(text);
-                htmlParts.push(html);
-            }
-        }
-        
-        return {
-            text: textParts.join('').trim(),
-            html: htmlParts.join('').trim(),
-            elements: parsedElements,
-            resources
-        };
-    }
-    
-    /**
-     * 解析消息元素
-     */
-    private async parseElement(element: MessageElement): Promise<MessageElementData | null> {
-        // 文本元素
-        if (element.textElement) {
-            return {
-                type: 'text',
-                data: { text: element.textElement.content || '' }
-            };
-        }
-        
-        // 表情
-        if (element.faceElement) {
-            return {
-                type: 'face',
-                data: {
-                    id: element.faceElement.faceIndex,
-                    name: `表情${element.faceElement.faceIndex}`
-                }
-            };
-        }
-        
-        // 商城表情
-        if (element.marketFaceElement) {
-            const emojiId = element.marketFaceElement.emojiId || '';
-            const key = element.marketFaceElement.key || '';
-            const url = emojiId ? this.generateMarketFaceUrl(emojiId) : '';
-            
-            return {
-                type: 'market_face',
-                data: {
-                    name: element.marketFaceElement.faceName || '商城表情',
-                    tabName: (element.marketFaceElement as any).tabName || '',
-                    key: key,
-                    emojiId: emojiId,
-                    emojiPackageId: element.marketFaceElement.emojiPackageId,
-                    url: url
-                }
-            };
-        }
-        
-        // 图片
-        if (element.picElement) {
-            return {
-                type: 'image',
-                data: {
-                    filename: element.picElement.fileName || '图片',
-                    size: this.parseSizeString(element.picElement.fileSize),
-                    width: element.picElement.picWidth,
-                    height: element.picElement.picHeight,
-                    md5: element.picElement.md5HexStr,
-                    url: element.picElement.originImageUrl || ''
-                }
-            };
-        }
-        
-        // 文件
-        if (element.fileElement) {
-            return {
-                type: 'file',
-                data: {
-                    filename: element.fileElement.fileName || '文件',
-                    size: this.parseSizeString(element.fileElement.fileSize),
-                    md5: element.fileElement.fileMd5
-                }
-            };
-        }
-        
-        // 视频
-        if (element.videoElement) {
-            return {
-                type: 'video',
-                data: {
-                    filename: element.videoElement.fileName || '视频',
-                    size: this.parseSizeString(element.videoElement.fileSize),
-                    duration: (element.videoElement as any).duration || 0,
-                    thumbSize: this.parseSizeString(element.videoElement.thumbSize)
-                }
-            };
-        }
-        
-        // 语音
-        if (element.pttElement) {
-            return {
-                type: 'audio',
-                data: {
-                    filename: element.pttElement.fileName || '语音',
-                    size: this.parseSizeString(element.pttElement.fileSize),
-                    duration: element.pttElement.duration || 0
-                }
-            };
-        }
-        
-        // 回复
-        if (element.replyElement) {
-            const replyData = this.extractReplyContent(element.replyElement);
-            return {
-                type: 'reply',
-                data: {
-                    messageId: replyData.messageId,
-                    senderUin: replyData.senderUin,
-                    senderName: replyData.senderName,
-                    content: replyData.content,
-                    timestamp: replyData.timestamp
-                }
-            };
-        }
-        
-        // 转发消息
-        if (element.multiForwardMsgElement) {
-            return {
-                type: 'forward',
-                data: {
-                    title: '转发消息',
-                    resId: element.multiForwardMsgElement.resId || '',
-                    summary: element.multiForwardMsgElement.xmlContent || ''
-                }
-            };
-        }
-        
-        // JSON卡片消息
-        if (element.arkElement) {
-            const jsonContent = element.arkElement.bytesData || '{}';
-            const parsedJson = this.parseJsonContent(jsonContent);
-            
-            return {
-                type: 'json',
-                data: {
-                    content: jsonContent,
-                    title: parsedJson.title || 'JSON消息',
-                    description: parsedJson.description,
-                    url: parsedJson.url,
-                    preview: parsedJson.preview,
-                    appName: parsedJson.appName,
-                    summary: parsedJson.title || parsedJson.description || 'JSON消息'
-                }
-            };
-        }
-        
-        // 位置消息
-        if (element.shareLocationElement) {
-            return {
-                type: 'location',
-                data: {
-                    title: '位置消息',
-                    summary: '分享了位置'
-                }
-            };
-        }
-        
-        // 小灰条消息（系统提示）
-        if (element.grayTipElement) {
-            return this.parseGrayTipElement(element.grayTipElement);
-        }
-        
-        // 未知类型 - 输出详细信息方便调试
-        console.warn(`[SimpleMessageParser] 未知消息元素类型: ${element.elementType}`, element);
-        return {
-            type: 'system',
-            data: {
-                elementType: element.elementType,
-                summary: this.getSystemMessageSummary(element),
-                text: this.getSystemMessageSummary(element)
-            }
-        };
-    }
-    
-    /**
-     * 从元素提取资源信息
-     */
-    private extractResource(element: MessageElementData): ResourceData | null {
-        if (!['image', 'file', 'video', 'audio'].includes(element.type)) {
-            return null;
-        }
-        
-        const data = element.data;
-        return {
-            type: element.type,
-            filename: data.filename || '未知',
-            size: data.size || 0,
-            url: data.url,
-            width: data.width,
-            height: data.height,
-            duration: data.duration
-        };
-    }
-    
-    /**
-     * 将元素转换为文本表示
-     */
-    private elementToText(element: MessageElementData): { text: string; html: string } {
-        switch (element.type) {
-            case 'text':
-                const text = element.data.text || '';
-                return { text, html: text };
-            
-            case 'face':
-                const faceText = `[表情${element.data.id}]`;
-                return { text: faceText, html: faceText };
-            
-            case 'market_face':
-                const marketText = `[${element.data.name || '表情'}]`;
-                return { text: marketText, html: marketText };
-            
-            case 'image':
-                const imgText = `[图片:${element.data.filename}]`;
-                return { text: imgText, html: `<img alt="${element.data.filename}" class="image">` };
-            
-            case 'file':
-                const fileText = `[文件:${element.data.filename}]`;
-                return { text: fileText, html: `<span class="file">${fileText}</span>` };
-            
-            case 'video':
-                const videoText = `[视频:${element.data.filename}]`;
-                return { text: videoText, html: `<span class="video">${videoText}</span>` };
-            
-            case 'audio':
-                const audioText = `[语音:${element.data.duration}秒]`;
-                return { text: audioText, html: `<span class="audio">${audioText}</span>` };
-            
-            case 'reply':
-                const replyText = `[回复消息]`;
-                return { text: replyText, html: `<div class="reply">${replyText}</div>` };
-            
-            case 'forward':
-                const forwardText = `[转发消息]`;
-                return { text: forwardText, html: `<div class="forward">${forwardText}</div>` };
-            
-            case 'location':
-                const locationText = `[位置消息]`;
-                return { text: locationText, html: `<div class="location">${locationText}</div>` };
-            
-            case 'json':
-                const jsonText = `[JSON消息]`;
-                return { text: jsonText, html: `<div class="json">${jsonText}</div>` };
-            
-            case 'system':
-                const systemText = element.data.text || element.data.summary || '系统消息';
-                return { text: systemText, html: `<div class="system">${systemText}</div>` };
-            
-            default:
-                const rawText = element.data.text || element.data.summary || element.data.content || '';
-                return { text: rawText, html: rawText ? `<span>${rawText}</span>` : '' };
-        }
-    }
-    
-    /**
-     * 解析大小字符串为数字
-     */
-    private parseSizeString(size: string | number | undefined): number {
-        if (typeof size === 'number') return size;
-        if (typeof size === 'string') {
-            const parsed = parseInt(size);
-            return isNaN(parsed) ? 0 : parsed;
-        }
-        return 0;
-    }
-    
-    /**
-     * 判断是否为系统消息
-     */
-    private isSystemMessage(message: RawMessage): boolean {
-        return message.msgType === NTMsgType.KMSGTYPEGRAYTIPS;
-    }
-    
-    /**
-     * 创建错误消息
-     */
-    private createErrorMessage(message: RawMessage, error: any): CleanMessage {
-        const parsedTime = parseInt(message.msgTime);
-        const timestamp = isNaN(parsedTime) || parsedTime <= 0 ? Date.now() : parsedTime * 1000;
-        
-        // 改进发送者名称逻辑：群名片 > 好友备注 > 昵称 > QQ号 > UID
-        const senderName = message.sendMemberName ||  // 群名片优先
-                          message.sendRemarkName ||   // 好友备注
-                          message.sendNickName ||     // 昵称
-                          message.senderUin ||        // QQ号
-                          message.senderUid ||        // UID
-                          '未知用户';
-        
-        return {
-            id: message.msgId,
-            seq: message.msgSeq,
-            timestamp,
-            time: new Date(timestamp).toISOString(),
-            sender: {
-                uid: message.senderUid,
-                uin: message.senderUin,
-                name: senderName
-            },
-            type: 'error',
-            content: {
-                text: `[解析失败: ${error.message}]`,
-                html: `<span class="error">[解析失败: ${error.message}]</span>`,
-                elements: [],
-                resources: []
-            },
-            recalled: false,
-            system: false
-        };
-    }
-    
-    /**
-     * 检测是否为纯多媒体消息（只包含图片、视频等多媒体内容，没有文字内容）
-     */
-    isPureMediaMessage(message: CleanMessage): boolean {
-        // 检查是否包含多媒体元素（图片、视频、音频、文件、表情等）
-        const hasMedia = message.content.elements.some(element => 
-            ['image', 'video', 'audio', 'file', 'face'].includes(element.type)
-        );
-        if (!hasMedia) {
-            return false;
-        }
-        
-        // 检查是否有真正的文字内容（排除CQ码）
-        const hasRealText = this.hasRealTextContent(message);
-        if (hasRealText) {
-            return false;
-        }
-        
-        // 检查是否只包含多媒体、表情等非文字元素
-        const nonTextElements = message.content.elements.filter(element => 
-            !['text', 'reply', 'forward', 'json', 'location', 'system'].includes(element.type)
-        );
-        
-        // 如果所有元素都是非文字元素（图片、视频、表情等），或者只有包含CQ码的text元素，则认为是纯多媒体消息
-        const textElements = message.content.elements.filter(element => element.type === 'text');
-        const allTextElementsAreCQCodes = textElements.length > 0 && textElements.every(element => 
-            this.isOnlyCQCode(element.data?.text || '')
-        );
-        
-        return message.content.elements.length > 0 && 
-               hasMedia &&
-               (message.content.elements.length === nonTextElements.length || allTextElementsAreCQCodes);
+      }
+      stats.bySender[senderKey]!.count++;
+
+      // 资源
+      const res = m.content.resources || [];
+      for (let j = 0; j < res.length; j++) {
+        const r = res[j]!;
+        stats.resources.total++;
+        const t = r.type || 'unknown';
+        stats.resources.byType[t] = (stats.resources.byType[t] || 0) + 1;
+        stats.resources.totalSize += r.size || 0;
+      }
     }
 
-    /**
-     * @deprecated 使用 isPureMediaMessage 代替
-     * 检测是否为纯图片消息（只包含图片，没有文字内容）
-     */
-    isPureImageMessage(message: CleanMessage): boolean {
-        return this.isPureMediaMessage(message);
+    return stats;
+  }
+
+  async updateResourcePaths(messages: CleanMessage[], resourceMap: Map<string, any[]>): Promise<void> {
+    for (let mi = 0; mi < messages.length; mi++) {
+      const message = messages[mi]!;
+      const resources = resourceMap.get(message.id);
+      if (!resources || resources.length === 0) continue;
+
+      // 更新 message.content.resources
+      const resArr = message.content.resources;
+      const n = Math.min(resArr.length, resources.length);
+      for (let i = 0; i < n; i++) {
+        const info = resources[i];
+        if (info && info.localPath) {
+          const fileName = path.basename(info.localPath);
+          resArr[i]!.localPath = fileName;
+          resArr[i]!.url = `resources/${info.type}s/${fileName}`;
+          resArr[i]!.type = info.type;
+        }
+      }
+
+      // 更新 elements 中的 URL
+      const els = message.content.elements;
+      for (let i = 0; i < els.length; i++) {
+        const el = els[i]!;
+        if (!el.data || typeof el.data !== 'object') continue;
+        const found = resources.find((r) => r.fileName === el.data.filename);
+        if (found && found.localPath) {
+          const fileName = path.basename(found.localPath);
+          (el.data as any).localPath = fileName;
+          if (el.type === 'image' || el.type === 'video' || el.type === 'audio' || el.type === 'file') {
+            (el.data as any).url = `resources/${found.type}s/${fileName}`;
+          }
+        }
+      }
+    }
+  }
+
+  private parseJsonContent(jsonString: string): any {
+    try {
+      const json = fastJsonParse(jsonString);
+      const result: any = {};
+
+      // 标题
+      if (json.prompt) result.title = json.prompt;
+      else if (json.meta?.detail_1?.title) result.title = json.meta.detail_1.title;
+      else if (json.meta?.news?.title) result.title = json.meta.news.title;
+
+      // 描述
+      if (json.meta?.detail_1?.desc) result.description = json.meta.detail_1.desc;
+      else if (json.meta?.news?.desc) result.description = json.meta.news.desc;
+
+      // URL
+      if (json.meta?.detail_1?.qqdocurl) result.url = json.meta.detail_1.qqdocurl;
+      else if (json.meta?.detail_1?.url) result.url = json.meta.detail_1.url;
+      else if (json.meta?.news?.jumpUrl) result.url = json.meta.news.jumpUrl;
+
+      // 预览图
+      if (json.meta?.detail_1?.preview) result.preview = json.meta.detail_1.preview;
+      else if (json.meta?.news?.preview) result.preview = json.meta.news.preview;
+
+      // 应用名称
+      if (json.meta?.detail_1?.title && json.app) result.appName = json.meta.detail_1.title;
+      else if (json.app === 'com.tencent.miniapp_01') result.appName = '小程序';
+
+      return result;
+    } catch (error) {
+      console.warn('[SimpleMessageParser] JSON解析失败:', error);
+      return {};
+    }
+  }
+
+  private extractReplyContent(replyElement: any): any {
+    const result = {
+      messageId: replyElement.replayMsgId || replyElement.replayMsgSeq || '0',
+      senderUin: replyElement.senderUin || '',
+      senderName: replyElement.senderUinStr || '',
+      content: '引用消息',
+      timestamp: 0
+    };
+
+    if (replyElement.sourceMsgText) {
+      result.content = replyElement.sourceMsgText;
+    } else if (replyElement.sourceMsgTextElems && replyElement.sourceMsgTextElems.length > 0) {
+      const parts = [];
+      for (let i = 0; i < replyElement.sourceMsgTextElems.length; i++) {
+        const e = replyElement.sourceMsgTextElems[i];
+        if (e?.textElement?.content) parts.push(e.textElement.content);
+      }
+      if (parts.length > 0) result.content = parts.join('');
+    } else if (replyElement.referencedMsg && replyElement.referencedMsg.msgBody) {
+      result.content = replyElement.referencedMsg.msgBody;
     }
 
-    /**
-     * 检查消息是否包含真正的文字内容（排除CQ码）
-     */
-    private hasRealTextContent(message: CleanMessage): boolean {
-        // 检查每个text类型的元素
-        const textElements = message.content.elements.filter(element => element.type === 'text');
-        
-        for (const element of textElements) {
-            const text = element.data?.text || '';
-            if (text.trim().length > 0 && !this.isOnlyCQCode(text)) {
-                return true; // 找到真正的文字内容
-            }
-        }
-        
-        return false;
-    }
+    if (replyElement.senderNick) result.senderName = replyElement.senderNick;
+    if (replyElement.replayMsgTime) result.timestamp = replyElement.replayMsgTime;
 
-    /**
-     * 检查文本是否只包含CQ码（没有其他文字内容）
-     */
-    private isOnlyCQCode(text: string): boolean {
-        if (!text || text.trim().length === 0) {
-            return true; // 空文本视为没有内容
-        }
-        
-        // 移除所有CQ码，看是否还有剩余内容
-        // CQ码格式：[CQ:type,param1=value1,param2=value2,...]
-        const withoutCQCodes = text.replace(/\[CQ:[^\]]+\]/g, '').trim();
-        
-        return withoutCQCodes.length === 0;
-    }
+    return result;
+  }
 
-    /**
-     * 过滤消息列表，可选择是否包含纯图片消息
-     */
-    filterMessages(messages: CleanMessage[], includePureImages: boolean = true): CleanMessage[] {
-        if (includePureImages) {
-            return messages;
-        }
-        
-        return messages.filter(message => !this.isPureImageMessage(message));
-    }
+  private generateMarketFaceUrl(emojiId: string): string {
+    if (emojiId.length < 2) return '';
+    const prefix = emojiId.substring(0, 2);
+    return `https://gxh.vip.qq.com/club/item/parcel/item/${prefix}/${emojiId}/raw300.gif`;
+  }
 
-    /**
-     * 计算消息统计信息
-     */
-    calculateStatistics(messages: CleanMessage[]): MessageStatistics {
-        const stats: MessageStatistics = {
-            total: messages.length,
-            byType: {},
-            bySender: {},
-            resources: {
-                total: 0,
-                byType: {},
-                totalSize: 0
-            },
-            timeRange: {
-                start: '',
-                end: '',
-                durationDays: 0
-            }
-        };
-        
-        if (messages.length === 0) {
-            return stats;
-        }
-        
-        // 时间范围
-        const timestamps = messages.map(m => m.timestamp).filter(t => t > 0).sort((a, b) => a - b);
-        if (timestamps.length > 0) {
-            const start = new Date(timestamps[0]!);
-            const end = new Date(timestamps[timestamps.length - 1]!);
-            stats.timeRange = {
-                start: start.toISOString(),
-                end: end.toISOString(),
-                durationDays: Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-            };
-        }
-        
-        // 统计消息
-        for (const message of messages) {
-            // 防护：确保消息对象完整
-            if (!message || !message.content) {
-                console.warn('[SimpleMessageParser] 跳过无效消息:', message);
-                continue;
-            }
-            
-            // 按类型统计
-            stats.byType[message.type] = (stats.byType[message.type] || 0) + 1;
-            
-            // 按发送者统计
-            const sender = message.sender?.name || message.sender?.uid || '未知用户';
-            if (!stats.bySender[sender]) {
-                stats.bySender[sender] = {
-                    uid: message.sender?.uid || 'unknown',
-                    count: 0
-                };
-            }
-            stats.bySender[sender]!.count++;
-            
-            // 资源统计
-            const resources = message.content.resources || [];
-            for (const resource of resources) {
-                stats.resources.total++;
-                const resourceType = resource.type || 'unknown';
-                stats.resources.byType[resourceType] = (stats.resources.byType[resourceType] || 0) + 1;
-                
-                // 累加文件大小（确保数字运算）
-                const size = resource.size || 0;
-                stats.resources.totalSize += size;
-            }
-        }
-        
-        return stats;
-    }
+  private parseGrayTipElement(grayTip: any): MessageElementData {
+    const subType = grayTip.subElementType;
+    let summary = '系统消息';
+    let text = '';
 
-    /**
-     * 更新消息中的资源路径为本地路径
-     */
-    async updateResourcePaths(messages: CleanMessage[], resourceMap: Map<string, any[]>): Promise<void> {
-        for (const message of messages) {
-            const resources = resourceMap.get(message.id);
-            if (resources && resources.length > 0) {
-                // 更新message中的resources数组
-                for (let i = 0; i < message.content.resources.length && i < resources.length; i++) {
-                    const resourceInfo = resources[i];
-                    if (resourceInfo.localPath) {
-                        // 使用文件名，让ModernHtmlExporter根据类型正确解析路径
-                        const fileName = path.basename(resourceInfo.localPath);
-                        message.content.resources[i]!.localPath = fileName;
-                        message.content.resources[i]!.url = `resources/${resourceInfo.type}s/${fileName}`;
-                        message.content.resources[i]!.type = resourceInfo.type;
-                    }
-                }
-                
-                // 更新elements中的URL
-                for (const element of message.content.elements) {
-                    if (element.data && typeof element.data === 'object') {
-                        const resourceInfo = resources.find(r => r.fileName === element.data.filename);
-                        if (resourceInfo && resourceInfo.localPath) {
-                            const fileName = path.basename(resourceInfo.localPath);
-                            (element.data as any).localPath = fileName;
-                            if (element.type === 'image' || element.type === 'video' || element.type === 'audio' || element.type === 'file') {
-                                (element.data as any).url = `resources/${resourceInfo.type}s/${fileName}`;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    try {
+      if (subType === 1 && grayTip.revokeElement) {
+        const revokeInfo = grayTip.revokeElement;
+        const operatorName = revokeInfo.operatorName || '用户';
+        const originalSenderName = revokeInfo.origMsgSenderName || '用户';
 
-    /**
-     * 解析JSON消息内容，提取有用信息
-     */
-    private parseJsonContent(jsonString: string): any {
+        if (revokeInfo.isSelfOperate) {
+          text = `${operatorName} 撤回了一条消息`;
+        } else if (operatorName === originalSenderName) {
+          text = `${operatorName} 撤回了一条消息`;
+        } else {
+          text = `${operatorName} 撤回了 ${originalSenderName} 的消息`;
+        }
+        if (revokeInfo.wording) text = revokeInfo.wording;
+        summary = text;
+      } else if (subType === 4 && grayTip.groupElement) {
+        text = grayTip.groupElement.content || '群聊更新';
+        summary = text;
+      } else if (subType === 17 && grayTip.jsonGrayTipElement) {
+        const jsonContent = grayTip.jsonGrayTipElement.jsonStr || '{}';
         try {
-            const json = JSON.parse(jsonString);
-            
-            // 提取常见的字段
-            const result: any = {};
-            
-            // 标题
-            if (json.prompt) {
-                result.title = json.prompt;
-            } else if (json.meta?.detail_1?.title) {
-                result.title = json.meta.detail_1.title;
-            } else if (json.meta?.news?.title) {
-                result.title = json.meta.news.title;
-            }
-            
-            // 描述
-            if (json.meta?.detail_1?.desc) {
-                result.description = json.meta.detail_1.desc;
-            } else if (json.meta?.news?.desc) {
-                result.description = json.meta.news.desc;
-            }
-            
-            // URL
-            if (json.meta?.detail_1?.qqdocurl) {
-                result.url = json.meta.detail_1.qqdocurl;
-            } else if (json.meta?.detail_1?.url) {
-                result.url = json.meta.detail_1.url;
-            } else if (json.meta?.news?.jumpUrl) {
-                result.url = json.meta.news.jumpUrl;
-            }
-            
-            // 预览图
-            if (json.meta?.detail_1?.preview) {
-                result.preview = json.meta.detail_1.preview;
-            } else if (json.meta?.news?.preview) {
-                result.preview = json.meta.news.preview;
-            }
-            
-            // 应用名称
-            if (json.meta?.detail_1?.title && json.app) {
-                result.appName = json.meta.detail_1.title;
-            } else if (json.app === 'com.tencent.miniapp_01') {
-                result.appName = '小程序';
-            }
-            
-            return result;
-        } catch (error) {
-            console.warn('[SimpleMessageParser] JSON解析失败:', error);
-            return {};
+          const parsed = fastJsonParse(jsonContent);
+          text = parsed.prompt || parsed.content || '系统提示';
+        } catch {
+          text = '系统提示';
         }
+        summary = text;
+      } else if (grayTip.aioOpGrayTipElement) {
+        const aioOp = grayTip.aioOpGrayTipElement;
+        if (aioOp.operateType === 1) {
+          const fromUser = aioOp.peerName || '用户';
+          const toUser = aioOp.targetName || '用户';
+          text = `${fromUser} 拍了拍 ${toUser}`;
+          if (aioOp.suffix) text += ` ${aioOp.suffix}`;
+        } else {
+          text = aioOp.content || '互动消息';
+        }
+        summary = text;
+      } else {
+        const content = grayTip.content || grayTip.text || grayTip.wording;
+        if (content) {
+          text = content;
+          summary = content;
+        } else {
+          text = `系统提示 (类型: ${subType})`;
+          summary = text;
+        }
+      }
+    } catch (error) {
+      console.warn('[SimpleMessageParser] 解析灰条消息失败:', error, grayTip);
+      text = '系统消息';
+      summary = text;
     }
 
-    /**
-     * 提取回复消息的内容
-     */
-    private extractReplyContent(replyElement: any): any {
-        const result = {
-            messageId: replyElement.replayMsgId || replyElement.replayMsgSeq || '0',
-            senderUin: replyElement.senderUin || '',
-            senderName: replyElement.senderUinStr || '',
-            content: '引用消息',
-            timestamp: 0
-        };
+    return {
+      type: 'system',
+      data: {
+        subType,
+        text,
+        summary,
+        originalData: grayTip
+      }
+    };
+  }
 
-        // 尝试从不同的字段提取内容
-        if (replyElement.sourceMsgText) {
-            result.content = replyElement.sourceMsgText;
-        } else if (replyElement.sourceMsgTextElems && replyElement.sourceMsgTextElems.length > 0) {
-            // 从文本元素数组中提取
-            const textParts = replyElement.sourceMsgTextElems
-                .filter((elem: any) => elem.textElement)
-                .map((elem: any) => elem.textElement.content)
-                .filter((text: string) => text && text.trim());
-            
-            if (textParts.length > 0) {
-                result.content = textParts.join('');
-            }
-        } else if (replyElement.referencedMsg) {
-            // 从引用消息中提取
-            const refMsg = replyElement.referencedMsg;
-            if (refMsg.msgBody) {
-                result.content = refMsg.msgBody;
-            }
-        }
-
-        // 尝试提取发送者名称
-        if (replyElement.senderNick) {
-            result.senderName = replyElement.senderNick;
-        }
-
-        // 尝试提取时间戳
-        if (replyElement.replayMsgTime) {
-            result.timestamp = replyElement.replayMsgTime;
-        }
-
-        return result;
+  private getSystemMessageSummary(element: any): string {
+    const t = element.elementType;
+    switch (t) {
+      case 8:
+        return '系统提示消息';
+      case 9:
+        return '文件传输消息';
+      case 10:
+        return '语音通话消息';
+      case 11:
+        return '视频通话消息';
+      case 12:
+        return '红包消息';
+      case 13:
+        return '转账消息';
+      default:
+        return `系统消息 (类型: ${t})`;
     }
-
-    /**
-     * 生成表情包URL
-     */
-    private generateMarketFaceUrl(emojiId: string): string {
-        if (emojiId.length < 2) {
-            return '';
-        }
-        
-        const prefix = emojiId.substring(0, 2);
-        return `https://gxh.vip.qq.com/club/item/parcel/item/${prefix}/${emojiId}/raw300.gif`;
-    }
-
-    /**
-     * 解析小灰条消息（系统提示）
-     */
-    private parseGrayTipElement(grayTip: any): MessageElementData {
-        const subType = grayTip.subElementType;
-        let summary = '系统消息';
-        let text = '';
-
-        try {
-            // 撤回消息
-            if (subType === 1 && grayTip.revokeElement) {
-                const revokeInfo = grayTip.revokeElement;
-                const operatorName = revokeInfo.operatorName || '用户';
-                const originalSenderName = revokeInfo.origMsgSenderName || '用户';
-                
-                if (revokeInfo.isSelfOperate) {
-                    text = `${operatorName} 撤回了一条消息`;
-                } else if (operatorName === originalSenderName) {
-                    text = `${operatorName} 撤回了一条消息`;
-                } else {
-                    text = `${operatorName} 撤回了 ${originalSenderName} 的消息`;
-                }
-                
-                if (revokeInfo.wording) {
-                    text = revokeInfo.wording;
-                }
-                
-                summary = text;
-            }
-            // 群操作相关
-            else if (subType === 4 && grayTip.groupElement) {
-                // 群成员变化等
-                text = grayTip.groupElement.content || '群聊更新';
-                summary = text;
-            }
-            // JSON格式的灰条消息
-            else if (subType === 17 && grayTip.jsonGrayTipElement) {
-                const jsonContent = grayTip.jsonGrayTipElement.jsonStr || '{}';
-                try {
-                    const parsed = JSON.parse(jsonContent);
-                    text = parsed.prompt || parsed.content || '系统提示';
-                } catch {
-                    text = '系统提示';
-                }
-                summary = text;
-            }
-            // AIO操作相关（拍一拍等）
-            else if (grayTip.aioOpGrayTipElement) {
-                const aioOp = grayTip.aioOpGrayTipElement;
-                if (aioOp.operateType === 1) { // 拍一拍
-                    const fromUser = aioOp.peerName || '用户';
-                    const toUser = aioOp.targetName || '用户';
-                    text = `${fromUser} 拍了拍 ${toUser}`;
-                    if (aioOp.suffix) {
-                        text += ` ${aioOp.suffix}`;
-                    }
-                } else {
-                    text = aioOp.content || '互动消息';
-                }
-                summary = text;
-            }
-            else {
-                // 通用处理
-                const content = (grayTip as any).content || (grayTip as any).text || (grayTip as any).wording;
-                if (content) {
-                    text = content;
-                    summary = content;
-                } else {
-                    text = `系统提示 (类型: ${subType})`;
-                    summary = text;
-                }
-            }
-        } catch (error) {
-            console.warn('[SimpleMessageParser] 解析灰条消息失败:', error, grayTip);
-            text = '系统消息';
-            summary = text;
-        }
-
-        return {
-            type: 'system',
-            data: {
-                subType,
-                text,
-                summary,
-                originalData: grayTip
-            }
-        };
-    }
-
-    /**
-     * 获取系统消息摘要
-     */
-    private getSystemMessageSummary(element: any): string {
-        // 根据elementType返回更有意义的描述
-        const elementType = element.elementType;
-        
-        switch (elementType) {
-            case 8:
-                return '系统提示消息';
-            case 9:
-                return '文件传输消息';
-            case 10:
-                return '语音通话消息';
-            case 11:
-                return '视频通话消息';
-            case 12:
-                return '红包消息';
-            case 13:
-                return '转账消息';
-            default:
-                return `系统消息 (类型: ${elementType})`;
-        }
-    }
+  }
 }
