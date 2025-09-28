@@ -910,6 +910,33 @@ export class QQChatExporterApiServer {
             }
         });
 
+        // HTML文件预览接口（用于iframe内嵌显示）
+        this.app.get('/api/exports/files/:fileName/preview', (req, res) => {
+            try {
+                const { fileName } = req.params;
+                const exportFiles = this.getExportFiles();
+                const file = exportFiles.find(f => f.fileName === fileName);
+                
+                if (!file) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '文件不存在', 'FILE_NOT_FOUND');
+                }
+                
+                if (!fs.existsSync(file.filePath)) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '文件不存在', 'FILE_NOT_FOUND');
+                }
+                
+                // 设置适当的响应头
+                res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                res.setHeader('X-Frame-Options', 'SAMEORIGIN'); // 允许在同源iframe中显示
+                res.setHeader('Cache-Control', 'public, max-age=3600'); // 缓存1小时
+                
+                // 直接发送HTML文件内容
+                res.sendFile(path.resolve(file.filePath));
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
         // 静态文件服务
         this.app.use('/downloads', express.static(path.join(process.cwd(), 'exports')));
         this.app.use('/scheduled-downloads', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports')));

@@ -123,8 +123,9 @@ export default function QCEDashboard() {
   } | null>(null)
   const [showStarToast, setShowStarToast] = useState(false)
   const [isFilePathModalOpen, setIsFilePathModalOpen] = useState(false)
-  const [selectedFile, setSelectedFile] = useState<{ filePath: string; sessionName: string } | null>(null)
+  const [selectedFile, setSelectedFile] = useState<{ filePath: string; sessionName: string; fileName: string } | null>(null)
   const [copied, setCopied] = useState(false)
+  const [isPreviewMode, setIsPreviewMode] = useState(false)
   const tasksLoadedRef = useRef(false)
   const scheduledExportsLoadedRef = useRef(false)
   const chatHistoryLoadedRef = useRef(false)
@@ -234,16 +235,18 @@ export default function QCEDashboard() {
     setSelectedHistoryTask(null)
   }
 
-  const handleOpenFilePathModal = (filePath: string, sessionName: string) => {
-    setSelectedFile({ filePath, sessionName })
+  const handleOpenFilePathModal = (filePath: string, sessionName: string, fileName: string) => {
+    setSelectedFile({ filePath, sessionName, fileName })
     setIsFilePathModalOpen(true)
     setCopied(false)
+    setIsPreviewMode(false)
   }
 
   const handleCloseFilePathModal = () => {
     setIsFilePathModalOpen(false)
     setSelectedFile(null)
     setCopied(false)
+    setIsPreviewMode(false)
   }
 
   const handleCopyPath = async () => {
@@ -1408,7 +1411,7 @@ export default function QCEDashboard() {
                           variants={STAG.item}
                           whileHover={{ y: -1, transition: { duration: DUR.fast, ease: EASE.out } }}
                           whileTap={{ scale: 0.995, transition: { duration: DUR.fast, ease: EASE.inOut } }}
-                          onClick={() => handleOpenFilePathModal(file.filePath, file.sessionName || file.chatId)}
+                          onClick={() => handleOpenFilePathModal(file.filePath, file.sessionName || file.chatId, file.fileName)}
                         >
                           <div className="flex items-center gap-4 p-4">
                             {/* Avatar */}
@@ -1641,16 +1644,19 @@ export default function QCEDashboard() {
 
       {/* File Path Modal */}
       <Dialog open={isFilePathModalOpen} onOpenChange={setIsFilePathModalOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className={isPreviewMode ? "sm:max-w-7xl h-[90vh]" : "sm:max-w-lg"}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <div className="p-2 rounded-full bg-neutral-100">
                 <FileText className="w-5 h-5 text-neutral-600" />
               </div>
-              打开聊天记录
+              {isPreviewMode ? "预览聊天记录" : "打开聊天记录"}
             </DialogTitle>
             <DialogDescription>
-              受浏览器安全限制，需要您手动复制路径到浏览器地址栏访问
+              {isPreviewMode 
+                ? "在线预览聊天记录内容" 
+                : "受浏览器安全限制，需要您手动复制路径到浏览器地址栏访问"
+              }
             </DialogDescription>
           </DialogHeader>
           
@@ -1662,45 +1668,88 @@ export default function QCEDashboard() {
                   <p className="text-base text-neutral-900">{selectedFile.sessionName}</p>
                 </div>
 
-                <div>
-                  <p className="text-sm font-medium text-neutral-700 mb-2">文件路径：</p>
-                  <div className="relative">
-                    <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 pr-12 font-mono text-sm text-neutral-800 break-all">
-                      file:///{selectedFile.filePath.replace(/\\/g, '/')}
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="absolute right-1 top-1 h-8 w-8 p-0"
-                      onClick={handleCopyPath}
-                    >
-                      {copied ? (
-                        <CheckCircle className="w-4 h-4 text-green-600" />
-                      ) : (
-                        <Copy className="w-4 h-4 text-neutral-500" />
-                      )}
-                    </Button>
-                  </div>
-                  {copied && (
-                    <motion.p
-                      className="text-sm text-green-600 mt-2"
-                      initial={{ opacity: 0, y: -4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -4 }}
-                    >
-                      ✓ 已复制到剪贴板
-                    </motion.p>
-                  )}
+                {/* 模式切换按钮 */}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant={!isPreviewMode ? "default" : "outline"}
+                    onClick={() => setIsPreviewMode(false)}
+                  >
+                    <Copy className="w-4 h-4 mr-2" />
+                    复制路径
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={isPreviewMode ? "default" : "outline"}
+                    onClick={() => setIsPreviewMode(true)}
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    在线预览
+                  </Button>
                 </div>
 
-                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-                  <h4 className="text-sm font-medium text-blue-900 mb-2">操作步骤：</h4>
-                  <ol className="text-sm text-blue-800 space-y-1">
-                    <li>1. 点击上方复制按钮复制文件路径</li>
-                    <li>2. 在浏览器地址栏粘贴路径</li>
-                    <li>3. 按回车键打开聊天记录</li>
-                  </ol>
-                </div>
+                {isPreviewMode ? (
+                  // 预览模式 - 显示iframe
+                  <div className="space-y-3">
+                    <p className="text-sm text-neutral-600">正在加载聊天记录内容...</p>
+                    <div className="border border-neutral-200 rounded-lg overflow-hidden h-[60vh]">
+                      <iframe
+                        src={`/api/exports/files/${selectedFile.fileName}/preview`}
+                        className="w-full h-full"
+                        title={`预览 ${selectedFile.sessionName}`}
+                        onLoad={() => {
+                          // iframe加载完成后可以隐藏loading提示
+                        }}
+                      />
+                    </div>
+                    <p className="text-xs text-neutral-500">
+                      如果预览内容显示异常，请尝试使用"复制路径"模式在新窗口中打开
+                    </p>
+                  </div>
+                ) : (
+                  // 路径复制模式 - 显示路径和复制功能
+                  <>
+                    <div>
+                      <p className="text-sm font-medium text-neutral-700 mb-2">文件路径：</p>
+                      <div className="relative">
+                        <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 pr-12 font-mono text-sm text-neutral-800 break-all">
+                          file:///{selectedFile.filePath.replace(/\\/g, '/')}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="absolute right-1 top-1 h-8 w-8 p-0"
+                          onClick={handleCopyPath}
+                        >
+                          {copied ? (
+                            <CheckCircle className="w-4 h-4 text-green-600" />
+                          ) : (
+                            <Copy className="w-4 h-4 text-neutral-500" />
+                          )}
+                        </Button>
+                      </div>
+                      {copied && (
+                        <motion.p
+                          className="text-sm text-green-600 mt-2"
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                        >
+                          ✓ 已复制到剪贴板
+                        </motion.p>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                      <h4 className="text-sm font-medium text-blue-900 mb-2">操作步骤：</h4>
+                      <ol className="text-sm text-blue-800 space-y-1">
+                        <li>1. 点击上方复制按钮复制文件路径</li>
+                        <li>2. 在浏览器地址栏粘贴路径</li>
+                        <li>3. 按回车键打开聊天记录</li>
+                      </ol>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -1708,9 +1757,11 @@ export default function QCEDashboard() {
               <Button variant="outline" onClick={handleCloseFilePathModal}>
                 关闭
               </Button>
-              <Button onClick={handleCopyPath}>
-                {copied ? '已复制' : '复制路径'}
-              </Button>
+              {!isPreviewMode && (
+                <Button onClick={handleCopyPath}>
+                  {copied ? '已复制' : '复制路径'}
+                </Button>
+              )}
             </div>
           </div>
         </DialogContent>
