@@ -10,6 +10,13 @@ import { ScheduledExportWizard } from "@/components/ui/scheduled-export-wizard"
 import { ExecutionHistoryModal } from "@/components/ui/execution-history-modal"
 import { MessagePreviewModal } from "@/components/ui/message-preview-modal"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Download,
   RefreshCw,
   X,
@@ -20,10 +27,23 @@ import {
   ToggleRight,
   Zap,
   History,
+  MessageCircle,
+  Users,
+  User,
+  CalendarDays,
+  FileText,
+  Clock,
+  HardDrive,
+  Filter,
+  SortAsc,
+  SortDesc,
+  Copy,
+  CheckCircle,
 } from "lucide-react"
 import type { CreateTaskForm, CreateScheduledExportForm } from "@/types/api"
 import { useQCE } from "@/hooks/use-qce"
 import { useScheduledExports } from "@/hooks/use-scheduled-exports"
+import { useChatHistory } from "@/hooks/use-chat-history"
 
 // ✨ 动效核心：统一的 Bezier 曲线与时长
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
@@ -102,8 +122,12 @@ export default function QCEDashboard() {
     peer: { chatType: number, peerUid: string }
   } | null>(null)
   const [showStarToast, setShowStarToast] = useState(false)
+  const [isFilePathModalOpen, setIsFilePathModalOpen] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<{ filePath: string; sessionName: string } | null>(null)
+  const [copied, setCopied] = useState(false)
   const tasksLoadedRef = useRef(false)
   const scheduledExportsLoadedRef = useRef(false)
+  const chatHistoryLoadedRef = useRef(false)
   const previousTasksRef = useRef<typeof tasks>([])  // 跟踪任务状态变化
 
   // 是否偏好降级动画
@@ -117,12 +141,12 @@ export default function QCEDashboard() {
   }
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const savedTab = localStorage.getItem("qce-active-tab")
-      if (savedTab && ["overview", "sessions", "tasks", "scheduled", "about"].includes(savedTab)) {
-        setActiveTabState(savedTab)
+      if (typeof window !== "undefined") {
+        const savedTab = localStorage.getItem("qce-active-tab")
+        if (savedTab && ["overview", "sessions", "tasks", "scheduled", "history", "about"].includes(savedTab)) {
+          setActiveTabState(savedTab)
+        }
       }
-    }
   }, [])
 
   const {
@@ -158,6 +182,17 @@ export default function QCEDashboard() {
     getStats: getScheduledStats,
     setError: setScheduledError,
   } = useScheduledExports()
+
+  const {
+    files: chatHistoryFiles,
+    loading: chatHistoryLoading,
+    error: chatHistoryError,
+    loadChatHistory,
+    getStats: getChatHistoryStats,
+    deleteFile: deleteChatHistoryFile,
+    downloadFile: downloadChatHistoryFile,
+    setError: setChatHistoryError,
+  } = useChatHistory()
 
   const handleOpenTaskWizard = (preset?: Partial<CreateTaskForm>) => {
     setSelectedPreset(preset)
@@ -199,6 +234,42 @@ export default function QCEDashboard() {
     setSelectedHistoryTask(null)
   }
 
+  const handleOpenFilePathModal = (filePath: string, sessionName: string) => {
+    setSelectedFile({ filePath, sessionName })
+    setIsFilePathModalOpen(true)
+    setCopied(false)
+  }
+
+  const handleCloseFilePathModal = () => {
+    setIsFilePathModalOpen(false)
+    setSelectedFile(null)
+    setCopied(false)
+  }
+
+  const handleCopyPath = async () => {
+    if (!selectedFile) return
+    
+    try {
+      await navigator.clipboard.writeText(`file:///${selectedFile.filePath.replace(/\\/g, '/')}`)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      // 如果剪贴板API失败，使用fallback方法
+      const textArea = document.createElement('textarea')
+      textArea.value = `file:///${selectedFile.filePath.replace(/\\/g, '/')}`
+      document.body.appendChild(textArea)
+      textArea.select()
+      try {
+        document.execCommand('copy')
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch (fallbackErr) {
+        console.error('复制失败:', fallbackErr)
+      }
+      document.body.removeChild(textArea)
+    }
+  }
+
   useEffect(() => {
     if (activeTab === "tasks" && !tasksLoadedRef.current) {
       loadTasks().then(() => {
@@ -215,6 +286,14 @@ export default function QCEDashboard() {
     }
   }, [activeTab, loadScheduledExports])
   
+  useEffect(() => {
+    if (activeTab === "history" && !chatHistoryLoadedRef.current) {
+      loadChatHistory().then(() => {
+        chatHistoryLoadedRef.current = true
+      })
+    }
+  }, [activeTab, loadChatHistory])
+  
   const handleLoadTasks = async () => {
     tasksLoadedRef.current = false
     await loadTasks()
@@ -225,6 +304,12 @@ export default function QCEDashboard() {
     scheduledExportsLoadedRef.current = false
     await loadScheduledExports()
     scheduledExportsLoadedRef.current = true
+  }
+
+  const handleLoadChatHistory = async () => {
+    chatHistoryLoadedRef.current = false
+    await loadChatHistory()
+    chatHistoryLoadedRef.current = true
   }
 
   const handleCreateTask = async (form: CreateTaskForm) => {
@@ -295,6 +380,7 @@ export default function QCEDashboard() {
               ["sessions", "会话"],
               ["tasks", "任务"],
               ["scheduled", "定时"],
+              ["history", "聊天记录"],
               ["about", "关于"]
             ].map(([id, label]) => (
               <motion.button
@@ -399,11 +485,41 @@ export default function QCEDashboard() {
       </AnimatePresence>
 
       <AnimatePresence>
+        {chatHistoryError && (
+          <motion.div
+            key="chat-history-error-toast"
+            className="fixed bottom-6 right-6 z-50 w-full max-w-sm rounded-2xl border border-neutral-200 bg-white/80 p-5 shadow-2xl shadow-neutral-500/10 backdrop-blur-lg"
+            style={{ bottom: (error || scheduledError) ? (error && scheduledError ? '280px' : '140px') : '24px' }}
+            {...toastAnim}
+          >
+            <button 
+              onClick={() => setChatHistoryError(null)}
+              className="absolute top-3 right-3 rounded-full p-1.5 text-neutral-500 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0 rounded-full border border-neutral-200 bg-neutral-100 p-2.5">
+                <AlertCircle className="w-5 h-5 text-neutral-600" />
+              </div>
+              <div className="flex-1 pt-0.5">
+                <h3 className="text-base font-semibold text-neutral-900">聊天记录错误</h3>
+                <p className="mt-1 text-sm text-neutral-600">{chatHistoryError}</p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {showStarToast && (
           <motion.div
             key="star-toast"
             className="fixed bottom-6 right-6 z-50 w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-5 shadow-2xl shadow-neutral-500/10 backdrop-blur-lg"
-            style={{ bottom: (error || scheduledError) ? (error && scheduledError ? '280px' : '140px') : '24px' }}
+            style={{ bottom: (error || scheduledError || chatHistoryError) ? 
+              (Number(!!error) + Number(!!scheduledError) + Number(!!chatHistoryError)) === 3 ? '420px' :
+              (Number(!!error) + Number(!!scheduledError) + Number(!!chatHistoryError)) === 2 ? '280px' :
+              '140px' : '24px' }}
             {...toastAnim}
           >
             <button 
@@ -1214,6 +1330,168 @@ export default function QCEDashboard() {
               </motion.div>
             )}
 
+            {activeTab === "history" && (
+              <motion.div key="tab-history" {...fadeSlide} className="space-y-10 pt-10">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-neutral-900">聊天记录索引</h2>
+                    <p className="text-neutral-600 mt-1">点击任意聊天记录即可直接查看</p>
+                  </div>
+                  <motion.div whileTap={{ scale: 0.98 }}>
+                    <Button onClick={handleLoadChatHistory} disabled={chatHistoryLoading} variant="outline" className="rounded-full">
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      {chatHistoryLoading ? "加载中..." : "刷新列表"}
+                    </Button>
+                  </motion.div>
+                </div>
+
+                {/* Stats */}
+                <motion.section
+                  className="grid grid-cols-1 sm:grid-cols-4 gap-3"
+                  variants={STAG.container}
+                  initial="initial"
+                  animate="animate"
+                >
+                  {[
+                    { label: "总文件数", value: getChatHistoryStats().total, color: "" },
+                    { label: "HTML 文件", value: getChatHistoryStats().htmlFiles, color: "" },
+                    { label: "JSON 文件", value: getChatHistoryStats().jsonFiles, color: "" },
+                    { label: "总大小", value: getChatHistoryStats().totalSize, color: "" },
+                  ].map((s, i) => (
+                    <motion.div
+                      key={i}
+                      className="rounded-2xl border border-neutral-200 bg-white/60 p-4"
+                      variants={STAG.item}
+                      {...hoverLift}
+                    >
+                      <p className="text-sm text-neutral-600">{s.label}</p>
+                      <p className={`mt-2 text-2xl font-semibold ${s.color}`}>{s.value}</p>
+                    </motion.div>
+                  ))}
+                </motion.section>
+
+                {/* Chat History List */}
+                {chatHistoryFiles.length === 0 ? (
+                  <motion.div
+                    className="rounded-2xl border border-dashed border-neutral-300 bg-white/60 py-14 text-center"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                  >
+                    <div className="flex flex-col items-center gap-4">
+                      <div className="p-4 rounded-full bg-neutral-100">
+                        <MessageCircle className="w-8 h-8 text-neutral-400" />
+                      </div>
+                      <div>
+                        <p className="text-neutral-700 font-medium">暂无聊天记录</p>
+                        <p className="text-neutral-500 mt-1">完成导出任务后，记录将在此处显示</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    className="space-y-2"
+                    variants={STAG.container}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                  >
+                    {chatHistoryFiles.map((file) => {
+                      // 生成头像URL
+                      const avatarUrl = file.chatType === 'group' 
+                        ? `https://p.qlogo.cn/gh/${file.chatId}/${file.chatId}/640/`
+                        : `https://q1.qlogo.cn/g?b=qq&nk=${file.chatId}&s=640`;
+                      
+                      return (
+                        <motion.div
+                          key={file.fileName}
+                          className="group rounded-2xl border border-neutral-200 bg-white/70 hover:bg-white hover:border-neutral-300 transition-all duration-200 cursor-pointer"
+                          variants={STAG.item}
+                          whileHover={{ y: -1, transition: { duration: DUR.fast, ease: EASE.out } }}
+                          whileTap={{ scale: 0.995, transition: { duration: DUR.fast, ease: EASE.inOut } }}
+                          onClick={() => handleOpenFilePathModal(file.filePath, file.sessionName || file.chatId)}
+                        >
+                          <div className="flex items-center gap-4 p-4">
+                            {/* Avatar */}
+                            <div className="flex-shrink-0">
+                              <Avatar className="w-12 h-12 rounded-xl overflow-hidden border border-neutral-200">
+                                <AvatarImage
+                                  src={avatarUrl}
+                                  alt={file.sessionName || file.chatId}
+                                />
+                                <AvatarFallback className="rounded-xl bg-neutral-100">
+                                  {file.chatType === 'group' ? (
+                                    <Users className="w-6 h-6 text-neutral-600" />
+                                  ) : (
+                                    <User className="w-6 h-6 text-neutral-600" />
+                                  )}
+                                </AvatarFallback>
+                              </Avatar>
+                            </div>
+
+                            {/* Content */}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <h3 className="truncate font-semibold text-neutral-900 text-lg">
+                                  {file.sessionName || `${file.chatType === 'group' ? '群组' : '好友'} ${file.chatId}`}
+                                </h3>
+                                {file.isScheduled && (
+                                  <Badge variant="outline" className="rounded-full text-neutral-700 border-neutral-300 bg-neutral-50 text-xs">
+                                    定时
+                                  </Badge>
+                                )}
+                              </div>
+                              
+                              <div className="mt-1 flex items-center gap-4 text-sm text-neutral-600">
+                                <div className="flex items-center gap-1">
+                                  <MessageCircle className="w-4 h-4" />
+                                  <span>{file.messageCount || 0} 条消息</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <Clock className="w-4 h-4" />
+                                  <span>{new Date(file.createTime).toLocaleDateString()}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <HardDrive className="w-4 h-4" />
+                                  <span>{(file.size / 1024 / 1024).toFixed(1)} MB</span>
+                                </div>
+                              </div>
+
+                              <div className="mt-2 text-xs text-neutral-500">
+                                {file.chatType === 'group' ? '群组' : '好友'} • {file.chatId}
+                              </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                              <motion.div whileTap={{ scale: 0.95 }}>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 w-8 rounded-full p-0 text-neutral-500 hover:text-neutral-700 hover:border-neutral-400"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (confirm(`确定要删除"${file.sessionName || file.chatId}"的聊天记录吗？`)) {
+                                      const success = await deleteChatHistoryFile(file.fileName);
+                                      if (success) {
+                                        chatHistoryLoadedRef.current = false;
+                                      }
+                                    }
+                                  }}
+                                  title="删除聊天记录"
+                                >
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </motion.div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
+
             {activeTab === "about" && (
               <motion.div key="tab-about" {...fadeSlide} className="min-h-[80vh] flex flex-col items-center justify-center space-y-16 pt-20 pb-20">
                 {/* Hero Section */}
@@ -1360,6 +1638,83 @@ export default function QCEDashboard() {
           })
         }}
       />
+
+      {/* File Path Modal */}
+      <Dialog open={isFilePathModalOpen} onOpenChange={setIsFilePathModalOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="p-2 rounded-full bg-neutral-100">
+                <FileText className="w-5 h-5 text-neutral-600" />
+              </div>
+              打开聊天记录
+            </DialogTitle>
+            <DialogDescription>
+              受浏览器安全限制，需要您手动复制路径到浏览器地址栏访问
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {selectedFile && (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-medium text-neutral-700 mb-2">聊天记录：</p>
+                  <p className="text-base text-neutral-900">{selectedFile.sessionName}</p>
+                </div>
+
+                <div>
+                  <p className="text-sm font-medium text-neutral-700 mb-2">文件路径：</p>
+                  <div className="relative">
+                    <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 pr-12 font-mono text-sm text-neutral-800 break-all">
+                      file:///{selectedFile.filePath.replace(/\\/g, '/')}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="absolute right-1 top-1 h-8 w-8 p-0"
+                      onClick={handleCopyPath}
+                    >
+                      {copied ? (
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <Copy className="w-4 h-4 text-neutral-500" />
+                      )}
+                    </Button>
+                  </div>
+                  {copied && (
+                    <motion.p
+                      className="text-sm text-green-600 mt-2"
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                    >
+                      ✓ 已复制到剪贴板
+                    </motion.p>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                  <h4 className="text-sm font-medium text-blue-900 mb-2">操作步骤：</h4>
+                  <ol className="text-sm text-blue-800 space-y-1">
+                    <li>1. 点击上方复制按钮复制文件路径</li>
+                    <li>2. 在浏览器地址栏粘贴路径</li>
+                    <li>3. 按回车键打开聊天记录</li>
+                  </ol>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={handleCloseFilePathModal}>
+                关闭
+              </Button>
+              <Button onClick={handleCopyPath}>
+                {copied ? '已复制' : '复制路径'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
