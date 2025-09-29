@@ -124,8 +124,6 @@ export default function QCEDashboard() {
   const [showStarToast, setShowStarToast] = useState(false)
   const [isFilePathModalOpen, setIsFilePathModalOpen] = useState(false)
   const [selectedFile, setSelectedFile] = useState<{ filePath: string; sessionName: string; fileName: string } | null>(null)
-  const [copied, setCopied] = useState(false)
-  const [isPreviewMode, setIsPreviewMode] = useState(false)
   const tasksLoadedRef = useRef(false)
   const scheduledExportsLoadedRef = useRef(false)
   const chatHistoryLoadedRef = useRef(false)
@@ -238,39 +236,11 @@ export default function QCEDashboard() {
   const handleOpenFilePathModal = (filePath: string, sessionName: string, fileName: string) => {
     setSelectedFile({ filePath, sessionName, fileName })
     setIsFilePathModalOpen(true)
-    setCopied(false)
-    setIsPreviewMode(false)
   }
 
   const handleCloseFilePathModal = () => {
     setIsFilePathModalOpen(false)
     setSelectedFile(null)
-    setCopied(false)
-    setIsPreviewMode(false)
-  }
-
-  const handleCopyPath = async () => {
-    if (!selectedFile) return
-    
-    try {
-      await navigator.clipboard.writeText(`file:///${selectedFile.filePath.replace(/\\/g, '/')}`)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch (err) {
-      // 如果剪贴板API失败，使用fallback方法
-      const textArea = document.createElement('textarea')
-      textArea.value = `file:///${selectedFile.filePath.replace(/\\/g, '/')}`
-      document.body.appendChild(textArea)
-      textArea.select()
-      try {
-        document.execCommand('copy')
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-      } catch (fallbackErr) {
-        console.error('复制失败:', fallbackErr)
-      }
-      document.body.removeChild(textArea)
-    }
   }
 
   useEffect(() => {
@@ -1642,127 +1612,27 @@ export default function QCEDashboard() {
         }}
       />
 
-      {/* File Path Modal */}
+      {/* 聊天记录预览模态框 */}
       <Dialog open={isFilePathModalOpen} onOpenChange={setIsFilePathModalOpen}>
-        <DialogContent className={isPreviewMode ? "max-w-[98vw] w-[98vw] h-[95vh] p-6 bg-white" : "sm:max-w-lg"}>
-          <DialogHeader>
+        <DialogContent 
+          overlayClassName="bg-white/60 backdrop-blur-xl"
+          className="max-w-6xl w-[95vw] max-h-[90vh] p-0"
+        >
+          <DialogHeader className="px-6 py-4 border-b">
             <DialogTitle className="flex items-center gap-3">
-              <div className="p-2 rounded-full bg-neutral-100">
-                <FileText className="w-5 h-5 text-neutral-600" />
-              </div>
-              {isPreviewMode ? "预览聊天记录" : "打开聊天记录"}
+              <FileText className="w-5 h-5" />
+              <span>{selectedFile?.sessionName || "聊天记录"}</span>
             </DialogTitle>
-            <DialogDescription>
-              {isPreviewMode 
-                ? "在线预览聊天记录内容" 
-                : "受浏览器安全限制，需要您手动复制路径到浏览器地址栏访问"
-              }
-            </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-6">
+          <div className="flex-1 overflow-hidden">
             {selectedFile && (
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm font-medium text-neutral-700 mb-2">聊天记录：</p>
-                  <p className="text-base text-neutral-900">{selectedFile.sessionName}</p>
-                </div>
-
-                {/* 模式切换按钮 */}
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant={!isPreviewMode ? "default" : "outline"}
-                    onClick={() => setIsPreviewMode(false)}
-                  >
-                    <Copy className="w-4 h-4 mr-2" />
-                    复制路径
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={isPreviewMode ? "default" : "outline"}
-                    onClick={() => setIsPreviewMode(true)}
-                  >
-                    <FileText className="w-4 h-4 mr-2" />
-                    在线预览
-                  </Button>
-                </div>
-
-                {isPreviewMode ? (
-                  // 预览模式 - 显示iframe
-                  <div className="space-y-3">
-                    <p className="text-sm text-neutral-600">正在加载聊天记录内容...</p>
-                    <div className="border border-neutral-200 rounded-lg overflow-hidden h-[75vh] bg-white">
-                      <iframe
-                        src={`/api/exports/files/${selectedFile.fileName}/preview`}
-                        className="w-full h-full bg-white"
-                        title={`预览 ${selectedFile.sessionName}`}
-                        onLoad={() => {
-                          // iframe加载完成后可以隐藏loading提示
-                        }}
-                      />
-                    </div>
-                    <p className="text-xs text-neutral-500">
-                      如果预览内容显示异常，请尝试使用"复制路径"模式在新窗口中打开
-                    </p>
-                  </div>
-                ) : (
-                  // 路径复制模式 - 显示路径和复制功能
-                  <>
-                    <div>
-                      <p className="text-sm font-medium text-neutral-700 mb-2">文件路径：</p>
-                      <div className="relative">
-                        <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 pr-12 font-mono text-sm text-neutral-800 break-all">
-                          file:///{selectedFile.filePath.replace(/\\/g, '/')}
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="absolute right-1 top-1 h-8 w-8 p-0"
-                          onClick={handleCopyPath}
-                        >
-                          {copied ? (
-                            <CheckCircle className="w-4 h-4 text-green-600" />
-                          ) : (
-                            <Copy className="w-4 h-4 text-neutral-500" />
-                          )}
-                        </Button>
-                      </div>
-                      {copied && (
-                        <motion.p
-                          className="text-sm text-green-600 mt-2"
-                          initial={{ opacity: 0, y: -4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -4 }}
-                        >
-                          ✓ 已复制到剪贴板
-                        </motion.p>
-                      )}
-                    </div>
-
-                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-                      <h4 className="text-sm font-medium text-blue-900 mb-2">操作步骤：</h4>
-                      <ol className="text-sm text-blue-800 space-y-1">
-                        <li>1. 点击上方复制按钮复制文件路径</li>
-                        <li>2. 在浏览器地址栏粘贴路径</li>
-                        <li>3. 按回车键打开聊天记录</li>
-                      </ol>
-                    </div>
-                  </>
-                )}
-              </div>
+              <iframe
+                src={`/api/exports/files/${selectedFile.fileName}/preview`}
+                className="w-full h-[calc(90vh-120px)]"
+                title={`预览 ${selectedFile.sessionName}`}
+              />
             )}
-
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={handleCloseFilePathModal}>
-                关闭
-              </Button>
-              {!isPreviewMode && (
-                <Button onClick={handleCopyPath}>
-                  {copied ? '已复制' : '复制路径'}
-                </Button>
-              )}
-            </div>
           </div>
         </DialogContent>
       </Dialog>

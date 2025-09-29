@@ -914,25 +914,44 @@ export class QQChatExporterApiServer {
         this.app.get('/api/exports/files/:fileName/preview', (req, res) => {
             try {
                 const { fileName } = req.params;
-                const exportFiles = this.getExportFiles();
-                const file = exportFiles.find(f => f.fileName === fileName);
+                console.log(`[DEBUG] 预览请求: ${fileName}`);
                 
-                if (!file) {
-                    throw new SystemError(ErrorType.VALIDATION_ERROR, '文件不存在', 'FILE_NOT_FOUND');
+                // 直接构建文件路径，不依赖getExportFiles()方法
+                const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+                const scheduledExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
+                console.log(`[DEBUG] 导出目录: ${exportDir}`);
+                console.log(`[DEBUG] 定时导出目录: ${scheduledExportDir}`);
+                
+                let filePath = path.join(exportDir, fileName);
+                console.log(`[DEBUG] 检查路径1: ${filePath}`);
+                let found = fs.existsSync(filePath);
+                console.log(`[DEBUG] 路径1存在: ${found}`);
+                
+                // 如果在主导出目录没找到，检查定时导出目录
+                if (!found) {
+                    filePath = path.join(scheduledExportDir, fileName);
+                    console.log(`[DEBUG] 检查路径2: ${filePath}`);
+                    found = fs.existsSync(filePath);
+                    console.log(`[DEBUG] 路径2存在: ${found}`);
                 }
                 
-                if (!fs.existsSync(file.filePath)) {
-                    throw new SystemError(ErrorType.VALIDATION_ERROR, '文件不存在', 'FILE_NOT_FOUND');
+                if (!found) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, `文件不存在: ${fileName}`, 'FILE_NOT_FOUND');
                 }
                 
                 // 设置适当的响应头
                 res.setHeader('Content-Type', 'text/html; charset=utf-8');
-                res.setHeader('X-Frame-Options', 'SAMEORIGIN'); // 允许在同源iframe中显示
-                res.setHeader('Cache-Control', 'public, max-age=3600'); // 缓存1小时
+                res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+                res.setHeader('Cache-Control', 'public, max-age=3600');
                 
-                // 直接发送HTML文件内容
-                res.sendFile(path.resolve(file.filePath));
+                const resolvedPath = path.resolve(filePath);
+                console.log(`[DEBUG] 最终解析路径: ${resolvedPath}`);
+                console.log(`[DEBUG] 最终路径存在: ${fs.existsSync(resolvedPath)}`);
+                
+                // 发送文件
+                res.sendFile(resolvedPath);
             } catch (error) {
+                console.log(`[DEBUG] 预览错误:`, error);
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }
         });
