@@ -914,44 +914,33 @@ export class QQChatExporterApiServer {
         this.app.get('/api/exports/files/:fileName/preview', (req, res) => {
             try {
                 const { fileName } = req.params;
-                console.log(`[DEBUG] 预览请求: ${fileName}`);
                 
                 // 直接构建文件路径，不依赖getExportFiles()方法
                 const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
                 const scheduledExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
-                console.log(`[DEBUG] 导出目录: ${exportDir}`);
-                console.log(`[DEBUG] 定时导出目录: ${scheduledExportDir}`);
                 
                 let filePath = path.join(exportDir, fileName);
-                console.log(`[DEBUG] 检查路径1: ${filePath}`);
                 let found = fs.existsSync(filePath);
-                console.log(`[DEBUG] 路径1存在: ${found}`);
                 
                 // 如果在主导出目录没找到，检查定时导出目录
                 if (!found) {
                     filePath = path.join(scheduledExportDir, fileName);
-                    console.log(`[DEBUG] 检查路径2: ${filePath}`);
                     found = fs.existsSync(filePath);
-                    console.log(`[DEBUG] 路径2存在: ${found}`);
                 }
                 
                 if (!found) {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, `文件不存在: ${fileName}`, 'FILE_NOT_FOUND');
                 }
                 
-                // 设置适当的响应头
+                // 设置适当的响应头（无缓存）
                 res.setHeader('Content-Type', 'text/html; charset=utf-8');
                 res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-                res.setHeader('Cache-Control', 'public, max-age=3600');
+                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
                 
-                const resolvedPath = path.resolve(filePath);
-                console.log(`[DEBUG] 最终解析路径: ${resolvedPath}`);
-                console.log(`[DEBUG] 最终路径存在: ${fs.existsSync(resolvedPath)}`);
-                
-                // 发送文件
-                res.sendFile(resolvedPath);
+                // 直接读取文件内容并返回
+                const htmlContent = fs.readFileSync(path.resolve(filePath), 'utf8');
+                res.send(htmlContent);
             } catch (error) {
-                console.log(`[DEBUG] 预览错误:`, error);
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }
         });
