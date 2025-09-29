@@ -174,7 +174,7 @@ export class QQChatExporterApiServer {
                 return req.path === route || 
                        req.path.startsWith('/static/') ||
                        req.path.startsWith('/qce-v4-tool/');
-            }) || isStaticFile;
+            }) || isStaticFile || req.path.match(/^\/api\/exports\/files\/[^\/]+\/preview$/); // 允许预览接口公开访问
             
             if (isPublicRoute) {
                 return next();
