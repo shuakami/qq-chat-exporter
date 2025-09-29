@@ -1644,7 +1644,7 @@ export default function QCEDashboard() {
 
       {/* File Path Modal */}
       <Dialog open={isFilePathModalOpen} onOpenChange={setIsFilePathModalOpen}>
-        <DialogContent className={isPreviewMode ? "sm:max-w-7xl h-[90vh]" : "sm:max-w-lg"}>
+        <DialogContent className={isPreviewMode ? "max-w-[98vw] w-[98vw] h-[95vh] p-6 bg-white" : "sm:max-w-lg"}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
               <div className="p-2 rounded-full bg-neutral-100">
@@ -1692,10 +1692,10 @@ export default function QCEDashboard() {
                   // 预览模式 - 显示iframe
                   <div className="space-y-3">
                     <p className="text-sm text-neutral-600">正在加载聊天记录内容...</p>
-                    <div className="border border-neutral-200 rounded-lg overflow-hidden h-[60vh]">
+                    <div className="border border-neutral-200 rounded-lg overflow-hidden h-[75vh] bg-white">
                       <iframe
                         src={`/api/exports/files/${selectedFile.fileName}/preview`}
-                        className="w-full h-full"
+                        className="w-full h-full bg-white"
                         title={`预览 ${selectedFile.sessionName}`}
                         onLoad={() => {
                           // iframe加载完成后可以隐藏loading提示
