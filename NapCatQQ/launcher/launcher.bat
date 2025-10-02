@@ -36,4 +36,6 @@ if not exist "%QQPath%" (
 set NAPCAT_MAIN_PATH=%NAPCAT_MAIN_PATH:\=/%
 echo (async () =^> {await import("file:///%NAPCAT_MAIN_PATH%")})() > "%NAPCAT_LOAD_PATH%"
 
+REM 增加 Node.js 内存限制以支持大量消息导出并启用垃圾回收
+set NODE_OPTIONS=--max-old-space-size=8192 --expose-gc
 "%NAPCAT_LAUNCHER_PATH%" "%QQPath%" "%NAPCAT_INJECT_PATH%" %1

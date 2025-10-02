@@ -1094,6 +1094,12 @@ export class QQChatExporterApiServer {
                         messageCount: allMessages.length
                     }
                 });
+                
+                // 每10批次触发垃圾回收，减少内存压力
+                if (batchCount % 10 === 0 && global.gc) {
+                    global.gc();
+                    console.log(`[ApiServer] 已触发垃圾回收 (批次 ${batchCount}, 消息数 ${allMessages.length})`);
+                }
             }
             
             console.log(`[ApiServer] ==================== 消息收集汇总 ====================`);

@@ -108,7 +108,7 @@ export class QQBasicInfoWrapper {
 
     /**
      * 获取QQ主程序路径
-     * Linux环境下智能检测QQ安装位置
+     * 支持多平台智能检测QQ安装位置
      */
     private getQQMainPath(): string {
         // 1. 优先使用环境变量指定的QQ路径
@@ -122,7 +122,31 @@ export class QQBasicInfoWrapper {
             }
         }
 
-        // 2. Linux平台：优先使用当前工作目录（如果包含QQ相关文件）
+        // 2. macOS平台：智能检测QQ.app
+        if (os.platform() === 'darwin') {
+            const macQQPaths = [
+                '/Applications/QQ.app/Contents/MacOS/QQ',
+                path.join(os.homedir(), 'Applications/QQ.app/Contents/MacOS/QQ'),
+                '/System/Applications/QQ.app/Contents/MacOS/QQ',
+            ];
+
+            for (const qqPath of macQQPaths) {
+                if (fs.existsSync(qqPath)) {
+                    this.context.logger.log(`[QQ路径] 检测到macOS QQ: ${qqPath}`);
+                    return qqPath;
+                }
+            }
+
+            // macOS下找不到QQ时的警告
+            this.context.logger.logError(
+                `[QQ路径] macOS上未找到QQ.app。请安装QQ for Mac，或设置环境变量: export NAPCAT_QQ_PATH="/Applications/QQ.app/Contents/MacOS/QQ"`
+            );
+            this.context.logger.logError(
+                `[QQ路径] 当前使用进程路径作为回退，这可能导致原生模块加载失败`
+            );
+        }
+
+        // 3. Linux平台：优先使用当前工作目录（如果包含QQ相关文件）
         if (os.platform() === 'linux') {
             const cwd = process.cwd();
             const cwdPackageJson = path.join(cwd, 'resources/app/package.json');
@@ -166,7 +190,7 @@ export class QQBasicInfoWrapper {
             );
         }
 
-        // 3. 回退到原来的行为（Windows/macOS或Linux检测失败时）
+        // 4. 回退到原来的行为（Windows或检测失败时）
         this.context.logger.log(`[QQ路径] 使用进程路径: ${process.execPath}`);
         return process.execPath;
     }
