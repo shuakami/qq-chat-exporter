@@ -335,7 +335,9 @@ export default function QCEDashboard() {
   }
 
   // 级联动画 variants（受 reduced-motion 影响）
-  const STAG = useMemo(() => makeStagger(reduceMotion ? 0 : 0.06, reduceMotion), [reduceMotion])
+  // 对于大列表（超过50项），禁用 stagger 动画以提升性能
+  const hasLargeList = groups.length > 50 || friends.length > 50
+  const STAG = useMemo(() => makeStagger(reduceMotion || hasLargeList ? 0 : 0.06, reduceMotion || hasLargeList), [reduceMotion, hasLargeList])
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-neutral-50 to-white">
