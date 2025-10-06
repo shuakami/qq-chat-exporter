@@ -181,6 +181,18 @@ export class BatchMessageFetcher {
             const result = await this.fetchMessages(peer, filter, nextMessageId, nextSeq);
             console.info(`[BatchMessageFetcher] 获取消息批次完成, 消息数量=${result.messages.length}, hasMore=${result.hasMore}`);
             
+            // 防御性提前停止：若客户端筛选后为空，且批次最早时间早于开始时间，则无需继续回溯
+            if (
+                result.messages.length === 0 &&
+                typeof (result as any).earliestMsgTime === 'number' &&
+                typeof filter.startTime === 'number' &&
+                (result as any).earliestMsgTime < filter.startTime
+            ) {
+                console.info(`[BatchMessageFetcher] 触发防御性提前停止：earliestMsgTime=${(result as any).earliestMsgTime}, startTime=${filter.startTime}`);
+                hasMore = false;
+                break;
+            }
+            
             if (result.messages.length > 0) {
                 yield result.messages;
             }
@@ -371,11 +383,12 @@ export class BatchMessageFetcher {
         // 判断是否还有更多消息
         let hasMore = messages.length > 0; // 有消息就继续获取
         
-        // 继续获取更多历史消息，直到API无更多数据为止
-        
         // 获取下一批次的标识符
         let nextMessageId: string | undefined;
         let nextSeq: string | undefined;
+        
+        // 计算本批次最早消息时间（毫秒）
+        let earliestMsgTime: number | undefined;
         
         if (messages.length > 0) {
             // 获取这批消息中时间最早的消息ID作为下一次查询的起点
@@ -389,6 +402,17 @@ export class BatchMessageFetcher {
             if (earliestMessage) {
                 nextMessageId = earliestMessage.msgId;
                 nextSeq = earliestMessage.msgSeq;
+
+                // 计算最早消息时间（转换为毫秒）
+                let rawTime = parseInt(earliestMessage.msgTime);
+                if (Number.isFinite(rawTime)) {
+                    // 若为秒级时间戳，则转换为毫秒
+                    if (rawTime > 1000000000 && rawTime < 10000000000) {
+                        earliestMsgTime = rawTime * 1000;
+                    } else {
+                        earliestMsgTime = rawTime;
+                    }
+                }
                 
                 // 检查是否返回了与当前查询起点相同的消息（防止无限循环）
                 if (currentMessageId && nextMessageId === currentMessageId) {
@@ -399,7 +423,19 @@ export class BatchMessageFetcher {
             }
         }
 
-        console.info(`[BatchMessageFetcher] 处理结果: ${messages.length} 条消息, hasMore=${hasMore}, nextMessageId=${nextMessageId}`);
+        // 若最早时间早于筛选开始时间，则提前停止，避免继续回溯无效范围
+        if (
+            typeof earliestMsgTime === 'number' &&
+            filter && typeof filter.startTime === 'number' &&
+            earliestMsgTime < filter.startTime
+        ) {
+            console.info(`[BatchMessageFetcher] 早停：earliestMsgTime=${earliestMsgTime} < startTime=${filter.startTime}，停止继续获取`);
+            hasMore = false;
+            nextMessageId = undefined;
+            nextSeq = undefined;
+        }
+
+        console.info(`[BatchMessageFetcher] 处理结果: ${messages.length} 条消息, hasMore=${hasMore}, nextMessageId=${nextMessageId}, earliestMsgTime=${earliestMsgTime}`);
 
         return {
             messages,
@@ -407,7 +443,8 @@ export class BatchMessageFetcher {
             nextMessageId,
             nextSeq,
             actualCount: messages.length,
-            fetchTime: 0 // 将在外层设置
+            fetchTime: 0, // 将在外层设置
+            earliestMsgTime
         };
     }
 
