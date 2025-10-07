@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QQ Chat Exporter Pro - 使用文档</title>
+    <title>QQ Chat Exporter V4 - 使用文档</title>
     <style>
         :root {
             --bg-color: #fff;
@@ -35,34 +35,6 @@
                 --footer-color: #999;
                 --link-color: #61afef;
             }
-
-            /* 暗色主题代码高亮 */
-            .code-js {
-                color: #ffffff;  /* 基础文本颜色 */
-            }
-            .code-js .string {
-                color: #98c379;  /* 字符串颜色 */
-            }
-            .code-js .comment {
-                color: #7f848e;  /* 注释颜色 */
-                font-style: italic;
-            }
-            .code-js .keyword {
-                color: #c678dd;  /* 关键字颜色 */
-                font-weight: 500;
-            }
-            .code-js .function {
-                color: #61afef;  /* 函数颜色 */
-            }
-            .code-js .operator {
-                color: #56b6c2;  /* 操作符颜色 */
-            }
-            .code-js .punctuation {
-                color: #abb2bf;  /* 标点符号颜色 */
-            }
-            .code-js .variable {
-                color: #e06c75;  /* 变量颜色 */
-            }
         }
         
         body {
@@ -79,118 +51,6 @@
         h1, h2 {
             border-bottom: 1px solid var(--line-color);
             padding-bottom: 8px;
-        }
-        
-        pre {
-            background: var(--code-bg);
-            padding: 20px;
-            border-radius: 8px;
-            overflow-x: auto;
-            border: 1px solid var(--code-border);
-            position: relative;
-            font-size: 14px;
-            line-height: 1.6;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        }
-        
-        code {
-            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-            font-size: 14px;
-            tab-size: 4;
-        }
-        
-        /* 代码高亮样式 - Light Theme */
-        .code-js {
-            color: #888888;  /* 基础文本颜色 */
-        }
-        .code-js .string {
-            color: #50a14f;  /* 字符串颜色 */
-        }
-        .code-js .comment {
-            color: #a0a1a7;  /* 注释颜色 */
-            font-style: italic;
-        }
-        .code-js .keyword {
-            color: #a626a4;  /* 关键字颜色 */
-            font-weight: 500;
-        }
-        .code-js .function {
-            color: #4078f2;  /* 函数颜色 */
-        }
-        .code-js .operator {
-            color: #0184bc;  /* 操作符颜色 */
-        }
-        .code-js .punctuation {
-            color: #383a42;  /* 标点符号颜色 */
-        }
-        .code-js .variable {
-            color: #e45649;  /* 变量颜色 */
-        }
-        
-        .highlight {
-            background: var(--highlight-bg);
-            padding: 2px 5px;
-            border-radius: 3px;
-            color: var(--highlight-text);
-        }
-        
-        .code-container {
-            position: relative;
-            margin: 20px 0;
-        }
-        
-        .copy-indicator {
-            position: absolute;
-            top: 10px;
-            right: 15px;
-            font-size: 12px;
-            color: var(--button-text);
-            background: var(--button-bg);
-            padding: 4px 8px;
-            border-radius: 4px;
-            cursor: pointer;
-            opacity: 0.8;
-            transition: opacity 0.2s ease;
-            user-select: none;
-        }
-        
-        .copy-indicator:hover {
-            opacity: 1;
-            background: var(--button-hover);
-        }
-        
-        a {
-            color: var(--link-color);
-            text-decoration: none;
-        }
-        
-        a:hover {
-            text-decoration: underline;
-        }
-        
-        footer {
-            margin-top: 50px;
-            text-align: center;
-            color: var(--footer-color);
-            font-size: 0.9rem;
-            border-top: 1px solid var(--line-color);
-            padding-top: 20px;
-        }
-        
-        .theme-toggle {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: transparent;
-            border: none;
-            color: var(--text-color);
-            font-size: 1.5rem;
-            cursor: pointer;
-            transition: transform 0.3s ease;
-        }
-        
-        .theme-toggle:hover {
-            transform: rotate(30deg);
         }
         
         .prerequisite-steps {
@@ -213,39 +73,6 @@
             padding-top: 0;
         }
         
-        .important-note {
-            border-left: 2px solid #e74c3c;
-            padding-left: 12px;
-            margin: 15px 0;
-            font-weight: normal;
-        }
-        
-        .warning {
-            background: rgba(231, 76, 60, 0.05);
-            border-radius: 4px;
-            padding: 10px 15px;
-            margin: 15px 0;
-            border-left: 2px solid #e74c3c;
-        }
-        
-        .image-container {
-            max-width: 100%;
-            margin: 12px 0;
-            text-align: center;
-        }
-        
-        .image-container img {
-            max-width: 100%;
-            border-radius: 4px;
-            border: 1px solid var(--line-color);
-        }
-        
-        .image-caption {
-            font-size: 0.9em;
-            color: var(--footer-color);
-            margin-top: 5px;
-        }
-        
         .sub-step {
             margin-left: 15px;
             margin-top: 8px;
@@ -259,7 +86,19 @@
             left: 0;
             color: var(--text-color);
         }
+
+        .image-container {
+            max-width: 100%;
+            margin: 12px 0;
+            text-align: center;
+        }
         
+        .image-container img {
+            max-width: 100%;
+            border-radius: 4px;
+            border: 1px solid var(--line-color);
+        }
+
         .notes-section {
             background: var(--code-bg);
             border-radius: 8px;
@@ -269,77 +108,66 @@
             line-height: 1.6;
         }
         
-        .notes-section p {
-            margin: 12px 0;
-        }
-        
         .note-warning {
             border-left: 2px solid #e74c3c;
             padding-left: 12px;
         }
-        
-        .note-complaint {
-            margin-top: 20px;
-            background: rgba(0, 0, 0, 0.05);
-            padding: 10px;
-            border-radius: 4px;
-            font-style: italic;
-        }
-        
-        .note-item {
-            margin-bottom: 0;
-            padding-bottom: 0;
-            border-bottom: none;
-        }
-        
-        .note-item strong {
-            display: inline;
-            margin-bottom: 0;
-        }
 
-        .disclaimer-section, .copyright-section {
+        .disclaimer-section {
             background: var(--code-bg);
             border-radius: 8px;
             padding: 15px 20px;
             margin: 20px 0;
             font-size: 14px;
             line-height: 1.6;
-        }
-        
-        .disclaimer-section p, .copyright-section p {
-            margin: 8px 0;
-        }
-        
-        .disclaimer-section {
             border-left: 2px solid #e74c3c;
         }
+        
+        a {
+            color: var(--link-color);
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+
+        code {
+            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+            background: rgba(0,0,0,0.05);
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+        
+        footer {
+            margin-top: 50px;
+            text-align: center;
+            color: var(--footer-color);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--line-color);
+            padding-top: 20px;
+        }
     </style>
-    <script defer src="/_vercel/insights/script.js"></script>
-    <script>
-        window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-    </script>
 </head>
 <body>
-    <button class="theme-toggle" id="theme-toggle" title="切换主题">🌓</button>
     
-    <h1>QQ Chat Exporter Pro V4</h1>
-    <p>欢迎使用全新的 V4 版本！基于 NapCatQQ 的聊天记录导出工具，提供现代化的 Web 界面和强大的导出功能。</p>
-    <strong>V4 版本完全重构，集成到 NapCatQQ 框架中，提供更稳定、更强大的导出体验。</strong>
-
+    <h1>QQ Chat Exporter V4 - 使用文档</h1>
+    <p>欢迎使用全新的 V4 版本！这是一款深度集成到 <strong>NapCatQQ</strong> 框架的聊天记录导出工具，提供现代化的 Web 界面和强大的导出功能。</p>
+    
     <div class="image-container">
-        <img src="https://img.cdn1.vip/i/68cd09df19eef_1758267871.webp" alt="QCE V4 界面截图" />
+        <img src="https://github.com/shuakami/qq-chat-exporter/blob/9959f84b/image.png?raw=true" alt="QCE V4 界面截图" />
     </div>
 
     <h2>V4 版本核心特性</h2>
     <div class="prerequisite-steps">
         <div class="step">
             <strong>架构升级</strong>
-            <div class="sub-step"><strong>集成设计</strong>：完全集成到 NapCatQQ 框架中，无需单独安装</div>
-            <div class="sub-step"><strong>Web 界面</strong>：基于 React + NextUI 的现代化管理界面</div>
-            <div class="sub-step"><strong>API 驱动</strong>：完整的 RESTful API 和 WebSocket 实时通信</div>
-            <div class="sub-step"><strong>数据持久化</strong>：SQLite 数据库存储，支持断点续传和任务恢复</div>
-            <div class="sub-step"><strong>定时任务</strong>：cron 表达式支持的灵活定时导出系统</div>
-            <div class="sub-step"><strong>多格式导出</strong>：HTML、JSON、TXT 三种格式，满足不同需求</div>
+            <div class="sub-step"><strong>深度集成</strong>：作为 NapCatQQ 的一部分，共享底层连接，更稳定高效。</div>
+            <div class="sub-step"><strong>现代化 Web 界面</strong>：基于 React 和 Next.js 构建，提供直观的图形化操作体验。</div>
+            <div class="sub-step"><strong>API 驱动</strong>：提供完整的 RESTful API 和 WebSocket 接口，支持实时进度更新。</div>
+            <div class="sub-step"><strong>持久化存储</strong>：采用基于 JSONL 的文件存储系统，支持断点续传和任务恢复。</div>
+            <div class="sub-step"><strong>定时任务系统</strong>：支持 cron 表达式，可配置灵活的自动备份计划。</div>
+            <div class="sub-step"><strong>多格式导出</strong>：支持 HTML、JSON、TXT 三种格式，满足不同场景的需求。</div>
         </div>
     </div>
 
@@ -347,54 +175,51 @@
     <div class="prerequisite-steps">
         <div class="step">
             <strong>1. 下载并启动 NapCatQQ</strong>
-            <p>V4 版本已完全集成到 NapCatQQ 中，您只需下载包含 QCE 功能的版本即可。</p>
+            <p>V4 版本已完全集成到 NapCatQQ 中，您只需下载包含 QCE 功能的最新版本即可。</p>
             <div class="sub-step">
-                访问 <a href="https://github.com/shuakami/qq-chat-exporter/releases/latest" target="_blank">项目 Releases 页面</a> 下载最新版本
+                访问 <a href="https://github.com/shuakami/qq-chat-exporter/releases/latest" target="_blank">项目 Releases 页面</a> 下载适用于您操作系统的压缩包。
             </div>
             <div class="sub-step">
-                解压到任意目录，运行 <strong>launcher-user.bat</strong>
+                解压后，在 Windows 上运行 <code>launcher-user.bat</code>，在 Linux/macOS 上运行 <code>./napcat-launcher.sh</code>。
             </div>
             <div class="sub-step">
-                程序启动后会显示二维码，使用手机 QQ 扫码登录
+                程序启动后，控制台会显示一个二维码，请使用您的手机 QQ 扫码登录。
             </div>
             <div class="sub-step">
-                登录成功后，程序会在后台运行并启动 Web 服务
+                登录成功后，程序将在后台运行并启动 Web 服务。
             </div>
         </div>
         
         <div class="step">
-            <strong>2. 访问 NapCat 管理界面</strong>
-            <p>登录成功后，访问 NapCatQQ 的 Web 管理界面：</p>
+            <strong>2. 访问 Web 管理界面并登录</strong>
+            <p>登录成功后，即可访问 NapCatQQ 的 Web 管理界面：</p>
             <div class="sub-step">
-                在浏览器中打开 <a href="http://localhost:40653" target="_blank">http://localhost:40653</a>
-                如果你是服务器的话，请开端口40653，然后用服务器ip:40653访问
+                在浏览器中打开 NapCatQQ 的主管理界面：<a href="http://localhost:40653" target="_blank"><code>http://localhost:40653</code></a>。
+            </div>
+             <div class="sub-step">
+                如果部署在服务器上，请确保防火墙已放行 40653 端口，然后通过 <code>http://服务器IP:40653</code> 访问。
             </div>
             <div class="sub-step">
-                使用控制台显示的密钥登录管理界面
-            </div>
-            <div class="sub-step">
-                在管理界面中找到 "QQ 聊天记录导出" 模块入口
+                首次访问时，请根据页面提示，输入控制台中显示的**访问令牌 (Access Token)** 以完成身份验证。
             </div>
         </div>
 
         <div class="step">
-            <strong>3. 进入 QCE V4 界面</strong>
-            <p>通过 NapCat 管理界面访问 QCE V4 功能：</p>
+            <strong>3. 进入 QQ 聊天记录导出模块</strong>
+            <p>登录后，在 NapCat 管理界面的左侧菜单中，找到并点击“QQ 聊天记录导出”即可进入 V4 的功能主界面。</p>
             <div class="sub-step">
-                点击侧边栏的 "QQ 聊天记录导出" 进入 V4 界面
+                该模块的直接访问地址为：<a href="http://localhost:40653/qce-v4-tool" target="_blank"><code>http://localhost:40653/qce-v4-tool</code></a>。
             </div>
-            <div class="sub-step">
-                首次进入会自动检测 QQ 连接状态和可用会话</div>
         </div>
 
         <div class="step">
             <strong>4. 开始导出任务</strong>
             <p>在 V4 界面中，您可以通过以下功能模块完成导出：</p>
-            <div class="sub-step"><strong>仪表板</strong>：查看系统状态、任务统计和 NapCatQQ 连接状态</div>
-            <div class="sub-step"><strong>会话管理</strong>：浏览好友和群组列表，选择要导出的聊天对象</div>
-            <div class="sub-step"><strong>导出任务</strong>：创建、监控和管理导出任务，支持暂停、恢复和下载</div>
-            <div class="sub-step"><strong>定时导出</strong>：设置自动化定时任务，支持 cron 表达式和预设周期</div>
-            <div class="sub-step"><strong>系统设置</strong>：配置导出参数、存储路径和系统选项</div>
+            <div class="sub-step"><strong>概览</strong>：查看系统状态、任务统计和 NapCatQQ 连接状态。</div>
+            <div class="sub-step"><strong>会话</strong>：浏览好友和群组列表，选择要导出的聊天对象。</div>
+            <div class="sub-step"><strong>任务</strong>：创建、监控和管理导出任务，支持下载和删除。</div>
+            <div class="sub-step"><strong>定时</strong>：设置自动化的定时导出任务，支持每日、每周或自定义周期。</div>
+            <div class="sub-step"><strong>聊天记录</strong>：浏览和管理已导出的文件。</div>
         </div>
     </div>
 
@@ -402,112 +227,46 @@
     <div class="notes-section">
         <p><strong>数据安全</strong></p>
         <ul>
-            <li>所有聊天记录的获取和导出过程都在您的本地计算机上完成，数据不会上传到任何服务器，请放心使用。</li>
-            <li>导出的文件也保存在您的本地硬盘上。</li>
+            <li>所有聊天记录的获取和导出过程都在您的本地计算机上完成，数据不会上传到任何服务器，确保您的隐私安全。</li>
+            <li>导出的文件也默认保存在您的本地硬盘上。</li>
         </ul>
     </div>
 
     <div class="notes-section">
         <p><strong>使用技巧</strong></p>
         <ul>
-            <li><strong>首次使用</strong>：建议先到“会话管理”页面，点击“刷新列表”以确保获取到最新的好友和群组信息。</li>
-            <li><strong>大批量导出</strong>：对于包含大量消息的会话，导出可能需要较长时间。您可以在“导出任务”页面观察实时进度。任务在后台运行，您可以关闭浏览器标签页，但不能关闭 NapCatQQ 程序。</li>
-            <li><strong>定时备份</strong>：对于重要的聊天，强烈建议使用“定时导出”功能设置每日或每周的自动备份，以防万一。</li>
-            <li><strong>格式选择</strong>：推荐使用 HTML 格式，因为它能最好地还原聊天界面，方便阅读。JSON 格式适合需要进行二次开发或数据分析的用户。</li>
+            <li><strong>首次使用</strong>：建议先进入“会话”页面，点击“刷新列表”以确保获取到最新的好友和群组信息。</li>
+            <li><strong>大批量导出</strong>：对于包含大量消息的会话，导出可能需要较长时间。您可以在“任务”页面观察实时进度。任务在后台运行，您可以关闭浏览器标签页，但不能关闭运行中的 NapCatQQ 程序。</li>
+            <li><strong>定时备份</strong>：对于重要的聊天记录，强烈建议使用“定时”功能设置每日或每周的自动备份，以防数据丢失。</li>
+            <li><strong>格式选择</strong>：推荐使用 **HTML** 格式，因为它能最好地还原聊天界面，方便阅读。**JSON** 格式适合需要进行二次开发或数据分析的用户。</li>
         </ul>
-    </div>
-
-    <div class="notes-section">
-        <p><strong>⚠️ 安全提醒</strong></p>
-        <p class="note-warning">使用本工具可能违反 QQ 用户协议。根据最新反馈，腾讯现在通常只会发出警告提示，不再进行封号处理，但政策可能随时变化，请自行承担风险。</p>
     </div>
 
     <div class="notes-section">
         <p><strong>🔧 故障排除</strong></p>
         <ul>
-            <li><strong>无法访问 Web 界面</strong>：请检查 NapCatQQ 程序是否已成功启动并登录。</li>
+            <li><strong>无法访问 Web 界面</strong>：请检查 NapCatQQ 程序是否已成功启动并登录。同时，请检查 40653 端口是否被其他程序占用。</li>
             <li><strong>无法获取好友/群组列表</strong>：请确保您的 QQ 账号在线，并在 Web 界面中尝试点击“刷新列表”。</li>
-            <li><strong>任务失败</strong>：任务失败通常会有错误提示。请检查 NapCatQQ 的日志或 Web 界面上的错误信息以定位问题。</li>
+            <li><strong>任务失败</strong>：任务失败通常会有错误提示。请检查 NapCatQQ 的控制台日志或 Web 界面上的错误信息以定位问题。</li>
         </ul>
     </div>
-
+    
     <h2>源代码</h2>
-    <p>本项目的源代码托管在：<a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a></p>
+    <p>本项目为开源项目，源代码托管在：<a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a></p>
 
-
-    <h2>免责声明</h2>
-    <div class="important-note">
-        <p>本工具仅供个人备份自己的聊天记录使用，请遵守相关法律法规。</p>
-        <p>使用本工具可能违反腾讯QQ用户协议。根据最新反馈，腾讯现在通常只会发出警告提示，不再进行封号处理，但政策可能随时变化。</p>
+    <div class="disclaimer-section">
+        <h2>免责声明</h2>
+        <p>本工具仅供个人学习、研究和备份自己的聊天记录使用，请严格遵守相关法律法规。</p>
+        <p>使用本工具可能违反腾讯 QQ 用户协议。尽管 V4 版本通过优化请求策略显著降低了风险，但用户仍需自行承担使用本工具可能带来的一切风险，包括但不限于账号安全问题。</p>
         <p>本工具与腾讯公司无任何关联，为非官方、非商业的开源项目。</p>
         <p>开发者不对使用本工具导致的任何问题负责，包括但不限于账号安全、数据丢失等问题。</p>
-        <p>如果您继续使用本工具，即表示您已阅读并同意以上声明。</p>
+        <p><strong>如果您继续使用本工具，即表示您已阅读并同意以上声明。</strong></p>
     </div>
 
-    <h2>版权信息</h2>
-        <p>© 2025 Luoxiaohei，保留所有权利。</p>
-        <p>本项目代码采用 <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank">GNU通用公共许可证 v3 (GPL-3.0)</a> 开源。</p>
-
     <footer>
-        <p>Made with ❤️ by Luoxiaohei</p>
+        <p>© 2025 shuakami All Rights Reserved.</p>
+        <p>本项目代码采用 <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank">GNU General Public License v3.0 (GPL-3.0)</a> 开源。</p>
     </footer>
 
-    <script>
-        // 复制功能
-        document.getElementById('copy-button').addEventListener('click', function() {
-            const codeElement = document.getElementById('import-code');
-            const textArea = document.createElement('textarea');
-            textArea.value = codeElement.textContent;
-            document.body.appendChild(textArea);
-            textArea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textArea);
-            
-            this.textContent = '已复制';
-            setTimeout(() => {
-                this.textContent = '复制';
-            }, 2000);
-        });
-        
-        // 常用命令复制功能
-        document.getElementById('commands-copy-button').addEventListener('click', function() {
-            const codeElement = this.previousElementSibling.querySelector('code');
-            const textArea = document.createElement('textarea');
-            textArea.value = codeElement.textContent;
-            document.body.appendChild(textArea);
-            textArea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textArea);
-            
-            this.textContent = '已复制';
-            setTimeout(() => {
-                this.textContent = '复制';
-            }, 2000);
-        });
-        
-        // 主题切换
-        const themeToggle = document.getElementById('theme-toggle');
-        
-        // 检查本地存储中的主题首选项
-        const savedTheme = localStorage.getItem('theme');
-        if (savedTheme) {
-            document.documentElement.setAttribute('data-theme', savedTheme);
-        }
-        
-        themeToggle.addEventListener('click', () => {
-            const currentTheme = document.documentElement.getAttribute('data-theme');
-            let newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            
-            document.documentElement.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-        });
-        
-        // 检测系统颜色模式
-        const prefersDarkScheme = window.matchMedia('(prefers-color-scheme: dark)');
-        
-        if (prefersDarkScheme.matches && !localStorage.getItem('theme')) {
-            document.documentElement.setAttribute('data-theme', 'dark');
-        }
-    </script>
 </body>
-</html> 
+</html>
