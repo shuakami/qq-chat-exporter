@@ -15,7 +15,7 @@
 
 ## 快速开始
 
-本文档涵盖了系统的核心功能与架构。有关详细的安装和配置说明，请参阅[安装与设置](https://deepwiki.com/shuakami/qq-chat-exporter/1.1-installation-and-setup)。有关完整的命令列表，请查看[快速入门指南](https://deepwiki.com/shuakami/qq-chat-exporter/1.2-quick-start-guide)。
+本文档涵盖了系统的核心功能与架构。有关详细的安装和配置说明，请参阅[安装与设置](https://deepwiki.com/shuakami/qq-chat-exporter/1.1-installation-and-setup)。有关完整的使用说明和操作指南，请查看[快速入门指南](https://deepwiki.com/shuakami/qq-chat-exporter/1.2-quick-start-guide)。
 
 1.  **下载与解压**
     前往 [GitHub Releases 页面](https://github.com/shuakami/qq-chat-exporter/releases)下载适用于您操作系统的最新 V4 版本压缩包并解压。
