@@ -156,6 +156,8 @@ export interface BatchFetchResult {
     actualCount: number;
     /** 获取耗时（毫秒） */
     fetchTime: number;
+    /** 批次中最早消息的时间（毫秒） */
+    earliestMsgTime?: number;
 }
 
 /**
