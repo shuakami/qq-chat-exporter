@@ -1,117 +1,93 @@
-# QQ聊天记录导出工具 Pro
+# QQ Chat Exporter
 
-<br>
+![Next.js](https://img.shields.io/badge/Next.js-14-0070F3?style=flat-square&logo=next.js&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-20-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white)
+![License](https://img.shields.io/badge/License-GPL--3.0-10B981?style=flat-square&logoColor=white)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/shuakami/qq-chat-exporter)
 
-![QCE V4 界面截图](image.png)
-
-## 这是什么
-
-这是一款 QQ 聊天记录导出工具，可以将您的 QQ 聊天记录（包括消息、图片、表情等）完整地导出为 `HTML`、`JSON`、`TXT` 等多种格式。
-
-最新的 **V4 版本** 是基于 NapCatQQ 框架的完全重构版本，集成了现代化 Web 界面、SQLite 数据库、定时任务系统和完整的 API 服务，为用户提供企业级的聊天记录管理解决方案。
+![QCE V4 界面截图](https://github.com/shuakami/qq-chat-exporter/blob/9959f84b/image.png)
 
 
-## V4 版本核心特性
-
-- **深度集成架构**: 完全集成到 NapCatQQ 框架中，共享底层 QQ 连接和 API
-- **现代化 Web 界面**: 基于 React + NextUI 构建的响应式管理界面
-- **企业级后端**: Express + WebSocket 驱动的 API 服务器，支持实时状态推送
-- **数据持久化**: SQLite 数据库存储，支持断点续传和任务恢复
-- **定时导出系统**: 基于 cron 表达式的灵活定时任务调度器
-- **资源管理**: 智能资源下载和缓存系统，确保附件完整性
-- **安全机制**: 内置权限验证和错误恢复机制
-- **多格式导出**: HTML、JSON、TXT 三种格式，满足不同使用场景
+> [!NOTE]
+> 这是一款功能强大的 QQ 聊天记录导出工具，可以将您的 QQ 聊天记录（包括消息、图片、视频、文件等）完整地导出为 `HTML`、`JSON`、`TXT` 等多种格式。最新的 V4 版本深度集成了 NapCatQQ 框架，提供企业级的聊天记录管理解决方案。
 
 ## 快速开始
 
-### 下载安装
+本文档涵盖了系统的核心功能与架构。有关详细的安装和配置说明，请参阅[安装与设置](https://deepwiki.com/shuakami/qq-chat-exporter/1.1-installation-and-setup)。有关完整的命令列表，请查看[快速入门指南](https://deepwiki.com/shuakami/qq-chat-exporter/1.2-quick-start-guide)。
 
-前往 [Releases 页面](https://github.com/shuakami/qq-chat-exporter/releases) 下载最新版本的 V4 工具包。
+1.  **下载与解压**
+    前往 [GitHub Releases 页面](https://github.com/shuakami/qq-chat-exporter/releases)下载适用于您操作系统的最新 V4 版本压缩包并解压。
 
-### 基本使用流程
+2.  **启动与登录**
+    *   **Windows**: 双击运行 `launcher-user.bat`。
+    *   **Linux/macOS**: 运行 `./napcat-launcher.sh`。
+    *   根据控制台提示，使用您的手机 QQ 扫描二维码完成登录。
 
-1.  **启动 NapCatQQ**: 解压下载的文件，运行 `launcher-user.bat`，使用手机 QQ 扫码登录
-2.  **访问管理界面**: 浏览器打开 `http://localhost:40653`，使用控制台的密钥登录
-3.  **进入 QCE 模块**: 在 NapCat 管理界面中找到 "QQ 聊天记录导出" 模块
-4.  **开始导出**: 选择聊天对象，配置导出参数，创建导出任务
-5.  **管理任务**: 在任务列表中监控进度，下载完成的文件
+3.  **访问与使用**
+    *   在浏览器中打开 NapCatQQ 主管理界面：`http://localhost:40653`。
+    *   输入控制台中显示的**访问令牌 (Access Token)** 以完成身份验证。
+    *   登录后，在左侧菜单中找到并点击 **“QQ 聊天记录导出”** 进入工具主界面。
 
-详细使用说明请查看：[使用文档](https://qce.sdjz.wiki)
+## 功能特性
 
-## 架构说明
+-   **多格式导出**: 支持导出为交互式 `HTML`、机器可读的 `JSON` 和纯文本 `TXT` 格式，以满足不同场景的需求。
+-   **完整的消息类型支持**: 支持导出文本、图片、文件、语音、视频、贴纸、回复和转发消息。
+-   **强大的资源管理**: 自动下载聊天记录中引用的所有媒体文件（如图片、视频、文件），并进行本地缓存和 MD5 完整性校验。
+-   **灵活的任务管理**:
+    *   支持创建多个并发导出任务。
+    *   通过 Web 界面实时监控任务进度和完成状态。
+    *   断点续传功能可在中断后恢复任务，无需重新下载已有数据。
+-   **定时自动备份**: 内置强大的定时任务系统，支持使用标准 cron 表达式配置每日、每周或自定义周期的自动导出。
+-   **现代化 Web 界面**: 基于 React 和 Next.js 构建的响应式 Web 仪表板，提供直观的图形化操作体验。
 
-### V4 版本技术架构
-V4 版本采用现代化的微服务架构，主要组件包括：
+## 支持平台
 
-- **NapCatQQ 框架**: 提供 QQ 协议适配和基础 API
-- **QCE API 服务器**: Express 应用，监听端口 40653，提供完整的 RESTful API
-- **WebSocket 服务**: 实时推送任务状态和系统事件  
-- **SQLite 数据库**: 存储任务配置、消息缓存和系统状态
-- **Web 前端**: React 应用，提供直观的图形化操作界面
-- **定时任务调度器**: 支持 cron 表达式的自动化导出系统
-- **资源处理器**: 负责媒体文件的下载、验证和存储
+| 平台 | 架构 | 要求 |
+| :--- | :--- | :--- |
+| Windows | x64 | Windows 10/11 |
+| Linux | x64 | Ubuntu 20.04+ (需预先安装 QQ 桌面客户端) |
+| macOS | x64 | macOS 10.15+ |
 
-### V3 版本（Go 实现）
-V3 版本使用 Go 语言重写，通过 NapCat 中间件提供的 API 接口获取 QQ 数据。引入了 SQLite 数据库来存储消息，实现了断点续传和实时保存功能。
+## 系统架构与鸣谢
 
-### V2 版本（JavaScript 方案）
-V2 版本利用了 QQ NT 客户端基于 Electron 的特性，通过向其内置的 Chromium 浏览器注入 JavaScript 脚本来抓取 DOM 节点上的聊天记录。
+QCE V4 采用现代化的三层架构设计，完全作为 [**NapCatQQ**](https://github.com/NapNeko/NapCatQQ) 框架的嵌入式模块运行，从而实现了高性能和深度集成。我们在此特别感谢 **NapCatQQ 团队**，没有其强大的底层框架，V4 版本无法实现。
 
-## 版本历史
+-   **集成层**: 通过 NapCatQQ 提供的 `wrapper.node` 原生绑定，桥接 Node.js 运行时与 QQ 桌面客户端的底层 API。
+-   **后端服务层**: 基于 Express.js 和 WebSocket 构建，负责处理 API 请求、编排导出流程、管理任务调度和持久化数据存储。
+-   **前端应用层**: 基于 Next.js 14 和 React 构建的现代化单页应用，为用户提供所有交互功能。
+-   **存储层**: 采用基于 **JSONL** 的文件存储系统并辅以内存索引，实现高性能的读写与任务恢复。
 
-### V4 版本：集成架构方案（当前版本）
-**发布时间**: 2024年
-**主要特性**: 完全集成到 NapCatQQ 框架，提供企业级聊天记录管理解决方案
-**技术栈**: TypeScript + Express + React + NextUI + SQLite
-**下载地址**: [最新 Release](https://github.com/shuakami/qq-chat-exporter/releases/latest)
+## 技术栈
 
-### V3 版本：Go 语言重构方案
-**发布时间**: 2023年
-**主要特性**: 独立 Go 程序，SQLite 数据库，断点续传，实时保存
-**技术栈**: Go + SQLite + WebSocket + HTML/CSS
-**访问方式**: 查看历史提交记录
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-20-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-14-0070F3?style=flat-square&logo=next.js&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
+![Express.js](https://img.shields.io/badge/Express.js-FFA500?style=flat-square&logo=express&logoColor=white)
+![TailwindCSS](https://img.shields.io/badge/TailwindCSS-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
 
-### V2 版本：JavaScript 浏览器方案
-**发布时间**: 2022年
-**主要特性**: 基于 DOM 操作的浏览器端解决方案，支持图片导出
-**技术栈**: JavaScript + IndexedDB + Web Worker
-**源码链接**: [查看 V2 提交](https://github.com/shuakami/qq-chat-exporter/tree/a257756a22febfba783e8ce5926c5382f81e57f6)
+## 统计数据
 
-### V1 版本：Python 原型方案
-**发布时间**: 2021年
-**主要特性**: 最初的 Python 实现版本，功能基础但稳定
-**技术栈**: Python + 文件系统
-**下载地址**: [v1.0.0 Release](https://github.com/shuakami/qq-chat-exporter/releases/tag/v1.0.0)
-**使用文档**: [V1 使用说明](https://github.com/shuakami/qq-chat-exporter/tree/144c3e74c658b2822ad36ac6423d84716b0519b5)
+[![Star History Chart](https://api.star-history.com/svg?repos=shuakami/qq-chat-exporter&type=Date)](https://star-history.com/#shuakami/qq-chat-exporter&Date)
 
 ## 免责声明
 
 **请务必仔细阅读以下免责声明：**
 
-本项目仅供**个人学习研究**和**数据备份**使用，严禁用于任何商业用途和非法目的。项目与腾讯公司无任何关联，属于**非官方第三方工具**。
+本项目仅供**个人学习研究**和**数据备份**使用，严禁用于任何商业用途和非法目的。本项目与腾讯公司无任何关联，属于**非官方第三方工具**。
 
-使用本工具可能违反QQ用户协议。根据最新反馈，腾讯通常采用**警告提示**而非封号处理，但政策可能随时调整。**V3/V4 版本**通过优化请求策略显著降低了风控触发概率，但用户仍需**自行承担使用风险**。
+使用本工具可能违反 QQ 用户协议。尽管 V4 版本通过优化请求策略显著降低了风险，但用户仍需**自行承担使用本工具可能带来的一切风险**，包括但不限于账号安全问题。
 
-请严格遵守**数据隐私**原则，仅导出本人聊天记录，不得用于侵犯他人隐私、诽谤、骚扰等违法行为。导出的数据应妥善保管，避免泄露或滥用。
+请严格遵守**数据隐私**原则，仅导出您本人拥有合法权利的聊天记录，不得用于侵犯他人隐私、诽谤、骚扰等任何违法行为。您导出的数据应妥善保管，防止泄露或被滥用。
 
-开发者不对使用本工具导致的**任何直接或间接损失**负责，包括但不限于账号安全、数据丢失、法律风险等问题。用户应充分评估风险并采取适当的防护措施。
+开发者不对因使用本工具而导致的**任何直接或间接损失**负责，包括但不限于账号安全、数据丢失或潜在的法律风险。
 
-如腾讯公司认为本项目存在不当之处，欢迎通过正当渠道联系处理。
+如腾讯公司认为本项目存在不当之处，欢迎随时联系处理。
 
-**继续使用即表示您已充分理解并同意承担上述所有风险。如有疑虑，请立即停止使用。**
-
-## Star 历史
-
-[![Star History Chart](https://api.star-history.com/svg?repos=shuakami/qq-chat-exporter&type=Date)](https://star-history.com/#shuakami/qq-chat-exporter&Date)
+**继续使用即表示您已充分理解并同意承担上述所有风险。如有任何疑虑，请立即停止使用。**
 
 ## 许可证
 
-本项目采用 [GNU通用公共许可证 v3 (GPL-3.0)](https://www.gnu.org/licenses/gpl-3.0.html) 开源。
-
-如果有帮到你，顺手点个star呗～
-
-没帮到你也欢迎来issue区骂我，狠狠鞭策我～
-
-## 关于源码
-
-我写的太烂了，我之后会找时间慢慢重构
+本项目采用 [GNU General Public License v3.0 (GPL-3.0)](https://www.gnu.org/licenses/gpl-3.0.html) 开源。
