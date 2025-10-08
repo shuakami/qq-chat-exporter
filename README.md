@@ -13,6 +13,9 @@
 > [!NOTE]
 > 这是一款功能强大的 QQ 聊天记录导出工具，可以将您的 QQ 聊天记录（包括消息、图片、视频、文件等）完整地导出为 `HTML`、`JSON`、`TXT` 等多种格式。最新的 V4 版本深度集成了 NapCatQQ 框架，提供企业级的聊天记录管理解决方案。
 
+> [!TIP]
+> **V4.3.0 更新**：全新表情包导出功能现已上线！支持导出市场表情包、收藏表情和系统表情包，并发下载所有表情资源，自动生成结构化 JSON 文件，为您的 QQ 表情包提供完整的本地备份方案。
+
 ## 快速开始
 
 本文档涵盖了系统的核心功能与架构。有关详细的安装和配置说明，请参阅[安装与设置](https://deepwiki.com/shuakami/qq-chat-exporter/1.1-installation-and-setup)。有关完整的使用说明和操作指南，请查看[快速入门指南](https://deepwiki.com/shuakami/qq-chat-exporter/1.2-quick-start-guide)。
