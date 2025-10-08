@@ -22,6 +22,7 @@ import { ResourceHandler } from '../core/resource/ResourceHandler';
 import { ScheduledExportManager } from '../core/scheduler/ScheduledExportManager';
 import { FrontendBuilder } from '../webui/FrontendBuilder';
 import { SecurityManager } from '../security/SecurityManager';
+import { StickerPackExporter } from '../core/sticker/StickerPackExporter';
 
 // 导入类型定义
 import { RawMessage } from '../../core/types/msg';
@@ -91,6 +92,9 @@ export class QQChatExporterApiServer {
     // 安全管理器
     private securityManager: SecurityManager;
     
+    // 表情包导出管理器
+    private stickerPackExporter: StickerPackExporter;
+    
     // 任务管理
     private exportTasks: Map<string, any> = new Map();
 
@@ -121,6 +125,9 @@ export class QQChatExporterApiServer {
         
         // 初始化安全管理器
         this.securityManager = new SecurityManager();
+        
+        // 初始化表情包导出管理器
+        this.stickerPackExporter = new StickerPackExporter(core);
         
         this.setupMiddleware();
         this.setupRoutes();
@@ -268,6 +275,12 @@ export class QQChatExporterApiServer {
                     ],
                     '前端应用': [
                         'GET /qce-v4-tool - Web界面入口'
+                    ],
+                    '表情包管理': [
+                        'GET /api/sticker-packs?types=favorite_emoji,market_pack,system_pack - 获取表情包（可选类型筛选）',
+                        'POST /api/sticker-packs/export - 导出指定表情包',
+                        'POST /api/sticker-packs/export-all - 导出所有表情包',
+                        'GET /api/sticker-packs/export-records?limit=50 - 获取导出记录'
                     ]
                 },
                 websocket: 'ws://localhost:40653',
@@ -769,6 +782,115 @@ export class QQChatExporterApiServer {
                 // 在后台异步处理导出
                 this.processExportTaskAsync(taskId, peer, format, filter, options, fileName, downloadUrl);
 
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // ===================
+        // 表情包管理API
+        // ===================
+
+        // 获取所有表情包
+        this.app.get('/api/sticker-packs', async (req, res) => {
+            const requestId = (req as any).requestId;
+            try {
+                console.log(`[ApiServer] ======= 收到获取表情包列表请求 (${requestId}) =======`);
+
+                // 支持按类型筛选
+                const typesParam = req.query['types'] as string | undefined;
+                let types: any[] | undefined;
+
+                if (typesParam) {
+                    types = typesParam.split(',').map(t => t.trim());
+                    console.log(`[ApiServer] 筛选类型:`, types);
+                }
+
+                console.log(`[ApiServer] 调用 getStickerPacks...`);
+                const startTime = Date.now();
+                const packs = await this.stickerPackExporter.getStickerPacks(types);
+                const elapsed = Date.now() - startTime;
+                console.log(`[ApiServer] getStickerPacks 完成 (耗时: ${elapsed}ms)，返回 ${packs.length} 个表情包`);
+
+                // 按类型分组统计
+                console.log(`[ApiServer] 计算统计信息...`);
+                const stats = {
+                    favorite_emoji: 0,
+                    market_pack: 0,
+                    system_pack: 0
+                };
+
+                for (const pack of packs) {
+                    if (stats.hasOwnProperty(pack.packType)) {
+                        stats[pack.packType as keyof typeof stats]++;
+                    }
+                }
+
+                console.log(`[ApiServer] 统计信息:`, stats);
+                console.log(`[ApiServer] 发送响应...`);
+                this.sendSuccessResponse(res, {
+                    packs,
+                    totalCount: packs.length,
+                    totalStickers: packs.reduce((sum, pack) => sum + pack.stickerCount, 0),
+                    stats
+                }, requestId);
+                console.log(`[ApiServer] ======= 请求处理完成 (${requestId}) =======`);
+            } catch (error) {
+                console.error(`[ApiServer] !!! 请求处理失败 (${requestId}):`, error);
+                this.sendErrorResponse(res, error, requestId);
+            }
+        });
+
+        // 导出指定表情包
+        this.app.post('/api/sticker-packs/export', async (req, res) => {
+            try {
+                const { packId } = req.body;
+                
+                if (!packId) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '表情包ID不能为空', 'MISSING_PACK_ID');
+                }
+                
+                console.log(`[ApiServer] 收到导出表情包请求: ${packId}`);
+                const result = await this.stickerPackExporter.exportStickerPack(packId);
+                
+                if (!result.success) {
+                    throw new SystemError(ErrorType.API_ERROR, result.error || '导出失败', 'EXPORT_FAILED');
+                }
+                
+                this.sendSuccessResponse(res, result, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // 导出所有表情包
+        this.app.post('/api/sticker-packs/export-all', async (req, res) => {
+            try {
+                console.log('[ApiServer] 收到导出所有表情包请求');
+                const result = await this.stickerPackExporter.exportAllStickerPacks();
+
+                if (!result.success) {
+                    throw new SystemError(ErrorType.API_ERROR, result.error || '导出失败', 'EXPORT_ALL_FAILED');
+                }
+
+                this.sendSuccessResponse(res, result, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // 获取导出记录
+        this.app.get('/api/sticker-packs/export-records', async (req, res) => {
+            try {
+                const limit = req.query['limit'] ? parseInt(req.query['limit'] as string) : 50;
+                console.log(`[ApiServer] 收到获取导出记录请求: limit=${limit}`);
+                
+                const records = this.stickerPackExporter.getExportRecords(limit);
+
+                this.sendSuccessResponse(res, {
+                    records,
+                    totalCount: records.length
+                }, (req as any).requestId);
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }

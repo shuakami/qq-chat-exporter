@@ -238,10 +238,10 @@ jobs:
               
               # 检查 QQ 二进制架构
               if command -v file &> /dev/null && [ -f "$NAPCAT_QQ_PATH" ]; then
-                  local qq_arch_info=$(file "$NAPCAT_QQ_PATH")
+                  qq_arch_info=$(file "$NAPCAT_QQ_PATH")
                   echo "📱 QQ 架构信息: $qq_arch_info"
                   
-                  local node_arch=$(node -p 'process.arch')
+                  node_arch=$(node -p 'process.arch')
                   if [[ "$qq_arch_info" == *"arm64"* ]] && [[ "$node_arch" == "x64" ]]; then
                       echo "⚠️  警告：QQ 是 arm64，但 Node 是 x64"
                       echo "   这可能导致原生模块加载失败 (dyld error)"
