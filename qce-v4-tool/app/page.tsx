@@ -39,11 +39,15 @@ import {
   SortDesc,
   Copy,
   CheckCircle,
+  Smile,
+  Package,
+  Sticker,
 } from "lucide-react"
 import type { CreateTaskForm, CreateScheduledExportForm } from "@/types/api"
 import { useQCE } from "@/hooks/use-qce"
 import { useScheduledExports } from "@/hooks/use-scheduled-exports"
 import { useChatHistory } from "@/hooks/use-chat-history"
+import { useStickerPacks } from "@/hooks/use-sticker-packs"
 
 // ✨ 动效核心：统一的 Bezier 曲线与时长
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
@@ -124,9 +128,16 @@ export default function QCEDashboard() {
   const [showStarToast, setShowStarToast] = useState(false)
   const [isFilePathModalOpen, setIsFilePathModalOpen] = useState(false)
   const [selectedFile, setSelectedFile] = useState<{ filePath: string; sessionName: string; fileName: string } | null>(null)
+  const [notifications, setNotifications] = useState<Array<{
+    id: string
+    type: 'success' | 'error' | 'info'
+    title: string
+    message: string
+  }>>([])
   const tasksLoadedRef = useRef(false)
   const scheduledExportsLoadedRef = useRef(false)
   const chatHistoryLoadedRef = useRef(false)
+  const stickerPacksLoadedRef = useRef(false)
   const previousTasksRef = useRef<typeof tasks>([])  // 跟踪任务状态变化
 
   // 是否偏好降级动画
@@ -142,7 +153,7 @@ export default function QCEDashboard() {
   useEffect(() => {
       if (typeof window !== "undefined") {
         const savedTab = localStorage.getItem("qce-active-tab")
-        if (savedTab && ["overview", "sessions", "tasks", "scheduled", "history", "about"].includes(savedTab)) {
+        if (savedTab && ["overview", "sessions", "tasks", "scheduled", "history", "stickers", "about"].includes(savedTab)) {
           setActiveTabState(savedTab)
         }
       }
@@ -192,6 +203,19 @@ export default function QCEDashboard() {
     downloadFile: downloadChatHistoryFile,
     setError: setChatHistoryError,
   } = useChatHistory()
+
+  const {
+    packs: stickerPacks,
+    exportRecords: stickerExportRecords,
+    loading: stickerPacksLoading,
+    error: stickerPacksError,
+    loadStickerPacks,
+    loadExportRecords: loadStickerExportRecords,
+    exportStickerPack,
+    exportAllStickerPacks,
+    getStats: getStickerPacksStats,
+    setError: setStickerPacksError,
+  } = useStickerPacks()
 
   const handleOpenTaskWizard = (preset?: Partial<CreateTaskForm>) => {
     setSelectedPreset(preset)
@@ -243,40 +267,150 @@ export default function QCEDashboard() {
     setSelectedFile(null)
   }
 
+  const addNotification = (type: 'success' | 'error' | 'info', title: string, message: string) => {
+    const id = Date.now().toString()
+    setNotifications(prev => [...prev, { id, type, title, message }])
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id))
+    }, 5000)
+    return id
+  }
+
+  const removeNotification = (id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id))
+  }
+
+  const handleExportStickerPack = async (packId: string, packName: string) => {
+    const loadingId = addNotification('info', '正在导出', `正在导出表情包"${packName}"...`)
+    
+    try {
+      const result = await exportStickerPack(packId)
+      removeNotification(loadingId)
+      
+      if (result) {
+        const exportPath = result.exportPath || '未知路径'
+        addNotification(
+          'success', 
+          '导出成功', 
+          `表情包"${packName}"已导出\n${exportPath}`
+        )
+        // 刷新列表和导出记录
+        stickerPacksLoadedRef.current = false
+        await Promise.all([loadStickerPacks(), loadStickerExportRecords()])
+        stickerPacksLoadedRef.current = true
+        // 滚动到导出记录区域
+        setTimeout(() => {
+          const exportHistoryElement = document.getElementById('sticker-export-history')
+          if (exportHistoryElement) {
+            exportHistoryElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        }, 500)
+      } else {
+        addNotification('error', '导出失败', `表情包"${packName}"导出失败`)
+      }
+    } catch (error) {
+      removeNotification(loadingId)
+      addNotification('error', '导出失败', error instanceof Error ? error.message : '未知错误')
+    }
+  }
+
+  const handleExportAllStickerPacks = async () => {
+    const loadingId = addNotification('info', '正在导出', '正在导出所有表情包...')
+    
+    try {
+      const result = await exportAllStickerPacks()
+      removeNotification(loadingId)
+      
+      if (result) {
+        const exportPath = result.exportPath || '未知路径'
+        const packCount = result.packCount || 0
+        addNotification(
+          'success', 
+          '导出成功', 
+          `已导出 ${packCount} 个表情包\n${exportPath}`
+        )
+        // 刷新列表和导出记录
+        stickerPacksLoadedRef.current = false
+        await Promise.all([loadStickerPacks(), loadStickerExportRecords()])
+        stickerPacksLoadedRef.current = true
+        // 滚动到导出记录区域
+        setTimeout(() => {
+          const exportHistoryElement = document.getElementById('sticker-export-history')
+          if (exportHistoryElement) {
+            exportHistoryElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        }, 500)
+      } else {
+        addNotification('error', '导出失败', '表情包导出失败')
+      }
+    } catch (error) {
+      removeNotification(loadingId)
+      addNotification('error', '导出失败', error instanceof Error ? error.message : '未知错误')
+    }
+  }
+
+  // 任务列表加载
   useEffect(() => {
     if (activeTab === "tasks" && !tasksLoadedRef.current) {
-      loadTasks().then(() => {
-        tasksLoadedRef.current = true
+      tasksLoadedRef.current = true
+      loadTasks().catch(() => {
+        tasksLoadedRef.current = false
       })
     }
-  }, [activeTab, loadTasks])
+  }, [activeTab])
   
+  // 定时导出加载
   useEffect(() => {
     if (activeTab === "scheduled" && !scheduledExportsLoadedRef.current) {
-      loadScheduledExports().then(() => {
-        scheduledExportsLoadedRef.current = true
+      scheduledExportsLoadedRef.current = true
+      loadScheduledExports().catch(() => {
+        scheduledExportsLoadedRef.current = false
       })
     }
-  }, [activeTab, loadScheduledExports])
+  }, [activeTab])
   
+  // 聊天历史加载
   useEffect(() => {
     if (activeTab === "history" && !chatHistoryLoadedRef.current) {
-      loadChatHistory().then(() => {
-        chatHistoryLoadedRef.current = true
+      chatHistoryLoadedRef.current = true
+      loadChatHistory().catch(() => {
+        chatHistoryLoadedRef.current = false
       })
     }
-  }, [activeTab, loadChatHistory])
+  }, [activeTab])
+  
+  // 表情包加载
+  useEffect(() => {
+    if (activeTab === "stickers" && !stickerPacksLoadedRef.current) {
+      stickerPacksLoadedRef.current = true
+      Promise.all([
+        loadStickerPacks(),
+        loadStickerExportRecords()
+      ]).catch((error) => {
+        console.error('[QCE] 加载表情包数据失败:', error)
+        stickerPacksLoadedRef.current = false
+      })
+    }
+  }, [activeTab])
   
   const handleLoadTasks = async () => {
     tasksLoadedRef.current = false
-    await loadTasks()
-    tasksLoadedRef.current = true
+    try {
+      await loadTasks()
+      tasksLoadedRef.current = true
+    } catch {
+      tasksLoadedRef.current = false
+    }
   }
 
   const handleLoadScheduledExports = async () => {
     scheduledExportsLoadedRef.current = false
-    await loadScheduledExports()
-    scheduledExportsLoadedRef.current = true
+    try {
+      await loadScheduledExports()
+      scheduledExportsLoadedRef.current = true
+    } catch {
+      scheduledExportsLoadedRef.current = false
+    }
   }
 
   const handleLoadChatHistory = async () => {
@@ -356,6 +490,7 @@ export default function QCEDashboard() {
               ["tasks", "任务"],
               ["scheduled", "定时"],
               ["history", "聊天记录"],
+              ["stickers", "表情包"],
               ["about", "关于"]
             ].map(([id, label]) => (
               <motion.button
@@ -525,6 +660,33 @@ export default function QCEDashboard() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Notification Cards */}
+      <div className="fixed bottom-6 right-6 z-50 space-y-3 pointer-events-none">
+        <AnimatePresence>
+          {notifications.map((notification, index) => (
+            <motion.div
+              key={notification.id}
+              className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white/95 p-4 shadow-2xl shadow-neutral-500/10 backdrop-blur-lg pointer-events-auto"
+              style={{ marginBottom: index > 0 ? '12px' : 0 }}
+              {...toastAnim}
+            >
+              <button 
+                onClick={() => setNotifications(prev => prev.filter(n => n.id !== notification.id))}
+                className="absolute top-3 right-3 rounded-full p-1.5 text-neutral-400 hover:text-neutral-600 hover:bg-neutral-100 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <div className="flex items-start gap-3 pr-8">
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-neutral-900">{notification.title}</h3>
+                  <p className="mt-1 text-sm text-neutral-600">{notification.message}</p>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
 
       {/* Main */}
       <main className="px-6 pb-16">
@@ -1140,10 +1302,10 @@ export default function QCEDashboard() {
                   animate="animate"
                 >
                   {[
-                    { label: "总任务数", value: getScheduledStats().total, color: "" },
-                    { label: "已启用", value: getScheduledStats().enabled, color: "text-green-700" },
-                    { label: "已禁用", value: getScheduledStats().disabled, color: "text-neutral-700" },
-                    { label: "每日任务", value: getScheduledStats().daily, color: "text-blue-700" },
+                    { label: "总任务数", value: getScheduledStats().total },
+                    { label: "已启用", value: getScheduledStats().enabled },
+                    { label: "已禁用", value: getScheduledStats().disabled },
+                    { label: "每日任务", value: getScheduledStats().daily },
                   ].map((s, i) => (
                     <motion.div
                       key={i}
@@ -1152,7 +1314,7 @@ export default function QCEDashboard() {
                       {...hoverLift}
                     >
                       <p className="text-sm text-neutral-600">{s.label}</p>
-                      <p className={`mt-2 text-2xl font-semibold ${s.color}`}>{s.value}</p>
+                      <p className="mt-2 text-2xl font-semibold text-neutral-900">{s.value}</p>
                     </motion.div>
                   ))}
                 </motion.section>
@@ -1328,10 +1490,10 @@ export default function QCEDashboard() {
                   animate="animate"
                 >
                   {[
-                    { label: "总文件数", value: getChatHistoryStats().total, color: "" },
-                    { label: "HTML 文件", value: getChatHistoryStats().htmlFiles, color: "" },
-                    { label: "JSON 文件", value: getChatHistoryStats().jsonFiles, color: "" },
-                    { label: "总大小", value: getChatHistoryStats().totalSize, color: "" },
+                    { label: "总文件数", value: getChatHistoryStats().total },
+                    { label: "HTML 文件", value: getChatHistoryStats().htmlFiles },
+                    { label: "JSON 文件", value: getChatHistoryStats().jsonFiles },
+                    { label: "总大小", value: getChatHistoryStats().totalSize },
                   ].map((s, i) => (
                     <motion.div
                       key={i}
@@ -1340,7 +1502,7 @@ export default function QCEDashboard() {
                       {...hoverLift}
                     >
                       <p className="text-sm text-neutral-600">{s.label}</p>
-                      <p className={`mt-2 text-2xl font-semibold ${s.color}`}>{s.value}</p>
+                      <p className="mt-2 text-2xl font-semibold text-neutral-900">{s.value}</p>
                     </motion.div>
                   ))}
                 </motion.section>
@@ -1464,6 +1626,304 @@ export default function QCEDashboard() {
                     })}
                   </motion.div>
                 )}
+              </motion.div>
+            )}
+
+            {activeTab === "stickers" && (
+              <motion.div key="tab-stickers" {...fadeSlide} className="space-y-10 pt-10">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-neutral-900">表情包管理</h2>
+                    <p className="text-neutral-600 mt-1">导出收藏的表情、市场表情包和系统表情包</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <motion.div whileTap={{ scale: 0.98 }}>
+                      <Button
+                        onClick={async () => {
+                          stickerPacksLoadedRef.current = false
+                          try {
+                            await Promise.all([loadStickerPacks(), loadStickerExportRecords()])
+                            stickerPacksLoadedRef.current = true
+                          } catch (error) {
+                            console.error('[QCE] 刷新表情包失败:', error)
+                            stickerPacksLoadedRef.current = false
+                          }
+                        }}
+                        disabled={stickerPacksLoading}
+                        variant="outline"
+                        className="rounded-full"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        {stickerPacksLoading ? "加载中..." : "刷新列表"}
+                      </Button>
+                    </motion.div>
+                    <motion.div whileTap={{ scale: 0.98 }}>
+                      <Button
+                        onClick={handleExportAllStickerPacks}
+                        disabled={stickerPacksLoading || stickerPacks.length === 0}
+                        className="rounded-full"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        导出所有
+                      </Button>
+                    </motion.div>
+                  </div>
+                </div>
+
+                {/* Stats */}
+                <motion.section
+                  className="grid grid-cols-1 sm:grid-cols-4 gap-3"
+                  variants={STAG.container}
+                  initial="initial"
+                  animate="animate"
+                >
+                  {[
+                    { label: "总表情包数", value: getStickerPacksStats().total, icon: Package },
+                    { label: "收藏表情", value: getStickerPacksStats().favorite_emoji, icon: Star },
+                    { label: "市场表情包", value: getStickerPacksStats().market_pack, icon: Sticker },
+                    { label: "系统表情包", value: getStickerPacksStats().system_pack, icon: Smile },
+                  ].map((s, i) => (
+                    <motion.div
+                      key={i}
+                      className="rounded-2xl border border-neutral-200 bg-white/60 p-4"
+                      variants={STAG.item}
+                      {...hoverLift}
+                    >
+                      <div className="flex items-center gap-2">
+                        <s.icon className="w-4 h-4 text-neutral-500" />
+                        <p className="text-sm text-neutral-600">{s.label}</p>
+                      </div>
+                      <p className="mt-2 text-2xl font-semibold text-neutral-900">{s.value}</p>
+                    </motion.div>
+                  ))}
+                </motion.section>
+
+                {/* Sticker Packs List */}
+                {stickerPacks.length === 0 ? (
+                  <motion.div
+                    className="rounded-2xl border border-dashed border-neutral-300 bg-white/60 py-14 text-center"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                  >
+                    <div className="flex flex-col items-center gap-4">
+                      <div className="p-4 rounded-full bg-neutral-100">
+                        <Smile className="w-8 h-8 text-neutral-400" />
+                      </div>
+                      <div>
+                        <p className="text-neutral-700 font-medium">暂无表情包</p>
+                        <p className="text-neutral-500 mt-1">点击"刷新列表"加载表情包数据</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    className="space-y-2"
+                    variants={STAG.container}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                  >
+                    {stickerPacks.map((pack) => {
+                      const getPackIcon = () => {
+                        switch (pack.packType) {
+                          case 'favorite_emoji':
+                            return <Star className="w-5 h-5 text-yellow-600" />
+                          case 'market_pack':
+                            return <Sticker className="w-5 h-5 text-blue-600" />
+                          case 'system_pack':
+                            return <Smile className="w-5 h-5 text-purple-600" />
+                          default:
+                            return <Package className="w-5 h-5 text-neutral-600" />
+                        }
+                      }
+
+                      const getPackTypeText = () => {
+                        switch (pack.packType) {
+                          case 'favorite_emoji':
+                            return '收藏表情'
+                          case 'market_pack':
+                            return '市场表情包'
+                          case 'system_pack':
+                            return '系统表情包'
+                          default:
+                            return '未知类型'
+                        }
+                      }
+
+                      return (
+                        <motion.div
+                          key={pack.packId}
+                          className="rounded-2xl border border-neutral-200 bg-white/70 hover:bg-white hover:border-neutral-300 transition-all duration-200"
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: DUR.normal, ease: EASE.inOut }}
+                          {...hoverLift}
+                        >
+                          <div className="flex items-center gap-4 p-5">
+                            {/* Icon */}
+                            <div className="flex-shrink-0">
+                              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-neutral-100 to-neutral-50 border border-neutral-200 flex items-center justify-center">
+                                {getPackIcon()}
+                              </div>
+                            </div>
+
+                            {/* Content */}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <h3 className="truncate font-semibold text-neutral-900 text-lg">
+                                  {pack.packName}
+                                </h3>
+                                <Badge variant="outline" className="rounded-full text-xs">
+                                  {getPackTypeText()}
+                                </Badge>
+                              </div>
+                              
+                              <div className="mt-1 flex items-center gap-4 text-sm text-neutral-600">
+                                <div className="flex items-center gap-1">
+                                  <Smile className="w-4 h-4" />
+                                  <span>{pack.stickerCount} 个表情</span>
+                                </div>
+                                {pack.description && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="truncate">{pack.description}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {pack.packType === 'market_pack' && pack.rawData?.packId && (
+                                <div className="mt-2 text-xs text-neutral-500">
+                                  包ID: {pack.rawData.packId}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex items-center gap-2">
+                              <motion.div whileTap={{ scale: 0.95 }}>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 rounded-full"
+                                  onClick={() => handleExportStickerPack(pack.packId, pack.packName)}
+                                  disabled={stickerPacksLoading}
+                                >
+                                  <Download className="w-3 h-3 mr-1" />
+                                  导出
+                                </Button>
+                              </motion.div>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )
+                    })}
+                  </motion.div>
+                )}
+
+                {/* Export History */}
+                <motion.section 
+                  id="sticker-export-history"
+                  className="space-y-4"
+                  initial={{ opacity: 1 }}
+                  animate={{ opacity: 1 }}
+                >
+                  <div>
+                    <h3 className="text-lg font-semibold text-neutral-900">导出记录</h3>
+                    <p className="text-sm text-neutral-600 mt-1">最近的表情包导出历史</p>
+                  </div>
+
+                  {stickerExportRecords.length === 0 ? (
+                    <motion.div
+                      className="rounded-2xl border border-dashed border-neutral-300 bg-white/60 py-10 text-center"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                    >
+                      <div className="flex flex-col items-center gap-3">
+                        <Clock className="w-6 h-6 text-neutral-400" />
+                        <p className="text-neutral-600">暂无导出记录</p>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <div className="space-y-2">
+                      {stickerExportRecords.slice(0, 10).map((record) => (
+                        <motion.div
+                          key={record.id}
+                          className={`rounded-xl border ${
+                            record.success 
+                              ? 'border-neutral-200 bg-white/70 hover:bg-white' 
+                              : 'border-neutral-200 bg-neutral-50/50'
+                          } transition-all duration-200`}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: DUR.normal, ease: EASE.inOut }}
+                          whileHover={{ scale: 1.005, transition: { duration: DUR.fast, ease: EASE.inOut } }}
+                        >
+                          <div className="flex items-center gap-4 p-4">
+                            {/* Content */}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-medium text-neutral-900">
+                                  {record.packName || '未命名'}
+                                </h4>
+                                <Badge variant="outline" className="text-xs text-neutral-600 border-neutral-300">
+                                  {record.type === 'all' ? '全部导出' : '单包导出'}
+                                </Badge>
+                                {!record.success && (
+                                  <Badge variant="outline" className="text-xs text-neutral-600 border-neutral-300">
+                                    失败
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="mt-1 flex items-center gap-3 text-sm text-neutral-600">
+                                <div className="flex items-center gap-1">
+                                  <Package className="w-3 h-3" />
+                                  <span>{record.packCount} 个表情包</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <Smile className="w-3 h-3" />
+                                  <span>{record.stickerCount} 个表情</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  <span>{new Date(record.exportTime).toLocaleString('zh-CN')}</span>
+                                </div>
+                              </div>
+                              {record.success && record.exportPath && (
+                                <div className="mt-2 text-xs text-neutral-500 font-mono truncate">
+                                  {record.exportPath}
+                                </div>
+                              )}
+                              {!record.success && record.error && (
+                                <div className="mt-2 text-xs text-neutral-600">
+                                  错误: {record.error}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Actions */}
+                            {record.success && record.exportPath && (
+                              <div className="flex-shrink-0">
+                                <motion.div whileTap={{ scale: 0.95 }}>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(record.exportPath)
+                                      addNotification('success', '已复制', '路径已复制到剪贴板')
+                                    }}
+                                  >
+                                    <Copy className="w-3 h-3 mr-1" />
+                                    复制路径
+                                  </Button>
+                                </motion.div>
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  )}
+                </motion.section>
               </motion.div>
             )}
 

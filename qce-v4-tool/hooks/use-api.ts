@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useCallback, useMemo } from "react"
 import type { APIResponse } from "@/types/api"
 import AuthManager from "@/lib/auth"
 
@@ -50,8 +50,8 @@ export function useApi() {
     }
   }, [])
 
-  return {
+  return useMemo(() => ({
     apiCall,
     downloadFile,
-  }
+  }), [apiCall, downloadFile])
 }

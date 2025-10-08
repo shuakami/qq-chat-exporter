@@ -950,7 +950,7 @@ export class OneBotMsgApi {
             //该ID仅用查看 无法调用
             return await this.parseMessage(msg, 'array', true);
         }));
-        return parsed.filter(item => item !== undefined);
+        return parsed.filter((item): item is OB11Message => item !== undefined);
     }
 
     async parseMessage(
@@ -1073,8 +1073,9 @@ export class OneBotMsgApi {
                             elementWrapper: MessageElement,
                             context: RecvMessageContext
                         ) => Promise<OB11MessageData | null>;
+                        const elementValue = element[key] as Exclude<MessageElement[keyof RawToOb11Converters], null | undefined>;
                         const parsedElement = await converters?.(
-                            element[key],
+                            elementValue,
                             msg,
                             element,
                             { parseMultMsg, disableGetUrl, quick_reply }
@@ -1135,7 +1136,7 @@ export class OneBotMsgApi {
             callResultList.push(callResult);
         }
         const ret = await Promise.all(callResultList);
-        const sendElements: SendMessageElement[] = ret.filter(ele => !!ele);
+        const sendElements: SendMessageElement[] = ret.filter((ele): ele is SendMessageElement => !!ele);
         return { sendElements, deleteAfterSentFiles };
     }
 
