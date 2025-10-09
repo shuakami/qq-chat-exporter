@@ -1366,13 +1366,9 @@ export class QQChatExporterApiServer {
                     await exporter.export(filteredMessages, chatInfo);
                     break;
                 case 'HTML':
-                    // HTML导出需要CleanMessage格式，先解析消息
+                    // 🚀 HTML流式导出：使用异步生成器，实现全程低内存占用
+                    console.log(`[ApiServer] 使用流式导出 HTML，传入 ${filteredMessages.length} 条 RawMessage`);
                     const parser = new SimpleMessageParser();
-                    const cleanMessages = await parser.parseMessages(filteredMessages);
-                    
-                    // 🔧 关键修复：更新资源路径为本地路径
-                    await parser.updateResourcePaths(cleanMessages, resourceMap);
-                    console.log(`[ApiServer] 已更新${cleanMessages.length}条消息的资源路径为本地路径`);
                     
                     const htmlExporter = new ModernHtmlExporter({
                         outputPath: filePath,
@@ -1380,7 +1376,11 @@ export class QQChatExporterApiServer {
                         includeSystemMessages: exportOptions.includeSystemMessages,
                         encoding: exportOptions.encoding
                     });
-                    await htmlExporter.export(cleanMessages, chatInfo);
+                    
+                    // 使用流式API：逐条解析、更新资源路径、写入HTML，全程低内存
+                    const messageStream = parser.parseMessagesStream(filteredMessages, resourceMap);
+                    await htmlExporter.exportFromIterable(messageStream, chatInfo);
+                    console.log(`[ApiServer] HTML流式导出完成，内存占用已优化`);
                     break;
                 default:
                     throw new SystemError(ErrorType.VALIDATION_ERROR, '不支持的导出格式', 'INVALID_FORMAT');

@@ -273,6 +273,51 @@ export class SimpleMessageParser {
   }
 
   /**
+   * 【流式版本】解析消息生成器 - 逐条解析并yield，实现低内存占用
+   * 适用于大量消息的场景，配合流式导出可实现全程低内存
+   */
+  async *parseMessagesStream(
+    messages: RawMessage[],
+    resourceMap?: Map<string, any>
+  ): AsyncGenerator<CleanMessage, void, undefined> {
+    const total = messages.length;
+    let processed = 0;
+
+    for (let i = 0; i < messages.length; i++) {
+      const message = messages[i];
+      if (!message) continue; // 跳过undefined元素
+      
+      try {
+        const cleanMessage = await this.parseMessage(message);
+        
+        // 如果提供了resourceMap，立即更新这条消息的资源路径
+        if (resourceMap && resourceMap.has(message.msgId)) {
+          const resources = resourceMap.get(message.msgId);
+          if (resources && cleanMessage.content.elements) {
+            this.updateSingleMessageResourcePaths(cleanMessage, resources);
+          }
+        }
+
+        processed++;
+        if (this.onProgress) {
+          this.onProgress(processed, total);
+        } else if (processed % this.options.progressEvery === 0) {
+          console.log(`[SimpleMessageParser] 已解析 ${processed}/${total}`);
+        }
+
+        if (this.options.yieldEvery > 0 && (i + 1) % this.options.yieldEvery === 0) {
+          await yieldToEventLoop();
+        }
+
+        yield cleanMessage;
+      } catch (error) {
+        console.error('解析消息失败:', error, message.msgId);
+        yield this.createErrorMessage(message, error);
+      }
+    }
+  }
+
+  /**
    * 解析单条消息（公开）
    */
   async parseSingleMessage(message: RawMessage): Promise<CleanMessage> {
@@ -776,33 +821,40 @@ export class SimpleMessageParser {
     for (let mi = 0; mi < messages.length; mi++) {
       const message = messages[mi]!;
       const resources = resourceMap.get(message.id);
-      if (!resources || resources.length === 0) continue;
-
-      // 更新 message.content.resources
-      const resArr = message.content.resources;
-      const n = Math.min(resArr.length, resources.length);
-      for (let i = 0; i < n; i++) {
-        const info = resources[i];
-        if (info && info.localPath) {
-          const fileName = path.basename(info.localPath);
-          resArr[i]!.localPath = fileName;
-          resArr[i]!.url = `resources/${info.type}s/${fileName}`;
-          resArr[i]!.type = info.type;
-        }
+      if (resources && resources.length > 0) {
+        this.updateSingleMessageResourcePaths(message, resources);
       }
+    }
+  }
 
-      // 更新 elements 中的 URL
-      const els = message.content.elements;
-      for (let i = 0; i < els.length; i++) {
-        const el = els[i]!;
-        if (!el.data || typeof el.data !== 'object') continue;
-        const found = resources.find((r) => r.fileName === el.data.filename);
-        if (found && found.localPath) {
-          const fileName = path.basename(found.localPath);
-          (el.data as any).localPath = fileName;
-          if (el.type === 'image' || el.type === 'video' || el.type === 'audio' || el.type === 'file') {
-            (el.data as any).url = `resources/${found.type}s/${fileName}`;
-          }
+  /**
+   * 更新单条消息的资源路径（私有方法，供批量和流式使用）
+   */
+  private updateSingleMessageResourcePaths(message: CleanMessage, resources: any[]): void {
+    // 更新 message.content.resources
+    const resArr = message.content.resources;
+    const n = Math.min(resArr.length, resources.length);
+    for (let i = 0; i < n; i++) {
+      const info = resources[i];
+      if (info && info.localPath) {
+        const fileName = path.basename(info.localPath);
+        resArr[i]!.localPath = fileName;
+        resArr[i]!.url = `resources/${info.type}s/${fileName}`;
+        resArr[i]!.type = info.type;
+      }
+    }
+
+    // 更新 elements 中的 URL
+    const els = message.content.elements;
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i]!;
+      if (!el.data || typeof el.data !== 'object') continue;
+      const found = resources.find((r) => r.fileName === el.data.filename);
+      if (found && found.localPath) {
+        const fileName = path.basename(found.localPath);
+        (el.data as any).localPath = fileName;
+        if (el.type === 'image' || el.type === 'video' || el.type === 'audio' || el.type === 'file') {
+          (el.data as any).url = `resources/${found.type}s/${fileName}`;
         }
       }
     }
