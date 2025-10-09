@@ -520,15 +520,8 @@ export class ScheduledExportManager {
                 return history;
             }
 
-            // 解析消息
-            const parser = new SimpleMessageParser();
-            const parsedMessages = await parser.parseMessages(allMessages);
-
             // 下载资源
             const resourceMap = await this.resourceHandler.processMessageResources(allMessages);
-            if (resourceMap.size > 0) {
-                await parser.updateResourcePaths(parsedMessages, resourceMap);
-            }
 
             // 生成文件名
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -548,16 +541,25 @@ export class ScheduledExportManager {
                 type: (task.peer.chatType === 2 ? 'group' : 'private') as 'group' | 'private'
             };
 
+            const parser = new SimpleMessageParser();
+
             switch (task.format.toUpperCase()) {
                 case 'HTML':
+                    // 🚀 使用流式导出HTML，优化内存占用
                     const htmlExporter = new ModernHtmlExporter({
                         outputPath: filePath,
                         includeResourceLinks: task.options.includeResourceLinks ?? true,
                         includeSystemMessages: task.options.includeSystemMessages ?? true
                     });
-                    await htmlExporter.export(parsedMessages, chatInfo);
+                    const htmlMessageStream = parser.parseMessagesStream(allMessages, resourceMap);
+                    await htmlExporter.exportFromIterable(htmlMessageStream, chatInfo);
                     break;
                 case 'JSON':
+                    // JSON/TXT 导出仍需要解析全部消息（它们本身就比较轻量）
+                    const parsedMessagesForJson = await parser.parseMessages(allMessages);
+                    if (resourceMap.size > 0) {
+                        await parser.updateResourcePaths(parsedMessagesForJson, resourceMap);
+                    }
                     const jsonExporter = new JsonExporter({
                         outputPath: filePath,
                         includeResourceLinks: task.options.includeResourceLinks ?? true,
@@ -566,9 +568,13 @@ export class ScheduledExportManager {
                         timeFormat: 'YYYY-MM-DD HH:mm:ss',
                         encoding: 'utf-8'
                     });
-                    await jsonExporter.export(parsedMessages as any, chatInfo);
+                    await jsonExporter.export(parsedMessagesForJson as any, chatInfo);
                     break;
                 case 'TXT':
+                    const parsedMessagesForTxt = await parser.parseMessages(allMessages);
+                    if (resourceMap.size > 0) {
+                        await parser.updateResourcePaths(parsedMessagesForTxt, resourceMap);
+                    }
                     const textExporter = new TextExporter({
                         outputPath: filePath,
                         includeResourceLinks: task.options.includeResourceLinks ?? true,
@@ -577,14 +583,14 @@ export class ScheduledExportManager {
                         prettyFormat: false,
                         encoding: 'utf-8'
                     });
-                    await textExporter.export(parsedMessages as any, chatInfo);
+                    await textExporter.export(parsedMessagesForTxt as any, chatInfo);
                     break;
             }
 
             const stats = fs.statSync(filePath);
             
             history.status = 'success';
-            history.messageCount = parsedMessages.length;
+            history.messageCount = allMessages.length;
             history.filePath = filePath;
             history.fileSize = stats.size;
 
@@ -593,7 +599,7 @@ export class ScheduledExportManager {
             task.nextRun = this.calculateNextRun(task.scheduleType, task.cronExpression, task.executeTime);
             await this.saveScheduledTask(task);
 
-            console.log(`[ScheduledExportManager] 定时导出任务执行成功: ${task.name}, 消息数: ${parsedMessages.length}, 文件: ${fileName}`);
+            console.log(`[ScheduledExportManager] 定时导出任务执行成功: ${task.name}, 消息数: ${allMessages.length}, 文件: ${fileName}`);
 
         } catch (error) {
             history.status = 'failed';
