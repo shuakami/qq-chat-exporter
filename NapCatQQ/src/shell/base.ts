@@ -325,47 +325,6 @@ export async function NCoreInitShell() {
     }
     const basicInfoWrapper = new QQBasicInfoWrapper({ logger });
     
-    // 检查架构兼容性 (macOS)
-    if (os.platform() === 'darwin') {
-        const nodeArch = process.arch;
-        const qqPath = process.env['NAPCAT_QQ_PATH'] || 
-                      '/Applications/QQ.app/Contents/MacOS/QQ';
-        
-        if (fs.existsSync(qqPath)) {
-            try {
-                const { execSync } = await import('child_process');
-                const fileOutput = execSync(`file "${qqPath}"`, { encoding: 'utf-8' });
-                
-                const isQQArm64 = fileOutput.includes('arm64');
-                const isQQx64 = fileOutput.includes('x86_64');
-                
-                if ((isQQArm64 && nodeArch === 'x64') || (isQQx64 && nodeArch === 'arm64')) {
-                    logger.logError('============================================');
-                    logger.logError('[架构不匹配] NapCat 无法启动！');
-                    logger.logError(`Node.js 架构: ${nodeArch}`);
-                    logger.logError(`QQ 架构: ${isQQArm64 ? 'arm64' : 'x64'}`);
-                    logger.logError('');
-                    logger.logError('解决方案：');
-                    if (isQQArm64 && nodeArch === 'x64') {
-                        logger.logError('1. 下载 arm64 版本的 NapCat');
-                        logger.logError('   https://github.com/NapNeko/NapCatQQ/releases');
-                        logger.logError('2. 使用 arm64 的 Node.js');
-                        logger.logError('   arch -arm64 bash ./napcat-launcher.sh');
-                    } else {
-                        logger.logError('1. 下载 x64 版本的 NapCat');
-                        logger.logError('   https://github.com/NapNeko/NapCatQQ/releases');
-                        logger.logError('2. 使用 x64 的 Node.js (Rosetta)');
-                        logger.logError('   arch -x86_64 bash ./napcat-launcher.sh');
-                    }
-                    logger.logError('============================================');
-                    process.exit(1);
-                }
-            } catch (error) {
-                logger.logWarn('[架构检测] 无法检测 QQ 架构:', (error as Error).message);
-            }
-        }
-    }
-    
     const wrapper = loadQQWrapper(basicInfoWrapper.getFullQQVersion());
 
     const o3Service = wrapper.NodeIO3MiscService.get();
