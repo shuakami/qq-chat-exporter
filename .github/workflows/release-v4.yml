@@ -125,42 +125,6 @@ jobs:
           echo "NapCat Directory: $SCRIPT_DIR"
           echo ""
           
-          # 架构兼容性检查
-          check_architecture() {
-              local node_arch=$(node -p 'process.arch')
-              local system_arch=$(uname -m)
-              local build_arch="${{ matrix.arch }}"
-              
-              # 将系统架构标准化为Node格式
-              case "$system_arch" in
-                  x86_64) system_arch="x64" ;;
-                  aarch64|arm64) system_arch="arm64" ;;
-              esac
-              
-              if [[ "$node_arch" != "$build_arch" ]]; then
-                  echo "⚠️  警告：架构不匹配！"
-                  echo "   构建架构: $build_arch"
-                  echo "   Node 架构: $node_arch"
-                  echo "   系统架构: $system_arch"
-                  echo ""
-                  echo "请下载匹配您系统架构的 NapCat 版本："
-                  if [[ "$system_arch" == "arm64" ]]; then
-                      echo "   - macOS Apple Silicon (M1/M2/M3): NapCat.QCE.V4-macOS-arm64.tar.gz"
-                  else
-                      echo "   - macOS Intel: NapCat.QCE.V4-macOS-x64.tar.gz"
-                  fi
-                  echo ""
-                  echo "或使用匹配架构的 Node.js："
-                  echo "   arch -$build_arch bash ./napcat-launcher.sh"
-                  echo ""
-                  read -p "是否继续运行？(y/N) " -n 1 -r
-                  echo
-                  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                      exit 1
-                  fi
-              fi
-          }
-          
           # macOS QQ路径检测
           detect_macos_qq() {
               local qq_app_paths=(
@@ -215,9 +179,6 @@ jobs:
           if [[ "$OSTYPE" == "darwin"* ]]; then
               echo "🍎 macOS 环境检测..."
               
-              # 架构兼容性检查
-              check_architecture
-              
               # 检查环境变量
               if [ -n "$NAPCAT_QQ_PATH" ] && [ -f "$NAPCAT_QQ_PATH" ]; then
                   echo "✅ 使用环境变量指定的QQ路径: $NAPCAT_QQ_PATH"
@@ -236,31 +197,11 @@ jobs:
                   fi
               fi
               
-              # 检查 QQ 二进制架构
-              if command -v file &> /dev/null && [ -f "$NAPCAT_QQ_PATH" ]; then
-                  qq_arch_info=$(file "$NAPCAT_QQ_PATH")
-                  echo "📱 QQ 架构信息: $qq_arch_info"
-                  
-                  node_arch=$(node -p 'process.arch')
-                  if [[ "$qq_arch_info" == *"arm64"* ]] && [[ "$node_arch" == "x64" ]]; then
-                      echo "⚠️  警告：QQ 是 arm64，但 Node 是 x64"
-                      echo "   这可能导致原生模块加载失败 (dyld error)"
-                      echo "   建议使用 arm64 版本的 NapCat 和 Node.js"
-                  elif [[ "$qq_arch_info" == *"x86_64"* ]] && [[ "$node_arch" == "arm64" ]]; then
-                      echo "⚠️  警告：QQ 是 x64，但 Node 是 arm64"
-                      echo "   这可能导致原生模块加载失败"
-                      echo "   建议使用 x64 版本的 NapCat: arch -x86_64 bash ./napcat-launcher.sh"
-                  fi
-              fi
-              
               cd "$SCRIPT_DIR"
               
           # Linux特殊处理
           elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
               echo "🐧 Linux 环境检测..."
-              
-              # 架构兼容性检查
-              check_architecture
               
               # 检查是否在QQ目录中运行
               if [ -f "./resources/app/package.json" ]; then
