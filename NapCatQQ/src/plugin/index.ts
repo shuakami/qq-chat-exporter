@@ -40,7 +40,7 @@ export const plugin_init = async (
 
 /**
  * 消息处理
- * 处理所有接收到的消息（保留基本ping-pong功能）
+ * 不处理任何消息，避免在QQ群中自动回复
  */
 export const plugin_onmessage = async (
     adapter: string, 
@@ -51,36 +51,8 @@ export const plugin_onmessage = async (
     instance: OB11PluginMangerAdapter
 ) => {
     try {
-        // 保留原有的ping-pong功能
-        if (message.raw_message === 'ping') {
-            const ret = await action.get('send_group_msg')?.handle({ 
-                group_id: String(message.group_id), 
-                message: 'pong - QQ聊天记录导出工具API已启动，访问 http://localhost:40653 查看文档' 
-            }, adapter, instance.config);
-            console.log('[Plugin] Ping-pong response:', ret);
-            return;
-        }
-        
-        // 提示用户使用API
-        if (message.raw_message.startsWith('/export') || message.raw_message.startsWith('/help')) {
-            const helpMessage = `QQ聊天记录导出工具已启动API服务器！
-🌐 API地址: http://localhost:40653
-📚 完整文档: http://localhost:40653/
-📄 API.md: 项目根目录
-💡 现在通过HTTP API调用所有功能，支持WebSocket实时进度追踪`;
-
-            if (message.group_id) {
-                await action.get('send_group_msg')?.handle({ 
-                    group_id: String(message.group_id), 
-                    message: helpMessage 
-                }, adapter, instance.config);
-            } else if (message.user_id) {
-                await action.get('send_private_msg')?.handle({ 
-                    user_id: String(message.user_id), 
-                    message: helpMessage 
-                }, adapter, instance.config);
-            }
-        }
+        // 移除所有自动回复功能，避免在QQ群中自动回复消息
+        // 如需帮助，请访问 http://localhost:40653 查看API文档
         
     } catch (error) {
         console.error('[Plugin] 消息处理失败:', error);
