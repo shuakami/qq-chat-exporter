@@ -734,14 +734,22 @@ ${this.generateFooter()}
         // 资源根目录：跨平台 HOME 目录
         const resourceRoot = path.join(os.homedir(), '.qq-chat-exporter', 'resources');
 
+        // 修复 Issue #30: 处理 images/xxx.jpg 格式的相对路径
+        const resourceTypes = ['images/', 'videos/', 'audios/', 'files/'];
+        for (const type of resourceTypes) {
+            if (resourcePath.startsWith(type)) {
+                return path.join(resourceRoot, resourcePath);
+            }
+        }
+
         // resources/ 相对路径
         if (resourcePath.startsWith('resources/')) {
             return path.resolve(resourceRoot, resourcePath.substring(10)); // 去掉 'resources/'
         }
 
         // 仅文件名：遍历资源类型目录
-        const resourceTypes = ['images', 'videos', 'audios', 'files'];
-        for (const type of resourceTypes) {
+        const resourceTypeDirs = ['images', 'videos', 'audios', 'files'];
+        for (const type of resourceTypeDirs) {
             const fullPath = path.join(resourceRoot, type, resourcePath);
             if (fs.existsSync(fullPath)) return fullPath;
         }

@@ -838,8 +838,10 @@ export class SimpleMessageParser {
       const info = resources[i];
       if (info && info.localPath) {
         const fileName = path.basename(info.localPath);
-        resArr[i]!.localPath = fileName;
-        resArr[i]!.url = `resources/${info.type}s/${fileName}`;
+        const typeDir = info.type + 's';  // image -> images, video -> videos
+        // 修复 Issue #30: 保留类型子目录，让导出器能正确找到文件
+        resArr[i]!.localPath = `${typeDir}/${fileName}`;
+        resArr[i]!.url = `resources/${typeDir}/${fileName}`;
         resArr[i]!.type = info.type;
       }
     }
@@ -852,9 +854,11 @@ export class SimpleMessageParser {
       const found = resources.find((r) => r.fileName === el.data.filename);
       if (found && found.localPath) {
         const fileName = path.basename(found.localPath);
-        (el.data as any).localPath = fileName;
+        const typeDir = found.type + 's';  // image -> images, video -> videos
+        // 修复 Issue #30: 保留类型子目录，让导出器能正确找到文件
+        (el.data as any).localPath = `${typeDir}/${fileName}`;
         if (el.type === 'image' || el.type === 'video' || el.type === 'audio' || el.type === 'file') {
-          (el.data as any).url = `resources/${found.type}s/${fileName}`;
+          (el.data as any).url = `resources/${typeDir}/${fileName}`;
         }
       }
     }

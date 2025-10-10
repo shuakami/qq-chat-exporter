@@ -1852,7 +1852,9 @@ export class QQChatExporterApiServer {
      */
     private parseExportFileName(fileName: string): any | null {
         // 匹配格式：friend_1234567890_20250830_142843.html 或 group_1234567890_20250830_142843.html
-        const match = fileName.match(/^(friend|group)_(\d+)_(\d{8})_(\d{6})(?:_\d{3}_TEMP)?\.html$/);
+        // 或 friend_u_xxx_20250830_142843.html (支持带前缀的UID，包含下划线)
+        // 使用非贪婪匹配 (.+?) 匹配 UID，直到遇到 _日期_ 的模式
+        const match = fileName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})(?:_\d{3}_TEMP)?\.html$/);
         if (!match) return null;
         
         const [, type, id, date, time] = match;
