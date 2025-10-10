@@ -701,7 +701,6 @@ export class QQChatExporterApiServer {
                 // 生成任务ID
                 const taskId = `export_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                 const timestamp = Date.now();
-                const chatName = peer.peerUid;
                 
                 let fileExt = 'json';
                 switch (format.toUpperCase()) {
@@ -710,8 +709,15 @@ export class QQChatExporterApiServer {
                     case 'JSON': default: fileExt = 'json'; break;
                 }
 
-                const fileName = `${chatName}_${timestamp}.${fileExt}`;
+                // 生成符合索引页面格式的文件名：(friend|group)_QQ号_日期_时间.扩展名
+                const chatTypePrefix = peer.chatType === 1 ? 'friend' : 'group';
+                const date = new Date(timestamp);
+                const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`; // 20250506
+                const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`; // 221008
+                const fileName = `${chatTypePrefix}_${peer.peerUid}_${dateStr}_${timeStr}.${fileExt}`;
                 const downloadUrl = `/downloads/${fileName}`;
+                
+                console.log(`[ApiServer] 生成文件名: ${fileName} (chatType=${peer.chatType}, peerUid=${peer.peerUid})`);
 
                 // 快速获取会话名称（避免阻塞任务创建）
                 let sessionName = peer.peerUid;
@@ -1340,6 +1346,36 @@ export class QQChatExporterApiServer {
                 encoding: 'utf-8'
             };
 
+            // 🔧 修复 Issue #29: 对消息按时间戳排序，确保时间顺序正确
+            console.log(`[ApiServer] 开始对 ${filteredMessages.length} 条消息进行时间排序...`);
+            const sortedMessages = filteredMessages.sort((a, b) => {
+                // 解析时间戳
+                let timeA = parseInt(a.msgTime || '0');
+                let timeB = parseInt(b.msgTime || '0');
+                
+                // 处理无效时间戳
+                if (isNaN(timeA) || timeA <= 0) timeA = 0;
+                if (isNaN(timeB) || timeB <= 0) timeB = 0;
+                
+                // 检查是否为秒级时间戳（10位数）并转换为毫秒级进行比较
+                if (timeA > 1000000000 && timeA < 10000000000) {
+                    timeA = timeA * 1000;
+                }
+                if (timeB > 1000000000 && timeB < 10000000000) {
+                    timeB = timeB * 1000;
+                }
+                
+                // 按时间从早到晚排序（升序）
+                return timeA - timeB;
+            });
+            
+            // 输出排序统计信息
+            if (sortedMessages.length > 0) {
+                const firstTime = sortedMessages[0]?.msgTime;
+                const lastTime = sortedMessages[sortedMessages.length - 1]?.msgTime;
+                console.log(`[ApiServer] 消息排序完成: 时间范围从 ${firstTime} 到 ${lastTime}`);
+            }
+
             // 获取友好的聊天名称
             task = this.exportTasks.get(taskId);
             const chatName = task?.sessionName || peer.peerUid;
@@ -1350,24 +1386,24 @@ export class QQChatExporterApiServer {
 
             console.log(`[ApiServer] ==================== 开始导出 ====================`);
             console.log(`[ApiServer] 导出格式: ${format.toUpperCase()}`);
-            console.log(`[ApiServer] 传递给导出器的消息数量: ${filteredMessages.length} 条`);
+            console.log(`[ApiServer] 传递给导出器的消息数量: ${sortedMessages.length} 条`);
             console.log(`[ApiServer] 导出文件路径: ${filePath}`);
             console.log(`[ApiServer] =================================================`);
             
             switch (format.toUpperCase()) {
                 case 'TXT':
-                    console.log(`[ApiServer] 调用 TextExporter，传入 ${filteredMessages.length} 条 RawMessage`);
+                    console.log(`[ApiServer] 调用 TextExporter，传入 ${sortedMessages.length} 条 RawMessage`);
                     exporter = new TextExporter(exportOptions, {}, this.core);
-                    await exporter.export(filteredMessages, chatInfo);
+                    await exporter.export(sortedMessages, chatInfo);
                     break;
                 case 'JSON':
-                    console.log(`[ApiServer] 调用 JsonExporter，传入 ${filteredMessages.length} 条 RawMessage`);
+                    console.log(`[ApiServer] 调用 JsonExporter，传入 ${sortedMessages.length} 条 RawMessage`);
                     exporter = new JsonExporter(exportOptions, {}, this.core);
-                    await exporter.export(filteredMessages, chatInfo);
+                    await exporter.export(sortedMessages, chatInfo);
                     break;
                 case 'HTML':
                     // 🚀 HTML流式导出：使用异步生成器，实现全程低内存占用
-                    console.log(`[ApiServer] 使用流式导出 HTML，传入 ${filteredMessages.length} 条 RawMessage`);
+                    console.log(`[ApiServer] 使用流式导出 HTML，传入 ${sortedMessages.length} 条 RawMessage`);
                     const parser = new SimpleMessageParser();
                     
                     const htmlExporter = new ModernHtmlExporter({
@@ -1378,7 +1414,8 @@ export class QQChatExporterApiServer {
                     });
                     
                     // 使用流式API：逐条解析、更新资源路径、写入HTML，全程低内存
-                    const messageStream = parser.parseMessagesStream(filteredMessages, resourceMap);
+                    // 🔧 修复 Issue #29: 传入已排序的消息，确保时间顺序正确
+                    const messageStream = parser.parseMessagesStream(sortedMessages, resourceMap);
                     await htmlExporter.exportFromIterable(messageStream, chatInfo);
                     console.log(`[ApiServer] HTML流式导出完成，内存占用已优化`);
                     break;
@@ -1395,7 +1432,7 @@ export class QQChatExporterApiServer {
                     status: 'completed',
                     progress: 100,
                     message: '导出完成',
-                    messageCount: filteredMessages.length,
+                    messageCount: sortedMessages.length,
                     fileSize: stats.size,
                     completedAt: new Date().toISOString()
                 });
@@ -1409,7 +1446,7 @@ export class QQChatExporterApiServer {
                     status: 'completed',
                     progress: 100,
                     message: '导出完成',
-                    messageCount: filteredMessages.length,
+                    messageCount: sortedMessages.length,
                     fileName,
                     filePath,
                     fileSize: stats.size,
