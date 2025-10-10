@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Checkbox } from "@/components/ui/checkbox"
 import { TaskWizard } from "@/components/ui/task-wizard"
 import { ScheduledExportWizard } from "@/components/ui/scheduled-export-wizard"
 import { ExecutionHistoryModal } from "@/components/ui/execution-history-modal"
 import { MessagePreviewModal } from "@/components/ui/message-preview-modal"
+import { BatchExportDialog, type BatchExportItem, type BatchExportConfig } from "@/components/ui/batch-export-dialog"
 import {
   Dialog,
   DialogContent,
@@ -134,6 +136,12 @@ export default function QCEDashboard() {
     title: string
     message: string
   }>>([])
+  
+  // 批量导出模式状态
+  const [batchMode, setBatchMode] = useState(false)
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
+  const [isBatchExportDialogOpen, setIsBatchExportDialogOpen] = useState(false)
+  
   const tasksLoadedRef = useRef(false)
   const scheduledExportsLoadedRef = useRef(false)
   const chatHistoryLoadedRef = useRef(false)
@@ -433,6 +441,160 @@ export default function QCEDashboard() {
       scheduledExportsLoadedRef.current = false
     }
     return success
+  }
+
+  // 批量模式处理函数
+  const handleToggleBatchMode = () => {
+    setBatchMode(!batchMode)
+    if (batchMode) {
+      // 退出批量模式时清空选择
+      setSelectedItems(new Set())
+    }
+  }
+
+  const handleSelectAll = () => {
+    const allIds = new Set<string>()
+    groups.forEach(g => allIds.add(`group_${g.groupCode}`))
+    friends.forEach(f => allIds.add(`friend_${f.uid}`))
+    setSelectedItems(allIds)
+  }
+
+  const handleClearSelection = () => {
+    setSelectedItems(new Set())
+  }
+
+  const handleToggleItem = (type: 'group' | 'friend', id: string) => {
+    const itemId = `${type}_${id}`
+    const newSet = new Set(selectedItems)
+    if (newSet.has(itemId)) {
+      newSet.delete(itemId)
+    } else {
+      newSet.add(itemId)
+    }
+    setSelectedItems(newSet)
+  }
+
+  const handleOpenBatchExportDialog = () => {
+    if (selectedItems.size === 0) return
+    setIsBatchExportDialogOpen(true)
+  }
+
+  // 获取批量导出的项目列表
+  const getBatchExportItems = (): BatchExportItem[] => {
+    const items: BatchExportItem[] = []
+    
+    selectedItems.forEach(itemId => {
+      const [type, id] = itemId.split('_')
+      
+      if (type === 'group') {
+        const group = groups.find(g => g.groupCode === id)
+        if (group) {
+          items.push({
+            type: 'group',
+            id: group.groupCode,
+            name: group.groupName,
+            chatType: 2,
+            peerUid: group.groupCode
+          })
+        }
+      } else if (type === 'friend') {
+        const friend = friends.find(f => f.uid === id)
+        if (friend) {
+          items.push({
+            type: 'friend',
+            id: friend.uid,
+            name: friend.remark || friend.nick,
+            chatType: 1,
+            peerUid: friend.uid
+          })
+        }
+      }
+    })
+    
+    return items
+  }
+
+  // 批量导出处理函数
+  const handleBatchExport = async (config: BatchExportConfig) => {
+    const items = getBatchExportItems()
+    const results: Array<{ name: string; status: 'success' | 'failed'; error?: string }> = []
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      
+      try {
+        // 构建导出表单
+        let startTime: string | undefined
+        let endTime: string | undefined
+        
+        if (config.timeRange === 'recent') {
+          const now = new Date()
+          const threeMonthsAgo = new Date()
+          threeMonthsAgo.setMonth(now.getMonth() - 3)
+          startTime = threeMonthsAgo.toISOString()
+          endTime = now.toISOString()
+        } else if (config.timeRange === 'custom') {
+          if (config.customStartDate) {
+            startTime = new Date(config.customStartDate).toISOString()
+          }
+          if (config.customEndDate) {
+            const endDate = new Date(config.customEndDate)
+            endDate.setHours(23, 59, 59, 999)
+            endTime = endDate.toISOString()
+          }
+        }
+
+        const form = {
+          chatType: item.chatType,
+          peerUid: item.peerUid,
+          sessionName: item.name,
+          format: config.format,
+          startTime,
+          endTime,
+          downloadMedia: config.downloadMedia
+        }
+
+        // 调用单个导出 API
+        const success = await createTask(form)
+        
+        if (success) {
+          results.push({ name: item.name, status: 'success' })
+        } else {
+          results.push({ name: item.name, status: 'failed', error: '导出失败' })
+        }
+      } catch (error) {
+        results.push({ 
+          name: item.name, 
+          status: 'failed', 
+          error: error instanceof Error ? error.message : '未知错误' 
+        })
+      }
+
+      // 添加短暂延迟，避免请求过快
+      if (i < items.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+    }
+
+    // 导出完成，退出批量模式，清空选择
+    setBatchMode(false)
+    setSelectedItems(new Set())
+    setIsBatchExportDialogOpen(false)
+
+    // 刷新任务列表
+    tasksLoadedRef.current = false
+
+    // 显示通知
+    const successCount = results.filter(r => r.status === 'success').length
+    const failedCount = results.filter(r => r.status === 'failed').length
+    
+    if (failedCount === 0) {
+      addNotification('success', '批量导出完成', `成功创建 ${successCount} 个导出任务`)
+    } else if (successCount === 0) {
+      addNotification('error', '批量导出失败', `所有 ${failedCount} 个任务都失败了`)
+    } else {
+      addNotification('info', '批量导出部分完成', `成功 ${successCount} 个，失败 ${failedCount} 个`)
+    }
   }
 
   useEffect(() => {
@@ -935,14 +1097,59 @@ export default function QCEDashboard() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-2xl font-semibold tracking-tight text-neutral-900">会话管理</h2>
-                    <p className="text-neutral-600 mt-1">浏览群组与好友，选择要导出的聊天记录</p>
+                    <p className="text-neutral-600 mt-1">
+                      {batchMode ? `已选择 ${selectedItems.size} 个会话` : '浏览群组与好友，选择要导出的聊天记录'}
+                    </p>
                   </div>
-                  <motion.div whileTap={{ scale: 0.98 }}>
-                    <Button onClick={loadChatData} disabled={isLoading} variant="outline" className="rounded-full">
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      {isLoading ? "加载中..." : "刷新列表"}
-                    </Button>
-                  </motion.div>
+                  <div className="flex items-center gap-2">
+                    <motion.div whileTap={{ scale: 0.98 }}>
+                      <Button onClick={loadChatData} disabled={isLoading} variant="outline" className="rounded-full">
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        {isLoading ? "加载中..." : "刷新列表"}
+                      </Button>
+                    </motion.div>
+                    <motion.div whileTap={{ scale: 0.98 }}>
+                      <Button 
+                        onClick={handleToggleBatchMode} 
+                        variant={batchMode ? "default" : "outline"} 
+                        className="rounded-full"
+                      >
+                        {batchMode ? "退出批量模式" : "批量导出"}
+                      </Button>
+                    </motion.div>
+                    {batchMode && selectedItems.size > 0 && (
+                      <>
+                        <motion.div whileTap={{ scale: 0.98 }}>
+                          <Button 
+                            onClick={handleOpenBatchExportDialog} 
+                            className="rounded-full"
+                          >
+                            导出选中 ({selectedItems.size})
+                          </Button>
+                        </motion.div>
+                        <motion.div whileTap={{ scale: 0.98 }}>
+                          <Button 
+                            onClick={handleSelectAll} 
+                            variant="ghost" 
+                            size="sm" 
+                            className="rounded-full"
+                          >
+                            全选
+                          </Button>
+                        </motion.div>
+                        <motion.div whileTap={{ scale: 0.98 }}>
+                          <Button 
+                            onClick={handleClearSelection} 
+                            variant="ghost" 
+                            size="sm" 
+                            className="rounded-full"
+                          >
+                            清空
+                          </Button>
+                        </motion.div>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {groups.length === 0 && friends.length === 0 ? (
@@ -967,13 +1174,30 @@ export default function QCEDashboard() {
                           animate="animate"
                           exit="exit"
                         >
-                          {groups.map((group, idx) => (
+                          {groups.map((group, idx) => {
+                            const isSelected = selectedItems.has(`group_${group.groupCode}`)
+                            return (
                             <motion.div
                               key={group.groupCode}
-                              className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white/70 px-4 py-3 hover:bg-white transition"
+                              className={[
+                                "flex items-center gap-3 rounded-2xl border px-4 py-3 transition",
+                                batchMode 
+                                  ? isSelected 
+                                    ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500" 
+                                    : "border-neutral-200 bg-white/70 hover:bg-white cursor-pointer"
+                                  : "border-neutral-200 bg-white/70 hover:bg-white"
+                              ].join(" ")}
                               variants={STAG.item}
                               {...hoverLift}
+                              onClick={() => batchMode && handleToggleItem('group', group.groupCode)}
                             >
+                              {batchMode && (
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={() => handleToggleItem('group', group.groupCode)}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              )}
                               <Avatar className="w-10 h-10 rounded-xl overflow-hidden">
                                 <motion.div
                                   initial={{ opacity: 0 }}
@@ -996,33 +1220,36 @@ export default function QCEDashboard() {
                                   <span className="font-mono">{group.groupCode}</span>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <motion.div whileTap={{ scale: 0.98 }}>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="rounded-full h-8"
-                                    onClick={() => handlePreviewChat('group', group.groupCode, group.groupName, { chatType: 2, peerUid: group.groupCode })}
-                                  >
-                                    预览
-                                  </Button>
-                                </motion.div>
-                                <motion.div whileTap={{ scale: 0.98 }}>
-                                  <Button
-                                    size="sm"
-                                    className="rounded-full h-8"
-                                    onClick={() => handleOpenTaskWizard({
-                                      chatType: 2,
-                                      peerUid: group.groupCode,
-                                      sessionName: group.groupName,
-                                    })}
-                                  >
-                                    导出
-                                  </Button>
-                                </motion.div>
-                              </div>
+                              {!batchMode && (
+                                <div className="flex items-center gap-2">
+                                  <motion.div whileTap={{ scale: 0.98 }}>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="rounded-full h-8"
+                                      onClick={() => handlePreviewChat('group', group.groupCode, group.groupName, { chatType: 2, peerUid: group.groupCode })}
+                                    >
+                                      预览
+                                    </Button>
+                                  </motion.div>
+                                  <motion.div whileTap={{ scale: 0.98 }}>
+                                    <Button
+                                      size="sm"
+                                      className="rounded-full h-8"
+                                      onClick={() => handleOpenTaskWizard({
+                                        chatType: 2,
+                                        peerUid: group.groupCode,
+                                        sessionName: group.groupName,
+                                      })}
+                                    >
+                                      导出
+                                    </Button>
+                                  </motion.div>
+                                </div>
+                              )}
                             </motion.div>
-                          ))}
+                            )
+                          })}
                         </motion.div>
                       </section>
                     )}
@@ -1038,13 +1265,30 @@ export default function QCEDashboard() {
                           animate="animate"
                           exit="exit"
                         >
-                          {friends.map((friend) => (
+                          {friends.map((friend) => {
+                            const isSelected = selectedItems.has(`friend_${friend.uid}`)
+                            return (
                             <motion.div
                               key={friend.uid}
-                              className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white/70 px-4 py-3 hover:bg-white transition"
+                              className={[
+                                "flex items-center gap-3 rounded-2xl border px-4 py-3 transition",
+                                batchMode 
+                                  ? isSelected 
+                                    ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500" 
+                                    : "border-neutral-200 bg-white/70 hover:bg-white cursor-pointer"
+                                  : "border-neutral-200 bg-white/70 hover:bg-white"
+                              ].join(" ")}
                               variants={STAG.item}
                               {...hoverLift}
+                              onClick={() => batchMode && handleToggleItem('friend', friend.uid)}
                             >
+                              {batchMode && (
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={() => handleToggleItem('friend', friend.uid)}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              )}
                               <Avatar className="w-10 h-10 rounded-xl overflow-hidden">
                                 <motion.div
                                   initial={{ opacity: 0 }}
@@ -1076,33 +1320,36 @@ export default function QCEDashboard() {
                                   )}
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <motion.div whileTap={{ scale: 0.98 }}>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="rounded-full h-8"
-                                    onClick={() => handlePreviewChat('friend', friend.uid, friend.remark || friend.nick, { chatType: 1, peerUid: friend.uid })}
-                                  >
-                                    预览
-                                  </Button>
-                                </motion.div>
-                                <motion.div whileTap={{ scale: 0.98 }}>
-                                  <Button
-                                    size="sm"
-                                    className="rounded-full h-8"
-                                    onClick={() => handleOpenTaskWizard({
-                                      chatType: 1,
-                                      peerUid: friend.uid,
-                                      sessionName: friend.remark || friend.nick,
-                                    })}
-                                  >
-                                    导出
-                                  </Button>
-                                </motion.div>
-                              </div>
+                              {!batchMode && (
+                                <div className="flex items-center gap-2">
+                                  <motion.div whileTap={{ scale: 0.98 }}>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="rounded-full h-8"
+                                      onClick={() => handlePreviewChat('friend', friend.uid, friend.remark || friend.nick, { chatType: 1, peerUid: friend.uid })}
+                                    >
+                                      预览
+                                    </Button>
+                                  </motion.div>
+                                  <motion.div whileTap={{ scale: 0.98 }}>
+                                    <Button
+                                      size="sm"
+                                      className="rounded-full h-8"
+                                      onClick={() => handleOpenTaskWizard({
+                                        chatType: 1,
+                                        peerUid: friend.uid,
+                                        sessionName: friend.remark || friend.nick,
+                                      })}
+                                    >
+                                      导出
+                                    </Button>
+                                  </motion.div>
+                                </div>
+                              )}
                             </motion.div>
-                          ))}
+                            )
+                          })}
                         </motion.div>
                       </section>
                     )}
@@ -2072,6 +2319,13 @@ export default function QCEDashboard() {
             endTime: timeRange?.endTime?.toString()
           })
         }}
+      />
+
+      <BatchExportDialog
+        open={isBatchExportDialogOpen}
+        onOpenChange={setIsBatchExportDialogOpen}
+        items={getBatchExportItems()}
+        onExport={handleBatchExport}
       />
 
       {/* 聊天记录预览模态框 */}
