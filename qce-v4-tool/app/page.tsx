@@ -1792,7 +1792,7 @@ export default function QCEDashboard() {
                           variants={STAG.item}
                           whileHover={{ y: -1, transition: { duration: DUR.fast, ease: EASE.out } }}
                           whileTap={{ scale: 0.995, transition: { duration: DUR.fast, ease: EASE.inOut } }}
-                          onClick={() => handleOpenFilePathModal(file.filePath, file.sessionName || file.chatId, file.fileName)}
+                          onClick={() => handleOpenFilePathModal(file.filePath, file.displayName || file.sessionName || file.chatId, file.fileName)}
                         >
                           <div className="flex items-center gap-4 p-4">
                             {/* Avatar */}
@@ -1800,7 +1800,7 @@ export default function QCEDashboard() {
                               <Avatar className="w-12 h-12 rounded-xl overflow-hidden border border-neutral-200">
                                 <AvatarImage
                                   src={avatarUrl}
-                                  alt={file.sessionName || file.chatId}
+                                  alt={file.displayName || file.sessionName || file.chatId}
                                 />
                                 <AvatarFallback className="rounded-xl bg-neutral-100">
                                   {file.chatType === 'group' ? (
@@ -1816,7 +1816,7 @@ export default function QCEDashboard() {
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
                                 <h3 className="truncate font-semibold text-neutral-900 text-lg">
-                                  {file.sessionName || `${file.chatType === 'group' ? '群组' : '好友'} ${file.chatId}`}
+                                  {file.displayName || file.sessionName || `${file.chatType === 'group' ? '群组' : '好友'} ${file.chatId}`}
                                 </h3>
                                 {file.isScheduled && (
                                   <Badge variant="outline" className="rounded-full text-neutral-700 border-neutral-300 bg-neutral-50 text-xs">
@@ -1854,7 +1854,7 @@ export default function QCEDashboard() {
                                   className="h-8 w-8 rounded-full p-0 text-neutral-500 hover:text-neutral-700 hover:border-neutral-400"
                                   onClick={async (e) => {
                                     e.stopPropagation();
-                                    if (confirm(`确定要删除"${file.sessionName || file.chatId}"的聊天记录吗？`)) {
+                                    if (confirm(`确定要删除"${file.displayName || file.sessionName || file.chatId}"的聊天记录吗？`)) {
                                       const success = await deleteChatHistoryFile(file.fileName);
                                       if (success) {
                                         chatHistoryLoadedRef.current = false;
