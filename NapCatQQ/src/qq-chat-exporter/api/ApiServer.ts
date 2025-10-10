@@ -1789,19 +1789,14 @@ export class QQChatExporterApiServer {
         const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
         const scheduledExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
         
-        console.log(`[ApiServer][DEBUG] getExportFiles 调用`);
-        console.log(`[ApiServer][DEBUG] exportDir: ${exportDir}`);
-        console.log(`[ApiServer][DEBUG] exportTasks.size: ${this.exportTasks.size}`);
-        
         const files: any[] = [];
         
         try {
-            // 修复 Issue #30 根本问题：从数据库读取任务信息（持久化，重启不丢失）
+            // 双重数据源：内存（快速）+ 数据库（持久化）
             const taskMap = new Map<string, any>();
             
-            // 方案1：先从内存读取（快速，但重启后为空）
+            // 1. 从内存读取当前运行中的任务
             this.exportTasks.forEach(task => {
-                console.log(`[ApiServer][DEBUG] 内存任务: ${task.taskId}, fileName: ${task.fileName}, sessionName: ${task.sessionName}`);
                 if (task.fileName) {
                     taskMap.set(task.fileName, {
                         displayName: task.sessionName || task.peer?.peerUid,
@@ -1810,35 +1805,25 @@ export class QQChatExporterApiServer {
                 }
             });
             
-            // 方案2：从数据库读取所有任务，用peerUid匹配文件名（持久化方案）
+            // 2. 从数据库读取历史任务（持久化，支持重启）
             const dbTasks = await this.dbManager.getAllTasks();
-            console.log(`[ApiServer][DEBUG] 数据库任务数: ${dbTasks.length}`);
             
+            // 建立 peerUid -> 任务信息 的映射
+            const peerUidMap = new Map<string, any>();
             dbTasks.forEach(({ config }) => {
-                // config.chatName 是 sessionName（好友昵称/群名）
-                // config.peer.peerUid 是 UID
-                console.log(`[ApiServer][DEBUG] 数据库任务: taskId=${config.taskId}, chatName=${config.chatName}, peerUid=${config.peer?.peerUid}`);
-                
                 if (config.peer?.peerUid && config.chatName) {
-                    // 注意：我们需要根据peerUid匹配所有相关文件，因为可能有多个导出
-                    // 这里先建立一个peerUid到chatName的映射
                     const peerUid = config.peer.peerUid;
-                    if (!taskMap.has(peerUid)) {
-                        taskMap.set(peerUid, {
-                            displayName: config.chatName,
-                            messageCount: 0,
-                            peerUid: peerUid
-                        });
-                    }
+                    // 使用最新的任务信息（后面的会覆盖前面的）
+                    peerUidMap.set(peerUid, {
+                        displayName: config.chatName,
+                        messageCount: 0
+                    });
                 }
             });
-            
-            console.log(`[ApiServer][DEBUG] 合并后 taskMap.size: ${taskMap.size}`);
             
             // 扫描主导出目录
             if (fs.existsSync(exportDir)) {
                 const mainFiles = fs.readdirSync(exportDir);
-                console.log(`[ApiServer][DEBUG] 找到 ${mainFiles.length} 个文件`);
                 
                 for (const fileName of mainFiles) {
                     if (fileName.endsWith('.html')) {
@@ -1847,22 +1832,16 @@ export class QQChatExporterApiServer {
                         const fileInfo = this.parseExportFileName(fileName);
                         
                         if (fileInfo) {
-                            console.log(`[ApiServer][DEBUG] 解析文件: ${fileName}, chatId=${fileInfo.chatId}`);
+                            // 匹配任务信息：优先用文件名，回退到peerUid
+                            let taskInfo = taskMap.get(fileName) || peerUidMap.get(fileInfo.chatId);
                             
-                            // 先尝试用完整文件名匹配（内存中的任务）
-                            let taskInfo = taskMap.get(fileName);
-                            
-                            // 如果没找到，用peerUid匹配（数据库中的任务）
-                            if (!taskInfo) {
-                                taskInfo = taskMap.get(fileInfo.chatId);
-                                console.log(`[ApiServer][DEBUG] 用peerUid ${fileInfo.chatId} 匹配到: ${taskInfo ? taskInfo.displayName : '未找到'}`);
-                            }
-                            
-                            if (taskInfo && taskInfo.displayName) {
-                                fileInfo.displayName = taskInfo.displayName;
-                            }
-                            if (taskInfo && taskInfo.messageCount !== undefined) {
-                                fileInfo.messageCount = taskInfo.messageCount;
+                            if (taskInfo) {
+                                if (taskInfo.displayName) {
+                                    fileInfo.displayName = taskInfo.displayName;
+                                }
+                                if (taskInfo.messageCount !== undefined) {
+                                    fileInfo.messageCount = taskInfo.messageCount;
+                                }
                             }
                             
                             files.push({
@@ -1889,19 +1868,16 @@ export class QQChatExporterApiServer {
                         const fileInfo = this.parseExportFileName(fileName);
                         
                         if (fileInfo) {
-                            // 先尝试用完整文件名匹配（内存中的任务）
-                            let taskInfo = taskMap.get(fileName);
+                            // 匹配任务信息：优先用文件名，回退到peerUid
+                            let taskInfo = taskMap.get(fileName) || peerUidMap.get(fileInfo.chatId);
                             
-                            // 如果没找到，用peerUid匹配（数据库中的任务）
-                            if (!taskInfo) {
-                                taskInfo = taskMap.get(fileInfo.chatId);
-                            }
-                            
-                            if (taskInfo && taskInfo.displayName) {
-                                fileInfo.displayName = taskInfo.displayName;
-                            }
-                            if (taskInfo && taskInfo.messageCount !== undefined) {
-                                fileInfo.messageCount = taskInfo.messageCount;
+                            if (taskInfo) {
+                                if (taskInfo.displayName) {
+                                    fileInfo.displayName = taskInfo.displayName;
+                                }
+                                if (taskInfo.messageCount !== undefined) {
+                                    fileInfo.messageCount = taskInfo.messageCount;
+                                }
                             }
                             
                             files.push({
