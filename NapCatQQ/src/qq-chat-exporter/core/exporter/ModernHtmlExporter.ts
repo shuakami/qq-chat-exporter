@@ -761,9 +761,15 @@ ${this.generateFooter()}
     private isValidResourcePath(resourcePath: string): boolean {
         if (!resourcePath || typeof resourcePath !== 'string') return false;
         const trimmed = resourcePath.trim();
+        
+        // 修复 Issue #30: 允许 images/videos/audios/files 开头的相对路径
+        const resourceTypePrefixes = ['images/', 'videos/', 'audios/', 'files/'];
+        const hasValidPrefix = resourceTypePrefixes.some(prefix => trimmed.startsWith(prefix));
+        
         return (
             trimmed !== '' &&
             (trimmed.startsWith('resources/') ||
+                hasValidPrefix ||
                 path.isAbsolute(trimmed) ||
                 // 允许纯文件名（不含路径分隔符）
                 (trimmed.length > 0 && !trimmed.includes('\\') && !trimmed.includes('/')))

@@ -1327,7 +1327,8 @@ export class QQChatExporterApiServer {
                 }
             });
 
-            const outputDir = path.join(process.cwd(), 'exports');
+            // 修复 Issue #30: 使用用户目录，与索引扫描目录保持一致
+            const outputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
@@ -1791,6 +1792,18 @@ export class QQChatExporterApiServer {
         const files: any[] = [];
         
         try {
+            // 修复 Issue #30 性能优化：从内存中的任务记录获取信息，避免读取大文件
+            const taskMap = new Map<string, any>();
+            this.exportTasks.forEach(task => {
+                if (task.filePath) {
+                    const fileName = path.basename(task.filePath);
+                    taskMap.set(fileName, {
+                        displayName: task.sessionName || task.peer?.peerUid,
+                        messageCount: task.messageCount
+                    });
+                }
+            });
+            
             // 扫描主导出目录
             if (fs.existsSync(exportDir)) {
                 const mainFiles = fs.readdirSync(exportDir);
@@ -1801,6 +1814,17 @@ export class QQChatExporterApiServer {
                         const fileInfo = this.parseExportFileName(fileName);
                         
                         if (fileInfo) {
+                            // 从数据库获取详细信息（高性能）
+                            const taskInfo = taskMap.get(fileName);
+                            if (taskInfo) {
+                                if (taskInfo.displayName) {
+                                    fileInfo.displayName = taskInfo.displayName;
+                                }
+                                if (taskInfo.messageCount !== undefined) {
+                                    fileInfo.messageCount = taskInfo.messageCount;
+                                }
+                            }
+                            
                             files.push({
                                 fileName,
                                 filePath: filePath,
@@ -1825,6 +1849,17 @@ export class QQChatExporterApiServer {
                         const fileInfo = this.parseExportFileName(fileName);
                         
                         if (fileInfo) {
+                            // 从数据库获取详细信息（高性能）
+                            const taskInfo = taskMap.get(fileName);
+                            if (taskInfo) {
+                                if (taskInfo.displayName) {
+                                    fileInfo.displayName = taskInfo.displayName;
+                                }
+                                if (taskInfo.messageCount !== undefined) {
+                                    fileInfo.messageCount = taskInfo.messageCount;
+                                }
+                            }
+                            
                             files.push({
                                 fileName,
                                 filePath: filePath,
@@ -1927,6 +1962,20 @@ export class QQChatExporterApiServer {
         const info: any = {};
         
         try {
+            // 修复 Issue #30: 提取聊天对象名称（从 <title> 或 header 中）
+            const titleMatch = htmlContent.match(/<title>([^<]+?)(?:\s*-\s*聊天记录)?<\/title>/);
+            if (titleMatch && titleMatch[1]) {
+                info.displayName = titleMatch[1].trim();
+            }
+            
+            // 备选方案：从 header 中提取
+            if (!info.displayName) {
+                const headerMatch = htmlContent.match(/<h1[^>]*>([^<]+)<\/h1>/);
+                if (headerMatch && headerMatch[1]) {
+                    info.displayName = headerMatch[1].trim();
+                }
+            }
+            
             // 提取导出时间
             const exportTimeMatch = htmlContent.match(/<div class="info-value">([^<]+)<\/div>/);
             if (exportTimeMatch) {
