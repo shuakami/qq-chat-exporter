@@ -51,7 +51,22 @@ function getQQBasePath(): string {
         return envQQPath;
     }
 
-    // 2. Linux环境下检查当前工作目录
+    // 2. macOS环境下智能检测QQ.app
+    if (os.platform() === 'darwin') {
+        const macQQPaths = [
+            '/Applications/QQ.app/Contents/MacOS/QQ',
+            path.join(os.homedir(), 'Applications/QQ.app/Contents/MacOS/QQ'),
+            '/System/Applications/QQ.app/Contents/MacOS/QQ',
+        ];
+
+        for (const qqPath of macQQPaths) {
+            if (fs.existsSync(qqPath)) {
+                return qqPath;
+            }
+        }
+    }
+
+    // 3. Linux环境下检查当前工作目录
     if (os.platform() === 'linux') {
         const cwd = process.cwd();
         const cwdPackageJson = path.join(cwd, 'resources/app/package.json');
@@ -60,7 +75,7 @@ function getQQBasePath(): string {
             return path.join(cwd, 'qq'); // 返回QQ可执行文件路径
         }
 
-        // 3. 尝试常见Linux安装路径
+        // 4. 尝试常见Linux安装路径
         const commonPaths = [
             '/opt/QQ/qq',
             '/usr/local/bin/qq',
@@ -74,7 +89,7 @@ function getQQBasePath(): string {
         }
     }
 
-    // 4. 回退到process.execPath
+    // 5. 回退到process.execPath
     return process.execPath;
 }
 
