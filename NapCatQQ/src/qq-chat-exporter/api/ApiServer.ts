@@ -1076,6 +1076,8 @@ export class QQChatExporterApiServer {
         // 静态文件服务
         this.app.use('/downloads', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports')));
         this.app.use('/scheduled-downloads', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports')));
+        // 资源文件服务（图片、音频、视频等）
+        this.app.use('/resources', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'resources')));
         
         // 前端应用路由
         this.frontendBuilder.setupStaticRoutes(this.app);
@@ -1810,13 +1812,13 @@ export class QQChatExporterApiServer {
             
             // 建立 peerUid -> 任务信息 的映射
             const peerUidMap = new Map<string, any>();
-            dbTasks.forEach(({ config }) => {
+            dbTasks.forEach(({ config, state }) => {
                 if (config.peer?.peerUid && config.chatName) {
                     const peerUid = config.peer.peerUid;
                     // 使用最新的任务信息（后面的会覆盖前面的）
                     peerUidMap.set(peerUid, {
                         displayName: config.chatName,
-                        messageCount: 0
+                        messageCount: state.totalMessages || 0
                     });
                 }
             });
@@ -1841,6 +1843,25 @@ export class QQChatExporterApiServer {
                                 }
                                 if (taskInfo.messageCount !== undefined) {
                                     fileInfo.messageCount = taskInfo.messageCount;
+                                }
+                            }
+                            
+                            // 如果仍然没有displayName，尝试从API实时获取
+                            if (!fileInfo.displayName) {
+                                try {
+                                    if (fileInfo.chatType === 'friend') {
+                                        const friends = await this.core.apis.FriendApi.getBuddy();
+                                        const friend = friends.find((f: any) => f.coreInfo?.uid === fileInfo.chatId);
+                                        fileInfo.displayName = friend?.coreInfo?.remark || friend?.coreInfo?.nick || fileInfo.chatId;
+                                    } else if (fileInfo.chatType === 'group') {
+                                        const groups = await this.core.apis.GroupApi.getGroups();
+                                        const group = groups.find(g => g.groupCode === fileInfo.chatId || g.groupCode === fileInfo.chatId.toString());
+                                        fileInfo.displayName = group?.groupName || fileInfo.chatId;
+                                    }
+                                } catch (error) {
+                                    console.warn(`[ApiServer] 获取会话名称失败 (${fileInfo.chatType} ${fileInfo.chatId}):`, error);
+                                    // 使用默认值
+                                    fileInfo.displayName = fileInfo.chatId;
                                 }
                             }
                             
@@ -1880,6 +1901,25 @@ export class QQChatExporterApiServer {
                                 }
                             }
                             
+                            // 如果仍然没有displayName，尝试从API实时获取
+                            if (!fileInfo.displayName) {
+                                try {
+                                    if (fileInfo.chatType === 'friend') {
+                                        const friends = await this.core.apis.FriendApi.getBuddy();
+                                        const friend = friends.find((f: any) => f.coreInfo?.uid === fileInfo.chatId);
+                                        fileInfo.displayName = friend?.coreInfo?.remark || friend?.coreInfo?.nick || fileInfo.chatId;
+                                    } else if (fileInfo.chatType === 'group') {
+                                        const groups = await this.core.apis.GroupApi.getGroups();
+                                        const group = groups.find(g => g.groupCode === fileInfo.chatId || g.groupCode === fileInfo.chatId.toString());
+                                        fileInfo.displayName = group?.groupName || fileInfo.chatId;
+                                    }
+                                } catch (error) {
+                                    console.warn(`[ApiServer] 获取会话名称失败 (${fileInfo.chatType} ${fileInfo.chatId}):`, error);
+                                    // 使用默认值
+                                    fileInfo.displayName = fileInfo.chatId;
+                                }
+                            }
+                            
                             files.push({
                                 fileName,
                                 filePath: filePath,
@@ -1916,11 +1956,12 @@ export class QQChatExporterApiServer {
         if (!date || !time) return null;
         const dateTime = `${date.substr(0,4)}-${date.substr(4,2)}-${date.substr(6,2)} ${time.substr(0,2)}:${time.substr(2,2)}:${time.substr(4,2)}`;
         
+        // 不设置默认 displayName，留给后续从数据库或API获取
         return {
             chatType: type as 'friend' | 'group',
             chatId: id,
             exportDate: dateTime,
-            displayName: `${type === 'friend' ? '好友' : '群聊'} ${id}`,
+            displayName: undefined, // 稍后从数据库或API获取
             avatarUrl: type === 'friend' ? 
                 `https://q1.qlogo.cn/g?b=qq&nk=${id}&s=100` : 
                 `https://p.qlogo.cn/gh/${id}/${id}/100`
