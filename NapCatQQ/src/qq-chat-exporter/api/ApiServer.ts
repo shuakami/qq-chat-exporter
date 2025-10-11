@@ -1074,7 +1074,7 @@ export class QQChatExporterApiServer {
         });
 
         // 静态文件服务
-        this.app.use('/downloads', express.static(path.join(process.cwd(), 'exports')));
+        this.app.use('/downloads', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports')));
         this.app.use('/scheduled-downloads', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports')));
         
         // 前端应用路由
