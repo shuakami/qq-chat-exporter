@@ -128,8 +128,6 @@ jobs:
           
           # 创建发布说明
           cat > RELEASE_NOTES.md << 'EOFNOTES'
-          ## NapCat + QQ 聊天记录导出插件完整包
-
           这是集成了 NapCat ${{ needs.get-napcat-version.outputs.version }} 和 QQ 聊天记录导出插件 $VERSION 的开箱即用完整包。所有依赖已经安装完毕，配置文件已经预配置好，解压后直接运行就能用。
 
           ### 下载
@@ -184,7 +182,7 @@ jobs:
       - name: "[5/5] 创建 GitHub Release"
         uses: softprops/action-gh-release@v1
         with:
-          name: NapCat + QCE ${{ github.ref_name }} - 完整包 (含 NapCat ${{ needs.get-napcat-version.outputs.version }})
+          name: ${{ github.ref_name }}
           body_path: RELEASE_NOTES.md
           files: release-files/*
           draft: false
