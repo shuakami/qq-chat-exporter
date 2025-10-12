@@ -25,7 +25,8 @@
 
 2.  **启动与登录**
     *   **Windows**: 双击运行 `launcher-user.bat`。
-    *   **Linux/macOS**: 运行 `./napcat-launcher.sh`。
+    *   **Linux**: 将文件解压到 QQ 安装目录 (`/opt/QQ`) 后运行 `./napcat-launcher.sh`。
+    *   **macOS**: 运行 `./napcat-launcher.sh`（首次运行如被系统阻止，请执行 `xattr -r -d com.apple.quarantine .` 移除隔离属性）。
     *   根据控制台提示，使用您的手机 QQ 扫描二维码完成登录。
 
 3.  **访问与使用**
@@ -52,7 +53,7 @@
 | :--- | :--- | :--- |
 | Windows | x64 | Windows 10/11 |
 | Linux | x64 | Ubuntu 20.04+ (需预先安装 QQ 桌面客户端) |
-| macOS | x64 | macOS 10.15+ |
+| macOS | x64 / arm64 | macOS 10.15+ / Apple Silicon (M1/M2/M3) |
 
 ## 系统架构与鸣谢
 
