@@ -35,7 +35,6 @@ import {
   CalendarDays,
   FileText,
   Clock,
-  HardDrive,
   Filter,
   SortAsc,
   SortDesc,
@@ -1833,10 +1832,6 @@ export default function QCEDashboard() {
                                 <div className="flex items-center gap-1">
                                   <Clock className="w-4 h-4" />
                                   <span>{new Date(file.createTime).toLocaleDateString()}</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <HardDrive className="w-4 h-4" />
-                                  <span>{(file.size / 1024 / 1024).toFixed(1)} MB</span>
                                 </div>
                               </div>
 

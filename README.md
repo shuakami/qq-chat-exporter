@@ -14,7 +14,7 @@
 > 这是一款功能强大的 QQ 聊天记录导出工具，可以将您的 QQ 聊天记录（包括消息、图片、视频、文件等）完整地导出为 `HTML`、`JSON`、`TXT` 等多种格式。最新的 V4 版本深度集成了 NapCatQQ 框架，提供企业级的聊天记录管理解决方案。
 
 > [!TIP]
-> **V4.3.0 更新**：全新表情包导出功能现已上线力！支持导出市场表情包、收藏表情和系统表情包
+> **V4.5.0 重大更新**：全面重构为独立插件架构！现已完美支持 macOS 和 Linux 平台，彻底解决了之前的崩溃和兼容性问题。
 
 ## 快速开始
 
@@ -25,8 +25,8 @@
 
 2.  **启动与登录**
     *   **Windows**: 双击运行 `launcher-user.bat`。
-    *   **Linux**: 将文件解压到 QQ 安装目录 (`/opt/QQ`) 后运行 `./napcat-launcher.sh`。
-    *   **macOS**: 运行 `./napcat-launcher.sh`（首次运行如被系统阻止，请执行 `xattr -r -d com.apple.quarantine .` 移除隔离属性）。
+    *   **Linux**: 将文件解压到 QQ 安装目录 (`/opt/QQ`) 后运行 `./launcher-user.sh`。
+    *   **macOS**: 运行 `./launcher-user.sh`（首次运行如被系统阻止，请执行 `xattr -r -d com.apple.quarantine .` 移除隔离属性）。
     *   根据控制台提示，使用您的手机 QQ 扫描二维码完成登录。
 
 3.  **访问与使用**
