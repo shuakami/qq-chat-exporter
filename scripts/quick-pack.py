@@ -147,6 +147,19 @@ def main():
         # If files are directly in temp dir, rename the temp dir
         os.rename(temp_extract_dir, pack_dir)
     
+    # Remove platform-incompatible files
+    if os_name != "Windows":
+        print("[-] Removing Windows-specific files...")
+        for root, dirs, files in os.walk(pack_dir):
+            for file in files:
+                if file.endswith(('.bat', '.exe', '.dll')):
+                    file_path = os.path.join(root, file)
+                    try:
+                        os.remove(file_path)
+                        print(f"    Removed: {file}")
+                    except Exception as e:
+                        print(f"    Warning: Failed to remove {file}: {e}")
+    
     print("[x] Extracted")
     print()
     
@@ -247,6 +260,37 @@ def main():
     
     # Create README
     print("[10/11] Creating README...")
+    
+    if "macOS" in os_name:
+        usage_steps = """Usage:
+1. Extract to any directory (e.g., ~/Documents/NapCat-QCE)
+2. Install NapCat to QQ.app:
+   - Download NapCat Mac Installer: https://github.com/NapNeko/NapCat-Mac-Installer/releases
+   - Use it to install NapCat framework
+3. Copy the 'plugins' and 'static' folders from this package to:
+   ~/Library/Containers/com.tencent.qq/Data/Documents/napcat/
+4. Start QQ with NapCat:
+   /Applications/QQ.app/Contents/MacOS/QQ --no-sandbox
+5. Browser: http://localhost:40653/qce-v4-tool
+   Enter the token shown in console
+
+Note: macOS requires installing NapCat via the official installer.
+This package provides the plugin and frontend files."""
+    elif os_name == "Linux":
+        usage_steps = """Usage:
+1. Extract to /opt/QQ directory (or set NAPCAT_QQ_PATH environment variable)
+2. Run: ./launcher-user.sh
+3. Browser: http://localhost:40653/qce-v4-tool
+   Enter the token shown in console
+
+Note: QQ must be installed at /opt/QQ or NAPCAT_QQ_PATH must be set."""
+    else:  # Windows
+        usage_steps = """Usage:
+1. Extract to any directory
+2. Run launcher-user.bat
+3. Browser: http://localhost:40653/qce-v4-tool
+   Enter the token shown in console"""
+    
     readme_content = f"""{"=" * 50}
 NapCat + QQ Chat Exporter - Complete Package
 {"=" * 50}
@@ -261,11 +305,7 @@ Complete package includes:
 - QQ Chat Exporter Plugin {VERSION}
 - Pre-configured web interface
 
-Usage:
-1. Extract to any directory
-2. Run launcher-user{"bat" if os_name == "Windows" else ".sh"}
-3. Browser: http://localhost:40653/qce-v4-tool
-   Enter the token shown in console
+{usage_steps}
 
 Requirements:
 - QQ Client 34606+ (recommended 9.9.19-34740)
