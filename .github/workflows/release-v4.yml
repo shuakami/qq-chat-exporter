@@ -75,6 +75,35 @@ jobs:
           cd dist && npm install --omit=dev && cd ..
           echo "✅ Build completed for ${{ matrix.platform }}"
       
+      # 为 macOS 下载并打包 Node.js 运行时
+      - name: Bundle Node.js Runtime for macOS
+        if: matrix.platform == 'macOS'
+        run: |
+          echo "📥 下载 Node.js 20 LTS 运行时用于 macOS..."
+          cd NapCatQQ/dist
+          mkdir -p bin
+          
+          # 下载 Node.js 20 LTS (arm64)
+          echo "⬇️ 下载 Node.js 20 arm64..."
+          curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-darwin-arm64.tar.gz -o node-arm64.tar.gz
+          tar -xzf node-arm64.tar.gz
+          cp node-v20.18.0-darwin-arm64/bin/node bin/node-darwin-arm64
+          chmod +x bin/node-darwin-arm64
+          rm -rf node-arm64.tar.gz node-v20.18.0-darwin-arm64
+          
+          # 下载 Node.js 20 LTS (x64)
+          echo "⬇️ 下载 Node.js 20 x64..."
+          curl -fsSL https://nodejs.org/dist/v20.18.0/node-v20.18.0-darwin-x64.tar.gz -o node-x64.tar.gz
+          tar -xzf node-x64.tar.gz
+          cp node-v20.18.0-darwin-x64/bin/node bin/node-darwin-x64
+          chmod +x bin/node-darwin-x64
+          rm -rf node-x64.tar.gz node-v20.18.0-darwin-x64
+          
+          echo "✅ Node.js 运行时已打包："
+          ls -lh bin/
+          file bin/node-darwin-arm64
+          file bin/node-darwin-x64
+      
       # Windows构建
       - name: Build QCE V4 (Windows)
         if: matrix.shell == 'cmd'
@@ -107,164 +136,278 @@ jobs:
         run: |
           cd NapCatQQ/dist
           # 创建Unix启动脚本
-          cat > napcat-launcher.sh << 'EOF'
-          #!/bin/bash
+          cat > napcat-launcher.sh << 'EOFSCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
           
-          # NapCat QCE V4 Launcher
-          # Platform: ${{ matrix.platform }}-${{ matrix.arch }}
+          # -------------------------------
+          # QQ Chat Exporter - macOS/Linux Launcher (Hardened)
+          # Build Platform: ${{ matrix.platform }}-${{ matrix.arch }}
+          # -------------------------------
           
-          set -e  # 遇到错误立即退出
+          # ---- Logging helpers ----
+          log_info()  { printf "\033[1;34m[info]\033[0m %s\n" "$*"; }
+          log_warn()  { printf "\033[1;33m[warn]\033[0m %s\n" "$*"; }
+          log_error() { printf "\033[1;31m[error]\033[0m %s\n" "$*"; }
+          die()       { log_error "$*"; exit 1; }
           
-          SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+          # ---- Paths ----
+          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          BIN_DIR="${SCRIPT_DIR}/bin"
           
-          echo "🐱 Starting NapCat QCE V4..."
-          echo "Build Platform: ${{ matrix.platform }}-${{ matrix.arch }}"
-          echo "Node.js Version: $(node --version)"
-          echo "Node.js Arch: $(node -p 'process.arch')"
-          echo "System Arch: $(uname -m)"
-          echo "NapCat Directory: $SCRIPT_DIR"
-          echo ""
+          # 用户可通过环境变量覆写 QQ 路径
+          QQ_BIN_DEFAULT="/Applications/QQ.app/Contents/MacOS/QQ"
+          QQ_BIN="${NAPCAT_QQ_PATH:-$QQ_BIN_DEFAULT}"
           
-          # macOS QQ路径检测
-          detect_macos_qq() {
-              local qq_app_paths=(
-                  "/Applications/QQ.app"
-                  "$HOME/Applications/QQ.app"
-                  "/System/Applications/QQ.app"
-              )
+          # NapCat 入口
+          NAPCAT_ENTRY="${SCRIPT_DIR}/napcat.mjs"
+          
+          # ---- Detect platform ----
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+              PLATFORM="macOS"
+          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+              PLATFORM="Linux"
+          else
+              PLATFORM="Unix"
+          fi
+          
+          log_info "启动 NapCat QCE V4..."
+          log_info "构建平台: ${{ matrix.platform }}-${{ matrix.arch }}"
+          log_info "运行平台: ${PLATFORM}"
+          log_info "系统架构: $(uname -m)"
+          
+          # ---- macOS specific handling ----
+          if [[ "$PLATFORM" == "macOS" ]]; then
+              log_info "🍎 macOS 环境检测..."
               
-              for app_path in "${qq_app_paths[@]}"; do
-                  if [ -d "$app_path" ]; then
-                      local qq_binary="$app_path/Contents/MacOS/QQ"
-                      if [ -f "$qq_binary" ]; then
-                          echo "$qq_binary"
-                          return 0
-                      fi
-                  fi
-              done
+              # Sanity checks
+              [[ -f "$NAPCAT_ENTRY" ]] || die "未找到 NapCat 入口: $NAPCAT_ENTRY"
               
-              # 使用 mdfind 搜索
-              local found_app=$(mdfind 'kMDItemCFBundleIdentifier == "com.tencent.qq"' 2>/dev/null | head -n 1)
-              if [ -n "$found_app" ] && [ -d "$found_app" ]; then
-                  local qq_binary="$found_app/Contents/MacOS/QQ"
-                  if [ -f "$qq_binary" ]; then
-                      echo "$qq_binary"
-                      return 0
-                  fi
+              # Quarantine cleanup (first run)
+              if command -v xattr >/dev/null 2>&1; then
+                if xattr "$SCRIPT_DIR" 2>/dev/null | grep -q com.apple.quarantine; then
+                  log_warn "移除隔离属性（quarantine），以免首次运行被拦截..."
+                  xattr -r -d com.apple.quarantine "$SCRIPT_DIR" || true
+                fi
               fi
               
-              return 1
-          }
-          
-          # 检测QQ安装路径 (Linux)
-          detect_linux_qq() {
-              local qq_paths=(
-                  "/opt/QQ"
-                  "/usr/local/bin/qq"
-                  "/snap/qq/current"
-                  "/var/lib/flatpak/app/com.qq.QQ/current/active/files"
-              )
-              
-              for path in "${qq_paths[@]}"; do
-                  if [ -d "$path" ] && [ -f "$path/resources/app/package.json" ]; then
-                      echo "$path"
-                      return 0
-                  fi
-              done
-              
-              return 1
-          }
-          
-          # macOS 特殊处理
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-              echo "🍎 macOS 环境检测..."
-              
-              # 检查环境变量
+              # Detect QQ path
               if [ -n "$NAPCAT_QQ_PATH" ] && [ -f "$NAPCAT_QQ_PATH" ]; then
-                  echo "✅ 使用环境变量指定的QQ路径: $NAPCAT_QQ_PATH"
+                  log_info "✅ 使用环境变量指定的QQ路径: $NAPCAT_QQ_PATH"
               else
-                  echo "🔍 正在搜索 QQ.app..."
-                  if NAPCAT_QQ_PATH=$(detect_macos_qq); then
-                      echo "✅ 找到 QQ: $NAPCAT_QQ_PATH"
-                      export NAPCAT_QQ_PATH
-                  else
-                      echo "❌ 未找到 QQ.app，请："
-                      echo "   1. 确保已安装 QQ for Mac"
-                      echo "   2. 或手动指定路径："
-                      echo "      export NAPCAT_QQ_PATH=\"/Applications/QQ.app/Contents/MacOS/QQ\""
-                      echo "      ./napcat-launcher.sh"
+                  log_info "🔍 正在搜索 QQ.app..."
+                  
+                  # Try common paths
+                  qq_app_paths=(
+                      "/Applications/QQ.app"
+                      "$HOME/Applications/QQ.app"
+                      "/System/Applications/QQ.app"
+                  )
+                  
+                  found=0
+                  for app_path in "${qq_app_paths[@]}"; do
+                      if [ -d "$app_path" ]; then
+                          qq_binary="$app_path/Contents/MacOS/QQ"
+                          if [ -f "$qq_binary" ]; then
+                              NAPCAT_QQ_PATH="$qq_binary"
+                              export NAPCAT_QQ_PATH
+                              log_info "✅ 找到 QQ: $NAPCAT_QQ_PATH"
+                              found=1
+                              break
+                          fi
+                      fi
+                  done
+                  
+                  # Try mdfind
+                  if [[ $found -eq 0 ]] && command -v mdfind >/dev/null 2>&1; then
+                      found_app=$(mdfind 'kMDItemCFBundleIdentifier == "com.tencent.qq"' 2>/dev/null | head -n 1)
+                      if [ -n "$found_app" ] && [ -d "$found_app" ]; then
+                          qq_binary="$found_app/Contents/MacOS/QQ"
+                          if [ -f "$qq_binary" ]; then
+                              NAPCAT_QQ_PATH="$qq_binary"
+                              export NAPCAT_QQ_PATH
+                              log_info "✅ 找到 QQ: $NAPCAT_QQ_PATH"
+                              found=1
+                          fi
+                      fi
+                  fi
+                  
+                  if [[ $found -eq 0 ]]; then
+                      log_error "❌ 未找到 QQ.app，请："
+                      log_error "   1. 确保已安装 QQ for Mac"
+                      log_error "   2. 或手动指定路径："
+                      log_error "      export NAPCAT_QQ_PATH=\"/Applications/QQ.app/Contents/MacOS/QQ\""
+                      log_error "      ./napcat-launcher.sh"
                       exit 1
                   fi
               fi
               
-              cd "$SCRIPT_DIR"
+              # Detect archs
+              HOST_UNAME="$(uname -m)"
+              QQ_FILE_DESC="$(file -b "$NAPCAT_QQ_PATH" 2>/dev/null || echo 'unknown')"
               
-          # Linux特殊处理
-          elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-              echo "🐧 Linux 环境检测..."
+              log_info "QQ Binary: ${NAPCAT_QQ_PATH}"
+              log_info "QQ File:   ${QQ_FILE_DESC}"
               
-              # 检查是否在QQ目录中运行
+              # Bundled Node candidates
+              NODE_ARM64="${BIN_DIR}/node-darwin-arm64"
+              NODE_X64="${BIN_DIR}/node-darwin-x64"
+              
+              # Rosetta availability (only on Apple Silicon)
+              ROSETTA_OK=0
+              if [[ "$HOST_UNAME" == "arm64" ]] && command -v arch >/dev/null 2>&1; then
+                if arch -x86_64 /usr/bin/true 2>/dev/null; then
+                  ROSETTA_OK=1
+                  log_info "Rosetta 2 可用"
+                fi
+              fi
+              
+              # Decide runtime strategy
+              run_napcat() {
+                local runtime_prefix=() node_bin="$1" arch_tag="$2"
+              
+                # 如果需要 Rosetta，则包一层 arch -x86_64
+                if [[ "$arch_tag" == "x64" ]]; then
+                  if [[ "$HOST_UNAME" == "arm64" ]]; then
+                    [[ $ROSETTA_OK -eq 1 ]] || die "需要 Rosetta 才能运行 x64 Node，但当前系统不可用。请安装 Rosetta。"
+                    runtime_prefix=(arch -x86_64)
+                  fi
+                fi
+              
+                log_info "使用 Node: ${node_bin} (${arch_tag})"
+                "${runtime_prefix[@]}" "$node_bin" -v || die "无法执行 Node: ${node_bin}"
+              
+                # Node 主版本提示
+                local major
+                major="$("${runtime_prefix[@]}" "$node_bin" -p "process.version.split('.')[0].slice(1)" 2>/dev/null || echo '0')"
+                if [[ "$major" -ne 20 ]]; then
+                  log_warn "当前 Node 主版本为 ${major}，建议使用 20 以获得最佳兼容性。"
+                fi
+              
+                # 实际启动
+                log_info "🚀 启动 NapCat..."
+                "${runtime_prefix[@]}" "$node_bin" "$NAPCAT_ENTRY" "$@"
+              }
+              
+              # Try run with bundled node first
+              if [[ "$HOST_UNAME" == "arm64" ]]; then
+                if [[ "${NAPCAT_FORCE_X64:-0}" -eq 1 ]]; then
+                  [[ -x "$NODE_X64" ]] || die "已强制 x64，但缺少 ${NODE_X64}"
+                  run_napcat "$NODE_X64" "x64" "$@"
+                  exit 0
+                fi
+              
+                if [[ -x "$NODE_ARM64" ]]; then
+                  log_info "尝试使用 arm64 随包 Node..."
+                  if run_napcat "$NODE_ARM64" "arm64" "$@" 2>&1; then
+                    exit 0
+                  else
+                    log_warn "arm64 Node 启动失败，尝试 x64 (Rosetta)..."
+                  fi
+                fi
+              
+                # 回退 Rosetta x64
+                if [[ -x "$NODE_X64" ]]; then
+                  log_warn "使用 Rosetta x64 Node 以提高 wrapper.node 兼容性..."
+                  run_napcat "$NODE_X64" "x64" "$@"
+                  exit 0
+                fi
+              else
+                # Intel Mac
+                if [[ -x "$NODE_X64" ]]; then
+                  run_napcat "$NODE_X64" "x64" "$@"
+                  exit 0
+                fi
+              fi
+              
+              # Final fallback: system node (not recommended)
+              if command -v node >/dev/null 2>&1; then
+                log_warn "⚠️  未找到随包 Node，回退使用系统 Node（可能导致 dyld 错误）"
+                log_warn "系统 Node 版本: $(node -v)"
+                log_warn "系统 Node 架构: $(node -p 'process.arch')"
+                log_info "🚀 启动 NapCat..."
+                node "$NAPCAT_ENTRY" "$@"
+              else
+                die "缺少随包 Node，且系统中也未找到 node。请安装 Node 20 或联系开发者。"
+              fi
+          
+          # ---- Linux specific handling ----
+          elif [[ "$PLATFORM" == "Linux" ]]; then
+              log_info "🐧 Linux 环境检测..."
+              
+              [[ -f "$NAPCAT_ENTRY" ]] || die "未找到 NapCat 入口: $NAPCAT_ENTRY"
+              
+              # 检测QQ安装路径
               if [ -f "./resources/app/package.json" ]; then
-                  echo "✅ 检测到在QQ安装目录中运行"
+                  log_info "✅ 检测到在QQ安装目录中运行"
                   QQ_DIR="$(pwd)"
               elif [ -n "$NAPCAT_QQ_PATH" ] && [ -d "$NAPCAT_QQ_PATH" ]; then
-                  echo "✅ 使用环境变量指定的QQ路径: $NAPCAT_QQ_PATH"
+                  log_info "✅ 使用环境变量指定的QQ路径: $NAPCAT_QQ_PATH"
                   QQ_DIR="$(dirname "$NAPCAT_QQ_PATH")"
               else
-                  echo "🔍 正在搜索QQ安装路径..."
-                  if QQ_DIR=$(detect_linux_qq); then
-                      echo "✅ 找到QQ安装路径: $QQ_DIR"
-                  else
-                      echo "❌ 未找到QQ安装，请："
-                      echo "   1. 确保已安装Linux版QQ"
-                      echo "   2. 将NapCat解压到QQ安装目录 (/opt/QQ) 中运行"
-                      echo "   3. 或设置环境变量: export NAPCAT_QQ_PATH=/path/to/qq"
+                  log_info "🔍 正在搜索QQ安装路径..."
+                  
+                  qq_paths=(
+                      "/opt/QQ"
+                      "/usr/local/bin/qq"
+                      "/snap/qq/current"
+                      "/var/lib/flatpak/app/com.qq.QQ/current/active/files"
+                  )
+                  
+                  found=0
+                  for path in "${qq_paths[@]}"; do
+                      if [ -d "$path" ] && [ -f "$path/resources/app/package.json" ]; then
+                          QQ_DIR="$path"
+                          log_info "✅ 找到QQ安装路径: $QQ_DIR"
+                          found=1
+                          break
+                      fi
+                  done
+                  
+                  if [[ $found -eq 0 ]]; then
+                      log_error "❌ 未找到QQ安装，请："
+                      log_error "   1. 确保已安装Linux版QQ"
+                      log_error "   2. 将NapCat解压到QQ安装目录 (/opt/QQ) 中运行"
+                      log_error "   3. 或设置环境变量: export NAPCAT_QQ_PATH=/path/to/qq"
                       exit 1
                   fi
               fi
               
               # 设置动态库搜索路径
               export LD_LIBRARY_PATH="$QQ_DIR/resources/app:$QQ_DIR:${LD_LIBRARY_PATH:-}"
-              echo "📚 设置库路径: $LD_LIBRARY_PATH"
+              log_info "📚 设置库路径: $LD_LIBRARY_PATH"
               
               # 切换到QQ目录运行（重要！）
               cd "$QQ_DIR"
-              echo "📁 切换到QQ目录: $(pwd)"
-          else
-              # 其他Unix系统
-              cd "$SCRIPT_DIR"
-          fi
-          
-          echo ""
-          echo "🚀 启动NapCat..."
-          
-          # 启动NapCat（带错误捕获）
-          if ! node "$SCRIPT_DIR/napcat.mjs" "$@"; then
-              exit_code=$?
-              echo ""
-              echo "❌ NapCat 启动失败 (退出码: $exit_code)"
+              log_info "📁 切换到QQ目录: $(pwd)"
+              log_info "🚀 启动 NapCat..."
               
-              if [[ "$OSTYPE" == "darwin"* ]]; then
-                  echo ""
-                  echo "macOS 常见问题排查："
-                  echo "1. 架构不匹配 - 确保 Node.js、NapCat 和 QQ 架构一致"
-                  echo "   检查命令: node -p 'process.arch' && uname -m"
-                  echo "2. 缺少 QQ 路径 - 设置: export NAPCAT_QQ_PATH=\"/Applications/QQ.app/Contents/MacOS/QQ\""
-                  echo "3. 权限问题 - 运行: xattr -r -d com.apple.quarantine ."
-              elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-                  echo ""
-                  echo "Linux 常见问题排查："
-                  echo "1. QQ 未安装或路径错误"
-                  echo "2. 动态库缺失 - 确保在 QQ 目录中运行"
-                  echo "3. 架构不匹配 - 检查: node -p 'process.arch'"
+              # Linux 使用系统 Node（因为需要与 QQ 的动态库兼容）
+              if command -v node >/dev/null 2>&1; then
+                  log_info "Node 版本: $(node -v)"
+                  log_info "Node 架构: $(node -p 'process.arch')"
+                  node "$SCRIPT_DIR/napcat.mjs" "$@"
+              else
+                  die "未找到 node 命令，请安装 Node.js 20+"
               fi
+          
+          # ---- Other Unix ----
+          else
+              log_info "启动 NapCat (通用 Unix)..."
+              [[ -f "$NAPCAT_ENTRY" ]] || die "未找到 NapCat 入口: $NAPCAT_ENTRY"
               
-              exit $exit_code
+              if command -v node >/dev/null 2>&1; then
+                  log_info "Node 版本: $(node -v)"
+                  log_info "🚀 启动 NapCat..."
+                  node "$NAPCAT_ENTRY" "$@"
+              else
+                  die "未找到 node 命令，请安装 Node.js"
+              fi
           fi
-          EOF
+          EOFSCRIPT
           
           chmod +x napcat-launcher.sh
-          echo "✅ Created launcher script for ${{ matrix.platform }}-${{ matrix.arch }}"
+          echo "✅ Created hardened launcher script for ${{ matrix.platform }}-${{ matrix.arch }}"
       
       - name: Create Platform Launcher (Windows)
         if: matrix.shell == 'cmd'
@@ -391,7 +534,7 @@ jobs:
           
           请根据您的平台选择对应的安装包：
           - **Windows**: \`NapCat.QCE.V4-Windows-x64.zip\`
-          - **macOS Apple Silicon (M1/M2/M3)**: \`NapCat.QCE.V4-macOS-arm64.tar.gz\`
+          - **macOS Apple Silicon (M1/M2/M3)**: \`NapCat.QCE.V4-macOS-arm64.tar.gz\` 
           - **macOS Intel**: \`NapCat.QCE.V4-macOS-x64.tar.gz\`
           - **Linux**: \`NapCat.QCE.V4-Linux-x64.tar.gz\`
           - **通用包**: \`NapCat.QCE.V4-Universal.zip\` (包含所有平台)
@@ -403,7 +546,7 @@ jobs:
           3. 运行启动脚本：
              - Windows: \`launcher-user.bat\`
              - Linux: 在QQ目录中运行 \`./napcat-launcher.sh\`
-             - macOS: \`./napcat-launcher.sh\`
+             - macOS: \`./napcat-launcher.sh\` (首次运行可能需要移除隔离属性)
           4. 在浏览器中打开 http://localhost:40653
           5. 访问 QCE V4 工具: http://localhost:40653/qce-v4-tool
           
