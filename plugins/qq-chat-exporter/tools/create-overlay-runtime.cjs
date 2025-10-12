@@ -213,6 +213,50 @@ export class Peer {
 export default NapCatCore;
 `,
 
+  'src/core/types.js': `export const ChatType = {
+  Friend: 1,
+  Group: 2,
+  Temp: 100,
+  Guild: 4
+};
+
+export const ElementType = {
+  Text: 1,
+  Picture: 2,
+  File: 3,
+  Video: 4,
+  Reply: 7,
+  Ptt: 4,
+  Face: 6,
+  Mface: 37,
+  Ark: 10,
+  Markdown: 51
+};
+
+export const NTMsgType = {
+  Text: 1,
+  Picture: 2,
+  File: 3,
+  Video: 4,
+  Voice: 5,
+  Reply: 7
+};
+
+export class RawMessage {
+  constructor(data = {}) {
+    Object.assign(this, data);
+  }
+}
+
+export class MessageElement {
+  constructor(data = {}) {
+    Object.assign(this, data);
+  }
+}
+
+export default { ChatType, ElementType, NTMsgType, RawMessage, MessageElement };
+`,
+
   'src/onebot/api/msg.js': `function getBridge() {
   const bridge = globalThis.__NAPCAT_BRIDGE__;
   if (!bridge) throw new Error('[QCE Overlay] Bridge未初始化');
