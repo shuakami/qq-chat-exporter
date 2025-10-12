@@ -17,58 +17,45 @@ jobs:
           - os: windows-latest
             platform: Windows
             arch: x64
-            npm_script: build:plugin
           - os: ubuntu-latest
             platform: Linux
             arch: x64
-            npm_script: build:plugin
           - os: macos-13
             platform: macOS
             arch: x64
-            npm_script: build:plugin
           - os: macos-latest
             platform: macOS
             arch: arm64
-            npm_script: build:plugin
     
     runs-on: ${{ matrix.os }}
     
     steps:
-      - name: "[1/6] 检出仓库"
+      - name: "[1/4] Checkout repository"
         uses: actions/checkout@v4
       
-      - name: "[2/6] 设置 Node.js 20"
+      - name: "[2/4] Setup Node.js & pnpm"
         uses: actions/setup-node@v4
         with:
           node-version: 20.x
       
-      - name: "[3/6] 设置 pnpm"
+      - name: "[3/4] Setup pnpm"
         uses: pnpm/action-setup@v4
         with:
           version: 8
       
-      - name: "[4/6] 安装依赖"
-        run: npm install
-      
-      - name: "[5/6] 构建前端"
-        run: |
-          cd qce-v4-tool
-          pnpm install
-          pnpm run build
-          cd ..
+      - name: "[4/4] Build complete package"
+        run: python${{ matrix.platform == 'Windows' && '' || '3' }} scripts/quick-pack.py
         env:
           NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=4096
       
-      - name: "[6/6] 打包插件"
-        run: npm run build:plugin-${{ matrix.platform }}
-      
-      - name: "[-] 上传构建产物"
+      - name: "Upload build artifact"
         uses: actions/upload-artifact@v4
         with:
-          name: QCE-Plugin-${{ matrix.platform }}-${{ matrix.arch }}
-          path: dist/QCE-Plugin-${{ matrix.platform }}-${{ matrix.arch }}
+          name: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}
+          path: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}.*
           retention-days: 7
       
-      - name: "[x] 构建完成"
-        run: echo "${{ matrix.platform }}-${{ matrix.arch }} 构建完成"
+      - name: "Build complete"
+        run: echo "${{ matrix.platform }}-${{ matrix.arch }} build completed"
 
