@@ -1,5 +1,1 @@
-const path = require('path');
-const CurrentPath = path.dirname(__filename);
-(async () => {
-    await import("file://" + path.join(CurrentPath, './napcat/napcat.mjs'));
-})();
+(async () => {await import("file:///C:/Users/Shuakami_Projects/Mine/qq-chat-exporter-pro/NapCatQQ/launcher/napcat.mjs")})() 

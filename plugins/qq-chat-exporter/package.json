@@ -1,0 +1,41 @@
+{
+  "name": "qq-chat-exporter",
+  "version": "4.0.0",
+  "description": "QQ Chat Exporter Plugin for NapCat - Export QQ chat history with advanced features",
+  "main": "index.mjs",
+  "type": "module",
+  "scripts": {
+    "gen:overlay": "node tools/gen-overlay.cjs && node tools/create-overlay-runtime.cjs",
+    "fix:imports": "node tools/fix-imports.cjs && node tools/fix-ts-imports.cjs",
+    "test": "node test-plugin.mjs",
+    "test:full": "node test-plugin-full.mjs"
+  },
+  "keywords": [
+    "napcat",
+    "plugin",
+    "qq",
+    "chat",
+    "exporter",
+    "onebot"
+  ],
+  "author": "shuakami",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "tsx": "^4.19.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.9.1",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["ES2022"],
+    "outDir": "./dist",
+    "rootDir": "./lib",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "verbatimModuleSyntax": true,
+    "resolvePackageJsonExports": true,
+    "resolvePackageJsonImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "NapCatQQ/src/*": ["./node_modules/NapCatQQ/types/*"],
+      "@/core": ["./node_modules/NapCatQQ/types/core/index.d.ts"]
+    }
+  },
+  "include": [
+    "lib/**/*",
+    "node_modules/NapCatQQ/types/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tools",
+    "public"
+  ]
+}
+
