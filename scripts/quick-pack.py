@@ -137,14 +137,15 @@ def main():
     os.makedirs(temp_extract_dir)
     extract_zip("NapCat.Shell.zip", temp_extract_dir)
     
-    # Move NapCat.Shell to pack_dir
+    # Check if there's a NapCat.Shell subdirectory or if files are directly in temp dir
     extracted_napcat = os.path.join(temp_extract_dir, "NapCat.Shell")
     if os.path.exists(extracted_napcat):
+        # If there's a NapCat.Shell subdirectory, move it
         shutil.move(extracted_napcat, pack_dir)
         shutil.rmtree(temp_extract_dir)
     else:
-        print(f"[!] Expected NapCat.Shell directory not found")
-        sys.exit(1)
+        # If files are directly in temp dir, rename the temp dir
+        os.rename(temp_extract_dir, pack_dir)
     
     print("[x] Extracted")
     print()
