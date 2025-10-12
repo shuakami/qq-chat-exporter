@@ -149,9 +149,9 @@ jobs:
 
           ### 系统要求
 
-          需要 QQ 客户端版本 34606 以上（推荐 9.9.19-34740），下载地址 https://im.qq.com/
+          需要 QQ 客户端版本 34606 以上（推荐 9.9.19-34740），[下载地址](https://im.qq.com/)
 
-          Windows 需要 Windows 10/11 x64。如果提示缺少 DLL 文件，安装 Visual C++ 运行库 https://aka.ms/vs/17/release/vc_redist.x64.exe
+          Windows 需要 Windows 10/11 x64。如果提示缺少 DLL 文件，安装 [Visual C++ 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)
 
           Linux 需要 Ubuntu 20.04+、Debian 11+ 或 CentOS 8+ 以及 glibc 2.31+。QQ 必须安装在 /opt/QQ 或通过环境变量指定路径。
 
