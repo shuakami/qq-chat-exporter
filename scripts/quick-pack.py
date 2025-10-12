@@ -173,6 +173,15 @@ def main():
     print("[x] Installed")
     print()
     
+    # Generate Overlay runtime files
+    print("[7.5/11] Generating Overlay runtime files...")
+    node_cmd = ["node.exe" if os_name == "Windows" else "node", "tools/create-overlay-runtime.cjs"]
+    if not run_command(node_cmd, cwd=plugin_dir):
+        print("[!] Overlay generation failed")
+        sys.exit(1)
+    print("[x] Generated")
+    print()
+    
     # Copy frontend files
     print("[8/11] Copying frontend files...")
     frontend_out = "qce-v4-tool/out"
