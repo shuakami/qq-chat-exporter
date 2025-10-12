@@ -57,10 +57,10 @@
 
 ## 系统架构与鸣谢
 
-QCE V4 采用现代化的三层架构设计，完全作为 [**NapCatQQ**](https://github.com/NapNeko/NapCatQQ) 框架的嵌入式模块运行，从而实现了高性能和深度集成。我们在此特别感谢 **NapCatQQ 团队**，没有其强大的底层框架，V4 版本无法实现。
+QCE V4.5 采用创新的 Overlay 插件架构设计，作为 [**NapCatQQ**](https://github.com/NapNeko/NapCatQQ) 框架的独立外部插件运行，通过双层代理机制实现了零业务代码修改的跨平台兼容。我们在此特别感谢 **NapCatQQ 团队**，没有其强大的插件生态和底层框架支持，V4 版本无法实现。
 
--   **集成层**: 通过 NapCatQQ 提供的 `wrapper.node` 原生绑定，桥接 Node.js 运行时与 QQ 桌面客户端的底层 API。
--   **后端服务层**: 基于 Express.js 和 WebSocket 构建，负责处理 API 请求、编排导出流程、管理任务调度和持久化数据存储。
+-   **Overlay 层**: 创新的双层代理架构，编译期通过类型镜像提供 TypeScript 类型检查，运行期通过 JS 代理和 Bridge 机制委托宿主 NapCat 执行核心能力，彻底解决了原生模块依赖问题。
+-   **后端服务层**: 基于 Express.js 和 WebSocket 构建，使用 tsx 即时编译 TypeScript，负责处理 API 请求、编排导出流程、管理任务调度和持久化数据存储。
 -   **前端应用层**: 基于 Next.js 14 和 React 构建的现代化单页应用，为用户提供所有交互功能。
 -   **存储层**: 采用基于 **JSONL** 的文件存储系统并辅以内存索引，实现高性能的读写与任务恢复。
 
@@ -68,6 +68,7 @@ QCE V4 采用现代化的三层架构设计，完全作为 [**NapCatQQ**](https:
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-20-5FA04E?style=flat-square&logo=nodedotjs&logoColor=white)
+![tsx](https://img.shields.io/badge/tsx-Runtime-2D3748?style=flat-square)
 ![Next.js](https://img.shields.io/badge/Next.js-14-0070F3?style=flat-square&logo=next.js&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
 ![Express.js](https://img.shields.io/badge/Express.js-FFA500?style=flat-square&logo=express&logoColor=white)
