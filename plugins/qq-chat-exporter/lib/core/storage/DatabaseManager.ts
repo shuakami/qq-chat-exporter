@@ -404,9 +404,9 @@ export class DatabaseManager {
     }
 
     /**
-     * 刷新写入队列
+     * 刷新写入队列（公开方法，允许外部调用立即刷新）
      */
-    private async flushWriteQueue(): Promise<void> {
+    async flushWriteQueue(): Promise<void> {
         if (this.writeQueue.length === 0) return;
 
         const queue = [...this.writeQueue];

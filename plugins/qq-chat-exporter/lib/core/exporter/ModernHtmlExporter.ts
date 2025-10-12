@@ -11,7 +11,7 @@ import path from 'path';
 import os from 'os';
 import { pipeline } from 'stream/promises';
 import { once } from 'events';
-import { CleanMessage } from '../parser/SimpleMessageParser.js';
+import type { CleanMessage } from '../parser/SimpleMessageParser.js';
 
 /**
  * HTML导出选项
@@ -128,6 +128,7 @@ export class ModernHtmlExporter {
                 ws,
                 `<!DOCTYPE html>
 <html lang="zh-CN">
+<!-- QCE_METADATA: {"messageCount": 0, "chatName": "${this.escapeHtml(chatInfo.name)}", "chatType": "${chatInfo.type}", "exportTime": "${new Date().toISOString()}"} -->
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -214,6 +215,9 @@ ${this.generateFooter()}
             ws.end();
             await once(ws, 'finish');
 
+            // 更新元数据注释中的消息数量
+            await this.updateMetadata(totalMessages);
+
             // 控制台输出
             if (this.options.includeResourceLinks) {
                 console.log(`[ModernHtmlExporter] HTML导出完成！`);
@@ -290,6 +294,43 @@ ${this.generateFooter()}
                     };
                 }
             }
+        }
+    }
+
+    /**
+     * 更新HTML文件中的元数据注释
+     */
+    private async updateMetadata(messageCount: number): Promise<void> {
+        try {
+            // 读取HTML文件内容
+            const content = await fsp.readFile(this.options.outputPath, 'utf8');
+            
+            // 查找并替换元数据注释
+            const metadataRegex = /<!-- QCE_METADATA: \{[^}]+\} -->/;
+            const match = content.match(metadataRegex);
+            
+            if (match) {
+                // 提取现有元数据
+                const metadataStr = match[0].match(/\{[^}]+\}/)?.[0];
+                if (metadataStr) {
+                    const metadata = JSON.parse(metadataStr);
+                    metadata.messageCount = messageCount;
+                    
+                    // 生成新的元数据注释
+                    const newMetadataComment = `<!-- QCE_METADATA: ${JSON.stringify(metadata)} -->`;
+                    
+                    // 替换旧的元数据注释
+                    const newContent = content.replace(metadataRegex, newMetadataComment);
+                    
+                    // 写回文件
+                    await fsp.writeFile(this.options.outputPath, newContent, 'utf8');
+                    
+                    console.log(`[ModernHtmlExporter] ✅ 元数据已更新: messageCount=${messageCount}`);
+                }
+            }
+        } catch (error) {
+            console.error('[ModernHtmlExporter] 更新元数据失败:', error);
+            // 不抛出错误，不影响导出流程
         }
     }
 
