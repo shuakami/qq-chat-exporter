@@ -483,7 +483,8 @@ export default function QCEDashboard() {
     const items: BatchExportItem[] = []
     
     selectedItems.forEach(itemId => {
-      const [type, id] = itemId.split('_')
+      const [type, ...idParts] = itemId.split('_')
+      const id = idParts.join('_') // 重新组合ID部分
       
       if (type === 'group') {
         const group = groups.find(g => g.groupCode === id)
@@ -1182,9 +1183,9 @@ export default function QCEDashboard() {
                                 "flex items-center gap-3 rounded-2xl border px-4 py-3 transition",
                                 batchMode 
                                   ? isSelected 
-                                    ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500" 
-                                    : "border-neutral-200 bg-white/70 hover:bg-white cursor-pointer"
-                                  : "border-neutral-200 bg-white/70 hover:bg-white"
+                                    ? "border-neutral-400 bg-neutral-50"
+                                    : "border-neutral-200 bg-white/70 hover:bg-neutral-50 cursor-pointer"
+                                  : "border-neutral-200 bg-white/70 hover:bg-neutral-50"
                               ].join(" ")}
                               variants={STAG.item}
                               {...hoverLift}
@@ -1273,7 +1274,7 @@ export default function QCEDashboard() {
                                 "flex items-center gap-3 rounded-2xl border px-4 py-3 transition",
                                 batchMode 
                                   ? isSelected 
-                                    ? "border-blue-500 bg-blue-50/50 ring-2 ring-blue-500" 
+                                    ? "border-neutral-300 bg-neutral-50 ring-1 ring-neutral-300" 
                                     : "border-neutral-200 bg-white/70 hover:bg-white cursor-pointer"
                                   : "border-neutral-200 bg-white/70 hover:bg-white"
                               ].join(" ")}
