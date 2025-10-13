@@ -321,7 +321,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-1 focus:ring-neutral-300 focus:border-neutral-400"
                     placeholder="开始日期"
                   />
                   <span className="text-gray-400">至</span>
@@ -329,7 +329,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-1 focus:ring-neutral-300 focus:border-neutral-400"
                     placeholder="结束日期"
                   />
                 </div>
@@ -367,7 +367,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 {/* 搜索框 */}
-                <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-300 px-3 py-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
+                <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-300 px-3 py-2 focus-within:ring-1 focus-within:ring-neutral-300 focus-within:border-neutral-400">
                   <Search className="w-4 h-4 text-gray-400" />
                   <input
                     type="text"
