@@ -4,7 +4,7 @@
  * - 资源文件并发受限的流式复制
  * - 统计信息采用占位 + 尾部脚本回填，避免双遍历
  */
-import { CleanMessage } from '../parser/SimpleMessageParser.js';
+import type { CleanMessage } from '../parser/SimpleMessageParser.js';
 /**
  * HTML导出选项
  */
@@ -40,6 +40,10 @@ export declare class ModernHtmlExporter {
     private toAsyncIterable;
     private safeToDate;
     private iterResources;
+    /**
+     * 更新HTML文件中的元数据注释
+     */
+    private updateMetadata;
     private copyResourceFileStream;
     private normalizeTypeDir;
     private fileExists;

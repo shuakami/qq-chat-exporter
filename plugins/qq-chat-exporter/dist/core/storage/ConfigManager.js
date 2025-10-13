@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { SystemConfig, ExportFormat, SystemError, ErrorType } from '../../types.js';
+import { SystemConfig, ExportFormat, SystemError, ErrorType } from '../../types/index.js';
 /**
  * 配置文件名称
  */

@@ -8,7 +8,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 import { MessageElement, ElementType, RawMessage } from 'NapCatQQ/src/core/index.js';
-import { ResourceInfo, SystemError, ErrorType, ResourceType, ResourceStatus } from '../../types.js';
+import { ResourceInfo, SystemError, ErrorType, ResourceType, ResourceStatus } from '../../types/index.js';
 import { DatabaseManager } from '../storage/DatabaseManager.js';
 /**
  * 熔断器状态

@@ -41,3 +41,5 @@ exports/
 *.db
 *.sqlite
 *.sqlite3
+
+NapCat-QCE-Windows-x64/

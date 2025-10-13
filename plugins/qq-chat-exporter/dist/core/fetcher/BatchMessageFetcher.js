@@ -3,7 +3,7 @@
  * 支持复杂筛选条件和大批量数据处理
  */
 import { NapCatCore, Peer, RawMessage, ChatType, NTMsgType } from 'NapCatQQ/src/core/index.js';
-import { MessageFilter, BatchFetchResult, ApiCallStats, ErrorType, SystemError } from '../../types.js';
+import { MessageFilter, BatchFetchResult, ApiCallStats, ErrorType, SystemError } from '../../types/index.js';
 /**
  * 获取策略枚举
  */

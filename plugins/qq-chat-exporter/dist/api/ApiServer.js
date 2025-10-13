@@ -2,7 +2,7 @@
  * QQ聊天记录导出工具API服务器
  * 提供完整的QQ聊天记录导出功能API
  */
-import express, { Request, Response, Application } from 'express';
+import express from 'express';
 import cors from 'cors';
 import { createServer, Server } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -21,10 +21,8 @@ import { ScheduledExportManager } from '../core/scheduler/ScheduledExportManager
 import { FrontendBuilder } from '../webui/FrontendBuilder.js';
 import { SecurityManager } from '../security/SecurityManager.js';
 import { StickerPackExporter } from '../core/sticker/StickerPackExporter.js';
-// 导入类型定义
-import { RawMessage } from '../../core/types/msg.js';
-import { SystemErrorData, ErrorType, ExportTaskConfig, ExportTaskState, ExportTaskStatus, ExportFormat, ChatTypeSimple } from '../types.js';
-import { ChatType } from '../../core/types.js';
+import { ErrorType, ExportTaskStatus, ExportFormat, ChatTypeSimple } from '../types/index.js';
+import { ChatType } from 'NapCatQQ/src/core/types.js';
 /**
  * 系统错误类
  */
@@ -64,6 +62,9 @@ export class QQChatExporterApiServer {
     stickerPackExporter;
     // 任务管理
     exportTasks = new Map();
+    // 资源文件名缓存 (shortName -> fullFileName 映射)
+    // 例如: "A1D18D97.jpg" -> "a1d18d97b45c620add5133050c00044c_A1D18D97.jpg"
+    resourceFileCache = new Map();
     /**
      * 构造函数
      */
@@ -91,6 +92,60 @@ export class QQChatExporterApiServer {
         this.setupMiddleware();
         this.setupRoutes();
         this.setupWebSocket();
+        this.setupProcessHandlers();
+    }
+    /**
+     * 设置进程退出处理器
+     */
+    setupProcessHandlers() {
+        // 处理正常退出
+        process.on('beforeExit', async () => {
+            console.log('[ApiServer] 进程即将退出，保存数据...');
+            try {
+                await this.dbManager.close();
+                console.log('[ApiServer] ✅ 数据已安全保存');
+            }
+            catch (error) {
+                console.error('[ApiServer] 保存数据失败:', error);
+            }
+        });
+        // 处理Ctrl+C
+        process.on('SIGINT', async () => {
+            console.log('\n[ApiServer] 收到SIGINT信号，正在优雅关闭...');
+            try {
+                await this.dbManager.close();
+                console.log('[ApiServer] ✅ 数据已安全保存');
+                process.exit(0);
+            }
+            catch (error) {
+                console.error('[ApiServer] 保存数据失败:', error);
+                process.exit(1);
+            }
+        });
+        // 处理SIGTERM
+        process.on('SIGTERM', async () => {
+            console.log('[ApiServer] 收到SIGTERM信号，正在优雅关闭...');
+            try {
+                await this.dbManager.close();
+                console.log('[ApiServer] ✅ 数据已安全保存');
+                process.exit(0);
+            }
+            catch (error) {
+                console.error('[ApiServer] 保存数据失败:', error);
+                process.exit(1);
+            }
+        });
+        // 处理未捕获的异常
+        process.on('uncaughtException', async (error) => {
+            console.error('[ApiServer] 未捕获的异常:', error);
+            try {
+                await this.dbManager.close();
+                console.log('[ApiServer] ✅ 数据已安全保存');
+            }
+            catch (saveError) {
+                console.error('[ApiServer] 保存数据失败:', saveError);
+            }
+        });
     }
     /**
      * 配置中间件
@@ -177,6 +232,84 @@ export class QQChatExporterApiServer {
             }
             next();
         });
+    }
+    /**
+     * 构建资源文件名缓存（延迟加载）
+     * @param dirPath 目录路径（如 images/videos/audios）
+     * @returns 文件名映射表
+     */
+    buildResourceCache(dirPath) {
+        // 如果缓存已存在，直接返回
+        if (this.resourceFileCache.has(dirPath)) {
+            return this.resourceFileCache.get(dirPath);
+        }
+        const cache = new Map();
+        const resourcesRoot = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'resources');
+        const fullDirPath = path.join(resourcesRoot, dirPath);
+        // 检查目录是否存在
+        if (!fs.existsSync(fullDirPath)) {
+            this.resourceFileCache.set(dirPath, cache);
+            return cache;
+        }
+        try {
+            // 一次性读取所有文件名
+            const files = fs.readdirSync(fullDirPath);
+            for (const fileName of files) {
+                // 跳过目录
+                const fullPath = path.join(fullDirPath, fileName);
+                if (!fs.statSync(fullPath).isFile()) {
+                    continue;
+                }
+                // 检查是否是带MD5前缀的文件名格式: md5_originalName.ext
+                const underscoreIndex = fileName.indexOf('_');
+                if (underscoreIndex > 0) {
+                    // 提取原始短文件名
+                    const shortName = fileName.substring(underscoreIndex + 1);
+                    cache.set(shortName, fileName);
+                    // console.log(`[ApiServer] 缓存映射: ${shortName} -> ${fileName}`);
+                }
+                // 同时存储完整文件名，支持直接访问
+                cache.set(fileName, fileName);
+            }
+            console.log(`[ApiServer] 构建资源缓存: ${dirPath} (${cache.size} 个文件)`);
+        }
+        catch (error) {
+            console.error(`[ApiServer] 构建资源缓存失败: ${dirPath}`, error);
+        }
+        // 保存到缓存
+        this.resourceFileCache.set(dirPath, cache);
+        return cache;
+    }
+    /**
+     * 快速查找资源文件（O(1)时间复杂度）
+     * @param resourcePath 资源相对路径，如 images/xxx.jpg
+     * @returns 实际文件的完整路径，不存在则返回null
+     */
+    findResourceFile(resourcePath) {
+        const resourcesRoot = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'resources');
+        const dirPath = path.dirname(resourcePath);
+        const shortFileName = path.basename(resourcePath);
+        // 延迟加载：第一次访问该目录时才构建缓存
+        const cache = this.buildResourceCache(dirPath);
+        // O(1) 查找
+        const actualFileName = cache.get(shortFileName);
+        if (!actualFileName) {
+            return null;
+        }
+        return path.join(resourcesRoot, dirPath, actualFileName);
+    }
+    /**
+     * 清除资源文件缓存（当检测到文件变化时调用）
+     */
+    clearResourceCache(dirPath) {
+        if (dirPath) {
+            this.resourceFileCache.delete(dirPath);
+            console.log(`[ApiServer] 清除资源缓存: ${dirPath}`);
+        }
+        else {
+            this.resourceFileCache.clear();
+            console.log(`[ApiServer] 清除所有资源缓存`);
+        }
     }
     /**
      * 配置路由
@@ -933,6 +1066,46 @@ export class QQChatExporterApiServer {
                 this.sendErrorResponse(res, error, req.requestId);
             }
         });
+        // HTML预览页面的资源文件服务（处理相对路径资源请求）
+        this.app.get('/api/exports/files/:fileName/resources/*', (req, res) => {
+            try {
+                // 提取资源相对路径（去掉 /api/exports/files/{fileName}/resources/ 前缀）
+                const resourcePath = req.params[0]; // 例如: images/xxx.jpg
+                // 安全检查：防止路径遍历攻击
+                const normalizedPath = path.normalize(resourcePath);
+                if (normalizedPath.includes('..') || normalizedPath.startsWith('/') || normalizedPath.startsWith('\\')) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '非法的资源路径', 'INVALID_PATH');
+                }
+                // 使用缓存快速查找文件（O(1)复杂度）
+                const fullPath = this.findResourceFile(resourcePath);
+                if (!fullPath || !fs.existsSync(fullPath)) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, `资源文件不存在: ${resourcePath}`, 'RESOURCE_NOT_FOUND');
+                }
+                // 根据文件扩展名设置Content-Type
+                const ext = path.extname(resourcePath).toLowerCase();
+                const contentTypes = {
+                    '.jpg': 'image/jpeg',
+                    '.jpeg': 'image/jpeg',
+                    '.png': 'image/png',
+                    '.gif': 'image/gif',
+                    '.webp': 'image/webp',
+                    '.svg': 'image/svg+xml',
+                    '.mp4': 'video/mp4',
+                    '.webm': 'video/webm',
+                    '.mp3': 'audio/mpeg',
+                    '.wav': 'audio/wav',
+                    '.ogg': 'audio/ogg'
+                };
+                const contentType = contentTypes[ext] || 'application/octet-stream';
+                res.setHeader('Content-Type', contentType);
+                res.setHeader('Cache-Control', 'public, max-age=31536000'); // 资源可以长期缓存
+                // 发送文件
+                res.sendFile(fullPath);
+            }
+            catch (error) {
+                this.sendErrorResponse(res, error, req.requestId);
+            }
+        });
         // 静态文件服务
         this.app.use('/downloads', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports')));
         this.app.use('/scheduled-downloads', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports')));
@@ -1264,6 +1437,14 @@ export class QQChatExporterApiServer {
                 }
             });
             console.log(`[ApiServer] 导出任务完成: ${taskId}`);
+            // 立即刷新数据库，确保任务状态持久化
+            console.log(`[ApiServer] 正在保存任务状态到数据库...`);
+            await this.dbManager.flushWriteQueue();
+            console.log(`[ApiServer] ✅ 任务状态已保存`);
+            // 清除资源缓存，确保新下载的资源能被访问
+            this.clearResourceCache('images');
+            this.clearResourceCache('videos');
+            this.clearResourceCache('audios');
         }
         catch (error) {
             console.error(`[ApiServer] 导出任务失败: ${taskId}`, error);
@@ -1536,26 +1717,60 @@ export class QQChatExporterApiServer {
      */
     async stop() {
         return new Promise(async (resolve) => {
-            // 停止前端服务
+            this.core.context.logger.log('[API] 正在关闭服务器...');
+            // 1. 刷新数据库写入队列（最重要！）
+            try {
+                this.core.context.logger.log('[API] 正在保存数据库...');
+                await this.dbManager.close();
+                this.core.context.logger.log('[API] ✅ 数据库已安全关闭');
+            }
+            catch (error) {
+                this.core.context.logger.logError('[API] 关闭数据库失败:', error);
+            }
+            // 2. 停止前端服务
             try {
                 await this.frontendBuilder.stop();
-                this.core.context.logger.log('[API] 前端服务已停止');
+                this.core.context.logger.log('[API] ✅ 前端服务已停止');
             }
             catch (error) {
                 this.core.context.logger.logError('[API] 停止前端服务失败:', error);
             }
-            // 关闭所有WebSocket连接
+            // 3. 关闭所有WebSocket连接
             this.wsConnections.forEach(ws => {
                 ws.close(1000, '服务器关闭');
             });
-            // 关闭WebSocket服务器
+            this.core.context.logger.log('[API] ✅ WebSocket连接已关闭');
+            // 4. 关闭WebSocket服务器
             this.wss.close();
-            // 关闭HTTP服务器
+            // 5. 关闭HTTP服务器
             this.server.close(() => {
-                this.core.context.logger.log('[API] QQ聊天记录导出工具API服务器已关闭');
+                this.core.context.logger.log('[API] ✅ QQ聊天记录导出工具API服务器已安全关闭');
                 resolve();
             });
         });
+    }
+    /**
+     * 从HTML文件中读取元数据注释
+     */
+    parseHtmlMetadata(filePath) {
+        try {
+            // 只读取文件的前1KB，足够包含元数据注释
+            const buffer = fs.readFileSync(filePath);
+            const header = buffer.toString('utf8', 0, Math.min(1024, buffer.length));
+            // 匹配元数据注释: <!-- QCE_METADATA: {...} -->
+            const match = header.match(/<!-- QCE_METADATA: ({[^}]+}) -->/);
+            if (match && match[1]) {
+                const metadata = JSON.parse(match[1]);
+                return {
+                    messageCount: metadata.messageCount || 0,
+                    chatName: metadata.chatName
+                };
+            }
+        }
+        catch (error) {
+            // 忽略解析错误，返回空对象
+        }
+        return {};
     }
     /**
      * 获取导出文件列表
@@ -1565,31 +1780,6 @@ export class QQChatExporterApiServer {
         const scheduledExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
         const files = [];
         try {
-            // 双重数据源：内存（快速）+ 数据库（持久化）
-            const taskMap = new Map();
-            // 1. 从内存读取当前运行中的任务
-            this.exportTasks.forEach(task => {
-                if (task.fileName) {
-                    taskMap.set(task.fileName, {
-                        displayName: task.sessionName || task.peer?.peerUid,
-                        messageCount: task.messageCount
-                    });
-                }
-            });
-            // 2. 从数据库读取历史任务（持久化，支持重启）
-            const dbTasks = await this.dbManager.getAllTasks();
-            // 建立 peerUid -> 任务信息 的映射
-            const peerUidMap = new Map();
-            dbTasks.forEach(({ config, state }) => {
-                if (config.peer?.peerUid && config.chatName) {
-                    const peerUid = config.peer.peerUid;
-                    // 使用最新的任务信息（后面的会覆盖前面的）
-                    peerUidMap.set(peerUid, {
-                        displayName: config.chatName,
-                        messageCount: state.totalMessages || 0
-                    });
-                }
-            });
             // 扫描主导出目录
             if (fs.existsSync(exportDir)) {
                 const mainFiles = fs.readdirSync(exportDir);
@@ -1599,15 +1789,14 @@ export class QQChatExporterApiServer {
                         const stats = fs.statSync(filePath);
                         const fileInfo = this.parseExportFileName(fileName);
                         if (fileInfo) {
-                            // 匹配任务信息：优先用文件名，回退到peerUid
-                            let taskInfo = taskMap.get(fileName) || peerUidMap.get(fileInfo.chatId);
-                            if (taskInfo) {
-                                if (taskInfo.displayName) {
-                                    fileInfo.displayName = taskInfo.displayName;
-                                }
-                                if (taskInfo.messageCount !== undefined) {
-                                    fileInfo.messageCount = taskInfo.messageCount;
-                                }
+                            // 从HTML文件头部读取元数据（最可靠的来源）
+                            const htmlMetadata = this.parseHtmlMetadata(filePath);
+                            // 优先使用HTML元数据中的信息
+                            if (htmlMetadata.messageCount !== undefined) {
+                                fileInfo.messageCount = htmlMetadata.messageCount;
+                            }
+                            if (htmlMetadata.chatName) {
+                                fileInfo.displayName = htmlMetadata.chatName;
                             }
                             // 如果仍然没有displayName，尝试从API实时获取
                             if (!fileInfo.displayName) {
@@ -1651,15 +1840,14 @@ export class QQChatExporterApiServer {
                         const stats = fs.statSync(filePath);
                         const fileInfo = this.parseExportFileName(fileName);
                         if (fileInfo) {
-                            // 匹配任务信息：优先用文件名，回退到peerUid
-                            let taskInfo = taskMap.get(fileName) || peerUidMap.get(fileInfo.chatId);
-                            if (taskInfo) {
-                                if (taskInfo.displayName) {
-                                    fileInfo.displayName = taskInfo.displayName;
-                                }
-                                if (taskInfo.messageCount !== undefined) {
-                                    fileInfo.messageCount = taskInfo.messageCount;
-                                }
+                            // 从HTML文件头部读取元数据（最可靠的来源）
+                            const htmlMetadata = this.parseHtmlMetadata(filePath);
+                            // 优先使用HTML元数据中的信息
+                            if (htmlMetadata.messageCount !== undefined) {
+                                fileInfo.messageCount = htmlMetadata.messageCount;
+                            }
+                            if (htmlMetadata.chatName) {
+                                fileInfo.displayName = htmlMetadata.chatName;
                             }
                             // 如果仍然没有displayName，尝试从API实时获取
                             if (!fileInfo.displayName) {

@@ -4,7 +4,7 @@
  * 支持多任务并发、断点续传和详细的进度统计
  */
 import { EventEmitter } from 'events';
-import { ExportTaskState, ExportTaskConfig } from '../../types.js';
+import { ExportTaskState, ExportTaskConfig } from '../../types/index.js';
 import { DatabaseManager } from '../storage/DatabaseManager.js';
 /**
  * 进度快照接口

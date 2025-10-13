@@ -1,7 +1,7 @@
 /**
  * QQ聊天记录导出系统 - 类型定义
  */
-import { NTMsgType, Peer, RawMessage } from 'NapCatQQ/src/core/index.js';
+import { Peer, RawMessage } from 'NapCatQQ/src/core/index.js';
 export type { Peer };
 /**
  * 导出任务状态枚举

@@ -3,9 +3,9 @@
  * 负责获取和管理QQ聊天会话信息，包括群聊、私聊等
  * 使用NapCat的底层API获取真实的聊天数据
  */
-import { ChatSession, ChatTypeSimple, SystemError, ErrorType } from '../../types.js';
+import { ChatSession, ChatTypeSimple, SystemError, ErrorType } from '../../types/index.js';
 import { NapCatCore, Peer } from 'NapCatQQ/src/core/index.js';
-import { ChatType } from '../../../core/types.js';
+import { ChatType } from 'NapCatQQ/src/core/types.js';
 /**
  * 聊天会话管理器类
  * 提供获取、格式化和管理聊天会话的功能

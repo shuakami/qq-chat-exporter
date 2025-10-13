@@ -3,7 +3,7 @@
  * 负责所有持久化存储操作，支持任务状态、消息缓存、进度跟踪等
  * 使用高性能JSONL格式确保数据安全和极致性能
  */
-import { ExportTaskConfig, ExportTaskState, ResourceInfo, ResourceStatus } from '../../types.js';
+import { ExportTaskConfig, ExportTaskState, ResourceInfo, ResourceStatus } from '../../types/index.js';
 import { ScheduledExportConfig, ExecutionHistory } from '../scheduler/ScheduledExportManager.js';
 /**
  * 高性能JSONL数据库管理器类
@@ -69,9 +69,9 @@ export declare class DatabaseManager {
      */
     private scheduleDelayedWrite;
     /**
-     * 刷新写入队列
+     * 刷新写入队列（公开方法，允许外部调用立即刷新）
      */
-    private flushWriteQueue;
+    flushWriteQueue(): Promise<void>;
     /**
      * 保存任务配置和状态
      */

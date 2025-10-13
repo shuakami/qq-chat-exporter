@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { RawMessage } from 'NapCatQQ/src/core/index.js';
-import { ExportFormat, ExportResult, SystemError, ErrorType } from '../../types.js';
+import { ExportFormat, ExportResult, SystemError, ErrorType } from '../../types/index.js';
 import { MessageParser, MessageParserConfig } from '../parser/MessageParser.js';
 import { SimpleMessageParser } from '../parser/SimpleMessageParser.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';

@@ -46,14 +46,15 @@ jobs:
             platform: Linux
             arch: x64
             artifact_ext: tar.gz
-          - os: macos-13
-            platform: macOS
-            arch: x64
-            artifact_ext: tar.gz
-          - os: macos-latest
-            platform: macOS
-            arch: arm64
-            artifact_ext: tar.gz
+          # macOS 因兼容性问题暂时不构建
+          # - os: macos-13
+          #   platform: macOS
+          #   arch: x64
+          #   artifact_ext: tar.gz
+          # - os: macos-latest
+          #   platform: macOS
+          #   arch: arm64
+          #   artifact_ext: tar.gz
     
     runs-on: ${{ matrix.os }}
     
@@ -134,16 +135,19 @@ jobs:
 
           根据你的系统选择对应的文件：
 
-          | 平台 | 文件 |
-          |------|------|
-          | Windows 10/11 x64 | `NapCat-QCE-Windows-x64.zip` |
-          | Linux x64 | `NapCat-QCE-Linux-x64.tar.gz` |
-          | macOS Intel | `NapCat-QCE-macOS-x64.tar.gz` |
-          | macOS Apple Silicon | `NapCat-QCE-macOS-arm64.tar.gz` |
+          | 平台 | 状态 | 文件 |
+          |------|------|------|
+          | Windows 10/11 x64 | ✅ 完全支持 | `NapCat-QCE-Windows-x64.zip` |
+          | Linux x64 | ✅ 应该支持 | `NapCat-QCE-Linux-x64.tar.gz` |
+          | macOS | ⚠️ 暂不支持 | 因兼容性问题暂不提供 |
 
           ### 使用
 
-          Windows 用户解压后运行 `launcher-user.bat`。Linux 用户需要在 QQ 安装目录（通常是 /opt/QQ）解压并运行 `./launcher-user.sh`，或者设置 `NAPCAT_QQ_PATH` 环境变量后在任意位置运行。macOS 用户解压后先执行 `xattr -r -d com.apple.quarantine .` 移除系统隔离，然后运行 `./launcher-user.sh`。
+          **Windows 用户**：解压后运行 `launcher-user.bat`
+          
+          **Linux 用户**：需要在 QQ 安装目录（通常是 /opt/QQ）解压并运行 `./launcher-user.sh`，或者设置 `NAPCAT_QQ_PATH` 环境变量后在任意位置运行
+          
+          **macOS 用户**：⚠️ 暂不支持，推荐使用 Windows 系统
 
           启动后浏览器访问 `http://localhost:40653/qce-v4-tool`，输入控制台显示的访问令牌即可使用。
 
@@ -151,11 +155,11 @@ jobs:
 
           需要 QQ 客户端版本 34606 以上（推荐 9.9.19-34740），[下载地址](https://im.qq.com/)
 
-          Windows 需要 Windows 10/11 x64。如果提示缺少 DLL 文件，安装 [Visual C++ 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+          **Windows**：需要 Windows 10/11 x64。如果提示缺少 DLL 文件，安装 [Visual C++ 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)
 
-          Linux 需要 Ubuntu 20.04+、Debian 11+ 或 CentOS 8+ 以及 glibc 2.31+。QQ 必须安装在 /opt/QQ 或通过环境变量指定路径。
+          **Linux**：需要 Ubuntu 20.04+、Debian 11+ 或 CentOS 8+ 以及 glibc 2.31+。QQ 必须安装在 /opt/QQ 或通过环境变量指定路径
 
-          macOS 需要 macOS 10.15+（Intel）或 macOS 11+（Apple Silicon）。首次运行必须执行 `xattr -r -d com.apple.quarantine .` 移除系统隔离。
+          **macOS**：⚠️ 因兼容性问题暂不支持，正在努力解决中，后续有进展会及时通知
 
           ### 版本信息
 
@@ -198,9 +202,8 @@ jobs:
           echo "包含 NapCat ${{ needs.get-napcat-version.outputs.version }}"
           echo "========================================="
           echo "发布的完整包："
-          echo "- NapCat-QCE-Windows-x64.zip"
-          echo "- NapCat-QCE-Linux-x64.tar.gz"
-          echo "- NapCat-QCE-macOS-x64.tar.gz"
-          echo "- NapCat-QCE-macOS-arm64.tar.gz"
+          echo "- ✅ NapCat-QCE-Windows-x64.zip"
+          echo "- ✅ NapCat-QCE-Linux-x64.tar.gz"
+          echo "- ⚠️  macOS 因兼容性问题暂不发布"
           echo "========================================="
 

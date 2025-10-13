@@ -3,7 +3,7 @@
  * 负责获取和管理QQ好友的详细信息，包括个人资料、在线状态、关系等
  * 使用NapCat的底层API获取完整的好友数据
  */
-import { SystemError, ErrorType } from '../../types.js';
+import { SystemError, ErrorType } from '../../types/index.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 /**
  * 好友信息管理器类

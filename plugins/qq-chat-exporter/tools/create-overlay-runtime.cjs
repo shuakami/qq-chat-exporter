@@ -221,16 +221,20 @@ export default NapCatCore;
 };
 
 export const ElementType = {
-  Text: 1,
-  Picture: 2,
-  File: 3,
-  Video: 4,
-  Reply: 7,
-  Ptt: 4,
-  Face: 6,
-  Mface: 37,
-  Ark: 10,
-  Markdown: 51
+  TEXT: 1,
+  PIC: 2,
+  FILE: 3,
+  VIDEO: 4,
+  PTT: 4,
+  FACE: 6,
+  REPLY: 7,
+  ARK: 10,
+  MFACE: 37,
+  MARKDOWN: 51,
+  GreyTip: 8,
+  SHARELOCATION: 20,
+  CALENDAR: 21,
+  MULTIFORWARD: 16
 };
 
 export const NTMsgType = {

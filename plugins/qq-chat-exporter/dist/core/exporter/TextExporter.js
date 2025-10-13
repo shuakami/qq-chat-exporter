@@ -3,7 +3,7 @@
  * 将聊天记录导出为易于阅读的纯文本格式
  * 支持多种文本布局和格式化选项
  */
-import { ExportFormat } from '../../types.js';
+import { ExportFormat } from '../../types/index.js';
 import { BaseExporter, ExportOptions } from './BaseExporter.js';
 import { RawMessage } from 'NapCatQQ/src/core/index.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';

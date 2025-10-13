@@ -3,7 +3,7 @@
  * 负责系统配置和用户配置的统一管理
  * 支持配置验证、热重载、环境变量覆盖等功能
  */
-import { SystemConfig, ExportFormat } from '../../types.js';
+import { SystemConfig, ExportFormat } from '../../types/index.js';
 /**
  * 用户配置接口
  */
