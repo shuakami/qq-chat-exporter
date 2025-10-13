@@ -4,7 +4,7 @@
  * 支持多任务并发、断点续传和详细的进度统计
  */
 import { EventEmitter } from 'events';
-import { ExportTaskState, ExportTaskStatus, ExportTaskConfig, EventType, EventData, SystemError, ErrorType } from '../../types.js';
+import { ExportTaskState, ExportTaskStatus, ExportTaskConfig, EventType, EventData, SystemError, ErrorType } from '../../types/index.js';
 import { DatabaseManager } from '../storage/DatabaseManager.js';
 /**
  * 预定义的任务阶段

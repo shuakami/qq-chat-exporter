@@ -20,12 +20,13 @@ jobs:
           - os: ubuntu-latest
             platform: Linux
             arch: x64
-          - os: macos-13
-            platform: macOS
-            arch: x64
-          - os: macos-latest
-            platform: macOS
-            arch: arm64
+          # macOS 因兼容性问题暂时不构建
+          # - os: macos-13
+          #   platform: macOS
+          #   arch: x64
+          # - os: macos-latest
+          #   platform: macOS
+          #   arch: arm64
     
     runs-on: ${{ matrix.os }}
     

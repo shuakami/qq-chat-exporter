@@ -5,7 +5,7 @@
  */
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 import { RawMessage } from 'NapCatQQ/src/core/index.js';
-import { ResourceInfo } from '../../types.js';
+import { ResourceInfo } from '../../types/index.js';
 import { DatabaseManager } from '../storage/DatabaseManager.js';
 /**
  * 资源处理配置

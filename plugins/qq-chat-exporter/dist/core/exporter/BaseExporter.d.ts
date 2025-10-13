@@ -4,7 +4,7 @@
  * 所有具体格式的导出器都应继承此基类
  */
 import { RawMessage } from 'NapCatQQ/src/core/index.js';
-import { ExportFormat, ExportResult, SystemError } from '../../types.js';
+import { ExportFormat, ExportResult, SystemError } from '../../types/index.js';
 import { MessageParser } from '../parser/MessageParser.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 /**

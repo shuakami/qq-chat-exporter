@@ -69,8 +69,8 @@ import { JsonExporter } from '../exporter/JsonExporter.js';
 import { TextExporter } from '../exporter/TextExporter.js';
 import { BatchMessageFetcher } from '../fetcher/BatchMessageFetcher.js';
 import { ResourceHandler } from '../resource/ResourceHandler.js';
-import { RawMessage } from '../../../core/types/msg.js';
-// import { ChatType } from '../../../core/types.js';
+import { RawMessage } from 'NapCatQQ/src/core/types.js';
+// import { ChatType } from 'NapCatQQ/src/core/types.js';
 import path from 'path';
 import fs from 'fs';
 /**

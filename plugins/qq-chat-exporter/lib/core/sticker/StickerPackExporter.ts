@@ -6,7 +6,12 @@
 import fs from 'fs';
 import path from 'path';
 import https from 'https';
+import { fileURLToPath } from 'url';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
+
+// ES模块中__dirname的替代方案
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * 表情包类型枚举

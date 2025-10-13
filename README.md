@@ -13,8 +13,8 @@
 > [!NOTE]
 > 这是一款功能强大的 QQ 聊天记录导出工具，可以将您的 QQ 聊天记录（包括消息、图片、视频、文件、表情包等）完整地导出为 `HTML`、`JSON`、`TXT` 等多种格式。最新的 V4 版本深度集成了 NapCatQQ 框架，提供企业级的聊天记录管理解决方案。
 
-> [!TIP]
-> 暂时不支持MacOS平台。请等待后续适配
+> [!WARNING]
+> **macOS 兼容性说明**：由于技术兼容性问题，V4 版本暂时不支持 macOS 平台。我们正在努力解决相关问题，后续有进展会及时通知。推荐 macOS 用户使用 Windows 系统运行本工具。
 
 ## 快速开始
 
@@ -26,7 +26,7 @@
 2.  **启动与登录**
     *   **Windows**: 双击运行 `launcher-user.bat`。
     *   **Linux**: 将文件解压到 QQ 安装目录 (`/opt/QQ`) 后运行 `./launcher-user.sh`。
-    *   **macOS**: 运行 `./launcher-user.sh`（首次运行如被系统阻止，请执行 `xattr -r -d com.apple.quarantine .` 移除隔离属性）。
+    *   ~~**macOS**: 运行 `./launcher-user.sh`（暂不支持，开发中）~~
     *   根据控制台提示，使用您的手机 QQ 扫描二维码完成登录。
 
 3.  **访问与使用**
@@ -49,11 +49,11 @@
 
 ## 支持平台
 
-| 平台 | 架构 | 要求 |
-| :--- | :--- | :--- |
-| Windows | x64 | Windows 10/11 |
-| Linux | x64 | Ubuntu 20.04+ (需预先安装 QQ 桌面客户端) |
-| macOS | x64 / arm64 | macOS 10.15+ / Apple Silicon (M1/M2/M3) |
+| 平台 | 架构 | 状态 | 要求 |
+| :--- | :--- | :--- | :--- |
+| Windows | x64 | ✅ 完全支持 | Windows 10/11 |
+| Linux | x64 | ✅ 应该支持 | Ubuntu 20.04+ |
+| macOS | x64 / arm64 | ⚠️ 暂不支持 | 因兼容性问题暂不可用，开发中 |
 
 ## 系统架构与鸣谢
 

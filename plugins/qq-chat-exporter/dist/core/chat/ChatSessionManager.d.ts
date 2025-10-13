@@ -3,7 +3,7 @@
  * 负责获取和管理QQ聊天会话信息，包括群聊、私聊等
  * 使用NapCat的底层API获取真实的聊天数据
  */
-import { ChatSession } from '../../types.js';
+import { ChatSession } from '../../types/index.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 /**
  * 聊天会话管理器类

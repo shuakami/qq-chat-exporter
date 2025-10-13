@@ -19,14 +19,35 @@ export declare class QQChatExporterApiServer {
     private securityManager;
     private stickerPackExporter;
     private exportTasks;
+    private resourceFileCache;
     /**
      * 构造函数
      */
     constructor(core: NapCatCore);
     /**
+     * 设置进程退出处理器
+     */
+    private setupProcessHandlers;
+    /**
      * 配置中间件
      */
     private setupMiddleware;
+    /**
+     * 构建资源文件名缓存（延迟加载）
+     * @param dirPath 目录路径（如 images/videos/audios）
+     * @returns 文件名映射表
+     */
+    private buildResourceCache;
+    /**
+     * 快速查找资源文件（O(1)时间复杂度）
+     * @param resourcePath 资源相对路径，如 images/xxx.jpg
+     * @returns 实际文件的完整路径，不存在则返回null
+     */
+    private findResourceFile;
+    /**
+     * 清除资源文件缓存（当检测到文件变化时调用）
+     */
+    private clearResourceCache;
     /**
      * 配置路由
      */
@@ -83,6 +104,10 @@ export declare class QQChatExporterApiServer {
      * 关闭服务器
      */
     stop(): Promise<void>;
+    /**
+     * 从HTML文件中读取元数据注释
+     */
+    private parseHtmlMetadata;
     /**
      * 获取导出文件列表
      */

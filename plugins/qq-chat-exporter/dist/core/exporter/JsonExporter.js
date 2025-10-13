@@ -3,7 +3,7 @@
  * 将聊天记录导出为结构化的JSON格式
  * 便于程序化处理和数据分析
  */
-import { ExportFormat } from '../../types.js';
+import { ExportFormat } from '../../types/index.js';
 import { BaseExporter, ExportOptions } from './BaseExporter.js';
 import { CleanMessage, SimpleMessageParser } from '../parser/SimpleMessageParser.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';

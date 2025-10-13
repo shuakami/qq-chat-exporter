@@ -2,7 +2,7 @@
  * 消息解析器
  */
 import { RawMessage, MessageElement, ElementType, NTMsgType } from 'NapCatQQ/src/core/index.js';
-import { SystemError, ErrorType, ResourceInfo, ResourceStatus } from '../../types.js';
+import { SystemError, ErrorType, ResourceInfo, ResourceStatus } from '../../types/index.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 import { OneBotMsgApi } from 'NapCatQQ/src/onebot/api/msg.js';
 /* ------------------------------ 内部高性能工具 ------------------------------ */

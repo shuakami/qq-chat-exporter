@@ -851,7 +851,13 @@ export class SimpleMessageParser {
     for (let i = 0; i < els.length; i++) {
       const el = els[i]!;
       if (!el.data || typeof el.data !== 'object') continue;
-      const found = resources.find((r) => r.fileName === el.data.filename);
+      // 修复：大小写兼容匹配 - 支持 filename 和 fileName
+      const elementFilename = (el.data as any).filename || (el.data as any).fileName;
+      const found = resources.find((r) => 
+        r.fileName === elementFilename || 
+        r.fileName === (el.data as any).filename ||
+        r.fileName === (el.data as any).fileName
+      );
       if (found && found.localPath) {
         const fileName = path.basename(found.localPath);
         const typeDir = found.type + 's';  // image -> images, video -> videos

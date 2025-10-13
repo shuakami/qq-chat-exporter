@@ -8,7 +8,7 @@ import fs from 'fs';
 import { promises as fsPromises } from 'fs';
 import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
-import { TaskDbRecord, MessageDbRecord, ExportTaskConfig, ExportTaskState, ErrorType, SystemError, ResourceInfo, ResourceStatus } from '../../types.js';
+import { TaskDbRecord, MessageDbRecord, ExportTaskConfig, ExportTaskState, ErrorType, SystemError, ResourceInfo, ResourceStatus } from '../../types/index.js';
 import { ScheduledExportConfig, ExecutionHistory } from '../scheduler/ScheduledExportManager.js';
 /**
  * 数据库模式版本
@@ -325,7 +325,7 @@ export class DatabaseManager {
         }, 5000); // 5秒后自动写入
     }
     /**
-     * 刷新写入队列
+     * 刷新写入队列（公开方法，允许外部调用立即刷新）
      */
     async flushWriteQueue() {
         if (this.writeQueue.length === 0)

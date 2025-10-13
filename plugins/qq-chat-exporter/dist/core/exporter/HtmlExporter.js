@@ -3,7 +3,7 @@
  * 将聊天记录导出为美观的HTML网页格式
  * 支持自定义主题、响应式设计和交互功能
  */
-import { ExportFormat } from '../../types.js';
+import { ExportFormat } from '../../types/index.js';
 import { BaseExporter, ExportOptions } from './BaseExporter.js';
 import { ParsedMessage } from '../parser/MessageParser.js';
 import { RawMessage, NapCatCore } from 'NapCatQQ/src/core/index.js';

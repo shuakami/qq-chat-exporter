@@ -3,7 +3,7 @@
  * 负责获取和管理QQ群组的详细信息，包括群成员、群设置、群荣誉等
  * 使用NapCat的底层API获取完整的群组数据
  */
-import { SystemError, ErrorType } from '../../types.js';
+import { SystemError, ErrorType } from '../../types/index.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 /**
  * 群组信息管理器类
