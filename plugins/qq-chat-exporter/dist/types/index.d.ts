@@ -1,7 +1,7 @@
 /**
  * QQ聊天记录导出系统 - 类型定义
  */
-import { Peer, RawMessage } from 'NapCatQQ/src/core/index.js';
+import { NTMsgType, Peer, RawMessage } from 'NapCatQQ/src/core/index.js';
 export type { Peer };
 /**
  * 导出任务状态枚举
@@ -29,7 +29,9 @@ export declare enum ExportFormat {
     /** JSON格式 */
     JSON = "json",
     /** HTML格式 */
-    HTML = "html"
+    HTML = "html",
+    /** Excel格式 */
+    EXCEL = "excel"
 }
 /**
  * 聊天类型枚举

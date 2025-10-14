@@ -670,15 +670,17 @@ export function ScheduledExportWizard({
 
                 <div className="space-y-3">
                   {/* 导出格式 */}
-                  {(["HTML", "JSON", "TXT"] as const).map((fmt) => {
+                  {(["HTML", "JSON", "TXT", "EXCEL"] as const).map((fmt) => {
                     const active = baseForm.format === fmt
                     const chip =
                       fmt === "HTML" ? { txt: "推荐", cls: "bg-blue-100 text-blue-600" } :
                       fmt === "JSON" ? { txt: "结构化", cls: "bg-neutral-100 text-neutral-600" } :
+                      fmt === "EXCEL" ? { txt: "数据分析", cls: "bg-purple-100 text-purple-600" } :
                       { txt: "兼容", cls: "bg-green-100 text-green-600" }
                     const desc =
                       fmt === "HTML" ? "网页格式，便于浏览器查看和打印" :
                       fmt === "JSON" ? "适合程序处理的结构化数据格式" :
+                      fmt === "EXCEL" ? "Excel格式，便于数据分析和统计" :
                       "纯文本格式，兼容性最好"
                     return (
                       <div

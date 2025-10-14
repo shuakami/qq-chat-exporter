@@ -18,6 +18,7 @@ import { BatchMessageFetcher } from '../core/fetcher/BatchMessageFetcher.js';
 import { SimpleMessageParser } from '../core/parser/SimpleMessageParser.js';
 import { TextExporter } from '../core/exporter/TextExporter.js';
 import { JsonExporter } from '../core/exporter/JsonExporter.js';
+import { ExcelExporter } from '../core/exporter/ExcelExporter.js';
 import { ModernHtmlExporter } from '../core/exporter/ModernHtmlExporter.js';
 import { DatabaseManager } from '../core/storage/DatabaseManager.js';
 import { ResourceHandler } from '../core/resource/ResourceHandler.js';
@@ -866,6 +867,7 @@ export class QQChatExporterApiServer {
                 switch (format.toUpperCase()) {
                     case 'TXT': fileExt = 'txt'; break;
                     case 'HTML': fileExt = 'html'; break;
+                    case 'EXCEL': fileExt = 'xlsx'; break;
                     case 'JSON': default: fileExt = 'json'; break;
                 }
 
@@ -1669,6 +1671,11 @@ export class QQChatExporterApiServer {
                 case 'JSON':
                     console.log(`[ApiServer] 调用 JsonExporter，传入 ${sortedMessages.length} 条 RawMessage`);
                     exporter = new JsonExporter(exportOptions, {}, this.core);
+                    await exporter.export(sortedMessages, chatInfo);
+                    break;
+                case 'EXCEL':
+                    console.log(`[ApiServer] 调用 ExcelExporter，传入 ${sortedMessages.length} 条 RawMessage`);
+                    exporter = new ExcelExporter(exportOptions, {}, this.core);
                     await exporter.export(sortedMessages, chatInfo);
                     break;
                 case 'HTML':

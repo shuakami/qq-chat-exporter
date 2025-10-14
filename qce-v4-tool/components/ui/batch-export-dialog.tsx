@@ -231,17 +231,19 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                 </div>
 
                 <div className="space-y-3">
-                  {(["JSON", "HTML", "TXT"] as const).map((fmt) => {
+                  {(["JSON", "HTML", "TXT", "EXCEL"] as const).map((fmt) => {
                     const desc =
                       fmt === "JSON"
                         ? "结构化数据，保留完整信息"
                         : fmt === "HTML"
                         ? "网页格式，适合直接查看与打印"
+                        : fmt === "EXCEL"
+                        ? "Excel格式，便于数据分析"
                         : "纯文本，兼容性最好"
                     const chip =
-                      fmt === "JSON" ? "结构化" : fmt === "HTML" ? "推荐" : "兼容"
+                      fmt === "JSON" ? "结构化" : fmt === "HTML" ? "推荐" : fmt === "EXCEL" ? "数据分析" : "兼容"
                     const chipClass =
-                      fmt === "JSON" ? "bg-neutral-100 text-neutral-600" : fmt === "HTML" ? "bg-blue-100 text-blue-600" : "bg-green-100 text-green-600"
+                      fmt === "JSON" ? "bg-neutral-100 text-neutral-600" : fmt === "HTML" ? "bg-blue-100 text-blue-600" : fmt === "EXCEL" ? "bg-purple-100 text-purple-600" : "bg-green-100 text-green-600"
                     const active = format === fmt
                     return (
                       <div

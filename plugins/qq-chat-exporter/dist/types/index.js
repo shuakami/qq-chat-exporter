@@ -31,6 +31,8 @@ export var ExportFormat;
     ExportFormat["JSON"] = "json";
     /** HTML格式 */
     ExportFormat["HTML"] = "html";
+    /** Excel格式 */
+    ExportFormat["EXCEL"] = "excel";
 })(ExportFormat || (ExportFormat = {}));
 /**
  * 聊天类型枚举
