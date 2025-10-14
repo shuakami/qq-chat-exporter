@@ -45,8 +45,13 @@ export const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[101]",
-        "w-[95vw] max-w-6xl",
+        // 使用更稳定的居中方式，避免在高DPI屏幕上出现偏移
+        "fixed inset-0 z-[101] flex items-center justify-center p-4",
+        "w-[95vw] max-w-6xl mx-auto my-auto",
+        // 添加高分辨率支持，限制最大尺寸避免在超大屏幕上过大
+        "2xl:w-[85vw] 2xl:max-w-[1400px]",
+        // 确保在超高分辨率下不会太高
+        "max-h-[95vh] overflow-hidden",
         "rounded-2xl border border-neutral-200",
         "bg-white/80 backdrop-blur-md supports-[backdrop-filter]:bg-white/70",
         "shadow-2xl",
