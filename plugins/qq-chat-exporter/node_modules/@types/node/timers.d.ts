@@ -6,7 +6,7 @@
  * The timer functions within Node.js implement a similar API as the timers API
  * provided by Web Browsers but use a different internal implementation that is
  * built around the Node.js [Event Loop](https://nodejs.org/en/docs/guides/event-loop-timers-and-nexttick/#setimmediate-vs-settimeout).
- * @see [source](https://github.com/nodejs/node/blob/v20.x/lib/timers.js)
+ * @see [source](https://github.com/nodejs/node/blob/v22.x/lib/timers.js)
  */
 declare module "timers" {
     import { Abortable } from "node:events";
@@ -66,6 +66,7 @@ declare module "timers" {
                 _onImmediate(...args: any[]): void;
             }
             // Legacy interface used in Node.js v9 and prior
+            // TODO: remove in a future major version bump
             /** @deprecated Use `NodeJS.Timeout` instead. */
             interface Timer extends RefCounted {
                 hasRef(): boolean;
@@ -181,8 +182,8 @@ declare module "timers" {
         /**
          * Schedules repeated execution of `callback` every `delay` milliseconds.
          *
-         * When `delay` is larger than `2147483647` or less than `1`, the `delay` will be
-         * set to `1`. Non-integer delays are truncated to an integer.
+         * When `delay` is larger than `2147483647` or less than `1` or `NaN`, the `delay`
+         * will be set to `1`. Non-integer delays are truncated to an integer.
          *
          * If `callback` is not a function, a `TypeError` will be thrown.
          *

@@ -1,7 +1,7 @@
 /**
  * 消息解析器
  */
-import { RawMessage } from 'NapCatQQ/src/core/index.js';
+import { RawMessage, NTMsgType } from 'NapCatQQ/src/core/index.js';
 import { ResourceInfo } from '../../types/index.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 /**

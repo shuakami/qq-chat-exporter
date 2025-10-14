@@ -536,11 +536,20 @@ ${this.generateFooter()}
     renderImageElement(data) {
         const filename = data?.filename || '图片';
         let src = '';
+        // 优先使用localPath（导出后的本地资源）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
             src = `resources/images/${data.filename || path.basename(data.localPath)}`;
         }
+        // 其次使用url，但要过滤掉无效的file://协议路径
         else if (data?.url) {
-            src = data.url;
+            const url = data.url;
+            // 过滤掉file://协议和本地文件系统路径
+            if (!url.startsWith('file://') &&
+                !url.startsWith('C:/') &&
+                !url.startsWith('D:/') &&
+                !url.match(/^[A-Z]:\\/)) {
+                src = url;
+            }
         }
         if (src) {
             return `<div class="image-content"><img src="${src}" alt="${this.escapeHtml(filename)}" loading="lazy" onclick="showImageModal('${src}')"></div>`;
@@ -550,11 +559,20 @@ ${this.generateFooter()}
     renderAudioElement(data) {
         const duration = data?.duration || 0;
         let src = '';
+        // 优先使用localPath（导出后的本地资源）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
             src = `resources/audios/${data.filename || path.basename(data.localPath)}`;
         }
+        // 其次使用url，但要过滤掉无效的file://协议路径
         else if (data?.url) {
-            src = data.url;
+            const url = data.url;
+            // 过滤掉file://协议和本地文件系统路径
+            if (!url.startsWith('file://') &&
+                !url.startsWith('C:/') &&
+                !url.startsWith('D:/') &&
+                !url.match(/^[A-Z]:\\/)) {
+                src = url;
+            }
         }
         if (src) {
             return `<audio src="${src}" controls class="message-audio" preload="metadata">[语音:${duration}秒]</audio>`;
@@ -564,11 +582,20 @@ ${this.generateFooter()}
     renderVideoElement(data) {
         const filename = data?.filename || '视频';
         let src = '';
+        // 优先使用localPath（导出后的本地资源）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
             src = `resources/videos/${data.filename || path.basename(data.localPath)}`;
         }
+        // 其次使用url，但要过滤掉无效的file://协议路径
         else if (data?.url) {
-            src = data.url;
+            const url = data.url;
+            // 过滤掉file://协议和本地文件系统路径
+            if (!url.startsWith('file://') &&
+                !url.startsWith('C:/') &&
+                !url.startsWith('D:/') &&
+                !url.match(/^[A-Z]:\\/)) {
+                src = url;
+            }
         }
         if (src) {
             return `<video src="${src}" controls class="message-video" preload="metadata">[视频: ${this.escapeHtml(filename)}]</video>`;
@@ -578,11 +605,20 @@ ${this.generateFooter()}
     renderFileElement(data) {
         const filename = data?.filename || '文件';
         let href = '';
+        // 优先使用localPath（导出后的本地资源）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
             href = `resources/files/${data.filename || path.basename(data.localPath)}`;
         }
+        // 其次使用url，但要过滤掉无效的file://协议路径
         else if (data?.url) {
-            href = data.url;
+            const url = data.url;
+            // 过滤掉file://协议和本地文件系统路径
+            if (!url.startsWith('file://') &&
+                !url.startsWith('C:/') &&
+                !url.startsWith('D:/') &&
+                !url.match(/^[A-Z]:\\/)) {
+                href = url;
+            }
         }
         if (href) {
             return `<a href="${href}" class="message-file" download="${this.escapeHtml(filename)}">📎 ${this.escapeHtml(filename)}</a>`;

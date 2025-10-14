@@ -2,8 +2,8 @@
  * We strongly discourage the use of the `async_hooks` API.
  * Other APIs that can cover most of its use cases include:
  *
- * * [`AsyncLocalStorage`](https://nodejs.org/docs/latest-v20.x/api/async_context.html#class-asynclocalstorage) tracks async context
- * * [`process.getActiveResourcesInfo()`](https://nodejs.org/docs/latest-v20.x/api/process.html#processgetactiveresourcesinfo) tracks active resources
+ * * [`AsyncLocalStorage`](https://nodejs.org/docs/latest-v22.x/api/async_context.html#class-asynclocalstorage) tracks async context
+ * * [`process.getActiveResourcesInfo()`](https://nodejs.org/docs/latest-v22.x/api/process.html#processgetactiveresourcesinfo) tracks active resources
  *
  * The `node:async_hooks` module provides an API to track asynchronous resources.
  * It can be accessed using:
@@ -12,7 +12,7 @@
  * import async_hooks from 'node:async_hooks';
  * ```
  * @experimental
- * @see [source](https://github.com/nodejs/node/blob/v20.13.1/lib/async_hooks.js)
+ * @see [source](https://github.com/nodejs/node/blob/v22.x/lib/async_hooks.js)
  */
 declare module "async_hooks" {
     /**
@@ -44,7 +44,7 @@ declare module "async_hooks" {
      * ```
      *
      * Promise contexts may not get precise `executionAsyncIds` by default.
-     * See the section on [promise execution tracking](https://nodejs.org/docs/latest-v20.x/api/async_hooks.html#promise-execution-tracking).
+     * See the section on [promise execution tracking](https://nodejs.org/docs/latest-v22.x/api/async_hooks.html#promise-execution-tracking).
      * @since v8.1.0
      * @return The `asyncId` of the current execution context. Useful to track when something calls.
      */
@@ -77,7 +77,7 @@ declare module "async_hooks" {
      *   executionAsyncId,
      *   executionAsyncResource,
      *   createHook,
-     * } from 'async_hooks';
+     * } from 'node:async_hooks';
      * const sym = Symbol('state'); // Private symbol to avoid pollution
      *
      * createHook({
@@ -117,7 +117,7 @@ declare module "async_hooks" {
      * ```
      *
      * Promise contexts may not get valid `triggerAsyncId`s by default. See
-     * the section on [promise execution tracking](https://nodejs.org/docs/latest-v20.x/api/async_hooks.html#promise-execution-tracking).
+     * the section on [promise execution tracking](https://nodejs.org/docs/latest-v22.x/api/async_hooks.html#promise-execution-tracking).
      * @return The ID of the resource responsible for calling the callback that is currently being executed.
      */
     function triggerAsyncId(): number;
@@ -358,8 +358,8 @@ declare module "async_hooks" {
      * http.get('http://localhost:8080');
      * // Prints:
      * //   0: start
-     * //   1: start
      * //   0: finish
+     * //   1: start
      * //   1: finish
      * ```
      *
@@ -372,7 +372,6 @@ declare module "async_hooks" {
         /**
          * Binds the given function to the current execution context.
          * @since v19.8.0
-         * @experimental
          * @param fn The function to bind to the current execution context.
          * @return A new function that calls `fn` within the captured execution context.
          */
@@ -403,7 +402,6 @@ declare module "async_hooks" {
          * console.log(asyncLocalStorage.run(321, () => foo.get())); // returns 123
          * ```
          * @since v19.8.0
-         * @experimental
          * @return A new function with the signature `(fn: (...args) : R, ...args) : R`.
          */
         static snapshot(): <R, TArgs extends any[]>(fn: (...args: TArgs) => R, ...args: TArgs) => R;

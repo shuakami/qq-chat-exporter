@@ -1,0 +1,35 @@
+{
+	"name": "adler-32",
+	"version": "1.3.1",
+	"author": "sheetjs",
+	"description": "Pure-JS ADLER-32",
+	"keywords": [ "adler32", "checksum" ],
+	"main": "./adler32",
+	"types": "types/index.d.ts",
+	"devDependencies": {
+		"mocha": "~2.5.3",
+		"blanket": "~1.2.3",
+		"codepage": "~1.10.0",
+		"@sheetjs/uglify-js": "~2.7.3",
+		"@types/node": "^8.0.7",
+		"dtslint": "^0.1.2",
+		"typescript": "2.2.0"
+	},
+	"repository": { "type": "git", "url": "git://github.com/SheetJS/js-adler32.git" },
+	"scripts": {
+		"test": "make test",
+		"build": "make",
+		"lint": "make fullint",
+		"dtslint": "dtslint types"
+	},
+	"config": {
+		"blanket": {
+			"pattern": "adler32.js"
+		}
+	},
+	"homepage": "http://sheetjs.com/opensource",
+	"files": ["adler32.js", "LICENSE", "README.md", "types/index.d.ts", "types/*.json"],
+	"bugs": { "url": "https://github.com/SheetJS/js-adler32/issues" },
+	"license": "Apache-2.0",
+	"engines": { "node": ">=0.8" }
+}

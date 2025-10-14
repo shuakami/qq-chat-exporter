@@ -99,7 +99,7 @@ class CircuitBreaker {
      * 判断错误是否应该计入熔断统计
      */
     shouldCountAsFailure(errorMessage) {
-        // 不应该计入熔断的错误类型
+        // 不应该计入熔断的错误类型（业务错误，不是系统故障）
         const ignoredErrors = [
             '404', // 资源不存在
             'not found', // 文件未找到
@@ -107,6 +107,11 @@ class CircuitBreaker {
             'unauthorized', // 认证错误
             'file exists', // 文件已存在
             'disk quota', // 磁盘空间不足
+            'api返回空路径', // API返回空路径（文件可能已过期或被删除）
+            '空路径', // 空路径错误
+            '文件不存在', // 文件不存在
+            '权限问题', // 权限问题
+            '无法找到有效的下载文件', // 无法找到有效文件
         ];
         const lowerErrorMsg = errorMessage.toLowerCase();
         return !ignoredErrors.some(ignored => lowerErrorMsg.includes(ignored));
