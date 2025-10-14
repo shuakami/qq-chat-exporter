@@ -34,7 +34,9 @@ export enum ExportFormat {
     /** JSON格式 */
     JSON = 'json',
     /** HTML格式 */
-    HTML = 'html'
+    HTML = 'html',
+    /** Excel格式 */
+    EXCEL = 'excel'
 }
 
 /**

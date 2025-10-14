@@ -14,6 +14,7 @@ import { BatchMessageFetcher } from '../core/fetcher/BatchMessageFetcher.js';
 import { SimpleMessageParser } from '../core/parser/SimpleMessageParser.js';
 import { TextExporter } from '../core/exporter/TextExporter.js';
 import { JsonExporter } from '../core/exporter/JsonExporter.js';
+import { ExcelExporter } from '../core/exporter/ExcelExporter.js';
 import { ModernHtmlExporter } from '../core/exporter/ModernHtmlExporter.js';
 import { DatabaseManager } from '../core/storage/DatabaseManager.js';
 import { ResourceHandler } from '../core/resource/ResourceHandler.js';
@@ -188,7 +189,15 @@ export class QQChatExporterApiServer {
                 return req.path === route ||
                     req.path.startsWith('/static/') ||
                     req.path.startsWith('/qce-v4-tool/');
-            }) || isStaticFile || req.path.match(/^\/api\/exports\/files\/[^\/]+\/preview$/); // 允许预览接口公开访问
+            }) || isStaticFile ||
+                req.path === '/api/exports/files' || // 允许离线查看聊天记录索引
+                req.path.match(/^\/api\/exports\/files\/[^\/]+\/preview$/) || // 允许预览接口公开访问
+                req.path.match(/^\/api\/exports\/files\/[^\/]+\/info$/) || // 允许获取文件信息
+                req.path.match(/^\/api\/exports\/files\/[^\/]+\/resources\//) || // 允许导出文件的资源访问
+                req.path.startsWith('/resources/') || // 允许全局资源访问
+                req.path.startsWith('/downloads/') || // 允许下载文件访问
+                req.path.startsWith('/scheduled-downloads/') || // 允许定时导出文件访问
+                req.path === '/download'; // 允许QQ文件下载API访问（用于图片等资源）
             if (isPublicRoute) {
                 return next();
             }
@@ -739,6 +748,9 @@ export class QQChatExporterApiServer {
                     case 'HTML':
                         fileExt = 'html';
                         break;
+                    case 'EXCEL':
+                        fileExt = 'xlsx';
+                        break;
                     case 'JSON':
                     default:
                         fileExt = 'json';
@@ -1032,6 +1044,56 @@ export class QQChatExporterApiServer {
                 const { fileName } = req.params;
                 const fileInfo = this.getExportFileInfo(fileName);
                 this.sendSuccessResponse(res, fileInfo, req.requestId);
+            }
+            catch (error) {
+                this.sendErrorResponse(res, error, req.requestId);
+            }
+        });
+        // 删除导出文件（Issue #32 - 删除聊天记录索引中的文件）
+        this.app.delete('/api/exports/files/:fileName', async (req, res) => {
+            try {
+                const { fileName } = req.params;
+                // 构建文件路径（尝试两个目录）
+                const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+                const scheduledExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
+                let filePathToDelete = path.join(exportDir, fileName);
+                let isScheduled = false;
+                // 检查是否在定时导出目录
+                if (!fs.existsSync(filePathToDelete)) {
+                    filePathToDelete = path.join(scheduledExportDir, fileName);
+                    isScheduled = true;
+                }
+                if (!fs.existsSync(filePathToDelete)) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '文件不存在', 'FILE_NOT_FOUND');
+                }
+                // 删除HTML和JSON文件
+                const baseName = fileName.replace(/\.(html|json)$/, '');
+                const htmlPath = isScheduled
+                    ? path.join(scheduledExportDir, `${baseName}.html`)
+                    : path.join(exportDir, `${baseName}.html`);
+                const jsonPath = isScheduled
+                    ? path.join(scheduledExportDir, `${baseName}.json`)
+                    : path.join(exportDir, `${baseName}.json`);
+                // 删除资源目录
+                const resourcesDir = path.dirname(htmlPath) + `/resources_${baseName}`;
+                // 执行删除
+                const deletedFiles = [];
+                if (fs.existsSync(htmlPath)) {
+                    fs.unlinkSync(htmlPath);
+                    deletedFiles.push('HTML文件');
+                }
+                if (fs.existsSync(jsonPath)) {
+                    fs.unlinkSync(jsonPath);
+                    deletedFiles.push('JSON文件');
+                }
+                if (fs.existsSync(resourcesDir)) {
+                    fs.rmSync(resourcesDir, { recursive: true, force: true });
+                    deletedFiles.push('资源目录');
+                }
+                this.sendSuccessResponse(res, {
+                    message: '文件删除成功',
+                    deleted: deletedFiles
+                }, req.requestId);
             }
             catch (error) {
                 this.sendErrorResponse(res, error, req.requestId);
@@ -1387,6 +1449,11 @@ export class QQChatExporterApiServer {
                 case 'JSON':
                     console.log(`[ApiServer] 调用 JsonExporter，传入 ${sortedMessages.length} 条 RawMessage`);
                     exporter = new JsonExporter(exportOptions, {}, this.core);
+                    await exporter.export(sortedMessages, chatInfo);
+                    break;
+                case 'EXCEL':
+                    console.log(`[ApiServer] 调用 ExcelExporter，传入 ${sortedMessages.length} 条 RawMessage`);
+                    exporter = new ExcelExporter(exportOptions, {}, this.core);
                     await exporter.export(sortedMessages, chatInfo);
                     break;
                 case 'HTML':
