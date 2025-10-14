@@ -657,7 +657,7 @@ export function TaskWizard({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
         overlayClassName="bg-white/60 backdrop-blur-xl"
-        className="max-w-6xl h-[80vh] flex flex-col p-0"
+        className="max-w-6xl 2xl:max-w-[1400px] h-[80vh] flex flex-col p-0"
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
