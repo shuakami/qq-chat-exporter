@@ -45,14 +45,12 @@ export const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[101]",
-        "w-[95vw] max-w-6xl",
-        "rounded-2xl border border-neutral-200",
-        "bg-white/80 backdrop-blur-md supports-[backdrop-filter]:bg-white/70",
-        "shadow-2xl",
+        // 全屏覆盖显示，修复高分辨率屏幕定位偏移问题
+        "fixed inset-0 z-[101]",
+        "w-full h-full",
+        "bg-white",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
-        "data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
         "outline-none",
         className
       )}

@@ -115,7 +115,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         overlayClassName="bg-white/60 backdrop-blur-xl"
-        className="max-w-6xl h-[80vh] flex flex-col p-0"
+        className="flex flex-col h-full p-0"
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

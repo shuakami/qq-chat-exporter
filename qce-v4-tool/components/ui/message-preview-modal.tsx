@@ -292,7 +292,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-6xl w-[95vw] max-h-[90vh] p-0">
+      <DialogContent className="flex flex-col h-full p-0">
         <DialogHeader className="px-6 py-4 border-b">
           <DialogTitle className="flex items-center gap-3">
             {chat.type === 'group' ? <Users className="w-5 h-5" /> : <User className="w-5 h-5" />}
