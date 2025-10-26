@@ -815,7 +815,16 @@ export class MessageParser {
               // 尝试使用 NapCat core.apis.FileApi.getPttUrl 获取语音下载URL
               try {
                 const bridge = (globalThis as any).__NAPCAT_BRIDGE__;
-                if (bridge?.core?.apis?.FileApi && ptt.fileUuid && messageRef?.peerUid) {
+                
+                // 诊断日志：检查必要条件
+                if (!bridge?.core?.apis?.FileApi) {
+                  console.warn('[Voice] bridge.core.apis.FileApi 不可用');
+                } else if (!ptt.fileUuid) {
+                  console.warn('[Voice] fileUuid 为空，fileName:', ptt.fileName);
+                } else if (!messageRef?.peerUid) {
+                  console.warn('[Voice] peerUid 为空');
+                } else {
+                  // 所有条件满足，尝试获取 URL
                   const pttUrl = await bridge.core.apis.FileApi.getPttUrl(
                     messageRef.peerUid,
                     ptt.fileUuid,
@@ -823,6 +832,7 @@ export class MessageParser {
                   );
                   
                   if (pttUrl) {
+                    console.log('[Voice] 成功获取URL:', pttUrl.substring(0, 100));
                     const resource: ResourceInfo = {
                       type: 'audio',
                       fileName: ptt.fileName || 'audio.amr',
@@ -842,10 +852,12 @@ export class MessageParser {
                       ctxText(altText, '');
                     }
                     pttHandled = true;
+                  } else {
+                    console.warn('[Voice] getPttUrl 返回空值');
                   }
                 }
               } catch (error) {
-                // 获取语音URL失败，使用fallback
+                console.error('[Voice] getPttUrl 异常:', error);
               }
               
               // Fallback：使用本地路径
