@@ -540,7 +540,7 @@ ${this.generateFooter()}
         const content = this.parseMessageContent(message);
 
         return `
-        <div class="message ${cssClass}">
+        <div class="message ${cssClass}" id="msg-${message.id}">
             <div class="avatar">${avatarContent}</div>
             <div class="message-bubble">
                 <div class="message-header">
