@@ -33,7 +33,7 @@ def get_platform_info():
 
 def get_napcat_latest_version():
     """Get latest NapCat version from GitHub API"""
-    print("[1/11] Getting NapCat latest version...")
+    print("[1/12] Getting NapCat latest version...")
     try:
         with urlopen("https://api.github.com/repos/NapNeko/NapCatQQ/releases/latest") as response:
             data = json.loads(response.read())
@@ -110,7 +110,7 @@ def main():
     print()
     
     # Clean old files
-    print("[2/11] Cleaning old files...")
+    print("[2/12] Cleaning old files...")
     if os.path.exists(pack_dir):
         shutil.rmtree(pack_dir)
     if os.path.exists("NapCat.Shell.zip"):
@@ -121,7 +121,7 @@ def main():
     print()
     
     # Download NapCat
-    print(f"[3/11] Downloading NapCat.Shell {napcat_version}...")
+    print(f"[3/12] Downloading NapCat.Shell {napcat_version}...")
     try:
         download_file(napcat_url, "NapCat.Shell.zip")
     except Exception as e:
@@ -130,7 +130,7 @@ def main():
     print()
     
     # Extract NapCat
-    print("[4/11] Extracting NapCat.Shell...")
+    print("[4/12] Extracting NapCat.Shell...")
     temp_extract_dir = "temp_napcat_extract"
     if os.path.exists(temp_extract_dir):
         shutil.rmtree(temp_extract_dir)
@@ -151,20 +151,20 @@ def main():
     print()
     
     # Create plugin directories
-    print("[5/11] Creating plugin directories...")
+    print("[5/12] Creating plugin directories...")
     os.makedirs(f"{pack_dir}/plugins", exist_ok=True)
     os.makedirs(f"{pack_dir}/static", exist_ok=True)
     print("[x] Created")
     print()
     
     # Copy plugin files
-    print("[6/11] Copying plugin files...")
+    print("[6/12] Copying plugin files...")
     copy_directory("plugins/qq-chat-exporter", f"{pack_dir}/plugins/qq-chat-exporter")
     print("[x] Copied")
     print()
     
     # Install plugin dependencies
-    print("[7/11] Installing plugin dependencies...")
+    print("[7/12] Installing plugin dependencies...")
     plugin_dir = f"{pack_dir}/plugins/qq-chat-exporter"
     npm_cmd = ["npm.cmd" if os_name == "Windows" else "npm", "install", "--omit=dev"]
     if not run_command(npm_cmd, cwd=plugin_dir):
@@ -183,7 +183,7 @@ def main():
     print()
     
     # Copy frontend files
-    print("[8/11] Copying frontend files...")
+    print("[8/12] Copying frontend files...")
     frontend_out = "qce-v4-tool/out"
     if not os.path.exists(f"{frontend_out}/index.html"):
         print("[-] Building frontend...")
@@ -194,8 +194,9 @@ def main():
     print("[x] Copied")
     print()
     
+    
     # Update config files
-    print("[9/11] Updating config files...")
+    print("[9/12] Updating config files...")
     os.makedirs(f"{pack_dir}/config", exist_ok=True)
     
     napcat_config = {
@@ -247,7 +248,7 @@ def main():
     
     # Create launcher script for Linux/macOS
     if os_name != "Windows":
-        print("[9.5/11] Creating launcher script...")
+        print("[9.5/12] Creating launcher script...")
         launcher_script = """#!/bin/bash
 # NapCat + QCE Launcher Script
 
@@ -283,7 +284,7 @@ node "$NAPCAT_MAIN_PATH"
         print()
     
     # Create README
-    print("[10/11] Creating README...")
+    print("[10/12] Creating README...")
     
     if os_name == "Windows":
         usage_steps = """Usage:
@@ -336,10 +337,75 @@ Support:
     print("[x] Created")
     print()
     
-    # Create archive
-    print("[11/11] Creating archive...")
+    # Create main archive
+    print("[11/12] Creating main archive...")
     output_file = f"{pack_dir}{archive_ext}"
     create_archive(pack_dir, output_file, archive_ext)
+    print()
+    
+    # Create qce-viewer standalone package
+    print("[12/12] Creating qce-viewer standalone package...")
+    viewer_pack_dir = "qce-viewer-standalone"
+    
+    # Clean old viewer package
+    if os.path.exists(viewer_pack_dir):
+        shutil.rmtree(viewer_pack_dir)
+    if os.path.exists("qce-viewer.zip"):
+        os.remove("qce-viewer.zip")
+    
+    # Copy qce-viewer
+    copy_directory("qce-viewer", viewer_pack_dir)
+    
+    # Install dependencies
+    print("[->] Installing qce-viewer dependencies...")
+    npm_cmd = ["npm.cmd" if os_name == "Windows" else "npm", "install", "--omit=dev"]
+    if not run_command(npm_cmd, cwd=viewer_pack_dir):
+        print("[!] qce-viewer dependency install failed")
+        sys.exit(1)
+    
+    # Create qce-viewer README
+    viewer_readme = f"""{"=" * 50}
+QCE Viewer - Standalone Export Viewer
+{"=" * 50}
+Version: {VERSION}
+Build Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+{"=" * 50}
+
+Lightweight viewer for browsing exported QQ chat records.
+
+Usage:
+1. Windows: Run start.bat
+2. Linux/macOS: Run ./start.sh (chmod +x start.sh first)
+3. Browser: http://localhost:3000
+
+Features:
+- Browse all exported chat records
+- Search and filter chats
+- View messages, images, and other resources
+- No QQ login required
+
+Requirements:
+- Node.js 16+ (https://nodejs.org/)
+
+Support:
+- GitHub: https://github.com/shuakami/qq-chat-exporter
+{"=" * 50}
+"""
+    
+    with open(f"{viewer_pack_dir}/README.txt", "w", encoding="utf-8") as f:
+        f.write(viewer_readme)
+    
+    # Create qce-viewer.zip (always ZIP regardless of platform)
+    viewer_output = "qce-viewer.zip"
+    with zipfile.ZipFile(viewer_output, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for root, dirs, files in os.walk(viewer_pack_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = os.path.relpath(file_path, os.path.dirname(viewer_pack_dir))
+                zipf.write(file_path, arcname)
+    
+    viewer_size = os.path.getsize(viewer_output)
+    print(f"[x] Created: {viewer_output} ({viewer_size / 1024 / 1024:.2f} MB)")
     print()
     
     # Clean up
@@ -347,21 +413,33 @@ Support:
         os.remove("NapCat.Shell.zip")
     if os.path.exists("temp_napcat_extract"):
         shutil.rmtree("temp_napcat_extract")
+    if os.path.exists(viewer_pack_dir):
+        shutil.rmtree(viewer_pack_dir)
     
     # Summary
     print("=" * 50)
-    print("[x] Package Complete!")
+    print("[x] All Packages Complete!")
     print("=" * 50)
     print()
-    print(f"Output file: {output_file}")
-    print(f"File size: {os.path.getsize(output_file) / 1024 / 1024:.2f} MB")
+    print("Output Files:")
+    print(f"1. {output_file}")
+    print(f"   Size: {os.path.getsize(output_file) / 1024 / 1024:.2f} MB")
+    print(f"   Complete package with NapCat {napcat_version}")
     print()
-    print("Usage:")
+    print(f"2. {viewer_output}")
+    print(f"   Size: {viewer_size / 1024 / 1024:.2f} MB")
+    print(f"   Standalone viewer for exported chat records")
+    print()
+    print("Main Package Usage:")
     print("1. Extract to any directory")
     print(f"2. Run launcher-user.{'bat' if os_name == 'Windows' else 'sh'}")
     print("3. Visit http://localhost:40653/qce-v4-tool")
     print()
-    print(f"Complete package with NapCat {napcat_version}")
+    print("Viewer Package Usage:")
+    print("1. Extract to any directory")
+    print(f"2. Run start.{'bat' if os_name == 'Windows' else 'sh'}")
+    print("3. Visit http://localhost:3000")
+    print()
     print("=" * 50)
 
 if __name__ == "__main__":
