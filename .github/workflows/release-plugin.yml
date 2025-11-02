@@ -81,11 +81,18 @@ jobs:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=4096
       
-      - name: "[x] 上传构建产物"
+      - name: "[x] 上传主包构建产物"
         uses: actions/upload-artifact@v4
         with:
           name: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}
           path: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.artifact_ext }}
+          retention-days: 7
+      
+      - name: "[x] 上传 qce-viewer 构建产物"
+        uses: actions/upload-artifact@v4
+        with:
+          name: qce-viewer-${{ matrix.platform }}
+          path: qce-viewer.zip
           retention-days: 7
 
   create-release:
@@ -106,9 +113,12 @@ jobs:
       - name: "[3/5] 准备发布文件"
         run: |
           mkdir -p release-files
-          find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release-files/ \;
+          # Copy main packages
+          find artifacts/NapCat-QCE-Windows-x64 -type f -name "*.zip" -exec cp {} release-files/ \; 2>/dev/null || true
+          find artifacts/NapCat-QCE-Linux-x64 -type f -name "*.tar.gz" -exec cp {} release-files/ \; 2>/dev/null || true
           # Copy qce-viewer.zip from first artifact (all platforms generate the same viewer)
-          find artifacts -type f -name "qce-viewer.zip" | head -1 | xargs -I {} cp {} release-files/ || true
+          find artifacts/qce-viewer-* -type f -name "qce-viewer.zip" | head -1 | xargs -I {} cp {} release-files/ 2>/dev/null || true
+          echo "发布文件列表："
           ls -lh release-files/
       
       - name: "[4/5] 生成发布说明"
