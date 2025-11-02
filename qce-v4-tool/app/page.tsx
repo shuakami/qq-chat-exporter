@@ -2328,7 +2328,7 @@ export default function QCEDashboard() {
       <Dialog open={isFilePathModalOpen} onOpenChange={setIsFilePathModalOpen}>
         <DialogContent 
           overlayClassName="bg-white/60 backdrop-blur-xl"
-          className="max-w-6xl w-[95vw] max-h-[90vh] p-0"
+          className="w-full h-full max-w-full max-h-full p-0"
         >
           <DialogHeader className="px-6 py-4 border-b">
             <DialogTitle className="flex items-center gap-3">
@@ -2341,7 +2341,7 @@ export default function QCEDashboard() {
             {selectedFile && (
               <iframe
                 src={`/api/exports/files/${selectedFile.fileName}/preview`}
-                className="w-full h-[calc(90vh-120px)]"
+                className="w-full h-[calc(100vh-120px)]"
                 title={`预览 ${selectedFile.sessionName}`}
               />
             )}

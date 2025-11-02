@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QQ Chat Exporter - 聊天记录索引</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <h1 class="logo">聊天记录</h1>
+            <div class="header-actions">
+                <div class="search-box">
+                    <i data-lucide="search" class="search-icon" data-lucide-options='{"size":16,"strokeWidth":2}'></i>
+                    <input type="text" 
+                           class="search-input" 
+                           placeholder="搜索" 
+                           id="searchInput">
+                </div>
+                <button class="theme-toggle" id="themeToggle" title="切换主题">
+                    <i data-lucide="sun" id="themeIcon" data-lucide-options='{"size":16,"strokeWidth":2}'></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Hero Section -->
+        <div class="hero">
+            <h2 class="hero-title" id="totalChats">0 个聊天</h2>
+            <p class="hero-subtitle">
+                <span id="totalExports">0</span> 个导出 · 
+                <span id="totalResources">0</span> 个资源
+            </p>
+        </div>
+
+        <!-- Filter Tabs -->
+        <div class="filter-tabs">
+            <button class="filter-tab active" onclick="filterChats('all')">全部</button>
+            <button class="filter-tab" onclick="filterChats('group')">群聊</button>
+            <button class="filter-tab" onclick="filterChats('private')">私聊</button>
+            <button class="filter-tab" onclick="window.location.href='/resources.html'">资源</button>
+        </div>
+
+        <!-- Loading State -->
+        <div class="loading" id="loadingState">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">正在扫描聊天记录..可能需要一小会儿</div>
+        </div>
+
+        <!-- Error State -->
+        <div class="error-state" id="errorState" style="display: none;">
+            <div class="error-title">加载失败</div>
+            <div class="error-message" id="errorMessage"></div>
+            <button class="btn" style="margin-top: 16px;" onclick="loadData()">重试</button>
+        </div>
+
+        <!-- Empty State -->
+        <div class="empty-state" id="emptyState" style="display: none;">
+            <h2 class="empty-title">暂无聊天记录</h2>
+            <p class="empty-description">
+                请确保 .qq-chat-exporter 目录中有导出的聊天记录
+            </p>
+        </div>
+
+        <!-- Chat Grid -->
+        <div class="chat-grid" id="chatGrid"></div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>
+                <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">QQ Chat Exporter Pro</a>
+            </p>
+        </footer>
+    </main>
+
+    <script src="/js/main.js"></script>
+</body>
+</html>
+

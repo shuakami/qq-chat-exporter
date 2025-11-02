@@ -88,13 +88,18 @@ export class ModernHtmlExporter {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QQ Chat Exporter Pro - 聊天记录</title>
+<title>聊天记录 - ${this.escapeHtml(chatInfo.name)}</title>
 ${this.generateStyles()}
 ${this.generateScripts()}
 </head>
 <body>
-<div class="container">
-${this.generateHeader(chatInfo, { totalMessages: '--' }, '--')}
+    <!-- Toolbar -->
+    ${this.generateToolbar()}
+    
+    <!-- Hero Section -->
+    ${this.generateHeader(chatInfo, { totalMessages: '--' }, '--')}
+    
+    <!-- Chat Messages -->
 <div class="chat-content">
 `);
             // 2) 单次遍历：一边渲染消息写入，一边调度资源复制
@@ -135,12 +140,13 @@ ${this.generateHeader(chatInfo, { totalMessages: '--' }, '--')}
             // 使用安全的 JSON 转义注入文本
             const timeRangeJs = JSON.stringify(timeRangeText);
             await this.writeChunk(ws, `</div>
+
 ${this.generateFooter()}
-</div>
-<!-- 图片预览模态框 -->
-<div id="imageModal" class="image-modal">
-    <img id="modalImage" src="" alt="预览图片">
-</div>
+
+    <!-- Image Modal -->
+    <div class="image-modal" id="imageModal">
+        <img src="" alt="" id="modalImage">
+    </div>
 
 <!-- 统计占位回填 -->
 <script>
@@ -322,66 +328,864 @@ ${this.generateFooter()}
     generateStyles() {
         return `<style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        /* CSS Variables for Theme */
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f5f5f7;
+            --text-primary: #1d1d1f;
+            --text-secondary: #86868b;
+            --border-color: rgba(0, 0, 0, 0.08);
+            --shadow: rgba(0, 0, 0, 0.05);
+            --bubble-other: #f2f2f7;
+            --bubble-self: #1d1d1f;
+            --bubble-self-text: #ffffff;
+            --at-mention-bg: rgba(29, 29, 31, 0.1);
+            --at-mention-text: #1d1d1f;
+            --reply-bg: rgba(29, 29, 31, 0.05);
+            --reply-border: rgba(29, 29, 31, 0.25);
+            --footer-gradient: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.02) 100%);
+        }
+        
+        [data-theme="dark"] {
+            --bg-primary: #000000;
+            --bg-secondary: #1c1c1e;
+            --text-primary: #f5f5f7;
+            --text-secondary: #98989f;
+            --border-color: rgba(255, 255, 255, 0.12);
+            --shadow: rgba(0, 0, 0, 0.3);
+            --bubble-other: #1c1c1e;
+            --bubble-self: #f5f5f7;
+            --bubble-self-text: #000000;
+            --at-mention-bg: rgba(245, 245, 247, 0.15);
+            --at-mention-text: #f5f5f7;
+            --reply-bg: rgba(255, 255, 255, 0.08);
+            --reply-border: rgba(255, 255, 255, 0.2);
+            --footer-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.03) 100%);
+        }
+        
         body {
             font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", sans-serif;
-            background: #ffffff; color: #1d1d1f; line-height: 1.47; font-size: 17px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5; 
+            font-size: 17px;
+            -webkit-font-smoothing: antialiased;
+            transition: background 0.3s, color 0.3s;
         }
-        .container { max-width: 1200px; margin: 0 auto; min-height: 100vh; background: #ffffff; }
-        .header { padding: 44px 0 32px; text-align: center; border-bottom: 1px solid #f5f5f7; }
-        .header h1 { font-size: 48px; font-weight: 600; color: #1d1d1f; margin-bottom: 8px; letter-spacing: -0.022em; }
-        .header .subtitle { font-size: 21px; color: #86868b; font-weight: 400; margin-bottom: 16px; }
-        .github-link { margin-top: 16px; }
-        .github-star { display: inline-flex; align-items: center; gap: 8px; background: #007aff; color: #fff;
-            text-decoration: none; padding: 12px 24px; border-radius: 12px; font-size: 16px; font-weight: 500; transition: all .2s; }
-        .github-star:hover { background: #0056d3; color: #fff; transform: translateY(-1px); }
-        .export-info { padding: 24px 0; text-align: center; background: #fbfbfd; }
-        .info-grid { display: flex; justify-content: center; gap: 48px; flex-wrap: wrap; }
-        .info-item { text-align: center; }
-        .info-label { font-size: 14px; color: #86868b; margin-bottom: 4px; font-weight: 400; }
-        .info-value { font-size: 17px; color: #1d1d1f; font-weight: 500; }
-        .chat-content { padding: 32px 24px; max-width: 800px; margin: 0 auto; }
-        .message { margin-bottom: 16px; display: flex; align-items: flex-start; gap: 12px; clear: both; }
-        .message.self { flex-direction: row-reverse; justify-content: flex-start; }
-        .avatar { width: 40px; height: 40px; border-radius: 50%; background: #f5f5f7; flex-shrink: 0;
-            display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; color: #86868b; }
-        .avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
-        .message-bubble { max-width: 70%; padding: 12px 16px; border-radius: 18px; position: relative; }
-        .message.other .message-bubble { background: #f5f5f7; color: #1d1d1f; }
-        .message.self .message-bubble { background: #007aff; color: #ffffff; }
-        .message-header { margin-bottom: 8px; display: flex; flex-direction: column; gap: 2px; }
-        .sender { font-size: 14px; font-weight: 500; line-height: 1.2; }
-        .message.other .sender { color: #86868b; }
-        .message.self .sender { color: rgba(255, 255, 255, 0.8); }
-        .time { font-size: 11px; opacity: 0.6; line-height: 1.2; }
-        .content { font-size: 16px; line-height: 1.5; word-wrap: break-word; overflow-wrap: break-word; }
-        .text-content { display: inline; word-wrap: break-word; }
-        .image-content { margin: 8px 0; border-radius: 12px; overflow: hidden; max-width: 300px; }
-        .image-content img { width: 100%; height: auto; display: block; cursor: pointer; }
-        .at-mention { background: rgba(0,122,255,.1); color: #007aff; padding: 2px 6px; border-radius: 6px; font-weight: 500; display: inline; }
-        .message.self .at-mention { background: rgba(255,255,255,.2); color: #fff; }
-        .face-emoji { display: inline; font-size: 18px; margin: 0 2px; vertical-align: baseline; }
-        .reply-content { border-left: 3px solid #007aff; padding-left: 12px; margin: 8px 0; opacity: .8; font-size: 15px; }
-        .message.self .reply-content { border-left-color: rgba(255,255,255,.6); }
-        .json-card { background: rgba(0,122,255,.1); border: 1px solid rgba(0,122,255,.2); border-radius: 12px; padding: 12px; margin: 8px 0; }
-        .json-title { font-weight: 600; color: #007aff; margin-bottom: 4px; }
-        .json-description { font-size: 14px; opacity: .8; margin-bottom: 8px; }
-        .json-url { font-size: 12px; color: #007aff; text-decoration: none; }
-        .market-face { display: inline-block; width: 32px; height: 32px; background-size: contain; background-repeat: no-repeat; background-position: center; vertical-align: middle; }
-        ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #d1d1d6; border-radius: 4px; } ::-webkit-scrollbar-thumb:hover { background: #c7c7cc; }
-        .image-modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,.8); cursor: pointer; }
-        .image-modal img { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 90vw; max-height: 90vh; object-fit: contain; }
+        
+        /* Toolbar - 底部胶囊 */
+        .toolbar {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(249, 249, 249, 0.78);
+            backdrop-filter: saturate(180%) blur(20px);
+            border-radius: 20px;
+            padding: 8px;
+            z-index: 1000;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08),
+                        0 8px 32px rgba(0, 0, 0, 0.06),
+                        inset 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+        }
+        
+        [data-theme="dark"] .toolbar {
+            background: rgba(44, 44, 46, 0.78);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3),
+                        0 8px 32px rgba(0, 0, 0, 0.25),
+                        inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+        }
+        
+        .toolbar-content {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+        
+        /* 分隔线 */
+        .toolbar-separator {
+            width: 1px;
+            height: 20px;
+            background: rgba(0, 0, 0, 0.08);
+            margin: 0 4px;
+        }
+        
+        [data-theme="dark"] .toolbar-separator {
+            background: rgba(255, 255, 255, 0.12);
+        }
+        
+        .search-container {
+            display: flex;
+            align-items: center;
+        }
+        
+        .search-btn {
+            padding: 8px;
+            border: none;
+            border-radius: 12px;
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-primary);
+        }
+        
+        .search-btn:hover {
+            background: rgba(0, 0, 0, 0.06);
+        }
+        
+        [data-theme="dark"] .search-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+        
+        .search-btn svg {
+            width: 18px !important;
+            height: 18px !important;
+            stroke-width: 2 !important;
+        }
+        
+        .search-input-wrapper {
+            position: relative;
+            width: 0;
+            overflow: hidden;
+            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .search-input-wrapper.active {
+            width: 240px;
+            margin-left: 4px;
+        }
+        
+        .search-input {
+            width: 100%;
+            padding: 7px 32px 7px 12px;
+            border: none;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.06);
+            color: var(--text-primary);
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+        
+        [data-theme="dark"] .search-input {
+            background: rgba(255, 255, 255, 0.12);
+        }
+        
+        .search-input:focus {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        
+        [data-theme="dark"] .search-input:focus {
+            background: rgba(255, 255, 255, 0.18);
+        }
+        
+        .search-input::placeholder {
+            color: var(--text-secondary);
+        }
+        
+        .clear-search {
+            position: absolute;
+            right: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 50%;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .clear-search:hover {
+            background: rgba(0, 0, 0, 0.1);
+            color: var(--text-primary);
+        }
+        
+        [data-theme="dark"] .clear-search:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+        
+        .clear-search svg {
+            width: 14px !important;
+            height: 14px !important;
+            stroke-width: 2.5 !important;
+        }
+        
+        .toolbar-actions {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+        
+        .filter-container {
+            position: relative;
+        }
+        
+        .filter-btn {
+            padding: 8px;
+            border: none;
+            border-radius: 12px;
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-primary);
+        }
+        
+        .filter-btn:hover {
+            background: rgba(0, 0, 0, 0.06);
+        }
+        
+        [data-theme="dark"] .filter-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+        
+        .filter-btn svg {
+            width: 18px !important;
+            height: 18px !important;
+            stroke-width: 2 !important;
+        }
+        
+        .filter-dropdown {
+            position: absolute;
+            bottom: calc(100% + 12px);
+            right: 0;
+            min-width: 160px;
+            padding: 6px;
+            border-radius: 14px;
+            background: rgba(249, 249, 249, 0.88);
+            backdrop-filter: saturate(180%) blur(20px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12),
+                        0 8px 40px rgba(0, 0, 0, 0.08),
+                        inset 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+            opacity: 0;
+            transform: translateY(8px);
+            pointer-events: none;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1001;
+        }
+        
+        [data-theme="dark"] .filter-dropdown {
+            background: rgba(44, 44, 46, 0.88);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4),
+                        0 8px 40px rgba(0, 0, 0, 0.3),
+                        inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+        }
+        
+        .filter-dropdown.active {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+        
+        .filter-option {
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.15s;
+            font-size: 14px;
+            color: var(--text-primary);
+            white-space: nowrap;
+        }
+        
+        .filter-option:hover {
+            background: rgba(0, 0, 0, 0.06);
+        }
+        
+        [data-theme="dark"] .filter-option:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+        
+        .filter-option.active {
+            background: rgba(0, 0, 0, 0.08);
+            font-weight: 600;
+        }
+        
+        [data-theme="dark"] .filter-option.active {
+            background: rgba(255, 255, 255, 0.15);
+        }
+        
+        .github-btn {
+            padding: 8px;
+            border: none;
+            border-radius: 12px;
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+        
+        .github-btn:hover {
+            background: rgba(0, 0, 0, 0.06);
+        }
+        
+        [data-theme="dark"] .github-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+        
+        .github-btn svg {
+            width: 18px !important;
+            height: 18px !important;
+            stroke-width: 2 !important;
+        }
+        
+        .theme-toggle {
+            padding: 8px;
+            border: none;
+            border-radius: 12px;
+            background: transparent;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-primary);
+        }
+        
+        .theme-toggle:hover {
+            background: rgba(0, 0, 0, 0.06);
+        }
+        
+        [data-theme="dark"] .theme-toggle:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+        
+        .theme-toggle svg {
+            width: 18px !important;
+            height: 18px !important;
+            stroke-width: 2 !important;
+        }
+        
+        /* 搜索高亮 */
+        mark.highlight {
+            background: #00ffc860 !important;
+            color: #000000 !important;
+            font-weight: 600;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+        
+        [data-theme="dark"] mark.highlight {
+            background: #00ffc860 !important;
+            color: #000000 !important;
+        }
+        
+        /* Hero Section - 左对齐 */
+        .hero {
+            padding: 80px 64px 48px;
+            max-width: 980px;
+            margin: 0 auto;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .hero-title {
+            font-size: 64px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+            letter-spacing: -0.03em;
+            line-height: 1.05;
+        }
+        
+        .hero-subtitle {
+            font-size: 17px;
+            color: var(--text-secondary);
+            font-weight: 400;
+            margin-bottom: 24px;
+        }
+        
+        .hero-meta {
+            display: flex;
+            gap: 32px;
+            flex-wrap: wrap;
+        }
+        
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .meta-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 400;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .meta-value {
+            font-size: 17px;
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+        
+        /* Chat Content */
+        .chat-content {
+            padding: 64px 64px 120px;
+            max-width: 980px;
+            margin: 0 auto;
+            position: relative;
+        }
+        
+        /* 虚拟滚动容器 */
+        .virtual-scroll-container {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .virtual-scroll-spacer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1px;
+            pointer-events: none;
+        }
+        
+        .virtual-scroll-content {
+            position: relative;
+            will-change: transform;
+        }
+        
+        /* 加载指示器 */
+        .scroll-loader {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        
+        .message {
+            margin-bottom: 32px;
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+            contain: layout style paint;
+            will-change: auto;
+        }
+        
+        .message.self {
+            flex-direction: row-reverse;
+        }
+        
+        .avatar {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: var(--bg-secondary);
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+        
+        .avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .message-wrapper {
+            max-width: 60%;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .message-header {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            padding: 0 4px;
+        }
+        
+        .message.self .message-header {
+            flex-direction: row-reverse;
+        }
+        
+        .sender {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .time {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        /* 消息气泡 - 带角 */
+        .message-bubble {
+            padding: 14px 18px;
+            border-radius: 20px;
+            position: relative;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        
+        .message.other .message-bubble {
+            background: var(--bubble-other);
+            color: var(--text-primary);
+        }
+        
+        .message.self .message-bubble {
+            background: var(--bubble-self);
+            color: var(--bubble-self-text);
+        }
+        
+        /* 气泡左角 (其他人) */
+        .message.other .message-bubble::before {
+            content: '';
+            position: absolute;
+            left: -7px;
+            top: 14px;
+            width: 0;
+            height: 0;
+            border-style: solid;
+            border-width: 0 10px 10px 0;
+            border-color: transparent var(--bubble-other) transparent transparent;
+        }
+        
+        /* 气泡右角 (自己) */
+        .message.self .message-bubble::before {
+            content: '';
+            position: absolute;
+            right: -7px;
+            top: 14px;
+            width: 0;
+            height: 0;
+            border-style: solid;
+            border-width: 0 0 10px 10px;
+            border-color: transparent transparent var(--bubble-self) transparent;
+        }
+        
+        .content {
+            font-size: 17px;
+            line-height: 1.47;
+        }
+        
+        .text-content {
+            display: inline;
+        }
+        
+        /* 图片内容 */
+        .image-content {
+            margin: 10px 0 4px;
+            border-radius: 16px;
+            overflow: hidden;
+            max-width: 320px;
+        }
+        
+        .image-content img {
+            width: 100%;
+            height: auto;
+            display: block;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        
+        .image-content img:hover {
+            opacity: 0.9;
+        }
+        
+        /* @提及 */
+        .at-mention {
+            background: var(--at-mention-bg);
+            color: var(--at-mention-text);
+            padding: 3px 8px;
+            border-radius: 8px;
+            font-weight: 600;
+            display: inline;
+            transition: background 0.2s;
+        }
+        
+        .message.other .at-mention:hover {
+            opacity: 0.85;
+        }
+        
+        .message.self .at-mention {
+            background: rgba(255, 255, 255, 0.2);
+            color: var(--bubble-self-text);
+        }
+        
+        .message.self .at-mention:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+        
+        /* 表情 */
+        .face-emoji {
+            display: inline;
+            font-size: 20px;
+            margin: 0 2px;
+            vertical-align: baseline;
+        }
+        
+        /* 引用消息 */
+        .reply-content {
+            background: var(--reply-bg);
+            border-left: 3px solid var(--reply-border);
+            padding: 10px 12px;
+            margin: 0 0 10px 0;
+            border-radius: 0 8px 8px 0;
+            font-size: 14px;
+            line-height: 1.4;
+            opacity: 0.8;
+        }
+        
+        .reply-content strong {
+            font-weight: 600;
+            color: var(--text-primary);
+            display: block;
+            margin-bottom: 4px;
+        }
+        
+        .message.self .reply-content {
+            background: rgba(255, 255, 255, 0.1);
+            border-left-color: rgba(255, 255, 255, 0.4);
+        }
+        
+        .message.self .reply-content strong {
+            color: var(--bubble-self-text);
+        }
+        
+        /* JSON 卡片 */
+        .json-card {
+            background: rgba(29, 29, 31, 0.06);
+            border: 1px solid rgba(29, 29, 31, 0.1);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin: 8px 0;
+            transition: background 0.2s;
+        }
+        
+        .json-card:hover {
+            background: rgba(29, 29, 31, 0.08);
+        }
+        
+        .message.self .json-card {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+        
+        .message.self .json-card:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+        
+        .json-title {
+            font-weight: 600;
+            font-size: 15px;
+            margin-bottom: 6px;
+            line-height: 1.3;
+        }
+        
+        .json-description {
+            font-size: 14px;
+            opacity: 0.75;
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+        
+        .json-url {
+            font-size: 12px;
+            opacity: 0.6;
+            text-decoration: none;
+        }
+        
+        /* 市场表情 */
+        .market-face {
+            display: inline-block;
+            width: 80px;
+            height: 80px;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            vertical-align: middle;
+            margin: 4px 0;
+        }
+        
+        /* 图片模态框 */
+        .image-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            cursor: pointer;
+        }
+        
+        .image-modal img {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            max-width: 90vw;
+            max-height: 90vh;
+            object-fit: contain;
+            border-radius: 8px;
+        }
+        
+        /* 滚动条 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #d1d1d6;
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #c7c7cc;
+        }
+        
+        /* 响应式 */
         @media (max-width: 768px) {
-            .header h1 { font-size: 32px; }
-            .header .subtitle { font-size: 17px; }
-            .info-grid { gap: 24px; }
-            .chat-content { padding: 24px 16px; }
-            .message-bubble { max-width: 85%; }
+            .hero {
+                padding: 48px 24px 32px;
+            }
+            
+            .hero-title {
+                font-size: 40px;
+            }
+            
+            .hero-subtitle {
+                font-size: 15px;
+            }
+            
+            .hero-meta {
+                gap: 24px;
+            }
+            
+            .chat-content {
+                padding: 48px 24px 80px;
+            }
+            
+            .message {
+                margin-bottom: 28px;
+                gap: 12px;
+            }
+            
+            .avatar {
+                width: 38px;
+                height: 38px;
+            }
+            
+            .message-wrapper {
+                max-width: 75%;
+            }
+        }
+        
+        /* Footer */
+        .footer {
+            margin-top: 100px;
+            padding: 80px 0;
+            background: var(--footer-gradient);
+        }
+        
+        .footer-content {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        
+        .footer-brand h3 {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+        
+        .footer-version {
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+            margin-bottom: 32px;
+        }
+        
+        .footer-info {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .footer-copyright {
+            font-size: 15px;
+            color: var(--text-primary);
+            font-weight: 400;
+        }
+        
+        .footer-copyright strong {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .footer-links {
+            font-size: 14px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .footer-links a,
+        .footer-links > span:not(.separator) {
+            color: var(--text-primary);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .footer-links a {
+            transition: opacity 0.2s;
+        }
+        
+        .footer-links a:hover {
+            opacity: 0.7;
+        }
+        
+        .footer-links .separator {
+            color: var(--text-secondary);
+            font-weight: 300;
+        }
+        
+        .footer-notice {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 8px;
+            font-weight: 400;
+        }
+        
+        /* 隐藏消息 (搜索/筛选) */
+        .message.hidden {
+            display: none !important;
         }
     </style>`;
     }
     generateScripts() {
-        return `<script>
+        return `<script src="https://unpkg.com/lucide@latest"></script>
+    <script>
         function showImageModal(imgSrc) {
             var modal = document.getElementById('imageModal');
             var modalImg = document.getElementById('modalImage');
@@ -391,57 +1195,452 @@ ${this.generateFooter()}
         function hideImageModal() {
             document.getElementById('imageModal').style.display = 'none';
         }
+        // ========== 虚拟滚动管理器 ==========
+        class VirtualScroller {
+            constructor(container, items, options = {}) {
+                this.container = container;
+                this.allItems = items;
+                this.options = {
+                    itemHeight: options.itemHeight || 100,
+                    bufferSize: options.bufferSize || 10,
+                    ...options
+                };
+                
+                this.visibleItems = [];
+                this.startIndex = 0;
+                this.endIndex = 0;
+                this.scrollTop = 0;
+                this.containerHeight = 0;
+                this.totalHeight = 0;
+                
+                this.init();
+            }
+            
+            init() {
+                // 创建虚拟滚动结构
+                this.spacer = document.createElement('div');
+                this.spacer.className = 'virtual-scroll-spacer';
+                
+                this.content = document.createElement('div');
+                this.content.className = 'virtual-scroll-content';
+                
+                this.container.appendChild(this.spacer);
+                this.container.appendChild(this.content);
+                
+                // 监听滚动
+                this.handleScroll = this.handleScroll.bind(this);
+                window.addEventListener('scroll', this.handleScroll, { passive: true });
+                window.addEventListener('resize', () => this.update());
+                
+                this.update();
+            }
+            
+            handleScroll() {
+                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                if (Math.abs(scrollTop - this.scrollTop) > 50) {
+                    this.scrollTop = scrollTop;
+                    this.update();
+                }
+            }
+            
+            update() {
+                const containerRect = this.container.getBoundingClientRect();
+                const containerTop = containerRect.top + this.scrollTop;
+                this.containerHeight = window.innerHeight;
+                this.totalHeight = this.allItems.length * this.options.itemHeight;
+                
+                // 设置spacer高度
+                this.spacer.style.height = this.totalHeight + 'px';
+                
+                // 计算可见范围
+                const scrollStart = Math.max(0, this.scrollTop - containerTop);
+                const scrollEnd = scrollStart + this.containerHeight;
+                
+                this.startIndex = Math.max(0, Math.floor(scrollStart / this.options.itemHeight) - this.options.bufferSize);
+                this.endIndex = Math.min(this.allItems.length, Math.ceil(scrollEnd / this.options.itemHeight) + this.options.bufferSize);
+                
+                this.render();
+            }
+            
+            render() {
+                const fragment = document.createDocumentFragment();
+                const offset = this.startIndex * this.options.itemHeight;
+                
+                // 批量渲染可见项
+                for (let i = this.startIndex; i < this.endIndex; i++) {
+                    if (this.allItems[i]) {
+                        fragment.appendChild(this.allItems[i].cloneNode(true));
+                    }
+                }
+                
+                // 一次性更新DOM
+                this.content.innerHTML = '';
+                this.content.appendChild(fragment);
+                this.content.style.transform = 'translateY(' + offset + 'px)';
+                
+                // 重新初始化图标
+                if (typeof lucide !== 'undefined') {
+                    lucide.createIcons({
+                        attrs: { 'stroke-width': 2 }
+                    });
+                }
+            }
+            
+            updateItems(items) {
+                this.allItems = items;
+                this.totalHeight = items.length * this.options.itemHeight;
+                this.update();
+            }
+            
+            destroy() {
+                window.removeEventListener('scroll', this.handleScroll);
+            }
+        }
+        
         document.addEventListener('DOMContentLoaded', function() {
             var modal = document.getElementById('imageModal');
             if (modal) modal.addEventListener('click', hideImageModal);
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') hideImageModal();
             });
+            
+            // 收集所有消息DOM
+            var messages = Array.from(document.querySelectorAll('.message'));
+            var total = messages.length;
+            document.getElementById('info-total').textContent = total;
+            
+            if (messages.length > 0) {
+                var firstTime = messages[0].querySelector('.time').textContent;
+                var lastTime = messages[messages.length - 1].querySelector('.time').textContent;
+                document.getElementById('info-range').textContent = firstTime + ' ~ ' + lastTime;
+            }
+            
+            // 初始化虚拟滚动（消息超过100条时启用）
+            var virtualScroller = null;
+            if (messages.length > 100) {
+                var chatContent = document.querySelector('.chat-content');
+                
+                // 保存原始消息
+                var originalMessages = messages.map(msg => msg.cloneNode(true));
+                
+                // 清空容器
+                chatContent.innerHTML = '';
+                
+                // 启用虚拟滚动
+                virtualScroller = new VirtualScroller(chatContent, originalMessages, {
+                    itemHeight: 120, // 平均消息高度
+                    bufferSize: 15   // 缓冲区大小
+                });
+                
+                console.log('虚拟滚动已启用，共', messages.length, '条消息');
+            }
+            
+            // ========== 初始化 Lucide 图标 ==========
+            lucide.createIcons({
+                attrs: {
+                    'stroke-width': 2
+                }
+            });
+            
+            // ========== 主题切换 ==========
+            var themeToggle = document.getElementById('themeToggle');
+            var themeIconElement = document.getElementById('themeIcon');
+            var currentTheme = localStorage.getItem('theme') || 'light';
+            
+            function setTheme(theme) {
+                if (theme === 'dark') {
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                    themeIconElement.setAttribute('data-lucide', 'moon');
+                    localStorage.setItem('theme', 'dark');
+                } else {
+                    document.documentElement.removeAttribute('data-theme');
+                    themeIconElement.setAttribute('data-lucide', 'sun');
+                    localStorage.setItem('theme', 'light');
+                }
+                lucide.createIcons({
+                    attrs: {
+                        'stroke-width': 2
+                    }
+                });
+            }
+            
+            setTheme(currentTheme);
+            
+            themeToggle.addEventListener('click', function() {
+                currentTheme = localStorage.getItem('theme') || 'light';
+                setTheme(currentTheme === 'dark' ? 'light' : 'dark');
+            });
+            
+            // ========== 发送者筛选 ==========
+            var filterBtn = document.getElementById('filterBtn');
+            var filterDropdown = document.getElementById('filterDropdown');
+            var currentFilter = 'all';
+            var senders = new Set();
+            
+            // 收集所有发送者
+            messages.forEach(function(msg) {
+                var sender = msg.querySelector('.sender');
+                if (sender) {
+                    senders.add(sender.textContent);
+                }
+            });
+            
+            // 生成筛选选项
+            senders.forEach(function(sender) {
+                var option = document.createElement('div');
+                option.className = 'filter-option';
+                option.setAttribute('data-value', sender);
+                option.textContent = sender;
+                filterDropdown.appendChild(option);
+            });
+            
+            // 切换下拉菜单
+            filterBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                filterDropdown.classList.toggle('active');
+            });
+            
+            // 选择选项
+            filterDropdown.addEventListener('click', function(e) {
+                if (e.target.classList.contains('filter-option')) {
+                    // 移除所有active
+                    filterDropdown.querySelectorAll('.filter-option').forEach(function(opt) {
+                        opt.classList.remove('active');
+                    });
+                    // 添加当前active
+                    e.target.classList.add('active');
+                    currentFilter = e.target.getAttribute('data-value');
+                    filterDropdown.classList.remove('active');
+                    filterMessages();
+                }
+            });
+            
+            // 点击外部关闭
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('.filter-container')) {
+                    filterDropdown.classList.remove('active');
+                }
+            });
+            
+            // ========== 搜索框展开/收起 ==========
+            var searchBtn = document.getElementById('searchBtn');
+            var searchWrapper = document.getElementById('searchWrapper');
+            var searchInput = document.getElementById('searchInput');
+            var searchActive = false;
+            
+            searchBtn.addEventListener('click', function() {
+                searchActive = !searchActive;
+                if (searchActive) {
+                    searchWrapper.classList.add('active');
+                    searchInput.focus();
+                } else {
+                    searchWrapper.classList.remove('active');
+                    searchInput.value = '';
+                    filterMessages();
+                }
+            });
+            
+            // 点击外部关闭搜索框
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('.search-container') && searchActive) {
+                    searchActive = false;
+                    searchWrapper.classList.remove('active');
+                    if (!searchInput.value) {
+                        searchInput.value = '';
+                        filterMessages();
+                    }
+                }
+            });
+            
+            // ========== 防抖函数 ==========
+            function debounce(func, wait) {
+                let timeout;
+                return function(...args) {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(this, args), wait);
+                };
+            }
+            
+            // ========== 搜索功能 + 高亮 ==========
+            var clearSearch = document.getElementById('clearSearch');
+            var originalContents = new Map();
+            var originalMessages = messages.map(msg => msg.cloneNode(true));
+            
+            // 保存原始内容
+            originalMessages.forEach(function(msg) {
+                var content = msg.querySelector('.content');
+                if (content) {
+                    originalContents.set(msg, content.innerHTML);
+                }
+            });
+            
+            function escapeRegExp(string) {
+                return string.replace(/[.*+?^$\\{\\}()|\\[\\]\\\\]/g, '\\\\$&');
+            }
+            
+            function highlightText(text, searchTerm) {
+                if (!searchTerm) return text;
+                var escapedTerm = escapeRegExp(searchTerm);
+                var regex = new RegExp('(' + escapedTerm + ')', 'gi');
+                return text.replace(regex, '<mark class="highlight">$1</mark>');
+            }
+            
+            function filterMessages() {
+                var searchTerm = searchInput.value.trim();
+                var selectedSender = currentFilter;
+                var filteredMessages = [];
+                var visibleCount = 0;
+                
+                // 使用DocumentFragment优化DOM操作
+                originalMessages.forEach(function(msg) {
+                    var sender = msg.querySelector('.sender');
+                    var senderName = sender ? sender.textContent : '';
+                    var content = msg.querySelector('.content');
+                    var originalContent = originalContents.get(msg);
+                    
+                    if (!content || !originalContent) return;
+                    
+                    // 克隆消息用于过滤
+                    var msgClone = msg.cloneNode(true);
+                    var contentClone = msgClone.querySelector('.content');
+                    
+                    // 恢复原始内容
+                    contentClone.innerHTML = originalContent;
+                    
+                    var contentText = contentClone.textContent.toLowerCase();
+                    var searchLower = searchTerm.toLowerCase();
+                    
+                    var matchSearch = searchTerm === '' || contentText.includes(searchLower) || senderName.toLowerCase().includes(searchLower);
+                    var matchSender = selectedSender === 'all' || senderName === selectedSender;
+                    
+                    if (matchSearch && matchSender) {
+                        visibleCount++;
+                        
+                        // 高亮匹配文本
+                        if (searchTerm && contentText.includes(searchLower)) {
+                            var textContent = contentClone.querySelector('.text-content');
+                            if (textContent) {
+                                var originalText = textContent.textContent;
+                                textContent.innerHTML = highlightText(originalText, searchTerm);
+                            }
+                        }
+                        
+                        filteredMessages.push(msgClone);
+                    }
+                });
+                
+                // 更新虚拟滚动器
+                if (virtualScroller) {
+                    virtualScroller.updateItems(filteredMessages);
+                } else {
+                    // 非虚拟滚动模式：直接更新DOM
+                    var chatContent = document.querySelector('.chat-content');
+                    var fragment = document.createDocumentFragment();
+                    filteredMessages.forEach(msg => fragment.appendChild(msg));
+                    chatContent.innerHTML = '';
+                    chatContent.appendChild(fragment);
+                }
+                
+                // 显示/隐藏清除按钮
+                clearSearch.style.display = searchTerm ? 'block' : 'none';
+                
+                // 更新统计
+                document.getElementById('info-total').textContent = visibleCount + ' / ' + total;
+                
+                // 更新图标
+                lucide.createIcons({
+                    attrs: {
+                        'stroke-width': 2
+                    }
+                });
+            }
+            
+            // 使用防抖优化搜索
+            var debouncedFilter = debounce(filterMessages, 300);
+            searchInput.addEventListener('input', debouncedFilter);
+            
+            clearSearch.addEventListener('click', function() {
+                searchInput.value = '';
+                filterMessages();
+                searchInput.focus();
+            });
         });
     </script>`;
     }
     /**
-     * 头部信息（加入 DOM 占位 id，便于尾部脚本回填）
+     * 生成Toolbar（底部胶囊）
      */
-    generateHeader(chatInfo, stats, timeRange) {
-        const currentTime = new Date().toLocaleString('zh-CN');
-        const total = typeof stats.totalMessages === 'number' ? String(stats.totalMessages) : (stats.totalMessages || '--');
-        const range = timeRange ?? '--';
-        return `<div class="header">
-            <h1>QQ Chat Exporter Pro</h1>
-            <div class="subtitle">${this.escapeHtml(chatInfo.name)} - 聊天记录导出</div>
-            <div class="github-link">
-                <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank" class="github-star">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <path fill-rule="evenodd" d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 13.125l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.192L.644 6.374a.75.75 0 01.416-1.28l4.21-.612L7.327.668A.75.75 0 018 .25z"></path>
-                    </svg>
-                    给我个 Star 吧~
+    generateToolbar() {
+        return `<div class="toolbar">
+        <div class="toolbar-content">
+            <div class="search-container">
+                <button class="search-btn" id="searchBtn">
+                    <i data-lucide="search"></i>
+                </button>
+                <div class="search-input-wrapper" id="searchWrapper">
+                    <input type="text" id="searchInput" class="search-input" placeholder="搜索消息...">
+                    <button class="clear-search" id="clearSearch" style="display: none;">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="toolbar-separator"></div>
+            <div class="toolbar-actions">
+                <div class="filter-container">
+                    <button class="filter-btn" id="filterBtn">
+                        <i data-lucide="user"></i>
+                    </button>
+                    <div class="filter-dropdown" id="filterDropdown">
+                        <div class="filter-option active" data-value="all">全部发送者</div>
+                    </div>
+                </div>
+                <div class="toolbar-separator"></div>
+                <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank" class="github-btn" title="GitHub">
+                    <i data-lucide="github"></i>
                 </a>
+                <div class="toolbar-separator"></div>
+                <button class="theme-toggle" id="themeToggle" title="切换深色模式">
+                    <i data-lucide="sun" id="themeIcon"></i>
+                </button>
             </div>
         </div>
-        <div class="export-info">
-            <div class="info-grid">
-                <div class="info-item">
-                    <div class="info-label">导出时间</div>
-                    <div class="info-value">${currentTime}</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">消息总数</div>
-                    <div class="info-value" id="info-total">${this.escapeHtml(total)}</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">导出格式</div>
-                    <div class="info-value">HTML</div>
-                </div>
-                <div class="info-item">
-                    <div class="info-label">时间范围</div>
-                    <div class="info-value" id="info-range">${this.escapeHtml(range)}</div>
-                </div>
-            </div>
-        </div>`;
+    </div>`;
     }
     /**
-     * 渲染单条消息（保持原有视觉，按条写入）
+     * Hero Section（左对齐，Apple风格）
+     */
+    generateHeader(chatInfo, stats, timeRange) {
+        const currentTime = new Date().toLocaleString('zh-CN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        }).replace(/\//g, '/');
+        const total = typeof stats.totalMessages === 'number' ? String(stats.totalMessages) : (stats.totalMessages || '--');
+        const range = timeRange ?? '--';
+        return `<div class="hero">
+        <h1 class="hero-title">${this.escapeHtml(chatInfo.name)}</h1>
+        <p class="hero-subtitle">聊天记录</p>
+        <div class="hero-meta">
+            <div class="meta-item">
+                <span class="meta-label">导出时间</span>
+                <span class="meta-value">${currentTime}</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">消息总数</span>
+                <span class="meta-value" id="info-total">${this.escapeHtml(total)}</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">时间范围</span>
+                <span class="meta-value" id="info-range">${this.escapeHtml(range)}</span>
+            </div>
+        </div>
+    </div>`;
+    }
+    /**
+     * 渲染单条消息（Apple风格带气泡角）
      */
     renderMessage(message) {
         // 系统消息
@@ -458,14 +1657,16 @@ ${this.generateFooter()}
         const avatarContent = this.generateAvatarHtml(message?.sender?.uin, message?.sender?.name);
         const content = this.parseMessageContent(message);
         return `
-        <div class="message ${cssClass}">
+        <div class="message ${cssClass}" id="msg-${message.id}">
             <div class="avatar">${avatarContent}</div>
-            <div class="message-bubble">
+            <div class="message-wrapper">
                 <div class="message-header">
                     <span class="sender">${this.escapeHtml(this.getDisplayName(message))}</span>
                     <span class="time">${this.formatTime(message?.time)}</span>
                 </div>
-                <div class="content">${content}</div>
+                <div class="message-bubble">
+                    <div class="content">${content}</div>
+                </div>
             </div>
         </div>`;
     }
@@ -675,7 +1876,23 @@ ${this.generateFooter()}
         return `<span class="text-content">${locationText}</span>`;
     }
     generateFooter() {
-        return ``;
+        return `    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <h3>QQ Chat Exporter Pro</h3>
+            </div>
+            <div class="footer-info">
+                <p class="footer-copyright">Made with ❤️ by <strong>shuakami</strong></p>
+                <p class="footer-links">
+                    <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+                    <span class="separator">·</span>
+                    <span>GPL-3.0 License</span>
+                </p>
+                <p class="footer-notice">本软件完全免费开源 · 如果有帮助到您，欢迎给个 Star 喵，谢谢喵</p>
+            </div>
+        </div>
+    </footer>`;
     }
     /* ------------------------ 基础工具 ------------------------ */
     getDisplayName(message) {
