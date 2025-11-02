@@ -21,7 +21,6 @@
   "author": "shuakami",
   "license": "MIT",
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
     "cors": "^2.8.5",
     "express": "^4.21.1",
     "tsx": "^4.19.2",
@@ -29,7 +28,6 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.9.1",
