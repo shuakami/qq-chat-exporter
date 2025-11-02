@@ -50,11 +50,15 @@ export declare class ModernHtmlExporter {
     private generateStyles;
     private generateScripts;
     /**
-     * 头部信息（加入 DOM 占位 id，便于尾部脚本回填）
+     * 生成Toolbar（底部胶囊）
+     */
+    private generateToolbar;
+    /**
+     * Hero Section（左对齐，Apple风格）
      */
     private generateHeader;
     /**
-     * 渲染单条消息（保持原有视觉，按条写入）
+     * 渲染单条消息（Apple风格带气泡角）
      */
     private renderMessage;
     private isSystemMessage;

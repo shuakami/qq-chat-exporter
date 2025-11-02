@@ -126,44 +126,46 @@ export class JsonExporter extends BaseExporter {
      * 将ParsedMessage数组转换为CleanMessage数组
      */
     convertParsedMessagesToCleanMessages(parsedMessages) {
-        return parsedMessages.map((parsedMsg) => ({
-            id: parsedMsg.messageId,
-            seq: parsedMsg.messageSeq,
-            timestamp: parsedMsg.timestamp.getTime(),
-            time: parsedMsg.timestamp.toLocaleString('zh-CN', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: false
-            }).replace(/\//g, '-'),
-            sender: {
-                uid: parsedMsg.sender.uid,
-                uin: parsedMsg.sender.uin,
-                name: parsedMsg.sender.name || parsedMsg.sender.uid,
-                remark: undefined // ParsedMessage中没有remark字段
-            },
-            type: this.getMessageTypeFromNTMsgType(parsedMsg.messageType),
-            content: {
-                text: parsedMsg.content.text,
-                html: parsedMsg.content.html,
-                elements: this.convertContentToElements(parsedMsg.content),
-                resources: parsedMsg.content.resources.map(r => ({
-                    type: r.type,
-                    filename: r.fileName,
-                    size: r.fileSize,
-                    url: r.originalUrl,
-                    localPath: r.localPath,
-                    width: undefined,
-                    height: undefined,
-                    duration: undefined
-                }))
-            },
-            recalled: parsedMsg.isRecalled,
-            system: parsedMsg.isSystemMessage
-        }));
+        return parsedMessages.map((parsedMsg) => {
+            return {
+                id: parsedMsg.messageId,
+                seq: parsedMsg.messageSeq,
+                timestamp: parsedMsg.timestamp.getTime(),
+                time: parsedMsg.timestamp.toLocaleString('zh-CN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                }).replace(/\//g, '-'),
+                sender: {
+                    uid: parsedMsg.sender.uid,
+                    uin: parsedMsg.sender.uin,
+                    name: parsedMsg.sender.name || parsedMsg.sender.uid,
+                    remark: undefined // ParsedMessage中没有remark字段
+                },
+                type: this.getMessageTypeFromNTMsgType(parsedMsg.messageType),
+                content: {
+                    text: parsedMsg.content.text,
+                    html: parsedMsg.content.html,
+                    elements: this.convertContentToElements(parsedMsg.content),
+                    resources: parsedMsg.content.resources.map(r => ({
+                        type: r.type,
+                        filename: r.fileName,
+                        size: r.fileSize,
+                        url: r.originalUrl,
+                        localPath: r.localPath,
+                        width: undefined,
+                        height: undefined,
+                        duration: undefined
+                    }))
+                },
+                recalled: parsedMsg.isRecalled,
+                system: parsedMsg.isSystemMessage
+            };
+        });
     }
     /**
      * 将ParsedMessageContent转换为MessageElementData数组
@@ -226,8 +228,32 @@ export class JsonExporter extends BaseExporter {
      * 将NTMsgType转换为字符串类型
      */
     getMessageTypeFromNTMsgType(msgType) {
-        // 这里可以根据需要添加更多类型映射
-        return `type_${msgType}`;
+        // 根据 NTMsgType 映射到 type_X
+        switch (Number(msgType)) {
+            case 1: // KMSGTYPENULL
+            case 2: // KMSGTYPEMIX
+                return 'type_1'; // 文本
+            case 3: // KMSGTYPEFILE
+                return 'type_8'; // 文件
+            case 4: // KMSGTYPESTRUCT
+                return 'type_7'; // JSON卡片
+            case 5: // KMSGTYPEGRAYTIPS
+                return 'type_1'; // 系统消息
+            case 6: // KMSGTYPEPTT
+                return 'type_6'; // 语音
+            case 7: // KMSGTYPEVIDEO
+                return 'type_9'; // 视频
+            case 8: // KMSGTYPEMULTIMSGFORWARD
+                return 'type_11'; // 合并转发
+            case 9: // KMSGTYPEREPLY
+                return 'type_3'; // 回复
+            case 11: // KMSGTYPEARKSTRUCT
+                return 'type_7'; // Ark卡片
+            case 25: // KMSGTYPESHARELOCATION
+                return 'type_17'; // 位置分享/联系人卡片
+            default:
+                return `type_${msgType}`;
+        }
     }
     /**
      * 生成元数据

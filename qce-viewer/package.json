@@ -1,0 +1,21 @@
+{
+  "name": "qce-viewer",
+  "version": "1.0.0",
+  "description": "QQ Chat Exporter - 聊天记录索引查看器",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["qq", "chat", "exporter", "viewer"],
+  "author": "shuakami",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "open": "^8.4.2"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
+

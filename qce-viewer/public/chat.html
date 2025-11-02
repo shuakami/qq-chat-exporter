@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>聊天详情 - QQ Chat Exporter</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div style="display: flex; align-items: center; gap: 16px;">
+                <a href="/" class="back-button">
+                    <i data-lucide="arrow-left" data-lucide-options='{"size":18,"strokeWidth":2}'></i>
+                </a>
+                <h1 class="logo" id="chatName">加载中...</h1>
+            </div>
+            <div class="header-actions">
+                <button class="theme-toggle" id="themeToggle" title="切换主题">
+                    <i data-lucide="sun" id="themeIcon" data-lucide-options='{"size":16,"strokeWidth":2}'></i>
+                </button>
+                <button class="btn" onclick="window.location.href='/'">
+                    <i data-lucide="home" data-lucide-options='{"size":16,"strokeWidth":2}'></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Loading -->
+        <div class="loading" id="loadingState">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">正在加载聊天详情...</div>
+        </div>
+
+        <!-- Error -->
+        <div class="error-state" id="errorState" style="display: none;">
+            <div class="error-title">加载失败</div>
+            <div class="error-message" id="errorMessage"></div>
+        </div>
+
+        <!-- Content -->
+        <div id="chatContent" style="display: none;">
+            <!-- Hero -->
+            <div class="hero" id="chatHero"></div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('exports')">导出</button>
+                <button class="tab" onclick="switchTab('resources')">资源</button>
+            </div>
+
+            <!-- Exports Tab -->
+            <div class="tab-content active" id="exportsTab">
+                <div id="exportsList"></div>
+            </div>
+
+            <!-- Resources Tab -->
+            <div class="tab-content" id="resourcesTab">
+                <!-- Resource Filter -->
+                <div class="filter-tabs" style="margin-bottom: 24px;">
+                    <button class="filter-tab active" onclick="filterResources('all')">全部</button>
+                    <button class="filter-tab" onclick="filterResources('image')">图片</button>
+                    <button class="filter-tab" onclick="filterResources('video')">视频</button>
+                    <button class="filter-tab" onclick="filterResources('audio')">音频</button>
+                    <button class="filter-tab" onclick="filterResources('file')">文件</button>
+                </div>
+
+                <!-- View Toggle -->
+                <div style="margin-bottom: 24px; display: flex; gap: 12px;">
+                    <button class="btn btn-secondary" onclick="toggleView('grid')">网格视图</button>
+                    <button class="btn btn-secondary" onclick="toggleView('list')">列表视图</button>
+                </div>
+
+                <!-- Resource Grid -->
+                <div class="resource-grid" id="resourceGrid"></div>
+
+                <!-- Empty Resources -->
+                <div class="empty-state" id="emptyResources" style="display: none;">
+                    <h2 class="empty-title">暂无资源</h2>
+                    <p class="empty-description">此聊天记录中没有找到资源文件</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Image Modal -->
+    <div class="modal" id="imageModal" onclick="closeModal()">
+        <div class="modal-controls" onclick="event.stopPropagation()">
+            <button class="modal-btn" id="modalDownload" title="下载">
+                <i data-lucide="download" data-lucide-options='{"size":20,"strokeWidth":2}'></i>
+            </button>
+            <button class="modal-btn" onclick="closeModal()" title="关闭">
+                <i data-lucide="x" data-lucide-options='{"size":20,"strokeWidth":2}'></i>
+            </button>
+        </div>
+        <img src="" alt="" class="modal-content" id="modalImage" onclick="event.stopPropagation()">
+    </div>
+
+    <script src="/js/chat.js"></script>
+</body>
+</html>
+

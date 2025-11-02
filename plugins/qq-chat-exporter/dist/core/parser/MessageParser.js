@@ -535,7 +535,7 @@ export class MessageParser {
         try {
             const sender = await this.parseSenderInfo(message);
             const receiver = this.parseReceiverInfo(message);
-            const content = await this.parseMessageContent(message.elements || []);
+            const content = await this.parseMessageContent(message.elements || [], message);
             const stats = {
                 elementCount: (message.elements && message.elements.length) || 0,
                 resourceCount: content.resources.length,
@@ -571,7 +571,7 @@ export class MessageParser {
     /**
      * 解析消息内容（单趟 + 分块构建 + 可选 HTML/RAW）
      */
-    async parseMessageContent(elements) {
+    async parseMessageContent(elements, messageRef) {
         const textB = new ChunkedBuilder();
         const htmlB = new ChunkedBuilder();
         const rawB = new ChunkedBuilder();
@@ -599,13 +599,13 @@ export class MessageParser {
             }
             try {
                 switch (elementType) {
-                    case ElementType.TEXT:
+                    case 1: // ElementType.TEXT
                         if (element.textElement) {
                             const content = element.textElement.content || '';
                             ctxText(content, escapeHtmlFast(content));
                         }
                         break;
-                    case ElementType.PIC:
+                    case 2: // ElementType.PIC:
                         if (element.picElement) {
                             const pic = element.picElement;
                             const resource = {
@@ -627,7 +627,7 @@ export class MessageParser {
                             }
                         }
                         break;
-                    case ElementType.VIDEO:
+                    case 5: // ElementType.VIDEO
                         if (element.videoElement) {
                             const video = element.videoElement;
                             const resource = {
@@ -649,30 +649,75 @@ export class MessageParser {
                             }
                         }
                         break;
-                    case ElementType.PTT:
+                    case 4: // ElementType.PTT
                         if (element.pttElement) {
                             const ptt = element.pttElement;
-                            const resource = {
-                                type: 'audio',
-                                fileName: ptt.fileName || 'audio.wav',
-                                fileSize: parseInt(ptt.fileSize?.toString() || '0', 10),
-                                originalUrl: '',
-                                md5: ptt.md5HexStr || '',
-                                accessible: false,
-                                checkedAt
-                            };
-                            resources.push(resource);
-                            const duration = ptt.duration ? `${Math.round(ptt.duration)}秒` : '';
-                            const altText = `[语音${duration ? ` ${duration}` : ''}]`;
-                            if (this.config.html !== 'none' && this.config.includeResourceLinks && resource.originalUrl) {
-                                ctxText(altText, `<audio src="${resource.originalUrl}" controls class="message-audio">${altText}</audio>`);
+                            let pttHandled = false;
+                            // 尝试使用 NapCat core.apis.FileApi.getPttUrl 获取语音下载URL
+                            try {
+                                const bridge = globalThis.__NAPCAT_BRIDGE__;
+                                // 诊断日志：检查必要条件
+                                if (!bridge?.core?.apis?.FileApi) {
+                                    console.warn('[Voice] bridge.core.apis.FileApi 不可用');
+                                }
+                                else if (!ptt.fileUuid) {
+                                    console.warn('[Voice] fileUuid 为空，fileName:', ptt.fileName);
+                                }
+                                else if (!messageRef?.peerUid) {
+                                    console.warn('[Voice] peerUid 为空');
+                                }
+                                else {
+                                    // 所有条件满足，尝试获取 URL
+                                    const pttUrl = await bridge.core.apis.FileApi.getPttUrl(messageRef.peerUid, ptt.fileUuid, 5000);
+                                    if (pttUrl) {
+                                        console.log('[Voice] 成功获取URL:', pttUrl.substring(0, 100));
+                                        const resource = {
+                                            type: 'audio',
+                                            fileName: ptt.fileName || 'audio.amr',
+                                            fileSize: parseInt(ptt.fileSize?.toString() || '0', 10),
+                                            originalUrl: pttUrl,
+                                            md5: ptt.md5HexStr || '',
+                                            accessible: true,
+                                            checkedAt
+                                        };
+                                        resources.push(resource);
+                                        const duration = ptt.duration ? `${Math.round(ptt.duration)}秒` : '';
+                                        const altText = `[语音${duration ? ` ${duration}` : ''}]`;
+                                        if (this.config.html !== 'none') {
+                                            ctxText(altText, `<audio src="${pttUrl}" controls class="message-audio">${altText}</audio>`);
+                                        }
+                                        else {
+                                            ctxText(altText, '');
+                                        }
+                                        pttHandled = true;
+                                    }
+                                    else {
+                                        console.warn('[Voice] getPttUrl 返回空值');
+                                    }
+                                }
                             }
-                            else {
+                            catch (error) {
+                                console.error('[Voice] getPttUrl 异常:', error);
+                            }
+                            // Fallback：使用本地路径
+                            if (!pttHandled) {
+                                const resource = {
+                                    type: 'audio',
+                                    fileName: ptt.fileName || 'audio.amr',
+                                    fileSize: parseInt(ptt.fileSize?.toString() || '0', 10),
+                                    originalUrl: ptt.filePath || '',
+                                    md5: ptt.md5HexStr || '',
+                                    accessible: false,
+                                    checkedAt
+                                };
+                                resources.push(resource);
+                                const duration = ptt.duration ? `${Math.round(ptt.duration)}秒` : '';
+                                const altText = `[语音${duration ? ` ${duration}` : ''}]`;
                                 ctxText(altText, (this.config.html !== 'none') ? `<span class="resource-placeholder">${altText}</span>` : '');
                             }
                         }
                         break;
-                    case ElementType.FILE:
+                    case 3: // ElementType.FILE
                         if (element.fileElement) {
                             const file = element.fileElement;
                             const resource = {
@@ -694,7 +739,7 @@ export class MessageParser {
                             }
                         }
                         break;
-                    case ElementType.FACE:
+                    case 6: // ElementType.FACE
                         if (element.faceElement) {
                             const face = element.faceElement;
                             const faceId = face.faceIndex?.toString() || '';
@@ -704,7 +749,7 @@ export class MessageParser {
                             ctxText(faceText, (this.config.html !== 'none') ? `<span class="emoji face" data-id="${faceId}">${faceText}</span>` : '');
                         }
                         break;
-                    case ElementType.MFACE:
+                    case 11: // ElementType.MFACE
                         if (element.marketFaceElement && this.config.parseMarketFace) {
                             const marketFace = element.marketFaceElement;
                             const faceName = marketFace.faceName || '超级表情';
@@ -714,7 +759,7 @@ export class MessageParser {
                             ctxText(faceText, (this.config.html !== 'none') ? `<span class="emoji market-face">${faceText}</span>` : '');
                         }
                         break;
-                    case ElementType.REPLY:
+                    case 7: // ElementType.REPLY
                         if (element.replyElement) {
                             // 原生路径不额外抓取被引用正文，保持轻量
                             reply = await this.parseReplyElement(element);
@@ -724,21 +769,52 @@ export class MessageParser {
                                 : '');
                         }
                         break;
-                    case ElementType.ARK:
+                    case 10: // ElementType.ARK
                         if (element.arkElement && this.config.parseCardMessages) {
                             card = await this.parseArkElement(element);
+                            // 添加 JSON 卡片到 special，以便正确识别为 type_7
+                            special.push({
+                                type: 'json-card',
+                                data: card,
+                                description: `卡片消息: ${card?.title || '未知卡片'}`
+                            });
                             const t = `[卡片消息: ${card?.title}]`;
                             ctxText(t, (this.config.html !== 'none') ? `<div class="card">[卡片消息: ${escapeHtmlFast(card?.title || '')}]</div>` : '');
                         }
                         break;
-                    case ElementType.MULTIFORWARD:
+                    case 16: // ElementType.MULTIFORWARD
                         if (element.multiForwardMsgElement && this.config.parseMultiForward) {
                             multiForward = await this.parseMultiForwardElement(element);
-                            const t = `[合并转发: ${multiForward?.title}]`;
-                            ctxText(t, (this.config.html !== 'none') ? `<div class="multi-forward">[合并转发: ${escapeHtmlFast(multiForward?.title || '')}]</div>` : '');
+                            // 尝试获取合并转发的消息数量
+                            try {
+                                const bridge = globalThis.__NAPCAT_BRIDGE__;
+                                if (bridge?.actions && messageRef?.msgId) {
+                                    const getForwardAction = bridge.actions.get('get_forward_msg');
+                                    if (getForwardAction) {
+                                        const result = await getForwardAction.handle({
+                                            message_id: messageRef.msgId
+                                        }, 'plugin', {});
+                                        if (result?.data?.messages) {
+                                            multiForward = multiForward || {
+                                                title: '聊天记录',
+                                                summary: '合并转发的聊天记录',
+                                                messageCount: result.data.messages.length,
+                                                senderNames: []
+                                            };
+                                            multiForward.messageCount = result.data.messages.length;
+                                        }
+                                    }
+                                }
+                            }
+                            catch (error) {
+                                // 获取合并转发详情失败，忽略错误
+                            }
+                            const count = multiForward?.messageCount || 0;
+                            const t = count > 0 ? `[合并转发: ${count}条]` : `[合并转发: ${multiForward?.title}]`;
+                            ctxText(t, (this.config.html !== 'none') ? `<div class="multi-forward">${escapeHtmlFast(t)}</div>` : '');
                         }
                         break;
-                    case ElementType.SHARELOCATION:
+                    case 28: // ElementType.SHARELOCATION
                         if (element.shareLocationElement) {
                             location = await this.parseLocationElement(element);
                             const t = `[位置: ${location?.title || location?.address}]`;
@@ -752,13 +828,13 @@ export class MessageParser {
                             ctxText(t, (this.config.html !== 'none') ? `<div class="calendar">[日历: ${escapeHtmlFast(calendar?.title || '')}]</div>` : '');
                         }
                         break;
-                    case ElementType.MARKDOWN:
+                    case 14: // ElementType.MARKDOWN
                         if (element.markdownElement) {
                             const md = element.markdownElement.content || '';
                             ctxText(md, (this.config.html !== 'none') ? `<div class="markdown">${escapeHtmlFast(md)}</div>` : '');
                         }
                         break;
-                    case ElementType.GreyTip:
+                    case 8: // ElementType.GreyTip
                         if (element.grayTipElement) {
                             const gt = element.grayTipElement.subElementType?.toString() || '系统消息';
                             const t = `[${gt}]`;
@@ -766,11 +842,76 @@ export class MessageParser {
                         }
                         break;
                     default: {
-                        const specialInfo = await this.parseSpecialElement(element);
-                        if (specialInfo) {
-                            special.push(specialInfo);
-                            const d = `[${specialInfo.description}]`;
-                            ctxText(d, (this.config.html !== 'none') ? `<div class="special">[${escapeHtmlFast(specialInfo.description)}]</div>` : '');
+                        // 未知类型：尝试通过 get_msg 回退识别
+                        let handled = false;
+                        try {
+                            const bridge = globalThis.__NAPCAT_BRIDGE__;
+                            if (bridge?.actions && messageRef?.msgId) {
+                                const getMsgAction = bridge.actions.get('get_msg');
+                                if (getMsgAction) {
+                                    const result = await getMsgAction.handle({
+                                        message_id: messageRef.msgId
+                                    }, 'plugin', {});
+                                    if (result?.data?.message && Array.isArray(result.data.message)) {
+                                        // 检查 OneBot segments 中是否有 json 或 forward
+                                        for (const seg of result.data.message) {
+                                            if (seg.type === 'json') {
+                                                // JSON 卡片
+                                                special.push({
+                                                    type: 'json-card',
+                                                    data: seg.data,
+                                                    description: '卡片消息'
+                                                });
+                                                ctxText('[卡片]', (this.config.html !== 'none') ? `<div class="special">[卡片消息]</div>` : '');
+                                                handled = true;
+                                                break;
+                                            }
+                                            else if (seg.type === 'forward' || seg.type === 'node') {
+                                                // 合并转发
+                                                try {
+                                                    const getForwardAction = bridge.actions.get('get_forward_msg');
+                                                    if (getForwardAction) {
+                                                        const fwdResult = await getForwardAction.handle({
+                                                            message_id: messageRef.msgId
+                                                        }, 'plugin', {});
+                                                        const count = fwdResult?.data?.messages?.length || 0;
+                                                        const t = count > 0 ? `[合并转发: ${count}条]` : '[合并转发]';
+                                                        ctxText(t, (this.config.html !== 'none') ? `<div class="special">${escapeHtmlFast(t)}</div>` : '');
+                                                        handled = true;
+                                                        break;
+                                                    }
+                                                }
+                                                catch (e) {
+                                                    // 忽略错误
+                                                }
+                                            }
+                                            else if (seg.type === 'contact') {
+                                                // 分享卡片
+                                                special.push({
+                                                    type: 'contact-card',
+                                                    data: seg.data,
+                                                    description: '分享卡片'
+                                                });
+                                                ctxText('[分享]', (this.config.html !== 'none') ? `<div class="special">[分享卡片]</div>` : '');
+                                                handled = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch (error) {
+                            // 回退识别失败，使用默认处理
+                        }
+                        // 如果回退识别失败，使用默认处理
+                        if (!handled) {
+                            const specialInfo = await this.parseSpecialElement(element);
+                            if (specialInfo) {
+                                special.push(specialInfo);
+                                const d = `[${specialInfo.description}]`;
+                                ctxText(d, (this.config.html !== 'none') ? `<div class="special">[${escapeHtmlFast(specialInfo.description)}]</div>` : '');
+                            }
                         }
                         break;
                     }
