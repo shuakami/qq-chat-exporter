@@ -31,7 +31,7 @@
     "@log4js-node/log4js-api": "^1.0.2",
     "@napneko/nap-proto-core": "^0.0.8",
     "@rollup/plugin-node-resolve": "^16.0.3",
-    "@rollup/plugin-typescript": "^12.1.4",
+    "@rollup/plugin-typescript": "^12.3.0",
     "@sinclair/typebox": "^0.34.38",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
