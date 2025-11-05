@@ -34,7 +34,7 @@
     "@rollup/plugin-typescript": "^12.3.0",
     "@sinclair/typebox": "^0.34.38",
     "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.0",
+    "@types/express": "^5.0.5",
     "@types/multer": "^2.0.0",
     "@types/node": "^22.0.1",
     "@types/on-finished": "^2.3.4",
