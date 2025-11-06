@@ -26,6 +26,7 @@ import { ScheduledExportManager } from '../core/scheduler/ScheduledExportManager
 import { FrontendBuilder } from '../webui/FrontendBuilder.js';
 import { SecurityManager } from '../security/SecurityManager.js';
 import { StickerPackExporter } from '../core/sticker/StickerPackExporter.js';
+import { streamSearchService } from '../services/StreamSearchService.js';
 
 // 导入类型定义
 import type { RawMessage } from 'NapCatQQ/src/core/types.js';
@@ -103,9 +104,22 @@ export class QQChatExporterApiServer {
     // 任务管理
     private exportTasks: Map<string, any> = new Map();
     
+    // 任务资源处理器管理（每个任务使用独立的 ResourceHandler）
+    private taskResourceHandlers: Map<string, ResourceHandler> = new Map();
+    
     // 资源文件名缓存 (shortName -> fullFileName 映射)
     // 例如: "A1D18D97.jpg" -> "a1d18d97b45c620add5133050c00044c_A1D18D97.jpg"
     private resourceFileCache: Map<string, Map<string, string>> = new Map();
+    
+    // 消息缓存系统（用于预览和搜索，避免重复获取）
+    private messageCache: Map<string, {
+        messages: RawMessage[];
+        lastUpdate: number;
+        hasMore: boolean;
+    }> = new Map();
+    
+    // 缓存过期时间（10分钟）
+    private readonly CACHE_EXPIRE_TIME = 10 * 60 * 1000;
 
     /**
      * 构造函数
@@ -712,46 +726,179 @@ export class QQChatExporterApiServer {
         // 批量获取消息
         this.app.post('/api/messages/fetch', async (req, res) => {
             try {
-                const { peer, filter, batchSize = 5000, page = 1, limit = 100 } = req.body;
+                const { peer, filter, batchSize = 5000, page = 1, limit = 50 } = req.body;
 
                 if (!peer || !peer.chatType || !peer.peerUid) {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, 'peer参数不完整', 'INVALID_PEER');
                 }
 
-                // 创建消息获取器
+                console.log(`[ApiServer] 获取消息 - 页码: ${page}, 每页: ${limit}`);
+                
+                // 生成缓存key（基于peer和时间范围）
+                const cacheKey = `${peer.chatType}_${peer.peerUid}_${filter?.startTime || 0}_${filter?.endTime || Date.now()}`;
+                
+                // 检查缓存
+                let cached = this.messageCache.get(cacheKey);
+                const now = Date.now();
+                
+                // 如果缓存过期，清除
+                if (cached && (now - cached.lastUpdate > this.CACHE_EXPIRE_TIME)) {
+                    console.log(`[ApiServer] 缓存过期，清除缓存: ${cacheKey}`);
+                    this.messageCache.delete(cacheKey);
+                    cached = undefined;
+                }
+                
+                let allMessages: RawMessage[] = [];
+                let hasMore = false;
+                
+                // 如果有缓存，检查是否足够
+                if (cached) {
+                    allMessages = [...cached.messages];
+                    hasMore = cached.hasMore;
+                    
+                    const startIndex = (page - 1) * limit;
+                    const endIndex = startIndex + limit;
+                    
+                    // 如果缓存足够当前页
+                    if (allMessages.length > endIndex) {
+                        // 缓存有富余，可以直接返回
+                        const hasNextValue = hasMore; // 有富余说明至少还有一页，hasNext取决于是否还有更多
+                        console.log(`[ApiServer] 缓存足够，直接返回 (${allMessages.length} 条)`);
+                        console.log(`[ApiServer] hasNext计算: ${allMessages.length} > ${endIndex} = true, hasMore=${hasMore}, 最终hasNext=${hasNextValue}`);
+                        
+                        const paginatedMessages = allMessages.slice(startIndex, endIndex);
+                        
+                        this.sendSuccessResponse(res, {
+                            messages: paginatedMessages,
+                            totalCount: allMessages.length,
+                            currentPage: page,
+                            totalPages: Math.ceil(allMessages.length / limit),
+                            hasNext: hasNextValue,
+                            cacheHit: true,
+                            fetchedAt: new Date().toISOString()
+                        }, (req as any).requestId);
+                        return;
+                    } else if (allMessages.length === endIndex && !hasMore) {
+                        // 刚好用完且没有更多，返回最后一页
+                        console.log(`[ApiServer] 缓存刚好够且没有更多，返回最后一页 (${allMessages.length} 条)`);
+                        
+                        const paginatedMessages = allMessages.slice(startIndex, endIndex);
+                        
+                        this.sendSuccessResponse(res, {
+                            messages: paginatedMessages,
+                            totalCount: allMessages.length,
+                            currentPage: page,
+                            totalPages: Math.ceil(allMessages.length / limit),
+                            hasNext: false,
+                            cacheHit: true,
+                            fetchedAt: new Date().toISOString()
+                        }, (req as any).requestId);
+                        return;
+                    } else if (allMessages.length === endIndex && hasMore) {
+                        // 刚好用完但还有更多，继续加载
+                        console.log(`[ApiServer] 缓存刚好用完但还有更多，继续加载... (${allMessages.length} 条)`);
+                        // 不return，继续往下走
+                    }
+                    
+                    // 缓存不够但hasMore=false，说明已经是全部消息了
+                    if (!hasMore) {
+                        console.log(`[ApiServer] 缓存已是全部消息，直接返回 (${allMessages.length} 条)`);
+                        
+                        const paginatedMessages = allMessages.slice(startIndex, endIndex);
+                        
+                        this.sendSuccessResponse(res, {
+                            messages: paginatedMessages,
+                            totalCount: allMessages.length,
+                            currentPage: page,
+                            totalPages: Math.ceil(allMessages.length / limit),
+                            hasNext: false,
+                            cacheHit: true,
+                            fetchedAt: new Date().toISOString()
+                        }, (req as any).requestId);
+                        return;
+                    }
+                    
+                    // 缓存不够且hasMore=true，继续加载
+                    console.log(`[ApiServer] 缓存不足且还有更多，继续懒加载... (当前${allMessages.length}条)`);
+                }
+                
+                // 需要获取更多消息（懒加载）
+                if (allMessages.length === 0) {
+                    console.log(`[ApiServer] 首次获取消息...`);
+                } else {
+                    console.log(`[ApiServer] 继续懒加载更多消息... (已有${allMessages.length}条)`);
+                }
+                
                 const fetcher = new BatchMessageFetcher(this.core, {
                     batchSize,
                     timeout: 30000,
                     retryCount: 3
                 });
-
-                // 收集所有消息
-                const allMessages: RawMessage[] = [];
+                
                 const messageGenerator = fetcher.fetchAllMessagesInTimeRange(
                     peer,
                     filter?.startTime ? filter.startTime : 0,
                     filter?.endTime ? filter.endTime : Date.now()
                 );
                 
+                const targetCount = page * limit + limit * 10; // 多获取10页，减少请求次数
+                let batchCount = 0;
+                let generatorExhausted = false;
+                
                 for await (const batch of messageGenerator) {
-                    allMessages.push(...batch);
+                    batchCount++;
+                    
+                    // 跳过已有的消息
+                    const newMessages = batch.filter(msg => 
+                        !allMessages.some(m => m.msgId === msg.msgId)
+                    );
+                    
+                    if (newMessages.length > 0) {
+                        allMessages.push(...newMessages);
+                        console.log(`[ApiServer] 批次${batchCount}: +${newMessages.length}条, 累计${allMessages.length}条`);
+                    }
+                    
+                    // 足够了就停止
+                    if (allMessages.length >= targetCount) {
+                        console.log(`[ApiServer] 已获取足够消息 (${allMessages.length}条 >= 目标${targetCount}条)，暂停获取`);
+                        hasMore = true;
+                        break;
+                    }
                 }
-                // 按时间戳排序，最新的消息在前面
+                
+                // 如果生成器自然结束（没有break），说明没有更多消息了
+                if (!hasMore) {
+                    console.log(`[ApiServer] 生成器已耗尽，这就是全部消息了 (共${allMessages.length}条)`);
+                    generatorExhausted = true;
+                }
+                
+                console.log(`[ApiServer] 懒加载完成: ${allMessages.length}条消息, hasMore=${hasMore}`);
+                
+                // 按时间戳排序
                 allMessages.sort((a, b) => Number(b.msgTime) - Number(a.msgTime));
-
+                
+                // 更新缓存
+                this.messageCache.set(cacheKey, {
+                    messages: allMessages,
+                    lastUpdate: Date.now(),
+                    hasMore
+                });
+                
                 // 分页处理
                 const startIndex = (page - 1) * limit;
                 const endIndex = startIndex + limit;
                 const paginatedMessages = allMessages.slice(startIndex, endIndex);
-
+                
                 this.sendSuccessResponse(res, {
                     messages: paginatedMessages,
                     totalCount: allMessages.length,
                     currentPage: page,
                     totalPages: Math.ceil(allMessages.length / limit),
-                    hasNext: endIndex < allMessages.length,
+                    hasNext: allMessages.length > endIndex || hasMore,
+                    cacheHit: !!cached,
                     fetchedAt: new Date().toISOString()
                 }, (req as any).requestId);
+                
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }
@@ -830,10 +977,19 @@ export class QQChatExporterApiServer {
                 
                 console.log(`[ApiServer] 正在删除任务: ${taskId}`);
                 
-                // 1. 从内存中删除
+                // 1. 清理任务的资源处理器（如果存在）
+                const resourceHandler = this.taskResourceHandlers.get(taskId);
+                if (resourceHandler) {
+                    console.log(`[ApiServer] 停止并清理任务 ${taskId} 的资源处理器`);
+                    resourceHandler.stopAllDownloads();
+                    await resourceHandler.cleanup();
+                    this.taskResourceHandlers.delete(taskId);
+                }
+                
+                // 2. 从内存中删除
                 this.exportTasks.delete(taskId);
                 
-                // 2. 从数据库中删除
+                // 3. 从数据库中删除
                 try {
                     await this.dbManager.deleteTask(taskId);
                     console.log(`[ApiServer] 任务 ${taskId} 已从数据库删除`);
@@ -1372,6 +1528,21 @@ export class QQChatExporterApiServer {
             
             this.wsConnections.add(ws);
 
+            // 监听客户端消息
+            ws.on('message', async (data: string) => {
+                try {
+                    const message = JSON.parse(data.toString());
+                    await this.handleWebSocketMessage(ws, message);
+                } catch (error) {
+                    this.core.context.logger.logError('[API] WebSocket消息处理失败', error);
+                    this.sendWebSocketMessage(ws, {
+                        type: 'error',
+                        data: { message: '消息格式错误' },
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            });
+
             ws.on('close', () => {
                 this.wsConnections.delete(ws);
                 this.core.context.logger.log(`[API] WebSocket连接关闭: ${requestId}`);
@@ -1383,11 +1554,93 @@ export class QQChatExporterApiServer {
 
             // 发送连接确认
             this.sendWebSocketMessage(ws, {
-                type: 'notification',
+                type: 'connected',
                 data: { message: 'WebSocket连接成功', requestId },
                 timestamp: new Date().toISOString()
             });
         });
+    }
+    
+    /**
+     * 处理WebSocket消息
+     */
+    private async handleWebSocketMessage(ws: WebSocket, message: any): Promise<void> {
+        const { type, data } = message;
+        
+        switch (type) {
+            case 'start_stream_search':
+                await this.handleStreamSearchRequest(ws, data);
+                break;
+                
+            case 'cancel_search':
+                this.handleCancelSearch(data.searchId);
+                break;
+                
+            default:
+                console.warn(`[ApiServer] 未知的WebSocket消息类型: ${type}`);
+        }
+    }
+    
+    /**
+     * 处理流式搜索请求
+     */
+    private async handleStreamSearchRequest(ws: WebSocket, data: any): Promise<void> {
+        const { searchId, peer, filter, searchQuery } = data;
+        
+        if (!peer || !searchQuery) {
+            this.sendWebSocketMessage(ws, {
+                type: 'search_error',
+                data: { searchId, message: '缺少必要参数' }
+            });
+            return;
+        }
+        
+        console.log(`[ApiServer] 启动流式搜索: ${searchId}, query="${searchQuery}"`);
+        console.log(`[ApiServer] 搜索范围: ${filter?.startTime || 0} ~ ${filter?.endTime || Date.now()}`);
+        
+        try {
+            // 创建消息获取器
+            const fetcher = new BatchMessageFetcher(this.core, {
+                batchSize: 5000,  // 每批5000条，处理完立即释放
+                timeout: 30000,
+                retryCount: 3
+            });
+            
+            // 获取消息生成器（异步迭代器）
+            const messageGenerator = fetcher.fetchAllMessagesInTimeRange(
+                peer,
+                filter?.startTime || 0,
+                filter?.endTime || Date.now()
+            );
+            
+            // 启动流式搜索（不阻塞，在后台运行）
+            // 搜索会一直进行到所有消息处理完毕，或用户取消
+            streamSearchService.startStreamSearch(messageGenerator, {
+                searchId,
+                query: searchQuery,
+                ws
+            }).catch(error => {
+                console.error(`[ApiServer] 流式搜索失败: ${searchId}`, error);
+            });
+            
+        } catch (error) {
+            console.error(`[ApiServer] 启动流式搜索失败: ${searchId}`, error);
+            this.sendWebSocketMessage(ws, {
+                type: 'search_error',
+                data: { 
+                    searchId, 
+                    message: error instanceof Error ? error.message : '搜索失败' 
+                }
+            });
+        }
+    }
+    
+    /**
+     * 处理取消搜索
+     */
+    private handleCancelSearch(searchId: string): void {
+        console.log(`[ApiServer] 取消搜索: ${searchId}`);
+        streamSearchService.cancelSearch(searchId);
     }
 
     /**
@@ -1416,6 +1669,11 @@ export class QQChatExporterApiServer {
         downloadUrl: string
     ): Promise<void> {
         let task = this.exportTasks.get(taskId);
+        
+        // 为此任务创建独立的 ResourceHandler
+        const taskResourceHandler = new ResourceHandler(this.core, this.dbManager);
+        this.taskResourceHandlers.set(taskId, taskResourceHandler);
+        console.log(`[ApiServer] 为任务 ${taskId} 创建了独立的资源处理器`);
         
         try {
             console.log(`[ApiServer] 开始处理异步导出任务: ${taskId}`);
@@ -1574,7 +1832,7 @@ export class QQChatExporterApiServer {
             });
 
             // 下载和处理资源（使用过滤后的消息列表）
-            const resourceMap = await this.resourceHandler.processMessageResources(filteredMessages);
+            const resourceMap = await taskResourceHandler.processMessageResources(filteredMessages);
             console.info(`[ApiServer] 处理了 ${resourceMap.size} 个消息的资源`);
 
             // 导出文件
@@ -1765,6 +2023,16 @@ export class QQChatExporterApiServer {
                     error: error instanceof Error ? error.message : '导出失败'
                 }
             });
+        } finally {
+            // 清理任务的资源处理器（无论成功还是失败）
+            const resourceHandler = this.taskResourceHandlers.get(taskId);
+            if (resourceHandler) {
+                console.log(`[ApiServer] 清理任务 ${taskId} 的资源处理器`);
+                resourceHandler.stopAllDownloads();
+                await resourceHandler.cleanup();
+                this.taskResourceHandlers.delete(taskId);
+                console.log(`[ApiServer] 任务 ${taskId} 的资源处理器已清理完成`);
+            }
         }
     }
 

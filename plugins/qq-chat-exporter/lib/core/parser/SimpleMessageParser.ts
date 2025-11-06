@@ -235,6 +235,9 @@ export class SimpleMessageParser {
 
   private readonly concurrency: number;
 
+  // 全局消息映射，用于查找被引用的消息
+  private messageMap: Map<string, RawMessage> = new Map();
+
   constructor(opts: SimpleParserOptions = {}) {
     this.options = { ...DEFAULT_SIMPLE_OPTIONS, ...opts };
     this.onProgress = opts.onProgress;
@@ -247,6 +250,14 @@ export class SimpleMessageParser {
   async parseMessages(messages: RawMessage[]): Promise<CleanMessage[]> {
     const total = messages.length;
     let processed = 0;
+
+    // 先建立全局消息映射
+    this.messageMap.clear();
+    for (const msg of messages) {
+      if (msg && msg.msgId) {
+        this.messageMap.set(msg.msgId, msg);
+      }
+    }
 
     const results = await mapLimit(messages, this.concurrency, async (message, idx) => {
       try {
@@ -269,6 +280,10 @@ export class SimpleMessageParser {
         return this.createErrorMessage(message, error);
       }
     });
+    
+    // 清理映射
+    this.messageMap.clear();
+    
     return results;
   }
 
@@ -403,7 +418,7 @@ export class SimpleMessageParser {
     let count = 0;
     for (let i = 0; i < elements.length; i++) {
       const element = elements[i]!;
-      const parsed = await this.parseElement(element);
+      const parsed = await this.parseElement(element, message);
       if (!parsed) continue;
       parsedElements[count++] = parsed;
 
@@ -430,7 +445,7 @@ export class SimpleMessageParser {
   /**
    * 元素解析（尽量同步，无额外中间对象）
    */
-  private async parseElement(element: MessageElement): Promise<MessageElementData | null> {
+  private async parseElement(element: MessageElement, message: RawMessage): Promise<MessageElementData | null> {
     // 文本
     if (element.textElement) {
       return {
@@ -523,7 +538,7 @@ export class SimpleMessageParser {
 
     // 回复
     if (element.replyElement) {
-      const replyData = this.extractReplyContent(element.replyElement);
+      const replyData = this.extractReplyContent(element.replyElement, message);
       return {
         type: 'reply',
         data: {
@@ -602,6 +617,7 @@ export class SimpleMessageParser {
       filename: d.filename || '未知',
       size: d.size || 0,
       url: d.url,
+      localPath: d.localPath, // 包含本地路径信息
       width: d.width,
       height: d.height,
       duration: d.duration
@@ -904,26 +920,87 @@ export class SimpleMessageParser {
     }
   }
 
-  private extractReplyContent(replyElement: any): any {
+  private extractReplyContent(replyElement: any, message: RawMessage): any {
+    // 优先使用 sourceMsgIdInRecords
+    const sourceMsgId = replyElement.sourceMsgIdInRecords;
+    let referencedMessage: RawMessage | undefined;
+    let source: 'messageMap' | 'records' | 'sourceMsgText' | 'sourceMsgTextElems' | 'referencedMsg' | 'none' = 'none';
+    
+    // 1. 先从全局消息映射中查找
+    if (sourceMsgId && this.messageMap.has(sourceMsgId)) {
+      referencedMessage = this.messageMap.get(sourceMsgId);
+      source = 'messageMap';
+    }
+    
+    // 2. 如果全局映射中找不到，再从当前消息的 records 数组中查找
+    if (!referencedMessage && sourceMsgId && message.records && message.records.length > 0) {
+      referencedMessage = message.records.find((record: RawMessage) => record.msgId === sourceMsgId);
+      if (referencedMessage) source = 'records';
+    }
+
     const result = {
-      messageId: replyElement.replayMsgId || replyElement.replayMsgSeq || '0',
+      messageId: sourceMsgId || replyElement.replayMsgId || replyElement.replayMsgSeq || '0',
       senderUin: replyElement.senderUin || '',
       senderName: replyElement.senderUinStr || '',
-      content: '引用消息',
+      content: '原消息',
       timestamp: 0
     };
 
+    // 如果找到了被引用的消息，从中提取内容
+    if (referencedMessage) {
+      // 使用被引用消息的实际ID
+      result.messageId = referencedMessage.msgId;
+      result.senderUin = referencedMessage.senderUin;
+      result.senderName = referencedMessage.sendNickName || referencedMessage.senderUin;
+      
+      // 提取被引用消息的文本内容
+      if (referencedMessage.elements && referencedMessage.elements.length > 0) {
+        const parts = [];
+        for (const element of referencedMessage.elements) {
+          if (element.textElement?.content) {
+            parts.push(element.textElement.content);
+          } else if (element.picElement) {
+            parts.push('[图片]');
+          } else if (element.videoElement) {
+            parts.push('[视频]');
+          } else if (element.pttElement) {
+            parts.push('[语音]');
+          } else if (element.fileElement) {
+            parts.push('[文件]');
+          } else if (element.faceElement) {
+            parts.push(`[表情${element.faceElement.faceIndex}]`);
+          } else if (element.marketFaceElement) {
+            const faceName = element.marketFaceElement.faceName || '超级表情';
+            parts.push(`[${faceName}]`);
+          }
+        }
+        if (parts.length > 0) {
+          result.content = parts.join('');
+        }
+      }
+      
+      if (referencedMessage.msgTime) {
+        result.timestamp = parseInt(referencedMessage.msgTime) || 0;
+      }
+    } else {
+      // 如果没有找到被引用的消息，尝试从 replyElement 中提取内容（备用方案）
     if (replyElement.sourceMsgText) {
       result.content = replyElement.sourceMsgText;
+        source = 'sourceMsgText';
     } else if (replyElement.sourceMsgTextElems && replyElement.sourceMsgTextElems.length > 0) {
       const parts = [];
       for (let i = 0; i < replyElement.sourceMsgTextElems.length; i++) {
         const e = replyElement.sourceMsgTextElems[i];
         if (e?.textElement?.content) parts.push(e.textElement.content);
       }
-      if (parts.length > 0) result.content = parts.join('');
+        if (parts.length > 0) {
+          result.content = parts.join('');
+          source = 'sourceMsgTextElems';
+        }
     } else if (replyElement.referencedMsg && replyElement.referencedMsg.msgBody) {
       result.content = replyElement.referencedMsg.msgBody;
+        source = 'referencedMsg';
+      }
     }
 
     if (replyElement.senderNick) result.senderName = replyElement.senderNick;

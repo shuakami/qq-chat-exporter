@@ -45,9 +45,11 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  Loader2,
 } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
+import { useStreamSearch, type SearchProgress } from "@/lib/useStreamSearch"
 
 interface MessagePreviewModalProps {
   open: boolean
@@ -96,39 +98,85 @@ const MESSAGE_TYPES = {
 }
 
 export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePreviewModalProps) {
-  const [allMessages, setAllMessages] = useState<Message[]>([]) // 存储所有消息
-  const [filteredMessages, setFilteredMessages] = useState<Message[]>([]) // 过滤后的消息
-  const [displayMessages, setDisplayMessages] = useState<Message[]>([]) // 当前页显示的消息
+  const [messages, setMessages] = useState<Message[]>([]) // 当前页的消息
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
-  const [searchQuery, setSearchQuery] = useState("")
+  const [totalCount, setTotalCount] = useState(0)
+  const [hasNext, setHasNext] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("") // 恢复搜索功能
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
+  // 流式搜索状态
+  const [useStreamMode, setUseStreamMode] = useState(false)
+  const [searchProgress, setSearchProgress] = useState<string>("")
+  
+  // 固定的filter，避免每次请求endTime都变化导致缓存失效
+  const [currentFilter, setCurrentFilter] = useState<{ startTime: number; endTime: number } | null>(null)
+  
   const MESSAGES_PER_PAGE = 50
+  
+  // 流式搜索Hook
+  const streamSearch = useStreamSearch({
+    onProgress: (progress: SearchProgress) => {
+      if (progress.status === 'searching') {
+        setSearchProgress(`正在搜索... 已处理 ${progress.processedCount} 条消息，找到 ${progress.matchedCount} 条匹配`)
+        if (progress.matchedCount > 0) {
+          setLoading(false)
+        }
+      } else if (progress.status === 'completed') {
+        setSearchProgress(`搜索完成！共找到 ${progress.matchedCount} 条匹配（已搜索 ${progress.processedCount} 条）`)
+        setLoading(false)
+      }
+    },
+    onComplete: (results: any[]) => {
+      console.log('[MessagePreview] 流式搜索完成，共', results.length, '条结果')
+      setLoading(false)
+    },
+    onError: (err: string) => {
+      setError(err)
+      setLoading(false)
+      setSearchProgress("")
+    }
+  })
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
-  const fetchAllMessages = async (filter?: any) => {
+  const fetchMessages = async (page: number, filter?: any) => {
     if (!chat) return
 
     setLoading(true)
     setError(null)
 
     try {
-      const requestBody = {
-        peer: chat.peer,
-        page: 1,
-        limit: 999999, // 获取所有消息
-        filter: {
+      // 使用固定的filter或创建新的filter（避免每次Date.now()导致缓存失效）
+      let finalFilter = currentFilter
+      if (!finalFilter) {
+        // 只在没有currentFilter时才创建新的
+        finalFilter = {
           startTime: filter?.startTime || 0,
           endTime: filter?.endTime || Date.now()
         }
+        setCurrentFilter(finalFilter)
+      } else if (filter && (filter.startTime !== undefined || filter.endTime !== undefined)) {
+        // 明确传入了时间范围，更新filter
+        finalFilter = {
+          startTime: filter.startTime !== undefined ? filter.startTime : finalFilter.startTime,
+          endTime: filter.endTime !== undefined ? filter.endTime : finalFilter.endTime
+        }
+        setCurrentFilter(finalFilter)
+      }
+
+      const requestBody = {
+        peer: chat.peer,
+        page,
+        limit: MESSAGES_PER_PAGE,
+        filter: finalFilter
       }
 
       const response = await fetch('/api/messages/fetch', {
@@ -150,7 +198,10 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
       }
 
       const data: MessagePreviewResponse = result.data
-      setAllMessages(data.messages || [])
+      setMessages(data.messages || [])
+      setTotalCount(data.totalCount || 0)
+      setTotalPages(data.totalPages || 1)
+      setHasNext(data.hasNext || false)
       
     } catch (err) {
       console.error('获取消息失败:', err)
@@ -160,14 +211,54 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
     }
   }
 
+  const handleSearch = () => {
+    if (!searchQuery.trim()) {
+      handleTimeRangeChange()
+      return
+    }
+    
+    if (!chat) return
+    
+    console.log('[MessagePreview] 启动流式搜索:', searchQuery)
+    
+    setUseStreamMode(true)
+    setLoading(true)
+    setMessages([])
+    setSearchProgress("正在连接...")
+    
+    const filter = {
+      startTime: startDate ? new Date(startDate).getTime() : 0,
+      endTime: endDate ? (new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1) : Date.now()
+    }
+    
+    streamSearch.startSearch({
+      peer: chat.peer,
+      filter,
+      searchQuery: searchQuery.trim()
+    })
+  }
+  
   const handleTimeRangeChange = () => {
     const filter = {
-      startTime: startDate ? new Date(startDate).getTime() : undefined,
-      endTime: endDate ? new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1 : undefined
+      startTime: startDate ? new Date(startDate).getTime() : 0,
+      endTime: endDate ? new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1 : Date.now()
     }
-    fetchAllMessages(filter)
-    setCurrentPage(1) // 重置到第一页
+    setCurrentPage(1)
+    setUseStreamMode(false)
+    setCurrentFilter(filter)  // 重置filter
+    fetchMessages(1, filter)
   }
+  
+  useEffect(() => {
+    if (useStreamMode && streamSearch.results.length > 0) {
+      const sorted = [...streamSearch.results].sort((a, b) => Number(b.msgTime) - Number(a.msgTime))
+      setMessages(sorted)
+      setTotalCount(sorted.length)
+      // 搜索模式下不分页，全部显示
+      setTotalPages(1)
+      setCurrentPage(1)
+    }
+  }, [streamSearch.results, useStreamMode, MESSAGES_PER_PAGE])
 
   const handleExportWithTimeRange = () => {
     if (onExport && chat) {
@@ -235,56 +326,25 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
   }
 
 
-  // 当搜索条件或分页改变时，重新过滤消息
-  useEffect(() => {
-    let filtered = [...allMessages]
-    
-    // 应用搜索过滤
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase()
-      filtered = filtered.filter(message => {
-        const content = formatMessageContent(message.elements).toLowerCase()
-        const senderName = getSenderName(message).toLowerCase()
-        return content.includes(query) || senderName.includes(query)
-      })
-    }
-    
-    setFilteredMessages(filtered)
-    
-    // 计算分页
-    const totalPages = Math.ceil(filtered.length / MESSAGES_PER_PAGE)
-    setTotalPages(totalPages)
-    
-    // 如果当前页超出范围，重置到第一页
-    const actualCurrentPage = currentPage > totalPages ? 1 : currentPage
-    if (actualCurrentPage !== currentPage) {
-      setCurrentPage(actualCurrentPage)
-      return // 避免在这次渲染中设置显示消息
-    }
-    
-    // 计算当前页显示的消息
-    const startIndex = (actualCurrentPage - 1) * MESSAGES_PER_PAGE
-    const endIndex = startIndex + MESSAGES_PER_PAGE
-    setDisplayMessages(filtered.slice(startIndex, endIndex))
-  }, [allMessages, searchQuery, currentPage, MESSAGES_PER_PAGE])
-
-  // 分页改变时的处理函数
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
+    // 翻页时不传filter，使用已保存的currentFilter
+    fetchMessages(page)
   }
 
+  // 打开对话框时初始化
   useEffect(() => {
     if (open && chat) {
-      setAllMessages([])
-      setFilteredMessages([])
-      setDisplayMessages([])
+      setMessages([])
       setCurrentPage(1)
       setTotalPages(1)
+      setTotalCount(0)
+      setHasNext(false)
+      setSearchQuery("")
       setStartDate("")
       setEndDate("")
-      setSearchQuery("")
       setError(null)
-      fetchAllMessages()
+      fetchMessages(1)
     }
   }, [open, chat])
 
@@ -351,8 +411,8 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
                     onClick={() => {
                       setStartDate("")
                       setEndDate("")
-                      fetchAllMessages()
                       setCurrentPage(1)
+                      fetchMessages(1)
                     }}
                     className="px-3"
                   >
@@ -366,32 +426,78 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
             {/* 第二行：搜索和操作 */}
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-4">
-                {/* 搜索框 */}
-                <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-300 px-3 py-2 focus-within:ring-1 focus-within:ring-neutral-300 focus-within:border-neutral-400">
-                  <Search className="w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="搜索消息内容或发送者..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="border-0 outline-none text-sm w-80 bg-transparent"
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery("")}
-                      className="text-gray-400 hover:text-gray-600"
+                {/* 搜索框 - 服务端搜索 */}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-300 px-3 py-2 focus-within:ring-1 focus-within:ring-neutral-300 focus-within:border-neutral-400">
+                    <Search className="w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="搜索所有消息..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                      className="border-0 outline-none text-sm w-60 bg-transparent"
+                    />
+                    {searchQuery && (
+                      <button
+                        onClick={() => {
+                          setSearchQuery("")
+                          setUseStreamMode(false)
+                          setSearchProgress("")
+                          setCurrentPage(1)
+                          const filter = {
+                            startTime: startDate ? new Date(startDate).getTime() : undefined,
+                            endTime: endDate ? new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1 : undefined
+                          }
+                          fetchMessages(1, filter)
+                        }}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={handleSearch}
+                    disabled={loading || !searchQuery.trim()}
+                    className="px-3"
+                  >
+                    {streamSearch.searching ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        搜索中...
+                      </>
+                    ) : (
+                      '搜索'
+                    )}
+                  </Button>
+                  
+                  {/* 取消搜索按钮 */}
+                  {streamSearch.searching && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => streamSearch.cancelSearch()}
+                      className="px-3"
                     >
-                      <X className="w-4 h-4" />
-                    </button>
+                      取消
+                    </Button>
                   )}
                 </div>
                 
+                {/* 搜索进度 */}
+                {searchProgress && (
+                  <div className="text-xs text-muted-foreground px-3 py-1 bg-blue-50 rounded">
+                    {searchProgress}
+                  </div>
+                )}
+                
                 {/* 消息统计 */}
                 <Badge variant="outline" className="text-xs px-3 py-1">
-                  {searchQuery ? (
-                    <span>找到 <span className="font-medium text-blue-600">{filteredMessages.length}</span> / {allMessages.length} 条消息</span>
-                  ) : (
-                    <span>共 <span className="font-medium">{allMessages.length.toLocaleString()}</span> 条消息</span>
+                  <span>共 <span className="font-medium">{totalCount.toLocaleString()}</span> 条消息</span>
+                  {hasNext && (
+                    <span className="ml-2 text-blue-600">（可能还有更多）</span>
                   )}
                 </Badge>
               </div>
@@ -402,8 +508,12 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    fetchAllMessages()
                     setCurrentPage(1)
+                    const filter = {
+                      startTime: startDate ? new Date(startDate).getTime() : undefined,
+                      endTime: endDate ? new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1 : undefined
+                    }
+                    fetchMessages(1, filter)
                   }}
                   disabled={loading}
                   className="px-4"
@@ -423,7 +533,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
 
           {/* 消息列表 */}
           <ScrollArea className="flex-1 px-6">
-            {loading && allMessages.length === 0 && (
+            {loading && (
               <div className="flex items-center justify-center py-8">
                 <RefreshCw className="w-6 h-6 animate-spin mr-2" />
                 <span className="text-sm text-gray-600">正在加载消息...</span>
@@ -434,34 +544,43 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <div className="text-red-600 text-sm mb-2">加载失败: {error}</div>
                 <Button variant="outline" size="sm" onClick={() => {
-                  fetchAllMessages()
                   setCurrentPage(1)
+                  const filter = {
+                    startTime: startDate ? new Date(startDate).getTime() : undefined,
+                    endTime: endDate ? new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1 : undefined
+                  }
+                  fetchMessages(1, filter)
                 }}>
                   重试
                 </Button>
               </div>
             )}
 
-            {!loading && !error && displayMessages.length === 0 && allMessages.length === 0 && (
+            {!loading && !error && messages.length === 0 && (
               <div className="flex flex-col items-center justify-center py-8">
                 <MessageSquare className="w-12 h-12 text-gray-300 mb-2" />
-                <div className="text-sm text-gray-600">暂无消息</div>
+                <div className="text-sm text-gray-600">{searchQuery ? '没有找到匹配的消息' : '暂无消息'}</div>
+                {searchQuery && (
+                  <Button variant="outline" size="sm" className="mt-2" onClick={() => {
+                    setSearchQuery("")
+                    setUseStreamMode(false)
+                    setSearchProgress("")
+                    setCurrentPage(1)
+                    const filter = {
+                      startTime: startDate ? new Date(startDate).getTime() : undefined,
+                      endTime: endDate ? new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1 : undefined
+                    }
+                    fetchMessages(1, filter)
+                  }}>
+                    清除搜索
+                  </Button>
+                )}
               </div>
             )}
 
-            {!loading && !error && displayMessages.length === 0 && allMessages.length > 0 && (
-              <div className="flex flex-col items-center justify-center py-8">
-                <Search className="w-12 h-12 text-gray-300 mb-2" />
-                <div className="text-sm text-gray-600">没有找到匹配的消息</div>
-                <Button variant="outline" size="sm" className="mt-2" onClick={() => setSearchQuery("")}>
-                  清除搜索
-                </Button>
-              </div>
-            )}
-
-            {displayMessages.length > 0 && (
+            {!loading && !error && messages.length > 0 && (
               <div className="space-y-3 py-4">
-                {displayMessages.map((message, index) => {
+                {messages.map((message, index) => {
                   const messageType = getMessageType(message.elements)
                   const TypeIcon = MESSAGE_TYPES[messageType as keyof typeof MESSAGE_TYPES]?.icon || MessageSquare
                   const content = formatMessageContent(message.elements)
@@ -504,12 +623,12 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
             )}
           </ScrollArea>
 
-          {/* 分页控制 */}
-          {totalPages > 1 && (
+          {/* 分页控制 - 仅在非搜索模式下显示 */}
+          {!useStreamMode && totalPages > 1 && (
             <div className="flex items-center justify-between px-6 py-4 border-t bg-gray-50">
               <div className="text-sm text-gray-600">
-                显示第 {((currentPage - 1) * MESSAGES_PER_PAGE) + 1} - {Math.min(currentPage * MESSAGES_PER_PAGE, filteredMessages.length)} 条，
-                共 {filteredMessages.length} 条消息
+                显示第 {((currentPage - 1) * MESSAGES_PER_PAGE) + 1} - {Math.min(currentPage * MESSAGES_PER_PAGE, totalCount)} 条，
+                共 {totalCount} 条
               </div>
               
               <div className="flex items-center gap-2">

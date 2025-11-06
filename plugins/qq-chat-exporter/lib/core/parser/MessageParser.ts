@@ -352,6 +352,9 @@ export class MessageParser {
   /** 表情映射缓存 */
   private faceMap: Map<string, string> = new Map();
 
+  /** 全局消息映射，用于查找被引用的消息 */
+  private messageMap: Map<string, RawMessage> = new Map();
+
   /** 并发度（内部自适应，可被配置覆盖） */
   private readonly concurrency: number;
 
@@ -375,6 +378,14 @@ export class MessageParser {
     let processed = 0;
 
     this.log(`开始使用解析器处理 ${total} 条消息... 并发=${this.concurrency} 模式=${this.config.obMode}`);
+
+    // 先建立全局消息映射
+    this.messageMap.clear();
+    for (const msg of messages) {
+      if (msg && msg.msgId) {
+        this.messageMap.set(msg.msgId, msg);
+      }
+    }
 
     const preferNative =
       this.config.obMode === 'native-only' || this.config.obMode === 'prefer-native';
@@ -446,6 +457,9 @@ export class MessageParser {
       const v = results[i];
       if (v) out.push(v);
     }
+
+    // 清理全局映射
+    this.messageMap.clear();
 
     const duration = Date.now() - start;
     this.log(`消息解析完成，共 ${out.length} 条，耗时 ${duration}ms`);
@@ -928,7 +942,7 @@ export class MessageParser {
             case 7: // ElementType.REPLY
             if (element.replyElement) {
               // 原生路径不额外抓取被引用正文，保持轻量
-              reply = await this.parseReplyElement(element);
+              reply = await this.parseReplyElement(element, messageRef);
               const replyText = `[回复 ${reply?.senderName}: ${reply?.content}]`;
               ctxText(`${replyText}\n`, (this.config.html !== 'none')
                 ? `<div class="reply">[回复 ${escapeHtmlFast(reply?.senderName || '')}: ${escapeHtmlFast(reply?.content || '')}]</div>`
@@ -1131,13 +1145,13 @@ export class MessageParser {
 
   /** 普通表情/超级表情等已内联在 parseMessageContent */
 
-  private async parseReplyElement(element: MessageElement): Promise<ParsedMessageContent['reply'] | undefined> {
+  private async parseReplyElement(element: MessageElement, messageRef?: RawMessage): Promise<ParsedMessageContent['reply'] | undefined> {
     if (!element.replyElement) return undefined;
     const reply = element.replyElement;
     return {
       messageId: reply.sourceMsgIdInRecords || '',
       senderName: reply.senderUidStr || '',
-      content: this.extractReplyContent(reply),
+      content: this.extractReplyContent(reply, messageRef),
       elements: []
     };
   }
@@ -1276,9 +1290,49 @@ export class MessageParser {
     return message.chatType === 100;
   }
 
-  private extractReplyContent(replyElement: any): string {
+  private extractReplyContent(replyElement: any, messageRef?: RawMessage): string {
+    let source: 'messageMap' | 'records' | 'sourceMsgElements' | 'none' = 'none';
+    let content = '原消息';
+    
     try {
+      // 优先使用 sourceMsgIdInRecords
+      const sourceMsgId = replyElement.sourceMsgIdInRecords;
+      let referencedMessage: RawMessage | undefined;
+      
+      // 1. 先从全局消息映射中查找
+      if (sourceMsgId && this.messageMap.has(sourceMsgId)) {
+        referencedMessage = this.messageMap.get(sourceMsgId);
+        source = 'messageMap';
+      }
+      
+      // 2. 如果全局映射中找不到，再从 messageRef.records 中查找
+      if (!referencedMessage && sourceMsgId && messageRef?.records && messageRef.records.length > 0) {
+        referencedMessage = messageRef.records.find((record: RawMessage) => record.msgId === sourceMsgId);
+        if (referencedMessage) source = 'records';
+      }
+      
+      // 如果找到了被引用的消息，从中提取内容
+      if (referencedMessage && referencedMessage.elements) {
+        const b = new ChunkedBuilder();
+        for (const element of referencedMessage.elements) {
+          if (element.textElement) b.push(element.textElement.content || '');
+          else if (element.picElement) b.push('[图片]');
+          else if (element.videoElement) b.push('[视频]');
+          else if (element.pttElement) b.push('[语音]');
+          else if (element.fileElement) b.push(`[文件: ${element.fileElement.fileName || ''}]`);
+          else if (element.faceElement) b.push(`[表情${element.faceElement.faceIndex}]`);
+          else if (element.marketFaceElement) {
+            const faceName = element.marketFaceElement.faceName || '超级表情';
+            b.push(`[${faceName}]`);
+          }
+        }
+        const s = b.toString().trim();
+        content = s || '原消息';
+      } else {
+        // 备用方案：从 replyElement.sourceMsgElements 中提取
       const elements = replyElement.sourceMsgElements || [];
+        if (elements.length > 0) {
+          source = 'sourceMsgElements';
       const b = new ChunkedBuilder();
       for (let i = 0; i < elements.length; i++) {
         const el = elements[i];
@@ -1287,10 +1341,19 @@ export class MessageParser {
         else if (el.videoElement) b.push('[视频]');
         else if (el.pttElement) b.push('[语音]');
         else if (el.fileElement) b.push(`[文件: ${el.fileElement.fileName || ''}]`);
+            else if (el.marketFaceElement) {
+              const faceName = el.marketFaceElement.faceName || '超级表情';
+              b.push(`[${faceName}]`);
+            }
       }
       const s = b.toString().trim();
-      return s || '原消息';
-    } catch {
+          content = s || '原消息';
+        }
+      }
+      
+      return content;
+    } catch (error) {
+      console.error('[MessageParser] extractReplyContent 错误:', error);
       return '原消息';
     }
   }
