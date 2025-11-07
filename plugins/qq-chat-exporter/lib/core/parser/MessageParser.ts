@@ -1171,10 +1171,22 @@ export class MessageParser {
     if (!element.replyElement) return undefined;
     const reply = element.replyElement;
     
-    // 使用 replayMsgId 作为被引用消息的真实ID
-    const referencedMessageId = reply.replayMsgId || '';
+    // 使用 replayMsgId 作为被引用消息的真实ID（但要排除 "0" 的情况）
+    const replayMsgId = reply.replayMsgId || '';
+    let referencedMessageId: string | undefined = (replayMsgId && replayMsgId !== '0') ? replayMsgId : undefined;
+    
     // sourceMsgIdInRecords 用于内部查找（在 records 数组中）
     const sourceMsgId = reply.sourceMsgIdInRecords || '';
+    
+    // 如果 replayMsgId 无效，尝试用 replayMsgSeq 查找
+    if (!referencedMessageId && reply.replayMsgSeq) {
+      for (const [msgId, msg] of this.messageMap.entries()) {
+        if (msg.msgSeq === reply.replayMsgSeq) {
+          referencedMessageId = msg.msgId;
+          break;
+        }
+      }
+    }
     
     return {
       messageId: sourceMsgId,      // 保留原始的sourceMsgIdInRecords用于内部查找

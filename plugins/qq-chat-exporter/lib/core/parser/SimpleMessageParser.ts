@@ -934,12 +934,14 @@ export class SimpleMessageParser {
   }
 
   private extractReplyContent(replyElement: any, message: RawMessage): any {
-    // 使用 replayMsgId 作为被引用消息的真实ID
-    const referencedMessageId = replyElement.replayMsgId || undefined;
+    // 使用 replayMsgId 作为被引用消息的真实ID（但要排除 "0" 的情况）
+    const replayMsgId = replyElement.replayMsgId;
+    let referencedMessageId: string | undefined = (replayMsgId && replayMsgId !== '0') ? replayMsgId : undefined;
+    
     // sourceMsgIdInRecords 用于内部查找（在 records 数组中）
     const sourceMsgId = replyElement.sourceMsgIdInRecords;
     let referencedMessage: RawMessage | undefined;
-    let source: 'messageMap' | 'records' | 'sourceMsgText' | 'sourceMsgTextElems' | 'referencedMsg' | 'none' = 'none';
+    let source: 'messageMap' | 'records' | 'sourceMsgText' | 'sourceMsgTextElems' | 'referencedMsg' | 'seq' | 'none' = 'none';
     
     // 1. 尝试用 replayMsgId 从全局消息映射中查找（replayMsgId才是真实被引用消息ID）
     if (referencedMessageId && this.messageMap.has(referencedMessageId)) {
@@ -948,16 +950,29 @@ export class SimpleMessageParser {
     }
     
     // 2. 如果全局映射中找不到，再从当前消息的 records 数组中查找
-    if (!referencedMessage && sourceMsgId && message.records && message.records.length > 0) {
+    if (!referencedMessage && sourceMsgId && sourceMsgId !== '0' && message.records && message.records.length > 0) {
       referencedMessage = message.records.find((record: RawMessage) => record.msgId === sourceMsgId);
       if (referencedMessage) {
+        referencedMessageId = referencedMessage.msgId;
         source = 'records';
+      }
+    }
+    
+    // 3. 如果还是找不到，尝试用 replayMsgSeq 匹配 msgSeq
+    if (!referencedMessage && replyElement.replayMsgSeq) {
+      for (const [msgId, msg] of this.messageMap.entries()) {
+        if (msg.msgSeq === replyElement.replayMsgSeq) {
+          referencedMessage = msg;
+          referencedMessageId = msg.msgId;
+          source = 'seq';
+          break;
+        }
       }
     }
 
     const result = {
       messageId: sourceMsgId || replyElement.replayMsgId || replyElement.replayMsgSeq || '0',
-      referencedMessageId,  // 使用 replayMsgId 作为被引用消息的真实ID
+      referencedMessageId: referencedMessageId || undefined,  // 确保不会是 "0"
       senderUin: replyElement.senderUin || '',
       senderName: replyElement.senderUidStr || '',
       content: '原消息',
