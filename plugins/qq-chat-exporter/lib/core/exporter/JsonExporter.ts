@@ -335,6 +335,7 @@ export class JsonExporter extends BaseExporter {
                 type: 'reply',
                 data: {
                     messageId: content.reply.messageId,
+                    referencedMessageId: content.reply.referencedMessageId,  // 被引用消息的实际messageId
                     senderName: content.reply.senderName,
                     content: content.reply.content
                 }

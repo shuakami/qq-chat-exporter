@@ -981,7 +981,6 @@ export class QQChatExporterApiServer {
                 const resourceHandler = this.taskResourceHandlers.get(taskId);
                 if (resourceHandler) {
                     console.log(`[ApiServer] 停止并清理任务 ${taskId} 的资源处理器`);
-                    resourceHandler.stopAllDownloads();
                     await resourceHandler.cleanup();
                     this.taskResourceHandlers.delete(taskId);
                 }
@@ -2028,7 +2027,6 @@ export class QQChatExporterApiServer {
             const resourceHandler = this.taskResourceHandlers.get(taskId);
             if (resourceHandler) {
                 console.log(`[ApiServer] 清理任务 ${taskId} 的资源处理器`);
-                resourceHandler.stopAllDownloads();
                 await resourceHandler.cleanup();
                 this.taskResourceHandlers.delete(taskId);
                 console.log(`[ApiServer] 任务 ${taskId} 的资源处理器已清理完成`);

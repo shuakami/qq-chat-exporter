@@ -208,6 +208,7 @@ export interface ParsedMessageContent {
   }>;
   reply?: {
     messageId: string;
+    referencedMessageId?: string;  // 被引用消息的实际messageId，用于链接跳转
     senderName?: string;
     content: string;
     elements?: any[];
@@ -624,8 +625,18 @@ export class MessageParser {
 
       case 'reply': {
         if (!content.reply) {
+          const replyId = segment.data.id;
+          let referencedMessageId: string | undefined;
+          
+          // 尝试从全局消息映射中查找被引用消息的实际messageId
+          if (replyId && this.messageMap.has(replyId)) {
+            const referencedMessage = this.messageMap.get(replyId);
+            referencedMessageId = referencedMessage?.msgId;
+          }
+          
           content.reply = {
-            messageId: segment.data.id,
+            messageId: replyId,
+            referencedMessageId,
             senderName: undefined,
             content: '引用消息',
             elements: []
@@ -1151,8 +1162,25 @@ export class MessageParser {
   private async parseReplyElement(element: MessageElement, messageRef?: RawMessage): Promise<ParsedMessageContent['reply'] | undefined> {
     if (!element.replyElement) return undefined;
     const reply = element.replyElement;
+    
+    const sourceMsgId = reply.sourceMsgIdInRecords || '';
+    let referencedMessageId: string | undefined;
+    
+    // 尝试从全局消息映射中查找被引用消息的实际messageId
+    if (sourceMsgId && this.messageMap.has(sourceMsgId)) {
+      const referencedMessage = this.messageMap.get(sourceMsgId);
+      referencedMessageId = referencedMessage?.msgId;
+    }
+    
+    // 如果全局映射中找不到，再从 messageRef.records 中查找
+    if (!referencedMessageId && sourceMsgId && messageRef?.records && messageRef.records.length > 0) {
+      const referencedMessage = messageRef.records.find((record: RawMessage) => record.msgId === sourceMsgId);
+      referencedMessageId = referencedMessage?.msgId;
+    }
+    
     return {
-      messageId: reply.sourceMsgIdInRecords || '',
+      messageId: sourceMsgId,  // 保留原始的sourceMsgIdInRecords用于内部查找
+      referencedMessageId,     // 被引用消息的实际messageId，用于用户脚本链接
       senderName: reply.senderUidStr || '',
       content: this.extractReplyContent(reply, messageRef),
       elements: []

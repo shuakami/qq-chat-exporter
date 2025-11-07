@@ -545,6 +545,7 @@ export class SimpleMessageParser {
         type: 'reply',
         data: {
           messageId: replyData.messageId,
+          referencedMessageId: replyData.referencedMessageId,  // 被引用消息的实际messageId
           senderUin: replyData.senderUin,
           senderName: replyData.senderName,
           content: replyData.content,
@@ -928,22 +929,28 @@ export class SimpleMessageParser {
     // 优先使用 sourceMsgIdInRecords
     const sourceMsgId = replyElement.sourceMsgIdInRecords;
     let referencedMessage: RawMessage | undefined;
+    let referencedMessageId: string | undefined;
     let source: 'messageMap' | 'records' | 'sourceMsgText' | 'sourceMsgTextElems' | 'referencedMsg' | 'none' = 'none';
     
     // 1. 先从全局消息映射中查找
     if (sourceMsgId && this.messageMap.has(sourceMsgId)) {
       referencedMessage = this.messageMap.get(sourceMsgId);
+      referencedMessageId = referencedMessage?.msgId;  // 获取被引用消息的实际messageId
       source = 'messageMap';
     }
     
     // 2. 如果全局映射中找不到，再从当前消息的 records 数组中查找
     if (!referencedMessage && sourceMsgId && message.records && message.records.length > 0) {
       referencedMessage = message.records.find((record: RawMessage) => record.msgId === sourceMsgId);
-      if (referencedMessage) source = 'records';
+      if (referencedMessage) {
+        referencedMessageId = referencedMessage.msgId;  // 获取被引用消息的实际messageId
+        source = 'records';
+      }
     }
 
     const result = {
       messageId: sourceMsgId || replyElement.replayMsgId || replyElement.replayMsgSeq || '0',
+      referencedMessageId,  // 被引用消息的实际messageId，用于用户脚本链接
       senderUin: replyElement.senderUin || '',
       senderName: replyElement.senderUinStr || '',
       content: '原消息',
@@ -952,8 +959,7 @@ export class SimpleMessageParser {
 
     // 如果找到了被引用的消息，从中提取内容
     if (referencedMessage) {
-      // 使用被引用消息的实际ID
-      result.messageId = referencedMessage.msgId;
+      // 保持messageId为sourceMsgId，referencedMessageId已经在前面设置
       result.senderUin = referencedMessage.senderUin;
       result.senderName = referencedMessage.sendNickName || referencedMessage.senderUin;
       
