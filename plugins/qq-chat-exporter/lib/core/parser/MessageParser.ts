@@ -1188,6 +1188,16 @@ export class MessageParser {
       }
     }
     
+    // 再尝试用 replyMsgClientSeq 查找
+    if (!referencedMessageId && reply.replyMsgClientSeq) {
+      for (const [msgId, msg] of this.messageMap.entries()) {
+        if (msg.clientSeq === reply.replyMsgClientSeq) {
+          referencedMessageId = msg.msgId;
+          break;
+        }
+      }
+    }
+    
     return {
       messageId: sourceMsgId,      // 保留原始的sourceMsgIdInRecords用于内部查找
       referencedMessageId,         // 使用 replayMsgId 作为被引用消息的实际ID
