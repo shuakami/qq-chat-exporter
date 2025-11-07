@@ -134,6 +134,11 @@ export default function QCEDashboard() {
     type: 'success' | 'error' | 'info'
     title: string
     message: string
+    actions?: Array<{
+      label: string
+      onClick: () => void
+      variant?: 'default' | 'destructive'
+    }>
   }>>([])
   
   // 批量导出模式状态
@@ -183,7 +188,11 @@ export default function QCEDashboard() {
     isLoading,
     error,
     setError,
-  } = useQCE()
+  } = useQCE({
+    onNotification: (notification) => {
+      setNotifications(prev => [...prev, { id: Date.now().toString(), ...notification }])
+    }
+  })
 
   const {
     scheduledExports,
@@ -824,7 +833,9 @@ export default function QCEDashboard() {
       </AnimatePresence>
 
       {/* Notification Cards */}
-      <div className="fixed bottom-6 right-6 z-50 space-y-3 pointer-events-none">
+      <div className={`fixed right-6 z-50 space-y-3 pointer-events-none transition-all duration-300 ${
+        showStarToast ? 'bottom-[180px]' : 'bottom-6'
+      }`}>
         <AnimatePresence>
           {notifications.map((notification, index) => (
             <motion.div
@@ -843,6 +854,26 @@ export default function QCEDashboard() {
                 <div className="flex-1">
                   <h3 className="text-sm font-semibold text-neutral-900">{notification.title}</h3>
                   <p className="mt-1 text-sm text-neutral-600">{notification.message}</p>
+                  {notification.actions && notification.actions.length > 0 && (
+                    <div className="mt-3 flex gap-2">
+                      {notification.actions.map((action, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            action.onClick()
+                            setNotifications(prev => prev.filter(n => n.id !== notification.id))
+                          }}
+                          className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                            action.variant === 'destructive' 
+                              ? 'bg-red-500 text-white hover:bg-red-600' 
+                              : 'bg-neutral-900 text-white hover:bg-neutral-800'
+                          }`}
+                        >
+                          {action.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>

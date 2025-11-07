@@ -59,6 +59,7 @@ export function TaskWizard({
     includeRecalled: false,
     includeSystemMessages: true,
     filterPureImageMessages: false,
+    exportAsZip: false,
   })
 
   const { groupSearch, friendSearch } = useSearch()
@@ -78,6 +79,7 @@ export function TaskWizard({
         includeSystemMessages:
           prefilledData.includeSystemMessages !== undefined ? prefilledData.includeSystemMessages : true,
         filterPureImageMessages: prefilledData.filterPureImageMessages || false,
+        exportAsZip: prefilledData.exportAsZip || false,
       })
     }
   }, [prefilledData, isOpen])
@@ -144,6 +146,7 @@ export function TaskWizard({
         includeRecalled: false,
         includeSystemMessages: true,
         filterPureImageMessages: false,
+        exportAsZip: false,
       })
     }
   }, [isOpen])
@@ -600,23 +603,34 @@ export function TaskWizard({
                 checked: form.includeRecalled,
                 set: (v: boolean) => setForm((p) => ({ ...p, includeRecalled: v })),
                 title: "包含已撤回的消息",
-                desc: "包含那些已经被撤回但仍在记录中的消息"
+                desc: "包含那些已经被撤回但仍在记录中的消息",
+                visible: true
               },
               {
                 id: "includeSystemMessages",
                 checked: form.includeSystemMessages,
                 set: (v: boolean) => setForm((p) => ({ ...p, includeSystemMessages: v })),
                 title: "包含系统消息",
-                desc: "包含入群通知、撤回提示等系统提示消息"
+                desc: "包含入群通知、撤回提示等系统提示消息",
+                visible: true
               },
               {
                 id: "filterPureImageMessages",
                 checked: form.filterPureImageMessages,
                 set: (v: boolean) => setForm((p) => ({ ...p, filterPureImageMessages: v })),
                 title: "过滤纯多媒体消息",
-                desc: "过滤掉只包含图片/视频/音频/文件/表情等没有文字的消息"
+                desc: "过滤掉只包含图片/视频/音频/文件/表情等没有文字的消息",
+                visible: true
+              },
+              {
+                id: "exportAsZip",
+                checked: form.exportAsZip || false,
+                set: (v: boolean) => setForm((p) => ({ ...p, exportAsZip: v })),
+                title: "导出为ZIP压缩包",
+                desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）",
+                visible: form.format === "HTML"
               }
-            ].map((opt) => (
+            ].filter((opt) => opt.visible).map((opt) => (
               <div
                 key={opt.id}
                 className={[

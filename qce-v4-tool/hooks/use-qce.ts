@@ -2,16 +2,16 @@ import { useEffect } from "react"
 import { useWebSocket } from "./use-websocket"
 import { useSystemInfo } from "./use-system-info"
 import { useChatData } from "./use-chat-data"
-import { useExportTasks } from "./use-export-tasks"
+import { useExportTasks, type UseExportTasksProps } from "./use-export-tasks"
 
 /**
  * Main QCE hook that combines all functionality
  * This is the primary hook for the QCE Dashboard
  */
-export function useQCE() {
+export function useQCE(props?: { onNotification?: UseExportTasksProps['onNotification'] }) {
   const systemInfo = useSystemInfo()
   const chatData = useChatData()
-  const exportTasks = useExportTasks()
+  const exportTasks = useExportTasks({ onNotification: props?.onNotification })
 
   // WebSocket integration
   const websocket = useWebSocket({
@@ -59,6 +59,7 @@ export function useQCE() {
     deleteTask: exportTasks.deleteTask,
     createTask: exportTasks.createTask,
     downloadTask: exportTasks.downloadTask,
+    deleteOriginalFiles: exportTasks.deleteOriginalFiles,
     getTaskStats: exportTasks.getTaskStats,
     isTaskDataStale: exportTasks.isDataStale,
     

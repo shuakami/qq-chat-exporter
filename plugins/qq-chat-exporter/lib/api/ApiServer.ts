@@ -11,6 +11,7 @@ import { createServer, Server } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import fs from 'fs';
+import { exec } from 'child_process';
 
 // 导入核心模块
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
@@ -27,6 +28,7 @@ import { FrontendBuilder } from '../webui/FrontendBuilder.js';
 import { SecurityManager } from '../security/SecurityManager.js';
 import { StickerPackExporter } from '../core/sticker/StickerPackExporter.js';
 import { streamSearchService } from '../services/StreamSearchService.js';
+import { ZipExporter } from '../utils/ZipExporter.js';
 
 // 导入类型定义
 import type { RawMessage } from 'NapCatQQ/src/core/types.js';
@@ -439,7 +441,8 @@ export class QQChatExporterApiServer {
                     '任务管理': [
                         'GET /api/tasks - 获取所有导出任务',
                         'GET /api/tasks/:taskId - 获取指定任务状态',
-                        'DELETE /api/tasks/:taskId - 删除任务'
+                        'DELETE /api/tasks/:taskId - 删除任务',
+                        'DELETE /api/tasks/:taskId/original-files - 删除ZIP导出的原始文件'
                     ],
                     '用户信息': [
                         'GET /api/users/:uid - 获取用户信息'
@@ -1003,6 +1006,50 @@ export class QQChatExporterApiServer {
             }
         });
 
+        // 删除ZIP导出任务的原始文件
+        this.app.delete('/api/tasks/:taskId/original-files', async (req, res) => {
+            try {
+                const { taskId } = req.params;
+                
+                if (!this.exportTasks.has(taskId)) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '任务不存在', 'TASK_NOT_FOUND');
+                }
+                
+                const task = this.exportTasks.get(taskId);
+                
+                // 检查任务是否为ZIP导出
+                if (!task.isZipExport) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '该任务不是ZIP导出，无需删除原始文件', 'NOT_ZIP_EXPORT');
+                }
+                
+                // 检查是否有原始文件路径
+                if (!task.originalFilePath) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '未找到原始文件路径', 'NO_ORIGINAL_FILE');
+                }
+                
+                console.log(`[ApiServer] 正在删除任务 ${taskId} 的原始文件: ${task.originalFilePath}`);
+                
+                // 调用ZipExporter删除原始文件
+                const success = await ZipExporter.deleteOriginalFiles(task.originalFilePath);
+                
+                if (success) {
+                    // 更新任务状态，移除originalFilePath
+                    await this.updateTaskStatus(taskId, {
+                        originalFilePath: undefined
+                    });
+                    
+                    this.sendSuccessResponse(res, { 
+                        message: '原始文件已删除',
+                        deleted: true
+                    }, (req as any).requestId);
+                } else {
+                    throw new SystemError(ErrorType.FILESYSTEM_ERROR, '删除原始文件失败', 'DELETE_FAILED');
+                }
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
         // 创建异步导出任务
         this.app.post('/api/messages/export', async (req, res) => {
             try {
@@ -1410,6 +1457,41 @@ export class QQChatExporterApiServer {
                 this.sendSuccessResponse(res, { 
                     message: '文件删除成功',
                     deleted: deletedFiles
+                }, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // 打开文件所在位置
+        this.app.post('/api/open-file-location', async (req, res) => {
+            try {
+                const { filePath } = req.body;
+                
+                if (!filePath || typeof filePath !== 'string') {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '缺少文件路径参数', 'MISSING_FILE_PATH');
+                }
+
+                // 检查文件是否存在
+                if (!fs.existsSync(filePath)) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '文件不存在', 'FILE_NOT_FOUND');
+                }
+
+                // Windows: 使用 explorer /select 打开文件位置并选中文件
+                const command = process.platform === 'win32' 
+                    ? `explorer /select,"${filePath.replace(/\//g, '\\')}"`
+                    : process.platform === 'darwin'
+                    ? `open -R "${filePath}"`
+                    : `xdg-open "${path.dirname(filePath)}"`;
+
+                exec(command, (error) => {
+                    if (error) {
+                        console.error('[ApiServer] 打开文件位置失败:', error);
+                    }
+                });
+
+                this.sendSuccessResponse(res, { 
+                    message: '已打开文件位置'
                 }, (req as any).requestId);
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
@@ -1950,14 +2032,67 @@ export class QQChatExporterApiServer {
                     // 使用流式API：逐条解析、更新资源路径、写入HTML，全程低内存
                     // 🔧 修复 Issue #29: 传入已排序的消息，确保时间顺序正确
                     const messageStream = parser.parseMessagesStream(sortedMessages, resourceMap);
-                    await htmlExporter.exportFromIterable(messageStream, chatInfo);
+                    const copiedResourcePaths = await htmlExporter.exportFromIterable(messageStream, chatInfo);
                     console.log(`[ApiServer] HTML流式导出完成，内存占用已优化`);
+                    // 保存资源列表供ZIP打包使用
+                    (exportOptions as any)._copiedResourcePaths = copiedResourcePaths;
                     break;
                 default:
                     throw new SystemError(ErrorType.VALIDATION_ERROR, '不支持的导出格式', 'INVALID_FORMAT');
             }
 
-            const stats = fs.statSync(filePath);
+            let finalFilePath = filePath;
+            let finalFileName = fileName;
+            let isZipExport = false;
+
+            // 如果是HTML格式且启用了ZIP导出
+            if (format.toUpperCase() === 'HTML' && options?.exportAsZip === true) {
+                try {
+                    console.log(`[ApiServer] 开始创建ZIP压缩包...`);
+                    
+                    // 更新进度
+                    task = this.exportTasks.get(taskId);
+                    if (task) {
+                        await this.updateTaskStatus(taskId, {
+                            progress: 95,
+                            message: '正在打包ZIP文件...'
+                        });
+                    }
+                    
+                    this.broadcastWebSocketMessage({
+                        type: 'export_progress',
+                        data: {
+                            taskId,
+                            status: 'running',
+                            progress: 95,
+                            message: '正在打包ZIP文件...'
+                        }
+                    });
+
+                    // 生成ZIP文件路径（替换.html为.zip）
+                    const zipFileName = fileName.replace(/\.html$/i, '.zip');
+                    const zipFilePath = path.join(outputDir, zipFileName);
+
+                    // 获取资源列表
+                    const resourcePaths = (exportOptions as any)._copiedResourcePaths || [];
+
+                    // 调用ZipExporter创建ZIP文件
+                    await ZipExporter.createZip(filePath, zipFilePath, resourcePaths);
+
+                    // 更新最终文件信息
+                    finalFilePath = zipFilePath;
+                    finalFileName = zipFileName;
+                    isZipExport = true;
+
+                    console.log(`[ApiServer] ZIP压缩包创建成功: ${zipFilePath}`);
+                } catch (zipError) {
+                    console.error(`[ApiServer] 创建ZIP压缩包失败:`, zipError);
+                    // ZIP创建失败时，保留原HTML文件，任务仍然标记为完成
+                    console.warn(`[ApiServer] 将使用原始HTML文件作为导出结果`);
+                }
+            }
+
+            const stats = fs.statSync(finalFilePath);
 
             // 更新任务为完成状态
             task = this.exportTasks.get(taskId);
@@ -1968,7 +2103,10 @@ export class QQChatExporterApiServer {
                     message: '导出完成',
                     messageCount: sortedMessages.length,
                     fileSize: stats.size,
-                    completedAt: new Date().toISOString()
+                    completedAt: new Date().toISOString(),
+                    fileName: finalFileName,
+                    isZipExport,
+                    originalFilePath: isZipExport ? filePath : undefined
                 });
             }
 
@@ -1981,10 +2119,12 @@ export class QQChatExporterApiServer {
                     progress: 100,
                     message: '导出完成',
                     messageCount: sortedMessages.length,
-                    fileName,
-                    filePath,
+                    fileName: finalFileName,
+                    filePath: finalFilePath,
                     fileSize: stats.size,
-                    downloadUrl
+                    downloadUrl: isZipExport ? `/download?file=${encodeURIComponent(finalFileName)}` : downloadUrl,
+                    isZipExport,
+                    originalFilePath: isZipExport ? filePath : undefined
                 }
             });
 

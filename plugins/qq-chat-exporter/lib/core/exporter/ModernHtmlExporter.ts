@@ -1,10 +1,3 @@
-/**
- * 现代化 HTML 导出器（流式优化版）
- * - 使用流式写入避免一次性构建超大字符串
- * - 资源文件并发受限的流式复制
- * - 统计信息采用占位 + 尾部脚本回填，避免双遍历
- */
-
 import fs from 'fs';
 import { promises as fsp } from 'fs';
 import path from 'path';
@@ -64,12 +57,12 @@ export class ModernHtmlExporter {
     }
 
     /**
-     * **推荐**：从 Iterable/AsyncIterable 流式导出，最低内存占用
+     * 从 Iterable/AsyncIterable 流式导出，最低内存占用
      */
     async exportFromIterable(
         messages: Iterable<CleanMessage> | AsyncIterable<CleanMessage>,
         chatInfo: ChatInfo
-    ): Promise<void> {
+    ): Promise<string[]> {
         const outputDir = path.dirname(this.options.outputPath);
         await fsp.mkdir(outputDir, { recursive: true });
 
@@ -89,15 +82,19 @@ export class ModernHtmlExporter {
         let firstTime: Date | null = null;
         let lastTime: Date | null = null;
         let copiedCount = 0;
+        const copiedResources: string[] = [];
 
         // 资源复制并发限制（根据 CPU 数量自适应，范围 [2, 8]）
         const concurrency = Math.max(2, Math.min(8, os.cpus().length || 4));
         const running: Promise<void>[] = [];
 
-        const scheduleCopy = (task: () => Promise<void>) => {
+        const scheduleCopy = (task: () => Promise<string | null>) => {
             const p = (async () => {
                 try {
-                    await task();
+                    const resourcePath = await task();
+                    if (resourcePath) {
+                        copiedResources.push(resourcePath);
+                    }
                     copiedCount++;
                 } catch (e) {
                     console.error(`[ModernHtmlExporter] 复制资源失败:`, e);
@@ -234,6 +231,8 @@ ${this.generateFooter()}
             } else {
                 console.log(`[ModernHtmlExporter] HTML导出完成！文件位置: ${this.options.outputPath}`);
             }
+            
+            return copiedResources;
         } catch (error) {
             // 确保流被关闭
             try { ws.destroy(); } catch { /* noop */ }
@@ -340,7 +339,7 @@ ${this.generateFooter()}
         }
     }
 
-    private async copyResourceFileStream(resource: ResourceTask, outputDir: string): Promise<void> {
+    private async copyResourceFileStream(resource: ResourceTask, outputDir: string): Promise<string | null> {
         try {
             const sourceAbsolutePath = this.resolveResourcePath(resource.localPath);
 
@@ -357,7 +356,7 @@ ${this.generateFooter()}
 
             // 文件已存在则跳过（以磁盘为真，避免维护超大 Set）
             const exists = await this.fileExists(targetAbsolutePath);
-            if (exists) return;
+            if (exists) return targetRelativePath;
 
             // 确保父目录存在（理论上已创建，这里兜底）
             await fsp.mkdir(path.dirname(targetAbsolutePath), { recursive: true });
@@ -367,12 +366,15 @@ ${this.generateFooter()}
                 fs.createReadStream(sourceAbsolutePath),
                 fs.createWriteStream(targetAbsolutePath)
             );
+            
+            return targetRelativePath;
         } catch (error) {
-            if ((error as any)?.message === 'source-not-found') return;
+            if ((error as any)?.message === 'source-not-found') return null;
             console.error(`[ModernHtmlExporter] 复制资源文件失败:`, {
                 resource,
                 error: error instanceof Error ? error.message : String(error)
             });
+            return null;
         }
     }
 

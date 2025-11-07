@@ -1,0 +1,38 @@
+{
+    "name": "@types/archiver",
+    "version": "7.0.0",
+    "description": "TypeScript definitions for archiver",
+    "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/archiver",
+    "license": "MIT",
+    "contributors": [
+        {
+            "name": " Esri\n//                  Dolan Miu",
+            "githubUsername": "dolanmiu",
+            "url": "https://github.com/dolanmiu"
+        },
+        {
+            "name": "Crevil",
+            "githubUsername": "crevil",
+            "url": "https://github.com/crevil"
+        },
+        {
+            "name": "Piotr Błażejewicz",
+            "githubUsername": "peterblazejewicz",
+            "url": "https://github.com/peterblazejewicz"
+        }
+    ],
+    "main": "",
+    "types": "index.d.ts",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/archiver"
+    },
+    "scripts": {},
+    "dependencies": {
+        "@types/readdir-glob": "*"
+    },
+    "peerDependencies": {},
+    "typesPublisherContentHash": "731a8e9a62243b895360c618aa46fc9bff1b97c14b10a057e4ef77d343b04efc",
+    "typeScriptVersion": "5.2"
+}

@@ -116,6 +116,8 @@ export interface ExportTask {
   createdAt: string
   completedAt?: string
   error?: string
+  isZipExport?: boolean
+  originalFilePath?: string
 }
 
 export interface CreateTaskForm {
@@ -129,6 +131,7 @@ export interface CreateTaskForm {
   includeRecalled: boolean
   includeSystemMessages: boolean
   filterPureImageMessages: boolean
+  exportAsZip?: boolean
 }
 
 export interface CreateTaskRequest {
@@ -150,6 +153,7 @@ export interface CreateTaskRequest {
     includeSystemMessages: boolean
     filterPureImageMessages: boolean
     prettyFormat: boolean
+    exportAsZip?: boolean
   }
 }
 
@@ -203,6 +207,8 @@ export interface WebSocketProgressMessage {
     fileName?: string
     downloadUrl?: string
     completedAt?: string
+    isZipExport?: boolean
+    originalFilePath?: string
   }
 }
 

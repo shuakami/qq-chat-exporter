@@ -21,6 +21,8 @@
   "author": "shuakami",
   "license": "MIT",
   "dependencies": {
+    "@types/archiver": "^7.0.0",
+    "archiver": "^7.0.1",
     "cors": "^2.8.5",
     "express": "^4.21.1",
     "tsx": "^4.19.2",
