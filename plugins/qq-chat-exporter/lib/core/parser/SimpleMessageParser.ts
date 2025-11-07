@@ -981,28 +981,6 @@ export class SimpleMessageParser {
         }
       }
     }
-    
-    // 5. 最后的回退：用时间戳和内容匹配（如果replyElement中有内容提示）
-    if (!referencedMessage && replyElement.replyMsgTime && replyElement.sourceMsgText) {
-      const replyTime = parseInt(replyElement.replyMsgTime);
-      const contentSnippet = replyElement.sourceMsgText.slice(0, 30);
-      if (replyTime > 0 && contentSnippet) {
-        for (const [msgId, msg] of this.messageMap.entries()) {
-          const msgTime = parseInt(msg.msgTime);
-          // 在前后10秒内查找
-          if (Math.abs(msgTime - replyTime) <= 10) {
-            // 检查消息内容是否匹配
-            const msgContent = this.extractTextFromElements(msg.elements || []);
-            if (msgContent.includes(contentSnippet)) {
-              referencedMessage = msg;
-              referencedMessageId = msg.msgId;
-              source = 'seq';
-              break;
-            }
-          }
-        }
-      }
-    }
 
     const result = {
       messageId: sourceMsgId || replyElement.replayMsgId || replyElement.replayMsgSeq || '0',

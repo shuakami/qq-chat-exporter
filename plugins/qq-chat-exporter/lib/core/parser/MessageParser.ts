@@ -1197,7 +1197,7 @@ export class MessageParser {
         }
       }
     }
-    
+
     return {
       messageId: sourceMsgId,      // 保留原始的sourceMsgIdInRecords用于内部查找
       referencedMessageId,         // 使用 replayMsgId 作为被引用消息的实际ID
