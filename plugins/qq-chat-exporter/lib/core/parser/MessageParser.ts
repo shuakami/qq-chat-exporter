@@ -502,7 +502,10 @@ export class MessageParser {
       sender: {
         uid: rawMsg.senderUid,
         uin: rawMsg.senderUin,
-        name: rawMsg.sendNickName || rawMsg.sendRemarkName,
+        name: (rawMsg.sendNickName && rawMsg.sendNickName.trim()) ||
+              (rawMsg.sendRemarkName && rawMsg.sendRemarkName.trim()) ||
+              (rawMsg.senderUin && String(rawMsg.senderUin)) ||
+              undefined,
         avatar: undefined,
         role: undefined
       },
@@ -1260,7 +1263,10 @@ export class MessageParser {
     return {
       uid,
       uin: message.senderUin || userInfo?.uin,
-      name: message.sendNickName || userInfo?.nick || undefined,
+      name: (message.sendNickName && message.sendNickName.trim()) || 
+            userInfo?.nick || 
+            (message.senderUin && String(message.senderUin)) ||
+            undefined,
       avatar: userInfo?.avatarUrl,
       role: undefined
     };
@@ -1394,7 +1400,10 @@ export class MessageParser {
       sender: {
         uid: message.senderUid || '0',
         uin: message.senderUin || '0',
-        name: message.sendNickName || message.sendRemarkName || '未知用户'
+        name: (message.sendNickName && message.sendNickName.trim()) || 
+              (message.sendRemarkName && message.sendRemarkName.trim()) || 
+              (message.senderUin && String(message.senderUin)) ||
+              '未知用户'
       },
       receiver: {
         uid: message.peerUid,
@@ -1430,7 +1439,9 @@ export class MessageParser {
       timestamp: dateFromUnixSeconds(originalMessage.msgTime),
       sender: {
         uid: originalMessage.senderUid || 'unknown',
-        name: originalMessage.sendNickName || '未知用户'
+        name: (originalMessage.sendNickName && originalMessage.sendNickName.trim()) ||
+              (originalMessage.senderUin && String(originalMessage.senderUin)) ||
+              '未知用户'
       },
       messageType: originalMessage.msgType,
       isSystemMessage: false,

@@ -347,13 +347,15 @@ export class SimpleMessageParser {
     const timestamp = tsMs > 0 ? tsMs : Date.now();
 
     // 群名片 > 好友备注 > 昵称 > QQ号 > UID
-    const senderName =
-      message.sendMemberName ||
-      message.sendRemarkName ||
-      message.sendNickName ||
-      message.senderUin ||
-      message.senderUid ||
-      '未知用户';
+    // 过滤空字符串，只有非空值才算有效
+    const senderName = (
+      (message.sendMemberName && message.sendMemberName.trim()) ||
+      (message.sendRemarkName && message.sendRemarkName.trim()) ||
+      (message.sendNickName && message.sendNickName.trim()) ||
+      (message.senderUin && String(message.senderUin)) ||
+      (message.senderUid && String(message.senderUid)) ||
+      '未知用户'
+    );
 
     const content = await this.parseMessageContent(message);
 
@@ -698,13 +700,15 @@ export class SimpleMessageParser {
     const tsMs = millisFromUnixSeconds(message.msgTime as any);
     const timestamp = tsMs > 0 ? tsMs : Date.now();
 
-    const senderName =
-      message.sendMemberName ||
-      message.sendRemarkName ||
-      message.sendNickName ||
-      message.senderUin ||
-      message.senderUid ||
-      '未知用户';
+    // 过滤空字符串，只使用非空值
+    const senderName = (
+      (message.sendMemberName && message.sendMemberName.trim()) ||
+      (message.sendRemarkName && message.sendRemarkName.trim()) ||
+      (message.sendNickName && message.sendNickName.trim()) ||
+      (message.senderUin && String(message.senderUin)) ||
+      (message.senderUid && String(message.senderUid)) ||
+      '未知用户'
+    );
 
     const errMsg = (error && (error.message || error.toString?.())) || 'Unknown';
     return {
