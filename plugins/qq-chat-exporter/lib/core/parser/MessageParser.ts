@@ -385,6 +385,14 @@ export class MessageParser {
     for (const msg of messages) {
       if (msg && msg.msgId) {
         this.messageMap.set(msg.msgId, msg);
+        // 同时将 records 数组中的消息也添加到映射中
+        if (msg.records && msg.records.length > 0) {
+          for (const record of msg.records) {
+            if (record && record.msgId) {
+              this.messageMap.set(record.msgId, record);
+            }
+          }
+        }
       }
     }
 
@@ -1163,24 +1171,14 @@ export class MessageParser {
     if (!element.replyElement) return undefined;
     const reply = element.replyElement;
     
+    // 使用 replayMsgId 作为被引用消息的真实ID
+    const referencedMessageId = reply.replayMsgId || '';
+    // sourceMsgIdInRecords 用于内部查找（在 records 数组中）
     const sourceMsgId = reply.sourceMsgIdInRecords || '';
-    let referencedMessageId: string | undefined;
-    
-    // 尝试从全局消息映射中查找被引用消息的实际messageId
-    if (sourceMsgId && this.messageMap.has(sourceMsgId)) {
-      const referencedMessage = this.messageMap.get(sourceMsgId);
-      referencedMessageId = referencedMessage?.msgId;
-    }
-    
-    // 如果全局映射中找不到，再从 messageRef.records 中查找
-    if (!referencedMessageId && sourceMsgId && messageRef?.records && messageRef.records.length > 0) {
-      const referencedMessage = messageRef.records.find((record: RawMessage) => record.msgId === sourceMsgId);
-      referencedMessageId = referencedMessage?.msgId;
-    }
     
     return {
-      messageId: sourceMsgId,  // 保留原始的sourceMsgIdInRecords用于内部查找
-      referencedMessageId,     // 被引用消息的实际messageId，用于用户脚本链接
+      messageId: sourceMsgId,      // 保留原始的sourceMsgIdInRecords用于内部查找
+      referencedMessageId,         // 使用 replayMsgId 作为被引用消息的实际ID
       senderName: reply.senderUidStr || '',
       content: this.extractReplyContent(reply, messageRef),
       elements: []
