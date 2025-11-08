@@ -140,6 +140,7 @@ export interface CreateTaskRequest {
     peerUid: string
     guildId: string
   }
+  sessionName?: string
   format: string
   filter: {
     startTime?: number

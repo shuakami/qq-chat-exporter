@@ -118,6 +118,7 @@ export function useExportTasks(props?: UseExportTasksProps) {
           peerUid: form.peerUid,
           guildId: "",
         },
+        sessionName: form.sessionName,
         format: form.format,
         filter: {
           ...(form.startTime && { startTime: Math.floor(new Date(form.startTime).getTime() / 1000) }),

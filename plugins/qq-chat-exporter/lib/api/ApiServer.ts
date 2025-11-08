@@ -1053,9 +1053,9 @@ export class QQChatExporterApiServer {
         // 创建异步导出任务
         this.app.post('/api/messages/export', async (req, res) => {
             try {
-                const { peer, format = 'JSON', filter, options } = req.body;
+                const { peer, format = 'JSON', filter, options, sessionName: userSessionName } = req.body;
 
-                console.log(`[ApiServer] 接收到导出请求: peer=${JSON.stringify(peer)}, filter=${JSON.stringify(filter)}, options=${JSON.stringify(options)}`);
+                console.log(`[ApiServer] 接收到导出请求: peer=${JSON.stringify(peer)}, filter=${JSON.stringify(filter)}, options=${JSON.stringify(options)}, sessionName=${userSessionName}`);
 
                 if (!peer || !peer.chatType || !peer.peerUid) {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, 'peer参数不完整', 'INVALID_PEER');
@@ -1083,35 +1083,44 @@ export class QQChatExporterApiServer {
                 
                 console.log(`[ApiServer] 生成文件名: ${fileName} (chatType=${peer.chatType}, peerUid=${peer.peerUid})`);
 
-                // 快速获取会话名称（避免阻塞任务创建）
-                let sessionName = peer.peerUid;
-                try {
-                    // 设置较短的超时时间，避免阻塞
-                    const timeoutPromise = new Promise((_, reject) => {
-                        setTimeout(() => reject(new Error('获取会话名称超时')), 2000);
-                    });
-                    
-                    let namePromise;
-                    if (peer.chatType === 1) {
-                        // 私聊 - 仅尝试从已缓存的好友列表获取
-                        namePromise = this.core.apis.FriendApi.getBuddy().then(friends => {
-                            const friend = friends.find((f: any) => f.coreInfo?.uid === peer.peerUid);
-                            return friend?.coreInfo?.remark || friend?.coreInfo?.nick || peer.peerUid;
+                // 确定会话名称：优先使用用户输入的名称，否则自动获取
+                let sessionName: string;
+                if (userSessionName && userSessionName.trim()) {
+                    // 使用用户输入的任务名
+                    sessionName = userSessionName.trim();
+                    console.log(`[ApiServer] 使用用户自定义任务名: ${sessionName}`);
+                } else {
+                    // 如果用户没有输入，则尝试自动获取会话名称
+                    sessionName = peer.peerUid;
+                    try {
+                        // 设置较短的超时时间，避免阻塞
+                        const timeoutPromise = new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error('获取会话名称超时')), 2000);
                         });
-                    } else if (peer.chatType === 2) {
-                        // 群聊 - 仅尝试从已缓存的群列表获取
-                        namePromise = this.core.apis.GroupApi.getGroups().then(groups => {
-                            const group = groups.find(g => g.groupCode === peer.peerUid || g.groupCode === peer.peerUid.toString());
-                            return group?.groupName || `群聊 ${peer.peerUid}`;
-                        });
-                    } else {
-                        namePromise = Promise.resolve(peer.peerUid);
+                        
+                        let namePromise;
+                        if (peer.chatType === 1) {
+                            // 私聊 - 仅尝试从已缓存的好友列表获取
+                            namePromise = this.core.apis.FriendApi.getBuddy().then(friends => {
+                                const friend = friends.find((f: any) => f.coreInfo?.uid === peer.peerUid);
+                                return friend?.coreInfo?.remark || friend?.coreInfo?.nick || peer.peerUid;
+                            });
+                        } else if (peer.chatType === 2) {
+                            // 群聊 - 仅尝试从已缓存的群列表获取
+                            namePromise = this.core.apis.GroupApi.getGroups().then(groups => {
+                                const group = groups.find(g => g.groupCode === peer.peerUid || g.groupCode === peer.peerUid.toString());
+                                return group?.groupName || `群聊 ${peer.peerUid}`;
+                            });
+                        } else {
+                            namePromise = Promise.resolve(peer.peerUid);
+                        }
+                        
+                        sessionName = await Promise.race([namePromise, timeoutPromise]) as string;
+                        console.log(`[ApiServer] 自动获取会话名称: ${sessionName}`);
+                    } catch (error) {
+                        console.warn(`快速获取会话名称失败，使用默认名称: ${peer.peerUid}`, error);
+                        // 使用默认值，不阻塞任务创建
                     }
-                    
-                    sessionName = await Promise.race([namePromise, timeoutPromise]) as string;
-                } catch (error) {
-                    console.warn(`快速获取会话名称失败，使用默认名称: ${peer.peerUid}`, error);
-                    // 使用默认值，不阻塞任务创建
                 }
 
                 // 创建任务记录
