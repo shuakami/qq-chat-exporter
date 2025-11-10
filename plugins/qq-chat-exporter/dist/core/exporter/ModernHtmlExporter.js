@@ -1176,7 +1176,52 @@ ${this.generateFooter()}
             margin-top: 8px;
             font-weight: 400;
         }
-        
+
+        .forward-content {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.03);
+        }
+
+        [data-theme="dark"] .forward-content {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .forward-header {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+        }
+
+        .forward-items {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .forward-item {
+            padding: 8px 12px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.04);
+        }
+
+        [data-theme="dark"] .forward-item {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .forward-item-meta {
+            font-size: 0.9em;
+            margin-bottom: 4px;
+            color: var(--text-secondary);
+        }
+
+        .forward-item-text {
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
         /* 隐藏消息 (搜索/筛选) */
         .message.hidden {
             display: none !important;
@@ -1854,8 +1899,22 @@ ${this.generateFooter()}
         </div>`;
     }
     renderForwardElement(data) {
-        const summary = data?.summary || '转发消息';
-        return `<span class="text-content">📝 ${this.escapeHtml(summary)}</span>`;
+        const title = data?.title || '转发消息';
+        const messages = Array.isArray(data?.messages) ? data.messages : [];
+        const count = typeof data?.messageCount === 'number' ? data.messageCount : messages.length;
+        const header = `📝 ${this.escapeHtml(title)}${count ? ` (${count}条)` : ''}`;
+        if (!messages.length) {
+            return `<span class="text-content">${header}</span>`;
+        }
+        const items = messages.map((msg, index) => {
+            const sender = this.escapeHtml(msg?.senderName || '未知用户');
+            const timeRaw = this.formatTime(msg?.time);
+            const timeLabel = timeRaw ? this.escapeHtml(timeRaw) : '';
+            const meta = `${index + 1}. ${sender}${timeLabel ? ` ${timeLabel}` : ''}`;
+            const text = this.escapeHtml(msg?.text || '[空消息]').replace(/\n/g, '<br>');
+            return `<li class="forward-item"><div class="forward-item-meta">${meta}</div><div class="forward-item-text">${text}</div></li>`;
+        }).join('');
+        return `<div class="forward-content"><div class="forward-header">${header}</div><ol class="forward-items">${items}</ol></div>`;
     }
     renderSystemElement(data) {
         const text = data?.text || data?.content || '系统消息';

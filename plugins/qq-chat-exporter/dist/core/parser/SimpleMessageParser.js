@@ -3,6 +3,7 @@
  */
 import path from 'path';
 import { RawMessage, MessageElement, NTMsgType } from 'NapCatQQ/src/core/types.js';
+import { fetchForwardMessagesFromContext, extractForwardMetadata } from './forward-utils.js';
 /* ------------------------------ 内部高性能工具 ------------------------------ */
 /** 并发限流 map（保持顺序） */
 async function mapLimit(arr, limit, mapper) {
@@ -441,12 +442,26 @@ export class SimpleMessageParser {
         }
         // 转发
         if (element.multiForwardMsgElement) {
+            const mf = element.multiForwardMsgElement;
+            const metadata = extractForwardMetadata(mf.xmlContent);
+            let messages = [];
+            try {
+                messages = await fetchForwardMessagesFromContext({
+                    element: mf,
+                    messageId: message?.msgId
+                });
+            }
+            catch (error) {
+                console.warn('[SimpleMessageParser] 获取合并转发消息失败:', error);
+            }
             return {
                 type: 'forward',
                 data: {
-                    title: '转发消息',
-                    resId: element.multiForwardMsgElement.resId || '',
-                    summary: element.multiForwardMsgElement.xmlContent || ''
+                    title: metadata.title || '转发消息',
+                    summary: metadata.summary || mf.xmlContent || '转发消息',
+                    resId: mf.resId || '',
+                    messageCount: messages.length,
+                    messages
                 }
             };
         }
@@ -541,8 +556,38 @@ export class SimpleMessageParser {
                 return { text: t, html: htmlEnabled ? `<div class="reply">${t}</div>` : '' };
             }
             case 'forward': {
-                const t = `[转发消息]`;
-                return { text: t, html: htmlEnabled ? `<div class="forward">${t}</div>` : '' };
+                const count = Array.isArray(element.data?.messages)
+                    ? element.data.messages.length
+                    : (element.data?.messageCount || 0);
+                const header = `[转发消息: ${count}条]`;
+                if (Array.isArray(element.data?.messages) && element.data.messages.length > 0) {
+                    const lines = element.data.messages.map((msg, idx) => {
+                        const metaParts = [`${idx + 1}.`, msg.senderName || '未知用户'];
+                        const timeLabel = this.formatForwardDisplayTime(msg.time);
+                        if (timeLabel)
+                            metaParts.push(timeLabel);
+                        return `  ${metaParts.join(' ')}: ${msg.text}`;
+                    });
+                    const text = `${header}\n${lines.join('\n')}`;
+                    const html = htmlEnabled
+                        ? (() => {
+                            const itemsHtml = element.data.messages
+                                .map((msg, idx) => {
+                                const metaParts = [`${idx + 1}.`, escapeHtmlFast(msg.senderName || '未知用户')];
+                                const timeLabel = this.formatForwardDisplayTime(msg.time);
+                                if (timeLabel)
+                                    metaParts.push(escapeHtmlFast(timeLabel));
+                                const content = escapeHtmlFast(msg.text).replace(/\n/g, '<br>');
+                                return `<li class="multi-forward-item"><div class="multi-forward-meta">${metaParts.join(' ')}</div><div class="multi-forward-text">${content}</div></li>`;
+                            })
+                                .join('');
+                            return `<div class="multi-forward">${escapeHtmlFast(header)}<ol class="multi-forward-list">${itemsHtml}</ol></div>`;
+                        })()
+                        : '';
+                    return { text, html };
+                }
+                const fallback = count > 0 ? header : `[转发消息]`;
+                return { text: fallback, html: htmlEnabled ? `<div class="multi-forward">${escapeHtmlFast(fallback)}</div>` : '' };
             }
             case 'location': {
                 const t = `[位置消息]`;
@@ -560,6 +605,26 @@ export class SimpleMessageParser {
                 const rawText = element.data.text || element.data.summary || element.data.content || '';
                 return { text: rawText, html: htmlEnabled ? (rawText ? `<span>${escapeHtmlFast(rawText)}</span>` : '') : '' };
             }
+        }
+    }
+    formatForwardDisplayTime(time) {
+        if (!time)
+            return '';
+        try {
+            const date = new Date(time);
+            if (Number.isNaN(date.getTime()))
+                return '';
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+        catch (error) {
+            return '';
         }
     }
     parseSizeString(size) {

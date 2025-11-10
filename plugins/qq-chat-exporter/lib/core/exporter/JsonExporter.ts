@@ -341,7 +341,20 @@ export class JsonExporter extends BaseExporter {
                 }
             });
         }
-        
+
+        if (content.multiForward) {
+            elements.push({
+                type: 'forward',
+                data: {
+                    title: content.multiForward.title,
+                    summary: content.multiForward.summary,
+                    messageCount: content.multiForward.messageCount,
+                    senderNames: content.multiForward.senderNames,
+                    messages: content.multiForward.messages
+                }
+            });
+        }
+
         return elements;
     }
 

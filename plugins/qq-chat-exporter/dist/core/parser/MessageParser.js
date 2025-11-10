@@ -5,6 +5,7 @@ import { RawMessage, MessageElement, ElementType, NTMsgType } from 'NapCatQQ/src
 import { SystemError, ErrorType, ResourceInfo, ResourceStatus } from '../../types/index.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 import { OneBotMsgApi } from 'NapCatQQ/src/onebot/api/msg.js';
+import { fetchForwardMessagesFromContext, extractForwardMetadata } from './forward-utils.js';
 /* ------------------------------ 内部高性能工具 ------------------------------ */
 /** 并发限流 map（保持顺序的结果数组） */
 async function mapLimit(arr, limit, mapper) {
@@ -784,34 +785,44 @@ export class MessageParser {
                         break;
                     case 16: // ElementType.MULTIFORWARD
                         if (element.multiForwardMsgElement && this.config.parseMultiForward) {
-                            multiForward = await this.parseMultiForwardElement(element);
-                            // 尝试获取合并转发的消息数量
-                            try {
-                                const bridge = globalThis.__NAPCAT_BRIDGE__;
-                                if (bridge?.actions && messageRef?.msgId) {
-                                    const getForwardAction = bridge.actions.get('get_forward_msg');
-                                    if (getForwardAction) {
-                                        const result = await getForwardAction.handle({
-                                            message_id: messageRef.msgId
-                                        }, 'plugin', {});
-                                        if (result?.data?.messages) {
-                                            multiForward = multiForward || {
-                                                title: '聊天记录',
-                                                summary: '合并转发的聊天记录',
-                                                messageCount: result.data.messages.length,
-                                                senderNames: []
-                                            };
-                                            multiForward.messageCount = result.data.messages.length;
-                                        }
-                                    }
+                            multiForward = await this.parseMultiForwardElement(element, messageRef);
+                            if (multiForward?.messages?.length) {
+                                const count = multiForward.messageCount || multiForward.messages.length;
+                                const header = `[合并转发: ${count}条]`;
+                                const lines = [header];
+                                for (let i = 0; i < multiForward.messages.length; i++) {
+                                    const item = multiForward.messages[i];
+                                    const indexLabel = `${i + 1}.`;
+                                    const timeLabel = this.formatForwardDisplayTime(item.time);
+                                    const metaParts = [indexLabel, item.senderName || '未知用户'];
+                                    if (timeLabel)
+                                        metaParts.push(timeLabel);
+                                    const contentLine = `${metaParts.join(' ')}: ${item.text}`;
+                                    lines.push(`  ${contentLine}`);
                                 }
+                                const textBlock = `${lines.join('\n')}\n`;
+                                let htmlBlock = '';
+                                if (this.config.html !== 'none') {
+                                    const itemsHtml = multiForward.messages
+                                        .map((item, idx) => {
+                                        const metaParts = [`${idx + 1}.`, escapeHtmlFast(item.senderName || '未知用户')];
+                                        const timeLabel = this.formatForwardDisplayTime(item.time);
+                                        if (timeLabel)
+                                            metaParts.push(escapeHtmlFast(timeLabel));
+                                        const content = escapeHtmlFast(item.text).replace(/\n/g, '<br>');
+                                        return `<li class="multi-forward-item"><div class="multi-forward-meta">${metaParts.join(' ')}</div><div class="multi-forward-text">${content}</div></li>`;
+                                    })
+                                        .join('');
+                                    htmlBlock = `<div class="multi-forward">${escapeHtmlFast(header)}<ol class="multi-forward-list">${itemsHtml}</ol></div>`;
+                                }
+                                ctxText(textBlock, htmlBlock);
                             }
-                            catch (error) {
-                                // 获取合并转发详情失败，忽略错误
+                            else {
+                                const count = multiForward?.messageCount || 0;
+                                const title = multiForward?.title || '合并转发';
+                                const t = count > 0 ? `[合并转发: ${count}条]` : `[合并转发: ${title}]`;
+                                ctxText(t, (this.config.html !== 'none') ? `<div class="multi-forward">${escapeHtmlFast(t)}</div>` : '');
                             }
-                            const count = multiForward?.messageCount || 0;
-                            const t = count > 0 ? `[合并转发: ${count}条]` : `[合并转发: ${multiForward?.title}]`;
-                            ctxText(t, (this.config.html !== 'none') ? `<div class="multi-forward">${escapeHtmlFast(t)}</div>` : '');
                         }
                         break;
                     case 28: // ElementType.SHARELOCATION
@@ -988,15 +999,25 @@ export class MessageParser {
             };
         }
     }
-    async parseMultiForwardElement(element) {
+    async parseMultiForwardElement(element, messageRef) {
         if (!element.multiForwardMsgElement || !this.config.parseMultiForward)
             return undefined;
         const mf = element.multiForwardMsgElement;
+        const metadata = extractForwardMetadata(mf.xmlContent);
+        const messages = await fetchForwardMessagesFromContext({
+            core: this.core,
+            element: mf,
+            messageId: messageRef?.msgId
+        });
+        const senderNames = Array.from(new Set(messages
+            .map((msg) => (msg.senderName ? msg.senderName.trim() : ''))
+            .filter((name) => Boolean(name))));
         return {
-            title: mf.xmlContent || '聊天记录',
-            summary: '合并转发的聊天记录',
-            messageCount: 0,
-            senderNames: []
+            title: metadata.title || mf.xmlContent || '聊天记录',
+            summary: metadata.summary || '合并转发的聊天记录',
+            messageCount: messages.length,
+            senderNames,
+            messages
         };
     }
     async parseLocationElement(_element) {
@@ -1017,6 +1038,26 @@ export class MessageParser {
             startTime: new Date(),
             description: JSON.stringify(calendar)
         };
+    }
+    formatForwardDisplayTime(time) {
+        if (!time)
+            return '';
+        try {
+            const date = new Date(time);
+            if (Number.isNaN(date.getTime()))
+                return '';
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+        catch (error) {
+            return '';
+        }
     }
     async parseSpecialElement(element) {
         const t = element.elementType;
