@@ -7,6 +7,8 @@ import { RawMessage, MessageElement, NTMsgType } from 'NapCatQQ/src/core/types.j
 import {
   fetchForwardMessagesFromContext,
   extractForwardMetadata,
+  buildFallbackMessagesFromMetadata,
+  estimateForwardMessageCount,
   type ForwardMessageEntry
 } from './forward-utils.js';
 
@@ -572,14 +574,48 @@ export class SimpleMessageParser {
       const mf = element.multiForwardMsgElement;
       const metadata = extractForwardMetadata(mf.xmlContent);
       let messages: ForwardMessageEntry[] = [];
+      let fetchFailed = false;
+      const prefix = `[SimpleMessageParser:${message?.msgId ?? 'unknown'}]`;
+
       try {
         messages = await fetchForwardMessagesFromContext({
           element: mf,
-          messageId: message?.msgId
+          messageId: message?.msgId,
+          log: (level, text) => {
+            if (level === 'warn' || level === 'error') fetchFailed = true;
+            const full = `${prefix} ${text}`;
+            switch (level) {
+              case 'debug':
+                console.debug(full);
+                break;
+              case 'info':
+                console.log(full);
+                break;
+              case 'warn':
+                console.warn(full);
+                break;
+              case 'error':
+                console.error(full);
+                break;
+            }
+          }
         });
       } catch (error) {
-        console.warn('[SimpleMessageParser] 获取合并转发消息失败:', error);
+        fetchFailed = true;
+        console.warn(`${prefix} fetchForwardMessagesFromContext 抛出异常:`, error);
       }
+
+      if (!messages.length) {
+        const fallback = buildFallbackMessagesFromMetadata(metadata);
+        if (fallback.length) {
+          messages = fallback;
+          if (fetchFailed) {
+            console.warn(`${prefix} 无法获取完整转发消息内容，使用 XML 摘要回退`);
+          }
+        }
+      }
+
+      const messageCount = estimateForwardMessageCount(mf, metadata, messages);
 
       return {
         type: 'forward',
@@ -587,7 +623,7 @@ export class SimpleMessageParser {
           title: metadata.title || '转发消息',
           summary: metadata.summary || mf.xmlContent || '转发消息',
           resId: mf.resId || '',
-          messageCount: messages.length,
+          messageCount,
           messages
         }
       };

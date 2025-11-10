@@ -9,6 +9,8 @@ import { OneBotMsgApi } from 'NapCatQQ/src/onebot/api/msg.js';
 import {
   fetchForwardMessagesFromContext,
   extractForwardMetadata,
+  buildFallbackMessagesFromMetadata,
+  estimateForwardMessageCount,
   type ForwardMessageEntry
 } from './forward-utils.js';
 
@@ -1251,11 +1253,39 @@ export class MessageParser {
     const mf = element.multiForwardMsgElement;
 
     const metadata = extractForwardMetadata(mf.xmlContent);
-    const messages = await fetchForwardMessagesFromContext({
-      core: this.core,
-      element: mf,
-      messageId: messageRef?.msgId
-    });
+    let fetchFailed = false;
+    let messages: ForwardMessageEntry[] = [];
+
+    try {
+      messages = await fetchForwardMessagesFromContext({
+        core: this.core,
+        element: mf,
+        messageId: messageRef?.msgId,
+        log: (level, message) => {
+          if (level === 'warn' || level === 'error') fetchFailed = true;
+          this.log(`[MultiForward:${messageRef?.msgId ?? 'unknown'}] ${message}`, level);
+        }
+      });
+    } catch (error) {
+      fetchFailed = true;
+      this.log(
+        `[MultiForward:${messageRef?.msgId ?? 'unknown'}] fetchForwardMessagesFromContext 抛出异常: ${error}`,
+        'warn'
+      );
+    }
+
+    if (!messages.length) {
+      const fallback = buildFallbackMessagesFromMetadata(metadata);
+      if (fallback.length) {
+        messages = fallback;
+        if (fetchFailed) {
+          this.log(
+            `[MultiForward:${messageRef?.msgId ?? 'unknown'}] 无法获取完整转发消息内容，使用 XML 摘要进行回退`,
+            'warn'
+          );
+        }
+      }
+    }
 
     const senderNames = Array.from(
       new Set(
@@ -1265,10 +1295,12 @@ export class MessageParser {
       )
     );
 
+    const messageCount = estimateForwardMessageCount(mf, metadata, messages);
+
     return {
       title: metadata.title || mf.xmlContent || '聊天记录',
       summary: metadata.summary || '合并转发的聊天记录',
-      messageCount: messages.length,
+      messageCount,
       senderNames,
       messages
     };

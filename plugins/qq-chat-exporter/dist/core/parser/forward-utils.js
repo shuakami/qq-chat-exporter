@@ -16,8 +16,10 @@ const CANDIDATE_ID_KEYS = [
 ];
 export async function fetchForwardMessagesFromContext(options) {
     const rawNodes = await resolveForwardRawNodes(options);
-    if (!rawNodes.length)
+    if (!rawNodes.length) {
+        emitLog(options, 'debug', '未解析到任何合并转发原始节点，返回空结果');
         return [];
+    }
     return normalizeForwardNodes(rawNodes);
 }
 export function extractForwardMetadata(xml) {
@@ -30,11 +32,20 @@ export function extractForwardMetadata(xml) {
     const summary = decodeXmlEntities(matchFirst(text, /<summary>([^<]+)<\/summary>/i, 1) ||
         matchFirst(text, /summary="([^"]+)"/i, 1) ||
         matchFirst(text, /summary='([^']+)'/i, 1));
+    const totalCount = parseInteger(matchFirst(text, /tSum="(\d+)"/i, 1) ||
+        matchFirst(text, /tSum='(\d+)'/i, 1) ||
+        matchFirst(text, /tSum=(\d+)/i, 1));
+    const previewTitles = Array.from(text.matchAll(/<title[^>]*>([^<]*)<\/title>/gi)).map((match) => decodeXmlEntities(match[1] || ''));
+    const previews = buildPreviewEntriesFromTitles(previewTitles);
     const result = {};
     if (title)
         result.title = title;
     if (summary)
         result.summary = summary;
+    if (typeof totalCount === 'number')
+        result.totalCount = totalCount;
+    if (previews.length)
+        result.previews = previews;
     return result;
 }
 function matchFirst(text, regex, index) {
@@ -63,17 +74,61 @@ function decodeXmlEntities(value) {
     })
         .trim();
 }
+function parseInteger(value) {
+    if (!value)
+        return undefined;
+    const num = Number(value);
+    if (!Number.isFinite(num))
+        return undefined;
+    const int = Math.trunc(num);
+    return int >= 0 ? int : undefined;
+}
+function buildPreviewEntriesFromTitles(titles) {
+    if (!titles.length)
+        return [];
+    const [, ...rest] = titles;
+    const previews = [];
+    for (const rawTitle of rest) {
+        const line = (rawTitle || '').trim();
+        if (!line)
+            continue;
+        const separatorIndex = findSeparatorIndex(line);
+        if (separatorIndex >= 0) {
+            const senderName = line.slice(0, separatorIndex).trim();
+            const content = line.slice(separatorIndex + 1).trim();
+            previews.push({ senderName: senderName || undefined, text: content || line });
+        }
+        else {
+            previews.push({ text: line });
+        }
+    }
+    return previews;
+}
+function findSeparatorIndex(line) {
+    const normal = line.indexOf(':');
+    const fullWidth = line.indexOf('：');
+    if (normal === -1)
+        return fullWidth;
+    if (fullWidth === -1)
+        return normal;
+    return Math.min(normal, fullWidth);
+}
 async function resolveForwardRawNodes(options) {
     const candidateIds = collectCandidateIds(options.element);
     if (options.messageId) {
         candidateIds.add(String(options.messageId));
     }
     const ids = Array.from(candidateIds.values()).filter(Boolean);
+    if (!ids.length) {
+        emitLog(options, 'debug', `未从合并转发元素中解析到 forwardId/resId 候选值 (messageId=${String(options.messageId ?? '') || 'unknown'})`);
+    }
     const core = options.core;
+    const errors = [];
     if (core?.apis) {
         const msgApi = core.apis.MsgApi || core.apis.msg;
         const getMultiMsg = msgApi?.getMultiMsg;
         if (typeof getMultiMsg === 'function') {
+            emitLog(options, 'debug', `尝试通过 NapCat MsgApi.getMultiMsg 获取合并转发消息 (messageId=${options.messageId ?? 'unknown'}, ids=${ids.join(',') || '无'})`);
             for (const id of ids) {
                 try {
                     const params = {};
@@ -87,7 +142,7 @@ async function resolveForwardRawNodes(options) {
                         return arr;
                 }
                 catch (error) {
-                    // ignore and fallback
+                    errors.push(`MsgApi.getMultiMsg(${id || 'undefined'}) -> ${toErrorMessage(error)}`);
                 }
             }
         }
@@ -109,9 +164,15 @@ async function resolveForwardRawNodes(options) {
                     return arr;
             }
             catch (error) {
-                // ignore and continue
+                errors.push(`bridge.get_forward_msg(${id || 'undefined'}) -> ${toErrorMessage(error)}`);
             }
         }
+    }
+    else {
+        emitLog(options, 'debug', '未找到 bridge.get_forward_msg 处理器，跳过 OneBot 兼容路径');
+    }
+    if (errors.length) {
+        emitLog(options, 'warn', `无法拉取合并转发消息内容 (messageId=${options.messageId ?? 'unknown'}, ids=${ids.join(',') || '无'}): ${errors.join('; ')}`);
     }
     return [];
 }
@@ -180,6 +241,102 @@ function extractArrayFromResult(data) {
             return nested;
     }
     return [];
+}
+function emitLog(options, level, message) {
+    const logger = options.log;
+    if (typeof logger === 'function') {
+        try {
+            logger(level, message);
+            return;
+        }
+        catch (error) {
+            defaultLog('warn', `[forward-utils] logger回调异常: ${toErrorMessage(error)}`);
+        }
+    }
+    defaultLog(level, message);
+}
+function defaultLog(level, message) {
+    const prefix = '[forward-utils]';
+    switch (level) {
+        case 'debug':
+            console.debug(`${prefix} ${message}`);
+            break;
+        case 'info':
+            console.log(`${prefix} ${message}`);
+            break;
+        case 'warn':
+            console.warn(`${prefix} ${message}`);
+            break;
+        case 'error':
+            console.error(`${prefix} ${message}`);
+            break;
+    }
+}
+function toErrorMessage(error) {
+    if (!error)
+        return 'Unknown error';
+    if (typeof error === 'string')
+        return error;
+    if (error instanceof Error)
+        return error.message || error.toString();
+    try {
+        return JSON.stringify(error);
+    }
+    catch {
+        return String(error);
+    }
+}
+export function estimateForwardMessageCount(element, metadata, messages) {
+    const candidates = [
+        metadata?.totalCount,
+        toPositiveInteger(element?.msgCount),
+        toPositiveInteger(element?.msgCnt),
+        toPositiveInteger(element?.msg_count),
+        toPositiveInteger(element?.messageCount),
+        toPositiveInteger(element?.message_count),
+        toPositiveInteger(element?.summaryCnt),
+        toPositiveInteger(element?.summary_cnt),
+        toPositiveInteger(messages?.length)
+    ];
+    for (const value of candidates) {
+        if (typeof value === 'number')
+            return value;
+    }
+    return 0;
+}
+function toPositiveInteger(value) {
+    if (value === null || value === undefined)
+        return undefined;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        const n = Math.trunc(value);
+        return n >= 0 ? n : undefined;
+    }
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed)
+            return undefined;
+        if (!/^\d+$/.test(trimmed))
+            return undefined;
+        const n = Number(trimmed);
+        return Number.isFinite(n) ? n : undefined;
+    }
+    return undefined;
+}
+export function buildFallbackMessagesFromMetadata(metadata) {
+    if (!metadata?.previews?.length)
+        return [];
+    return metadata.previews
+        .map((preview, index) => {
+        const text = (preview.text || '').trim();
+        if (!text)
+            return null;
+        return {
+            senderName: preview.senderName || `成员${index + 1}`,
+            text,
+            raw: { source: 'metadata', preview }
+        };
+    })
+        .filter((entry) => Boolean(entry));
 }
 function normalizeForwardNodes(nodes) {
     const results = [];

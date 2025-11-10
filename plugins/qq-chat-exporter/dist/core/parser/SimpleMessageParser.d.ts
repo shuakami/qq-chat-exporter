@@ -1,8 +1,7 @@
 /**
  * 简化消息解析器
  */
-import { RawMessage, MessageElement } from 'NapCatQQ/src/core/types.js';
-import type { ForwardMessageEntry } from './forward-utils.js';
+import { RawMessage } from 'NapCatQQ/src/core/types.js';
 export interface CleanMessage {
     id: string;
     seq: string;
@@ -25,20 +24,10 @@ export interface MessageContent {
     elements: MessageElementData[];
     resources: ResourceData[];
 }
-export interface ForwardElementData {
-    title: string;
-    summary: string;
-    resId: string;
-    messageCount: number;
-    messages: ForwardMessageEntry[];
-}
-export type MessageElementData = {
-    type: 'forward';
-    data: ForwardElementData;
-} | {
+export interface MessageElementData {
     type: string;
     data: any;
-};
+}
 export interface ResourceData {
     type: string;
     filename: string;
@@ -79,7 +68,7 @@ export declare class SimpleMessageParser {
     private readonly options;
     private readonly onProgress?;
     private readonly concurrency;
-    private messageMap: Map<string, RawMessage>;
+    private messageMap;
     constructor(opts?: SimpleParserOptions);
     /**
      * 解析消息列表（高并发 + 有序输出）
@@ -106,13 +95,10 @@ export declare class SimpleMessageParser {
     /**
      * 元素解析（尽量同步，无额外中间对象）
      */
-    private parseElement(element: MessageElement, message: RawMessage): Promise<MessageElementData | null>;
-    private extractResource(element: MessageElementData): ResourceData | null;
-    private elementToText(element: MessageElementData, htmlEnabled: boolean): {
-        text: string;
-        html: string;
-    };
-    private formatForwardDisplayTime(time?: string): string;
+    private parseElement;
+    private extractResource;
+    private elementToText;
+    private formatForwardDisplayTime;
     private parseSizeString;
     private isSystemMessage;
     private createErrorMessage;

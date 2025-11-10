@@ -1,10 +1,10 @@
 /**
  * 消息解析器
  */
-import { RawMessage, MessageElement, NTMsgType } from 'NapCatQQ/src/core/index.js';
+import { RawMessage, NTMsgType } from 'NapCatQQ/src/core/index.js';
 import { ResourceInfo } from '../../types/index.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
-import type { ForwardMessageEntry } from './forward-utils.js';
+import { type ForwardMessageEntry } from './forward-utils.js';
 /**
  * 解析后的消息内容接口
  */
@@ -135,7 +135,7 @@ export declare class MessageParser {
     /** 表情映射缓存 */
     private faceMap;
     /** 全局消息映射，用于查找被引用的消息 */
-    private messageMap: Map<string, RawMessage>;
+    private messageMap;
     /** 并发度（内部自适应，可被配置覆盖） */
     private readonly concurrency;
     constructor(core: NapCatCore, config?: Partial<MessageParserConfig>);
@@ -170,10 +170,10 @@ export declare class MessageParser {
     /** 普通表情/超级表情等已内联在 parseMessageContent */
     private parseReplyElement;
     private parseArkElement;
-    private parseMultiForwardElement(element: MessageElement, messageRef?: RawMessage): Promise<ParsedMessageContent['multiForward'] | undefined>;
+    private parseMultiForwardElement;
     private parseLocationElement;
     private parseCalendarElement;
-    private formatForwardDisplayTime(time?: string): string;
+    private formatForwardDisplayTime;
     private parseSpecialElement;
     private readonly AT_REGEX;
     private parseAtMentions;
