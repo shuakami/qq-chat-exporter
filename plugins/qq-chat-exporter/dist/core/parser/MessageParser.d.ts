@@ -4,6 +4,7 @@
 import { RawMessage, NTMsgType } from 'NapCatQQ/src/core/index.js';
 import { ResourceInfo } from '../../types/index.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
+import { type ForwardMessageEntry } from './forward-utils.js';
 /**
  * 解析后的消息内容接口
  */
@@ -18,6 +19,7 @@ export interface ParsedMessageContent {
     }>;
     reply?: {
         messageId: string;
+        referencedMessageId?: string;
         senderName?: string;
         content: string;
         elements?: any[];
@@ -47,6 +49,7 @@ export interface ParsedMessageContent {
         summary: string;
         messageCount: number;
         senderNames: string[];
+        messages: ForwardMessageEntry[];
     };
     calendar?: {
         title: string;
@@ -131,6 +134,8 @@ export declare class MessageParser {
     private userInfoCache;
     /** 表情映射缓存 */
     private faceMap;
+    /** 全局消息映射，用于查找被引用的消息 */
+    private messageMap;
     /** 并发度（内部自适应，可被配置覆盖） */
     private readonly concurrency;
     constructor(core: NapCatCore, config?: Partial<MessageParserConfig>);
@@ -168,6 +173,7 @@ export declare class MessageParser {
     private parseMultiForwardElement;
     private parseLocationElement;
     private parseCalendarElement;
+    private formatForwardDisplayTime;
     private parseSpecialElement;
     private readonly AT_REGEX;
     private parseAtMentions;

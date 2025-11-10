@@ -68,6 +68,7 @@ export declare class SimpleMessageParser {
     private readonly options;
     private readonly onProgress?;
     private readonly concurrency;
+    private messageMap;
     constructor(opts?: SimpleParserOptions);
     /**
      * 解析消息列表（高并发 + 有序输出）
@@ -97,6 +98,7 @@ export declare class SimpleMessageParser {
     private parseElement;
     private extractResource;
     private elementToText;
+    private formatForwardDisplayTime;
     private parseSizeString;
     private isSystemMessage;
     private createErrorMessage;

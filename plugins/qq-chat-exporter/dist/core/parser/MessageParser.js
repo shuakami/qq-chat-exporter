@@ -5,6 +5,7 @@ import { RawMessage, MessageElement, ElementType, NTMsgType } from 'NapCatQQ/src
 import { SystemError, ErrorType, ResourceInfo, ResourceStatus } from '../../types/index.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 import { OneBotMsgApi } from 'NapCatQQ/src/onebot/api/msg.js';
+import { fetchForwardMessagesFromContext, extractForwardMetadata, buildFallbackMessagesFromMetadata, estimateForwardMessageCount } from './forward-utils.js';
 /* ------------------------------ 内部高性能工具 ------------------------------ */
 /** 并发限流 map（保持顺序的结果数组） */
 async function mapLimit(arr, limit, mapper) {
@@ -230,6 +231,8 @@ export class MessageParser {
     userInfoCache = new Map();
     /** 表情映射缓存 */
     faceMap = new Map();
+    /** 全局消息映射，用于查找被引用的消息 */
+    messageMap = new Map();
     /** 并发度（内部自适应，可被配置覆盖） */
     concurrency;
     constructor(core, config = {}) {
@@ -250,6 +253,21 @@ export class MessageParser {
         const start = Date.now();
         let processed = 0;
         this.log(`开始使用解析器处理 ${total} 条消息... 并发=${this.concurrency} 模式=${this.config.obMode}`);
+        // 先建立全局消息映射
+        this.messageMap.clear();
+        for (const msg of messages) {
+            if (msg && msg.msgId) {
+                this.messageMap.set(msg.msgId, msg);
+                // 同时将 records 数组中的消息也添加到映射中
+                if (msg.records && msg.records.length > 0) {
+                    for (const record of msg.records) {
+                        if (record && record.msgId) {
+                            this.messageMap.set(record.msgId, record);
+                        }
+                    }
+                }
+            }
+        }
         const preferNative = this.config.obMode === 'native-only' || this.config.obMode === 'prefer-native';
         const obOnly = this.config.obMode === 'ob-only';
         const results = await mapLimit(messages, this.concurrency, async (message, idx) => {
@@ -315,6 +333,8 @@ export class MessageParser {
             if (v)
                 out.push(v);
         }
+        // 清理全局映射
+        this.messageMap.clear();
         const duration = Date.now() - start;
         this.log(`消息解析完成，共 ${out.length} 条，耗时 ${duration}ms`);
         return out;
@@ -351,7 +371,10 @@ export class MessageParser {
             sender: {
                 uid: rawMsg.senderUid,
                 uin: rawMsg.senderUin,
-                name: rawMsg.sendNickName || rawMsg.sendRemarkName,
+                name: (rawMsg.sendNickName && rawMsg.sendNickName.trim()) ||
+                    (rawMsg.sendRemarkName && rawMsg.sendRemarkName.trim()) ||
+                    (rawMsg.senderUin && String(rawMsg.senderUin)) ||
+                    undefined,
                 avatar: undefined,
                 role: undefined
             },
@@ -462,8 +485,16 @@ export class MessageParser {
             }
             case 'reply': {
                 if (!content.reply) {
+                    const replyId = segment.data.id;
+                    let referencedMessageId;
+                    // 尝试从全局消息映射中查找被引用消息的实际messageId
+                    if (replyId && this.messageMap.has(replyId)) {
+                        const referencedMessage = this.messageMap.get(replyId);
+                        referencedMessageId = referencedMessage?.msgId;
+                    }
                     content.reply = {
-                        messageId: segment.data.id,
+                        messageId: replyId,
+                        referencedMessageId,
                         senderName: undefined,
                         content: '引用消息',
                         elements: []
@@ -762,7 +793,7 @@ export class MessageParser {
                     case 7: // ElementType.REPLY
                         if (element.replyElement) {
                             // 原生路径不额外抓取被引用正文，保持轻量
-                            reply = await this.parseReplyElement(element);
+                            reply = await this.parseReplyElement(element, messageRef);
                             const replyText = `[回复 ${reply?.senderName}: ${reply?.content}]`;
                             ctxText(`${replyText}\n`, (this.config.html !== 'none')
                                 ? `<div class="reply">[回复 ${escapeHtmlFast(reply?.senderName || '')}: ${escapeHtmlFast(reply?.content || '')}]</div>`
@@ -784,34 +815,44 @@ export class MessageParser {
                         break;
                     case 16: // ElementType.MULTIFORWARD
                         if (element.multiForwardMsgElement && this.config.parseMultiForward) {
-                            multiForward = await this.parseMultiForwardElement(element);
-                            // 尝试获取合并转发的消息数量
-                            try {
-                                const bridge = globalThis.__NAPCAT_BRIDGE__;
-                                if (bridge?.actions && messageRef?.msgId) {
-                                    const getForwardAction = bridge.actions.get('get_forward_msg');
-                                    if (getForwardAction) {
-                                        const result = await getForwardAction.handle({
-                                            message_id: messageRef.msgId
-                                        }, 'plugin', {});
-                                        if (result?.data?.messages) {
-                                            multiForward = multiForward || {
-                                                title: '聊天记录',
-                                                summary: '合并转发的聊天记录',
-                                                messageCount: result.data.messages.length,
-                                                senderNames: []
-                                            };
-                                            multiForward.messageCount = result.data.messages.length;
-                                        }
-                                    }
+                            multiForward = await this.parseMultiForwardElement(element, messageRef);
+                            if (multiForward?.messages?.length) {
+                                const count = multiForward.messageCount || multiForward.messages.length;
+                                const header = `[合并转发: ${count}条]`;
+                                const lines = [header];
+                                for (let i = 0; i < multiForward.messages.length; i++) {
+                                    const item = multiForward.messages[i];
+                                    const indexLabel = `${i + 1}.`;
+                                    const timeLabel = this.formatForwardDisplayTime(item.time);
+                                    const metaParts = [indexLabel, item.senderName || '未知用户'];
+                                    if (timeLabel)
+                                        metaParts.push(timeLabel);
+                                    const contentLine = `${metaParts.join(' ')}: ${item.text}`;
+                                    lines.push(`  ${contentLine}`);
                                 }
+                                const textBlock = `${lines.join('\n')}\n`;
+                                let htmlBlock = '';
+                                if (this.config.html !== 'none') {
+                                    const itemsHtml = multiForward.messages
+                                        .map((item, idx) => {
+                                        const metaParts = [`${idx + 1}.`, escapeHtmlFast(item.senderName || '未知用户')];
+                                        const timeLabel = this.formatForwardDisplayTime(item.time);
+                                        if (timeLabel)
+                                            metaParts.push(escapeHtmlFast(timeLabel));
+                                        const content = escapeHtmlFast(item.text).replace(/\n/g, '<br>');
+                                        return `<li class="multi-forward-item"><div class="multi-forward-meta">${metaParts.join(' ')}</div><div class="multi-forward-text">${content}</div></li>`;
+                                    })
+                                        .join('');
+                                    htmlBlock = `<div class="multi-forward">${escapeHtmlFast(header)}<ol class="multi-forward-list">${itemsHtml}</ol></div>`;
+                                }
+                                ctxText(textBlock, htmlBlock);
                             }
-                            catch (error) {
-                                // 获取合并转发详情失败，忽略错误
+                            else {
+                                const count = multiForward?.messageCount || 0;
+                                const title = multiForward?.title || '合并转发';
+                                const t = count > 0 ? `[合并转发: ${count}条]` : `[合并转发: ${title}]`;
+                                ctxText(t, (this.config.html !== 'none') ? `<div class="multi-forward">${escapeHtmlFast(t)}</div>` : '');
                             }
-                            const count = multiForward?.messageCount || 0;
-                            const t = count > 0 ? `[合并转发: ${count}条]` : `[合并转发: ${multiForward?.title}]`;
-                            ctxText(t, (this.config.html !== 'none') ? `<div class="multi-forward">${escapeHtmlFast(t)}</div>` : '');
                         }
                         break;
                     case 28: // ElementType.SHARELOCATION
@@ -952,14 +993,38 @@ export class MessageParser {
         };
     }
     /** 普通表情/超级表情等已内联在 parseMessageContent */
-    async parseReplyElement(element) {
+    async parseReplyElement(element, messageRef) {
         if (!element.replyElement)
             return undefined;
         const reply = element.replyElement;
+        // 使用 replayMsgId 作为被引用消息的真实ID（但要排除 "0" 的情况）
+        const replayMsgId = reply.replayMsgId || '';
+        let referencedMessageId = (replayMsgId && replayMsgId !== '0') ? replayMsgId : undefined;
+        // sourceMsgIdInRecords 用于内部查找（在 records 数组中）
+        const sourceMsgId = reply.sourceMsgIdInRecords || '';
+        // 如果 replayMsgId 无效，尝试用 replayMsgSeq 查找
+        if (!referencedMessageId && reply.replayMsgSeq) {
+            for (const [msgId, msg] of this.messageMap.entries()) {
+                if (msg.msgSeq === reply.replayMsgSeq) {
+                    referencedMessageId = msg.msgId;
+                    break;
+                }
+            }
+        }
+        // 再尝试用 replyMsgClientSeq 查找
+        if (!referencedMessageId && reply.replyMsgClientSeq) {
+            for (const [msgId, msg] of this.messageMap.entries()) {
+                if (msg.clientSeq === reply.replyMsgClientSeq) {
+                    referencedMessageId = msg.msgId;
+                    break;
+                }
+            }
+        }
         return {
-            messageId: reply.sourceMsgIdInRecords || '',
+            messageId: sourceMsgId, // 保留原始的sourceMsgIdInRecords用于内部查找
+            referencedMessageId, // 使用 replayMsgId 作为被引用消息的实际ID
             senderName: reply.senderUidStr || '',
-            content: this.extractReplyContent(reply),
+            content: this.extractReplyContent(reply, messageRef),
             elements: []
         };
     }
@@ -988,15 +1053,48 @@ export class MessageParser {
             };
         }
     }
-    async parseMultiForwardElement(element) {
+    async parseMultiForwardElement(element, messageRef) {
         if (!element.multiForwardMsgElement || !this.config.parseMultiForward)
             return undefined;
         const mf = element.multiForwardMsgElement;
+        const metadata = extractForwardMetadata(mf.xmlContent);
+        let fetchFailed = false;
+        let messages = [];
+        try {
+            messages = await fetchForwardMessagesFromContext({
+                core: this.core,
+                element: mf,
+                messageId: messageRef?.msgId,
+                log: (level, message) => {
+                    if (level === 'warn' || level === 'error')
+                        fetchFailed = true;
+                    this.log(`[MultiForward:${messageRef?.msgId ?? 'unknown'}] ${message}`, level);
+                }
+            });
+        }
+        catch (error) {
+            fetchFailed = true;
+            this.log(`[MultiForward:${messageRef?.msgId ?? 'unknown'}] fetchForwardMessagesFromContext 抛出异常: ${error}`, 'warn');
+        }
+        if (!messages.length) {
+            const fallback = buildFallbackMessagesFromMetadata(metadata);
+            if (fallback.length) {
+                messages = fallback;
+                if (fetchFailed) {
+                    this.log(`[MultiForward:${messageRef?.msgId ?? 'unknown'}] 无法获取完整转发消息内容，使用 XML 摘要进行回退`, 'warn');
+                }
+            }
+        }
+        const senderNames = Array.from(new Set(messages
+            .map((msg) => (msg.senderName ? msg.senderName.trim() : ''))
+            .filter((name) => Boolean(name))));
+        const messageCount = estimateForwardMessageCount(mf, metadata, messages);
         return {
-            title: mf.xmlContent || '聊天记录',
-            summary: '合并转发的聊天记录',
-            messageCount: 0,
-            senderNames: []
+            title: metadata.title || mf.xmlContent || '聊天记录',
+            summary: metadata.summary || '合并转发的聊天记录',
+            messageCount,
+            senderNames,
+            messages
         };
     }
     async parseLocationElement(_element) {
@@ -1017,6 +1115,26 @@ export class MessageParser {
             startTime: new Date(),
             description: JSON.stringify(calendar)
         };
+    }
+    formatForwardDisplayTime(time) {
+        if (!time)
+            return '';
+        try {
+            const date = new Date(time);
+            if (Number.isNaN(date.getTime()))
+                return '';
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+        catch (error) {
+            return '';
+        }
     }
     async parseSpecialElement(element) {
         const t = element.elementType;
@@ -1063,7 +1181,10 @@ export class MessageParser {
         return {
             uid,
             uin: message.senderUin || userInfo?.uin,
-            name: message.sendNickName || userInfo?.nick || undefined,
+            name: (message.sendNickName && message.sendNickName.trim()) ||
+                userInfo?.nick ||
+                (message.senderUin && String(message.senderUin)) ||
+                undefined,
             avatar: userInfo?.avatarUrl,
             role: undefined
         };
@@ -1087,27 +1208,79 @@ export class MessageParser {
     isTempMessage(message) {
         return message.chatType === 100;
     }
-    extractReplyContent(replyElement) {
+    extractReplyContent(replyElement, messageRef) {
+        let source = 'none';
+        let content = '原消息';
         try {
-            const elements = replyElement.sourceMsgElements || [];
-            const b = new ChunkedBuilder();
-            for (let i = 0; i < elements.length; i++) {
-                const el = elements[i];
-                if (el.textElement)
-                    b.push(el.textElement.content || '');
-                else if (el.picElement)
-                    b.push('[图片]');
-                else if (el.videoElement)
-                    b.push('[视频]');
-                else if (el.pttElement)
-                    b.push('[语音]');
-                else if (el.fileElement)
-                    b.push(`[文件: ${el.fileElement.fileName || ''}]`);
+            // 优先使用 sourceMsgIdInRecords
+            const sourceMsgId = replyElement.sourceMsgIdInRecords;
+            let referencedMessage;
+            // 1. 先从全局消息映射中查找
+            if (sourceMsgId && this.messageMap.has(sourceMsgId)) {
+                referencedMessage = this.messageMap.get(sourceMsgId);
+                source = 'messageMap';
             }
-            const s = b.toString().trim();
-            return s || '原消息';
+            // 2. 如果全局映射中找不到，再从 messageRef.records 中查找
+            if (!referencedMessage && sourceMsgId && messageRef?.records && messageRef.records.length > 0) {
+                referencedMessage = messageRef.records.find((record) => record.msgId === sourceMsgId);
+                if (referencedMessage)
+                    source = 'records';
+            }
+            // 如果找到了被引用的消息，从中提取内容
+            if (referencedMessage && referencedMessage.elements) {
+                const b = new ChunkedBuilder();
+                for (const element of referencedMessage.elements) {
+                    if (element.textElement)
+                        b.push(element.textElement.content || '');
+                    else if (element.picElement)
+                        b.push('[图片]');
+                    else if (element.videoElement)
+                        b.push('[视频]');
+                    else if (element.pttElement)
+                        b.push('[语音]');
+                    else if (element.fileElement)
+                        b.push(`[文件: ${element.fileElement.fileName || ''}]`);
+                    else if (element.faceElement)
+                        b.push(`[表情${element.faceElement.faceIndex}]`);
+                    else if (element.marketFaceElement) {
+                        const faceName = element.marketFaceElement.faceName || '超级表情';
+                        b.push(`[${faceName}]`);
+                    }
+                }
+                const s = b.toString().trim();
+                content = s || '原消息';
+            }
+            else {
+                // 备用方案：从 replyElement.sourceMsgElements 中提取
+                const elements = replyElement.sourceMsgElements || [];
+                if (elements.length > 0) {
+                    source = 'sourceMsgElements';
+                    const b = new ChunkedBuilder();
+                    for (let i = 0; i < elements.length; i++) {
+                        const el = elements[i];
+                        if (el.textElement)
+                            b.push(el.textElement.content || '');
+                        else if (el.picElement)
+                            b.push('[图片]');
+                        else if (el.videoElement)
+                            b.push('[视频]');
+                        else if (el.pttElement)
+                            b.push('[语音]');
+                        else if (el.fileElement)
+                            b.push(`[文件: ${el.fileElement.fileName || ''}]`);
+                        else if (el.marketFaceElement) {
+                            const faceName = el.marketFaceElement.faceName || '超级表情';
+                            b.push(`[${faceName}]`);
+                        }
+                    }
+                    const s = b.toString().trim();
+                    content = s || '原消息';
+                }
+            }
+            return content;
         }
-        catch {
+        catch (error) {
+            console.error('[MessageParser] extractReplyContent 错误:', error);
             return '原消息';
         }
     }
@@ -1155,7 +1328,10 @@ export class MessageParser {
             sender: {
                 uid: message.senderUid || '0',
                 uin: message.senderUin || '0',
-                name: message.sendNickName || message.sendRemarkName || '未知用户'
+                name: (message.sendNickName && message.sendNickName.trim()) ||
+                    (message.sendRemarkName && message.sendRemarkName.trim()) ||
+                    (message.senderUin && String(message.senderUin)) ||
+                    '未知用户'
             },
             receiver: {
                 uid: message.peerUid,
@@ -1190,7 +1366,9 @@ export class MessageParser {
             timestamp: dateFromUnixSeconds(originalMessage.msgTime),
             sender: {
                 uid: originalMessage.senderUid || 'unknown',
-                name: originalMessage.sendNickName || '未知用户'
+                name: (originalMessage.sendNickName && originalMessage.sendNickName.trim()) ||
+                    (originalMessage.senderUin && String(originalMessage.senderUin)) ||
+                    '未知用户'
             },
             messageType: originalMessage.msgType,
             isSystemMessage: false,

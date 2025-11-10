@@ -4,6 +4,13 @@
 
 import path from 'path';
 import { RawMessage, MessageElement, NTMsgType } from 'NapCatQQ/src/core/types.js';
+import {
+  fetchForwardMessagesFromContext,
+  extractForwardMetadata,
+  buildFallbackMessagesFromMetadata,
+  estimateForwardMessageCount,
+  type ForwardMessageEntry
+} from './forward-utils.js';
 
 /* ------------------------------ 内部高性能工具 ------------------------------ */
 
@@ -564,12 +571,60 @@ export class SimpleMessageParser {
 
     // 转发
     if (element.multiForwardMsgElement) {
+      const mf = element.multiForwardMsgElement;
+      const metadata = extractForwardMetadata(mf.xmlContent);
+      let messages: ForwardMessageEntry[] = [];
+      let fetchFailed = false;
+      const prefix = `[SimpleMessageParser:${message?.msgId ?? 'unknown'}]`;
+
+      try {
+        messages = await fetchForwardMessagesFromContext({
+          element: mf,
+          messageId: message?.msgId,
+          log: (level, text) => {
+            if (level === 'warn' || level === 'error') fetchFailed = true;
+            const full = `${prefix} ${text}`;
+            switch (level) {
+              case 'debug':
+                console.debug(full);
+                break;
+              case 'info':
+                console.log(full);
+                break;
+              case 'warn':
+                console.warn(full);
+                break;
+              case 'error':
+                console.error(full);
+                break;
+            }
+          }
+        });
+      } catch (error) {
+        fetchFailed = true;
+        console.warn(`${prefix} fetchForwardMessagesFromContext 抛出异常:`, error);
+      }
+
+      if (!messages.length) {
+        const fallback = buildFallbackMessagesFromMetadata(metadata);
+        if (fallback.length) {
+          messages = fallback;
+          if (fetchFailed) {
+            console.warn(`${prefix} 无法获取完整转发消息内容，使用 XML 摘要回退`);
+          }
+        }
+      }
+
+      const messageCount = estimateForwardMessageCount(mf, metadata, messages);
+
       return {
         type: 'forward',
         data: {
-          title: '转发消息',
-          resId: element.multiForwardMsgElement.resId || '',
-          summary: element.multiForwardMsgElement.xmlContent || ''
+          title: metadata.title || '转发消息',
+          summary: metadata.summary || mf.xmlContent || '转发消息',
+          resId: mf.resId || '',
+          messageCount,
+          messages
         }
       };
     }
@@ -670,8 +725,38 @@ export class SimpleMessageParser {
         return { text: t, html: htmlEnabled ? `<div class="reply">${t}</div>` : '' };
       }
       case 'forward': {
-        const t = `[转发消息]`;
-        return { text: t, html: htmlEnabled ? `<div class="forward">${t}</div>` : '' };
+        const count = Array.isArray(element.data?.messages)
+          ? element.data.messages.length
+          : (element.data?.messageCount || 0);
+        const header = `[转发消息: ${count}条]`;
+
+        if (Array.isArray(element.data?.messages) && element.data.messages.length > 0) {
+          const lines = element.data.messages.map((msg: ForwardMessageEntry, idx: number) => {
+            const metaParts = [`${idx + 1}.`, msg.senderName || '未知用户'];
+            const timeLabel = this.formatForwardDisplayTime(msg.time);
+            if (timeLabel) metaParts.push(timeLabel);
+            return `  ${metaParts.join(' ')}: ${msg.text}`;
+          });
+          const text = `${header}\n${lines.join('\n')}`;
+          const html = htmlEnabled
+            ? (() => {
+              const itemsHtml = element.data.messages
+                .map((msg: ForwardMessageEntry, idx: number) => {
+                  const metaParts = [`${idx + 1}.`, escapeHtmlFast(msg.senderName || '未知用户')];
+                  const timeLabel = this.formatForwardDisplayTime(msg.time);
+                  if (timeLabel) metaParts.push(escapeHtmlFast(timeLabel));
+                  const content = escapeHtmlFast(msg.text).replace(/\n/g, '<br>');
+                  return `<li class="multi-forward-item"><div class="multi-forward-meta">${metaParts.join(' ')}</div><div class="multi-forward-text">${content}</div></li>`;
+                })
+                .join('');
+              return `<div class="multi-forward">${escapeHtmlFast(header)}<ol class="multi-forward-list">${itemsHtml}</ol></div>`;
+            })()
+            : '';
+          return { text, html };
+        }
+
+        const fallback = count > 0 ? header : `[转发消息]`;
+        return { text: fallback, html: htmlEnabled ? `<div class="multi-forward">${escapeHtmlFast(fallback)}</div>` : '' };
       }
       case 'location': {
         const t = `[位置消息]`;
@@ -689,6 +774,24 @@ export class SimpleMessageParser {
         const rawText = element.data.text || element.data.summary || element.data.content || '';
         return { text: rawText, html: htmlEnabled ? (rawText ? `<span>${escapeHtmlFast(rawText)}</span>` : '') : '' };
       }
+    }
+  }
+
+  private formatForwardDisplayTime(time?: string): string {
+    if (!time) return '';
+    try {
+      const date = new Date(time);
+      if (Number.isNaN(date.getTime())) return '';
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } catch (error) {
+      return '';
     }
   }
 
