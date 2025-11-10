@@ -14,6 +14,24 @@ const CANDIDATE_ID_KEYS = [
     'msgResid',
     'msg_resid'
 ];
+const XML_ID_ATTRIBUTE_CANDIDATES = [
+    'm_resid',
+    'mResId',
+    'resid',
+    'resId',
+    'res_id',
+    'forwardResid',
+    'forward_resid',
+    'forwardId',
+    'forward_id',
+    'fileResid',
+    'file_resid',
+    'fileid',
+    'file_id',
+    'msgResid',
+    'msg_resid',
+    'id'
+];
 export async function fetchForwardMessagesFromContext(options) {
     const rawNodes = await resolveForwardRawNodes(options);
     if (!rawNodes.length) {
@@ -135,6 +153,9 @@ async function resolveForwardRawNodes(options) {
                     if (id) {
                         params.forwardId = id;
                         params.resId = id;
+                        params.res_id = id;
+                        params.forward_id = id;
+                        params.id = id;
                     }
                     const data = await getMultiMsg.call(msgApi, params);
                     const arr = extractArrayFromResult(data);
@@ -155,8 +176,12 @@ async function resolveForwardRawNodes(options) {
             const payload = {};
             if (options.messageId)
                 payload.message_id = options.messageId;
-            if (id)
+            if (id) {
                 payload.id = id;
+                payload.res_id = id;
+                payload.resid = id;
+                payload.forward_id = id;
+            }
             try {
                 const result = await getForwardAction.handle(payload, 'plugin', bridge?.instance?.config ?? {});
                 const arr = extractArrayFromResult(result?.data ?? result);
@@ -186,6 +211,12 @@ function collectCandidateIds(element) {
         if (str)
             ids.add(str);
     }
+    const xml = typeof element?.xmlContent === 'string' ? element.xmlContent : undefined;
+    if (xml) {
+        for (const id of extractCandidateIdsFromXml(xml)) {
+            ids.add(id);
+        }
+    }
     if (typeof element === 'object') {
         const data = element.multiMsgItem || element.multiForwardMsgItem;
         if (data && typeof data === 'object') {
@@ -194,9 +225,47 @@ function collectCandidateIds(element) {
                 if (str)
                     ids.add(str);
             }
+            const dataXml = typeof data?.xml === 'string' ? data.xml : undefined;
+            if (dataXml) {
+                for (const id of extractCandidateIdsFromXml(dataXml)) {
+                    ids.add(id);
+                }
+            }
         }
     }
     return ids;
+}
+function extractCandidateIdsFromXml(xml) {
+    const ids = new Set();
+    if (!xml)
+        return [];
+    for (const attr of XML_ID_ATTRIBUTE_CANDIDATES) {
+        const pattern = new RegExp(`${attr}\\s*=\\s*"([^"]+)"`, 'gi');
+        for (const match of xml.matchAll(pattern)) {
+            const value = normalizeIdValue(match[1]);
+            if (value)
+                ids.add(value);
+        }
+        const singlePattern = new RegExp(`${attr}\\s*=\\s*'([^']+)'`, 'gi');
+        for (const match of xml.matchAll(singlePattern)) {
+            const value = normalizeIdValue(match[1]);
+            if (value)
+                ids.add(value);
+        }
+    }
+    const nestedResidPattern = /<msg[^>]*\b(?:m_)?resid="([^"]+)"/gi;
+    for (const match of xml.matchAll(nestedResidPattern)) {
+        const value = normalizeIdValue(match[1]);
+        if (value)
+            ids.add(value);
+    }
+    const nestedResidSinglePattern = /<msg[^>]*\b(?:m_)?resid='([^']+)'/gi;
+    for (const match of xml.matchAll(nestedResidSinglePattern)) {
+        const value = normalizeIdValue(match[1]);
+        if (value)
+            ids.add(value);
+    }
+    return Array.from(ids.values());
 }
 function normalizeIdValue(value) {
     if (value === null || value === undefined)
