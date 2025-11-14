@@ -536,9 +536,13 @@ export class ScheduledExportManager {
             const filePath = path.join(outputDir, fileName);
 
             // 导出文件
+            const selfInfo = this.core.selfInfo;
             const chatInfo = {
                 name: task.name,
-                type: (task.peer.chatType === 2 ? 'group' : 'private') as 'group' | 'private'
+                type: (task.peer.chatType === 2 ? 'group' : 'private') as 'group' | 'private',
+                selfUid: selfInfo?.uid,
+                selfUin: selfInfo?.uin,
+                selfName: selfInfo?.nick
             };
 
             const parser = new SimpleMessageParser();

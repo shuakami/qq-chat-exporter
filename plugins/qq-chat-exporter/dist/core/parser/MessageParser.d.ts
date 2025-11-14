@@ -18,6 +18,7 @@ export interface ParsedMessageContent {
     }>;
     reply?: {
         messageId: string;
+        referencedMessageId?: string;
         senderName?: string;
         content: string;
         elements?: any[];
@@ -131,6 +132,8 @@ export declare class MessageParser {
     private userInfoCache;
     /** 表情映射缓存 */
     private faceMap;
+    /** 全局消息映射，用于查找被引用的消息 */
+    private messageMap;
     /** 并发度（内部自适应，可被配置覆盖） */
     private readonly concurrency;
     constructor(core: NapCatCore, config?: Partial<MessageParserConfig>);

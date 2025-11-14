@@ -1,9 +1,3 @@
-/**
- * 现代化 HTML 导出器（流式优化版）
- * - 使用流式写入避免一次性构建超大字符串
- * - 资源文件并发受限的流式复制
- * - 统计信息采用占位 + 尾部脚本回填，避免双遍历
- */
 import fs from 'fs';
 import { promises as fsp } from 'fs';
 import path from 'path';
@@ -31,7 +25,7 @@ export class ModernHtmlExporter {
         await this.exportFromIterable(messages, chatInfo);
     }
     /**
-     * **推荐**：从 Iterable/AsyncIterable 流式导出，最低内存占用
+     * 从 Iterable/AsyncIterable 流式导出，最低内存占用
      */
     async exportFromIterable(messages, chatInfo) {
         const outputDir = path.dirname(this.options.outputPath);
@@ -53,13 +47,17 @@ export class ModernHtmlExporter {
         let firstTime = null;
         let lastTime = null;
         let copiedCount = 0;
+        const copiedResources = [];
         // 资源复制并发限制（根据 CPU 数量自适应，范围 [2, 8]）
         const concurrency = Math.max(2, Math.min(8, os.cpus().length || 4));
         const running = [];
         const scheduleCopy = (task) => {
             const p = (async () => {
                 try {
-                    await task();
+                    const resourcePath = await task();
+                    if (resourcePath) {
+                        copiedResources.push(resourcePath);
+                    }
                     copiedCount++;
                 }
                 catch (e) {
@@ -97,7 +95,7 @@ ${this.generateScripts()}
     ${this.generateToolbar()}
     
     <!-- Hero Section -->
-    ${this.generateHeader(chatInfo, { totalMessages: '--' }, '--')}
+${this.generateHeader(chatInfo, { totalMessages: '--' }, '--')}
     
     <!-- Chat Messages -->
 <div class="chat-content">
@@ -146,7 +144,7 @@ ${this.generateFooter()}
     <!-- Image Modal -->
     <div class="image-modal" id="imageModal">
         <img src="" alt="" id="modalImage">
-    </div>
+</div>
 
 <!-- 统计占位回填 -->
 <script>
@@ -178,6 +176,7 @@ ${this.generateFooter()}
             else {
                 console.log(`[ModernHtmlExporter] HTML导出完成！文件位置: ${this.options.outputPath}`);
             }
+            return copiedResources;
         }
         catch (error) {
             // 确保流被关闭
@@ -290,19 +289,21 @@ ${this.generateFooter()}
             // 文件已存在则跳过（以磁盘为真，避免维护超大 Set）
             const exists = await this.fileExists(targetAbsolutePath);
             if (exists)
-                return;
+                return targetRelativePath;
             // 确保父目录存在（理论上已创建，这里兜底）
             await fsp.mkdir(path.dirname(targetAbsolutePath), { recursive: true });
             // 使用 pipeline 流式复制，内存占用极小
             await pipeline(fs.createReadStream(sourceAbsolutePath), fs.createWriteStream(targetAbsolutePath));
+            return targetRelativePath;
         }
         catch (error) {
             if (error?.message === 'source-not-found')
-                return;
+                return null;
             console.error(`[ModernHtmlExporter] 复制资源文件失败:`, {
                 resource,
                 error: error instanceof Error ? error.message : String(error)
             });
+            return null;
         }
     }
     normalizeTypeDir(type) {
@@ -1212,6 +1213,7 @@ ${this.generateFooter()}
                 this.scrollTop = 0;
                 this.containerHeight = 0;
                 this.totalHeight = 0;
+                this.isUpdating = false;
                 
                 this.init();
             }
@@ -1227,6 +1229,10 @@ ${this.generateFooter()}
                 this.container.appendChild(this.spacer);
                 this.container.appendChild(this.content);
                 
+                // 初始化总高度
+                this.totalHeight = this.allItems.length * this.options.itemHeight;
+                this.spacer.style.height = this.totalHeight + 'px';
+                
                 // 监听滚动
                 this.handleScroll = this.handleScroll.bind(this);
                 window.addEventListener('scroll', this.handleScroll, { passive: true });
@@ -1237,29 +1243,48 @@ ${this.generateFooter()}
             
             handleScroll() {
                 const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                if (Math.abs(scrollTop - this.scrollTop) > 50) {
+                // 降低阈值，提高响应性
+                if (Math.abs(scrollTop - this.scrollTop) > 30 && !this.isUpdating) {
                     this.scrollTop = scrollTop;
-                    this.update();
+                    requestAnimationFrame(() => this.update());
                 }
             }
             
             update() {
-                const containerRect = this.container.getBoundingClientRect();
-                const containerTop = containerRect.top + this.scrollTop;
+                if (!this.allItems || this.allItems.length === 0 || this.isUpdating) return;
+                
+                this.isUpdating = true;
+                
                 this.containerHeight = window.innerHeight;
                 this.totalHeight = this.allItems.length * this.options.itemHeight;
                 
-                // 设置spacer高度
-                this.spacer.style.height = this.totalHeight + 'px';
+                // 获取容器在文档中的位置
+                const containerRect = this.container.getBoundingClientRect();
+                const containerTop = this.scrollTop + containerRect.top;
                 
-                // 计算可见范围
-                const scrollStart = Math.max(0, this.scrollTop - containerTop);
-                const scrollEnd = scrollStart + this.containerHeight;
+                // 计算当前视口相对于容器的位置
+                const viewportTop = this.scrollTop;
+                const viewportBottom = viewportTop + this.containerHeight;
                 
-                this.startIndex = Math.max(0, Math.floor(scrollStart / this.options.itemHeight) - this.options.bufferSize);
-                this.endIndex = Math.min(this.allItems.length, Math.ceil(scrollEnd / this.options.itemHeight) + this.options.bufferSize);
+                // 计算可见区域在容器内的偏移
+                const visibleStart = Math.max(0, viewportTop - containerTop);
+                const visibleEnd = Math.max(0, viewportBottom - containerTop);
                 
-                this.render();
+                // 计算应该渲染的项目范围（使用更大的缓冲区）
+                const startIndex = Math.max(0, Math.floor(visibleStart / this.options.itemHeight) - this.options.bufferSize);
+                const endIndex = Math.min(
+                    this.allItems.length,
+                    Math.ceil(visibleEnd / this.options.itemHeight) + this.options.bufferSize
+                );
+                
+                // 只在范围变化时才重新渲染
+                if (startIndex !== this.startIndex || endIndex !== this.endIndex) {
+                    this.startIndex = startIndex;
+                    this.endIndex = endIndex;
+                    this.render();
+                }
+                
+                this.isUpdating = false;
             }
             
             render() {
@@ -1289,6 +1314,11 @@ ${this.generateFooter()}
             updateItems(items) {
                 this.allItems = items;
                 this.totalHeight = items.length * this.options.itemHeight;
+                // 更新后重新计算滚动位置
+                this.scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                // 强制完整更新
+                this.startIndex = -1;
+                this.endIndex = -1;
                 this.update();
             }
             
@@ -1329,7 +1359,7 @@ ${this.generateFooter()}
                 // 启用虚拟滚动
                 virtualScroller = new VirtualScroller(chatContent, originalMessages, {
                     itemHeight: 120, // 平均消息高度
-                    bufferSize: 15   // 缓冲区大小
+                    bufferSize: 30   // 缓冲区大小（增大以改善底部滚动体验）
                 });
                 
                 console.log('虚拟滚动已启用，共', messages.length, '条消息');
@@ -1532,6 +1562,10 @@ ${this.generateFooter()}
                 // 更新虚拟滚动器
                 if (virtualScroller) {
                     virtualScroller.updateItems(filteredMessages);
+                    // 延迟滚动到顶部，确保虚拟滚动器已更新
+                    setTimeout(function() {
+                        window.scrollTo({ top: 0, behavior: 'auto' });
+                    }, 50);
                 } else {
                     // 非虚拟滚动模式：直接更新DOM
                     var chatContent = document.querySelector('.chat-content');
@@ -1631,13 +1665,13 @@ ${this.generateFooter()}
             <div class="meta-item">
                 <span class="meta-label">消息总数</span>
                 <span class="meta-value" id="info-total">${this.escapeHtml(total)}</span>
-            </div>
+        </div>
             <div class="meta-item">
                 <span class="meta-label">时间范围</span>
                 <span class="meta-value" id="info-range">${this.escapeHtml(range)}</span>
+                </div>
             </div>
-        </div>
-    </div>`;
+        </div>`;
     }
     /**
      * 渲染单条消息（Apple风格带气泡角）
@@ -1665,7 +1699,7 @@ ${this.generateFooter()}
                     <span class="time">${this.formatTime(message?.time)}</span>
                 </div>
                 <div class="message-bubble">
-                    <div class="content">${content}</div>
+                <div class="content">${content}</div>
                 </div>
             </div>
         </div>`;

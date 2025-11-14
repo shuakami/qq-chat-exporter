@@ -1,9 +1,3 @@
-/**
- * 现代化 HTML 导出器（流式优化版）
- * - 使用流式写入避免一次性构建超大字符串
- * - 资源文件并发受限的流式复制
- * - 统计信息采用占位 + 尾部脚本回填，避免双遍历
- */
 import type { CleanMessage } from '../parser/SimpleMessageParser.js';
 /**
  * HTML导出选项
@@ -33,9 +27,9 @@ export declare class ModernHtmlExporter {
      */
     export(messages: CleanMessage[], chatInfo: ChatInfo): Promise<void>;
     /**
-     * **推荐**：从 Iterable/AsyncIterable 流式导出，最低内存占用
+     * 从 Iterable/AsyncIterable 流式导出，最低内存占用
      */
-    exportFromIterable(messages: Iterable<CleanMessage> | AsyncIterable<CleanMessage>, chatInfo: ChatInfo): Promise<void>;
+    exportFromIterable(messages: Iterable<CleanMessage> | AsyncIterable<CleanMessage>, chatInfo: ChatInfo): Promise<string[]>;
     private writeChunk;
     private toAsyncIterable;
     private safeToDate;
