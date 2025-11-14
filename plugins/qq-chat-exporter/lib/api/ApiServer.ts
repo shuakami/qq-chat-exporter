@@ -2124,11 +2124,19 @@ export class QQChatExporterApiServer {
                 }
             });
         } finally {
-            if (spooler) {
-                try {
-                    await spooler.dispose();
-                } catch (disposeError) {
-                    console.warn('[ApiServer] 清理临时消息缓存失败:', disposeError);
+            try {
+                if (typeof spooler !== 'undefined' && spooler) {
+                    try {
+                        await spooler.dispose();
+                    } catch (disposeError) {
+                        console.warn('[ApiServer] 清理临时消息缓存失败:', disposeError);
+                    }
+                }
+            } catch (referenceError) {
+                if (referenceError instanceof ReferenceError) {
+                    console.warn('[ApiServer] 清理临时消息缓存失败: spooler 未定义，可能使用了旧版运行时。');
+                } else {
+                    console.warn('[ApiServer] 清理临时消息缓存失败:', referenceError);
                 }
             }
             // 清理任务的资源处理器（无论成功还是失败）

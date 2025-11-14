@@ -250,6 +250,7 @@ def main():
 
     if os_name == "Windows":
         launcher_script = r"""@echo off
+chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 
 rem NapCat + QCE Launcher Script
@@ -258,14 +259,6 @@ set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR%"=="" set "SCRIPT_DIR=.\"
 pushd "%SCRIPT_DIR%" >nul
 
-set "NAPCAT_MAIN_PATH=%SCRIPT_DIR%napcat.mjs"
-if not exist "%NAPCAT_MAIN_PATH%" (
-    echo [NapCat + QCE] 错误: 未找到 napcat.mjs
-    echo 请确认已完整解压安装包后再试。
-    pause
-    exit /b 1
-)
-
 set "ORIGINAL_NODE_OPTIONS=%NODE_OPTIONS%"
 set "SELECTED_HEAP=%NAPCAT_NODE_HEAP%"
 if not defined SELECTED_HEAP set "SELECTED_HEAP=6144"
@@ -273,10 +266,35 @@ if not defined SELECTED_HEAP set "SELECTED_HEAP=6144"
 if /I "!SELECTED_HEAP!"=="auto" set "SELECTED_HEAP="
 if /I "!SELECTED_HEAP!"=="default" set "SELECTED_HEAP="
 
-for /f "tokens=*" %%I in ("!SELECTED_HEAP!") do set "SELECTED_HEAP=%%I"
+for /f "tokens=*" %%I in ("!SELECTED_HEAP!") do set "SELECTED_HEAP=%%~I"
 
+set "NAPCAT_LAUNCHER_PATH="
+set "NAPCAT_LAUNCHER_NAME="
+
+for %%F in ("NapCat Shell.exe" "NapCat.Shell.exe" "NapCat.exe" "napcat.exe") do (
+    if exist "!SCRIPT_DIR!%%~F" (
+        set "NAPCAT_LAUNCHER_PATH=!SCRIPT_DIR!%%~F"
+        set "NAPCAT_LAUNCHER_NAME=%%~F"
+        goto :foundLauncher
+    )
+)
+:foundLauncher
+
+set "USE_NODE_FALLBACK=0"
+if not defined NAPCAT_LAUNCHER_PATH (
+    set "USE_NODE_FALLBACK=1"
+    set "NAPCAT_MAIN_PATH=!SCRIPT_DIR!napcat.mjs"
+    if not exist "!NAPCAT_MAIN_PATH!" (
+        echo [NapCat + QCE] 错误: 未找到 NapCat Shell 可执行文件或 napcat.mjs
+        echo 请确认已完整解压安装包后再试。
+        popd >nul
+        pause
+        exit /b 1
+    )
+)
+
+echo.
 if defined SELECTED_HEAP (
-    echo.
     echo [NapCat + QCE] 使用 Node.js 内存上限: !SELECTED_HEAP! MB
     if defined ORIGINAL_NODE_OPTIONS (
         set "NODE_OPTIONS=--max-old-space-size=!SELECTED_HEAP! !ORIGINAL_NODE_OPTIONS!"
@@ -284,17 +302,22 @@ if defined SELECTED_HEAP (
         set "NODE_OPTIONS=--max-old-space-size=!SELECTED_HEAP!"
     )
 ) else (
-    echo.
     echo [NapCat + QCE] 使用 Node.js 默认内存上限。
     set "NODE_OPTIONS=!ORIGINAL_NODE_OPTIONS!"
 )
 
 echo.
-echo [NapCat + QCE] 正在启动 NapCat...
-echo 按 Ctrl+C 停止运行。
-echo.
-
-node "%NAPCAT_MAIN_PATH%"
+if "!USE_NODE_FALLBACK!"=="0" (
+    echo [NapCat + QCE] 正在启动 NapCat Shell (!NAPCAT_LAUNCHER_NAME!)...
+    echo 按 Ctrl+C 可终止运行。
+    echo.
+    call "!NAPCAT_LAUNCHER_PATH!"
+) else (
+    echo [NapCat + QCE] 正在启动 NapCat (使用 Node.js)...
+    echo 按 Ctrl+C 可终止运行。
+    echo.
+    node "!NAPCAT_MAIN_PATH!"
+)
 
 set "NODE_OPTIONS=!ORIGINAL_NODE_OPTIONS!"
 popd >nul
@@ -302,7 +325,7 @@ echo.
 pause
 """
         launcher_path = f"{pack_dir}/launcher-user.bat"
-        with open(launcher_path, "w", encoding="utf-8", newline="\r\n") as f:
+        with open(launcher_path, "w", encoding="utf-8-sig", newline="\r\n") as f:
             f.write(launcher_script)
     else:
         launcher_script = """#!/bin/bash
