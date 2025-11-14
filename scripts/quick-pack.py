@@ -267,34 +267,9 @@ if not exist "%NAPCAT_MAIN_PATH%" (
 )
 
 set "ORIGINAL_NODE_OPTIONS=%NODE_OPTIONS%"
-set "SELECTED_HEAP="
+set "SELECTED_HEAP=%NAPCAT_NODE_HEAP%"
+if not defined SELECTED_HEAP set "SELECTED_HEAP=6144"
 
-if defined NAPCAT_NODE_HEAP (
-    set "SELECTED_HEAP=!NAPCAT_NODE_HEAP!"
-) else (
-    echo.
-    echo [NapCat + QCE] 请选择 Node.js 内存上限 (单位: MB)
-    echo   1^) 自动 (使用 Node.js 默认值)
-    echo   2^) 2048 MB - 适合小型导出 (<= 200k 消息)
-    echo   3^) 4096 MB - 推荐常规导出 (<= 400k 消息)
-    echo   4^) 6144 MB - 推荐中型导出 (≈ 600k 消息)
-    echo   5^) 8192 MB - 推荐大型导出 (≈ 800k 消息)
-    echo   6^) 自定义 (输入任意 MB 数值, 如 12288)
-    echo.
-    set /p "MEM_CHOICE=请输入选项 [1-6] (默认 3): "
-    if "!MEM_CHOICE!"=="" set "MEM_CHOICE=3"
-
-    if "!MEM_CHOICE!"=="1" goto :configure_heap
-    if "!MEM_CHOICE!"=="2" set "SELECTED_HEAP=2048"
-    if "!MEM_CHOICE!"=="3" set "SELECTED_HEAP=4096"
-    if "!MEM_CHOICE!"=="4" set "SELECTED_HEAP=6144"
-    if "!MEM_CHOICE!"=="5" set "SELECTED_HEAP=8192"
-    if "!MEM_CHOICE!"=="6" (
-        set /p "SELECTED_HEAP=请输入自定义内存 (MB): "
-    )
-)
-
-:configure_heap
 if /I "!SELECTED_HEAP!"=="auto" set "SELECTED_HEAP="
 if /I "!SELECTED_HEAP!"=="default" set "SELECTED_HEAP="
 
@@ -354,32 +329,7 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 ORIGINAL_NODE_OPTIONS="${NODE_OPTIONS:-}"
-SELECTED_HEAP="${NAPCAT_NODE_HEAP:-}"
-
-if [ -z "$SELECTED_HEAP" ]; then
-  echo
-  echo "[NapCat + QCE] 请选择 Node.js 内存上限 (单位: MB)"
-  echo "  1) 自动 (使用 Node.js 默认值)"
-  echo "  2) 2048 MB - 适合小型导出 (<= 200k 消息)"
-  echo "  3) 4096 MB - 推荐常规导出 (<= 400k 消息)"
-  echo "  4) 6144 MB - 推荐中型导出 (~600k 消息)"
-  echo "  5) 8192 MB - 推荐大型导出 (~800k 消息)"
-  echo "  6) 自定义 (输入任意 MB 数值, 如 12288)"
-  echo
-  read -rp "请输入选项 [1-6] (默认 3): " MEM_CHOICE
-
-  case "${MEM_CHOICE:-3}" in
-    1) SELECTED_HEAP="" ;;
-    2) SELECTED_HEAP="2048" ;;
-    3) SELECTED_HEAP="4096" ;;
-    4) SELECTED_HEAP="6144" ;;
-    5) SELECTED_HEAP="8192" ;;
-    6)
-      read -rp "请输入自定义内存 (MB): " CUSTOM_HEAP
-      SELECTED_HEAP="${CUSTOM_HEAP}" ;;
-    *) SELECTED_HEAP="4096" ;;
-  esac
-fi
+SELECTED_HEAP="${NAPCAT_NODE_HEAP:-6144}"
 
 case "${SELECTED_HEAP}" in
   ""|auto|default|AUTO|DEFAULT)

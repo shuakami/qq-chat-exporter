@@ -1768,7 +1768,9 @@ export class QQChatExporterApiServer {
         const taskResourceHandler = new ResourceHandler(this.core, this.dbManager);
         this.taskResourceHandlers.set(taskId, taskResourceHandler);
         console.log(`[ApiServer] 为任务 ${taskId} 创建了独立的资源处理器`);
-        
+
+        let spooler: CleanMessageSpooler | null = null;
+
         try {
             console.log(`[ApiServer] 开始处理异步导出任务: ${taskId}`);
 
@@ -1816,7 +1818,7 @@ export class QQChatExporterApiServer {
             console.log(`[ApiServer] 时间范围参数: startTime=${startTimeMs}, endTime=${endTimeMs}`);
             console.log(`[ApiServer] 时间范围: ${new Date(startTimeMs).toISOString()} - ${new Date(endTimeMs).toISOString()}`);
             
-            const spooler = new CleanMessageSpooler();
+            spooler = new CleanMessageSpooler();
             const statsAggregator = new StreamingStatsAggregator();
             const seenMessageIds = new Set<string>();
             const messageGenerator = fetcher.fetchAllMessagesInTimeRange(peer, startTimeMs, endTimeMs);
@@ -1852,6 +1854,9 @@ export class QQChatExporterApiServer {
                             continue;
                         }
 
+                        if (!spooler) {
+                            throw new Error('消息缓冲初始化失败');
+                        }
                         await spooler.append(cleanMessage);
                         statsAggregator.addMessage(cleanMessage);
                         batchParsed++;
@@ -1886,7 +1891,9 @@ export class QQChatExporterApiServer {
                     }
                 }
             } finally {
-                await spooler.finalize();
+                if (spooler) {
+                    await spooler.finalize();
+                }
             }
 
             const statistics = statsAggregator.getStatistics();
@@ -1894,7 +1901,9 @@ export class QQChatExporterApiServer {
             console.log(`[ApiServer] 时间范围: ${new Date(startTimeMs).toISOString()} - ${new Date(endTimeMs).toISOString()}`);
             console.log(`[ApiServer] 总批次数: ${batchCount}`);
             console.log(`[ApiServer] 去重后消息总数: ${statistics.totalMessages}`);
-            console.log(`[ApiServer] 存储于临时文件: ${spooler.path}`);
+            if (spooler) {
+                console.log(`[ApiServer] 存储于临时文件: ${spooler.path}`);
+            }
             console.log(`[ApiServer] ====================================================`);
 
             task = this.exportTasks.get(taskId);
@@ -1952,14 +1961,23 @@ export class QQChatExporterApiServer {
             switch (format.toUpperCase()) {
                 case 'TXT':
                     console.log('[ApiServer] 使用流式 TXT 导出器');
+                    if (!spooler) {
+                        throw new Error('消息缓冲未初始化');
+                    }
                     await exportTextStreaming(filePath, spooler, statistics, chatInfo, exportOptions);
                     break;
                 case 'JSON':
                     console.log('[ApiServer] 使用流式 JSON 导出器');
+                    if (!spooler) {
+                        throw new Error('消息缓冲未初始化');
+                    }
                     await exportJsonStreaming(filePath, spooler, statistics, chatInfo, exportOptions);
                     break;
                 case 'EXCEL':
                     console.log('[ApiServer] 使用流式 Excel 导出器');
+                    if (!spooler) {
+                        throw new Error('消息缓冲未初始化');
+                    }
                     await exportExcelStreaming(filePath, spooler, statistics, chatInfo, exportOptions);
                     break;
                 case 'HTML':
@@ -1970,6 +1988,9 @@ export class QQChatExporterApiServer {
                         includeSystemMessages: exportOptions.includeSystemMessages,
                         encoding: exportOptions.encoding
                     });
+                    if (!spooler) {
+                        throw new Error('消息缓冲未初始化');
+                    }
                     const copiedResourcePaths = await htmlExporter.exportFromIterable(
                         spooler.iterateMessages(),
                         chatInfo
@@ -2103,10 +2124,12 @@ export class QQChatExporterApiServer {
                 }
             });
         } finally {
-            try {
-                await spooler.dispose();
-            } catch (disposeError) {
-                console.warn('[ApiServer] 清理临时消息缓存失败:', disposeError);
+            if (spooler) {
+                try {
+                    await spooler.dispose();
+                } catch (disposeError) {
+                    console.warn('[ApiServer] 清理临时消息缓存失败:', disposeError);
+                }
             }
             // 清理任务的资源处理器（无论成功还是失败）
             const resourceHandler = this.taskResourceHandlers.get(taskId);
