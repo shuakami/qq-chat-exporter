@@ -17,9 +17,6 @@ import { exec } from 'child_process';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 import { BatchMessageFetcher } from '../core/fetcher/BatchMessageFetcher.js';
 import { SimpleMessageParser } from '../core/parser/SimpleMessageParser.js';
-import { TextExporter } from '../core/exporter/TextExporter.js';
-import { JsonExporter } from '../core/exporter/JsonExporter.js';
-import { ExcelExporter } from '../core/exporter/ExcelExporter.js';
 import { ModernHtmlExporter } from '../core/exporter/ModernHtmlExporter.js';
 import { DatabaseManager } from '../core/storage/DatabaseManager.js';
 import { ResourceHandler } from '../core/resource/ResourceHandler.js';
@@ -29,6 +26,13 @@ import { SecurityManager } from '../security/SecurityManager.js';
 import { StickerPackExporter } from '../core/sticker/StickerPackExporter.js';
 import { streamSearchService } from '../services/StreamSearchService.js';
 import { ZipExporter } from '../utils/ZipExporter.js';
+import { CleanMessageSpooler } from '../utils/streaming/CleanMessageSpooler.js';
+import { StreamingStatsAggregator } from '../utils/streaming/StreamingStatsAggregator.js';
+import {
+    exportExcelStreaming,
+    exportJsonStreaming,
+    exportTextStreaming,
+} from '../utils/streaming/StreamingExporters.js';
 
 // 导入类型定义
 import type { RawMessage } from 'NapCatQQ/src/core/types.js';
@@ -1812,137 +1816,104 @@ export class QQChatExporterApiServer {
             console.log(`[ApiServer] 时间范围参数: startTime=${startTimeMs}, endTime=${endTimeMs}`);
             console.log(`[ApiServer] 时间范围: ${new Date(startTimeMs).toISOString()} - ${new Date(endTimeMs).toISOString()}`);
             
-            const allMessages: RawMessage[] = [];
+            const spooler = new CleanMessageSpooler();
+            const statsAggregator = new StreamingStatsAggregator();
+            const seenMessageIds = new Set<string>();
             const messageGenerator = fetcher.fetchAllMessagesInTimeRange(peer, startTimeMs, endTimeMs);
-            
-            let batchCount = 0;
-            for await (const batch of messageGenerator) {
-                batchCount++;
-                allMessages.push(...batch);
-                
-                // 更新任务状态
-                task = this.exportTasks.get(taskId);
-                if (task) {
-                    await this.updateTaskStatus(taskId, {
-                        progress: Math.min(batchCount * 10, 50),
-                        messageCount: allMessages.length,
-                        message: `已获取 ${allMessages.length} 条消息...`
-                    });
-                }
 
-                // 推送进度更新
-                this.broadcastWebSocketMessage({
-                    type: 'export_progress',
-                    data: {
-                        taskId,
-                        status: 'running',
-                        progress: Math.min(batchCount * 10, 50), // 获取消息阶段占50%进度
-                        message: `已获取 ${allMessages.length} 条消息...`,
-                        messageCount: allMessages.length
+            let batchCount = 0;
+            let totalParsedMessages = 0;
+
+            try {
+                for await (const batch of messageGenerator) {
+                    batchCount++;
+                    const uniqueBatch: RawMessage[] = [];
+                    for (const message of batch) {
+                        if (!message?.msgId) continue;
+                        if (seenMessageIds.has(message.msgId)) continue;
+                        seenMessageIds.add(message.msgId);
+                        uniqueBatch.push(message);
                     }
-                });
-                
-                // 每10批次触发垃圾回收，减少内存压力
-                if (batchCount % 10 === 0 && global.gc) {
-                    global.gc();
-                    console.log(`[ApiServer] 已触发垃圾回收 (批次 ${batchCount}, 消息数 ${allMessages.length})`);
+
+                    if (uniqueBatch.length === 0) {
+                        console.log(`[ApiServer] 批次 ${batchCount} 无新消息，跳过`);
+                        continue;
+                    }
+
+                    console.log(`[ApiServer] 批次 ${batchCount} 去重后消息数: ${uniqueBatch.length}`);
+
+                    const resourceMap = await taskResourceHandler.processMessageResources(uniqueBatch);
+                    console.info(`[ApiServer] 批次 ${batchCount} 处理资源完成: ${resourceMap.size} 条消息`);
+
+                    const parser = new SimpleMessageParser();
+                    let batchParsed = 0;
+                    for await (const cleanMessage of parser.parseMessagesStream(uniqueBatch, resourceMap)) {
+                        if (options?.filterPureImageMessages && parser.isPureMediaMessage(cleanMessage)) {
+                            continue;
+                        }
+
+                        await spooler.append(cleanMessage);
+                        statsAggregator.addMessage(cleanMessage);
+                        batchParsed++;
+                        totalParsedMessages++;
+                    }
+
+                    console.log(`[ApiServer] 批次 ${batchCount} 解析完成: ${batchParsed} 条`);
+
+                    task = this.exportTasks.get(taskId);
+                    if (task) {
+                        await this.updateTaskStatus(taskId, {
+                            progress: Math.min(40 + batchCount * 5, 70),
+                            messageCount: totalParsedMessages,
+                            message: `已解析 ${totalParsedMessages} 条消息...`
+                        });
+                    }
+
+                    this.broadcastWebSocketMessage({
+                        type: 'export_progress',
+                        data: {
+                            taskId,
+                            status: 'running',
+                            progress: Math.min(40 + batchCount * 5, 70),
+                            message: `已解析 ${totalParsedMessages} 条消息...`,
+                            messageCount: totalParsedMessages
+                        }
+                    });
+
+                    if (batchCount % 5 === 0 && global.gc) {
+                        global.gc();
+                        console.log(`[ApiServer] 已触发垃圾回收 (批次 ${batchCount}, 已解析 ${totalParsedMessages})`);
+                    }
                 }
+            } finally {
+                await spooler.finalize();
             }
-            
-            console.log(`[ApiServer] ==================== 消息收集汇总 ====================`);
+
+            const statistics = statsAggregator.getStatistics();
+            console.log(`[ApiServer] ==================== 消息流收集汇总 ====================`);
             console.log(`[ApiServer] 时间范围: ${new Date(startTimeMs).toISOString()} - ${new Date(endTimeMs).toISOString()}`);
             console.log(`[ApiServer] 总批次数: ${batchCount}`);
-            console.log(`[ApiServer] 收集到的消息总数: ${allMessages.length} 条`);
-            console.log(`[ApiServer] 平均每批次: ${batchCount > 0 ? Math.round(allMessages.length / batchCount) : 0} 条`);
+            console.log(`[ApiServer] 去重后消息总数: ${statistics.totalMessages}`);
+            console.log(`[ApiServer] 存储于临时文件: ${spooler.path}`);
             console.log(`[ApiServer] ====================================================`);
 
-            // 应用纯图片消息过滤（如果启用）
-            let filteredMessages = allMessages;
-            if (options?.filterPureImageMessages) {
-                const parser = new SimpleMessageParser();
-                const tempFilteredMessages: RawMessage[] = [];
-                
-                for (const message of allMessages) {
-                    try {
-                        const cleanMessage = await parser.parseSingleMessage(message);
-                        if (!parser.isPureImageMessage(cleanMessage)) {
-                            tempFilteredMessages.push(message);
-                        }
-                    } catch (error) {
-                        // 解析失败的消息保留，避免丢失数据
-                        console.warn(`[ApiServer] 过滤消息解析失败，保留消息: ${message.msgId}`, error);
-                        tempFilteredMessages.push(message);
-                    }
-                }
-                
-                filteredMessages = tempFilteredMessages;
-                console.log(`[ApiServer] 纯图片消息过滤完成: ${allMessages.length} → ${filteredMessages.length} 条`);
-            }
-
-            // 所有格式都需要通过OneBot解析器处理
             task = this.exportTasks.get(taskId);
             if (task) {
                 await this.updateTaskStatus(taskId, {
-                    progress: 60,
-                    message: '正在解析消息...',
-                    messageCount: filteredMessages.length
-                });
-            }
-            
-            this.broadcastWebSocketMessage({
-                type: 'export_progress',
-                data: {
-                    taskId,
-                    status: 'running',
-                    progress: 60,
-                    message: '正在解析消息...',
-                    messageCount: filteredMessages.length
-                }
-            });
-
-            // 处理资源下载（只处理过滤后的消息资源）
-            task = this.exportTasks.get(taskId);
-            if (task) {
-                await this.updateTaskStatus(taskId, {
-                    progress: 70,
-                    message: '正在下载资源...',
-                    messageCount: filteredMessages.length
-                });
-            }
-            
-            this.broadcastWebSocketMessage({
-                type: 'export_progress',
-                data: {
-                    taskId,
-                    status: 'running',
-                    progress: 70,
-                    message: '正在下载资源...',
-                    messageCount: filteredMessages.length
-                }
-            });
-
-            // 下载和处理资源（使用过滤后的消息列表）
-            const resourceMap = await taskResourceHandler.processMessageResources(filteredMessages);
-            console.info(`[ApiServer] 处理了 ${resourceMap.size} 个消息的资源`);
-
-            // 导出文件
-            task = this.exportTasks.get(taskId);
-            if (task) {
-                await this.updateTaskStatus(taskId, {
-                    progress: 85,
+                    progress: 80,
                     message: '正在生成文件...',
-                    messageCount: filteredMessages.length
+                    messageCount: statistics.totalMessages
                 });
             }
-            
+
             this.broadcastWebSocketMessage({
                 type: 'export_progress',
                 data: {
                     taskId,
                     status: 'running',
-                    progress: 85,
+                    progress: 80,
                     message: '正在生成文件...',
-                    messageCount: filteredMessages.length
+                    messageCount: statistics.totalMessages
                 }
             });
 
@@ -1954,8 +1925,6 @@ export class QQChatExporterApiServer {
 
             const filePath = path.join(outputDir, fileName);
 
-            // 选择导出器
-            let exporter: any;
             const exportOptions = {
                 outputPath: filePath,
                 includeResourceLinks: options?.includeResourceLinks ?? true,
@@ -1965,36 +1934,6 @@ export class QQChatExporterApiServer {
                 timeFormat: 'YYYY-MM-DD HH:mm:ss',
                 encoding: 'utf-8'
             };
-
-            // 🔧 修复 Issue #29: 对消息按时间戳排序，确保时间顺序正确
-            console.log(`[ApiServer] 开始对 ${filteredMessages.length} 条消息进行时间排序...`);
-            const sortedMessages = filteredMessages.sort((a, b) => {
-                // 解析时间戳
-                let timeA = parseInt(a.msgTime || '0');
-                let timeB = parseInt(b.msgTime || '0');
-                
-                // 处理无效时间戳
-                if (isNaN(timeA) || timeA <= 0) timeA = 0;
-                if (isNaN(timeB) || timeB <= 0) timeB = 0;
-                
-                // 检查是否为秒级时间戳（10位数）并转换为毫秒级进行比较
-                if (timeA > 1000000000 && timeA < 10000000000) {
-                    timeA = timeA * 1000;
-                }
-                if (timeB > 1000000000 && timeB < 10000000000) {
-                    timeB = timeB * 1000;
-                }
-                
-                // 按时间从早到晚排序（升序）
-                return timeA - timeB;
-            });
-            
-            // 输出排序统计信息
-            if (sortedMessages.length > 0) {
-                const firstTime = sortedMessages[0]?.msgTime;
-                const lastTime = sortedMessages[sortedMessages.length - 1]?.msgTime;
-                console.log(`[ApiServer] 消息排序完成: 时间范围从 ${firstTime} 到 ${lastTime}`);
-            }
 
             // 获取友好的聊天名称
             task = this.exportTasks.get(taskId);
@@ -2006,45 +1945,37 @@ export class QQChatExporterApiServer {
 
             console.log(`[ApiServer] ==================== 开始导出 ====================`);
             console.log(`[ApiServer] 导出格式: ${format.toUpperCase()}`);
-            console.log(`[ApiServer] 传递给导出器的消息数量: ${sortedMessages.length} 条`);
+            console.log(`[ApiServer] 导出消息数量: ${statistics.totalMessages} 条`);
             console.log(`[ApiServer] 导出文件路径: ${filePath}`);
             console.log(`[ApiServer] =================================================`);
-            
+
             switch (format.toUpperCase()) {
                 case 'TXT':
-                    console.log(`[ApiServer] 调用 TextExporter，传入 ${sortedMessages.length} 条 RawMessage`);
-                    exporter = new TextExporter(exportOptions, {}, this.core);
-                    await exporter.export(sortedMessages, chatInfo);
+                    console.log('[ApiServer] 使用流式 TXT 导出器');
+                    await exportTextStreaming(filePath, spooler, statistics, chatInfo, exportOptions);
                     break;
                 case 'JSON':
-                    console.log(`[ApiServer] 调用 JsonExporter，传入 ${sortedMessages.length} 条 RawMessage`);
-                    exporter = new JsonExporter(exportOptions, {}, this.core);
-                    await exporter.export(sortedMessages, chatInfo);
+                    console.log('[ApiServer] 使用流式 JSON 导出器');
+                    await exportJsonStreaming(filePath, spooler, statistics, chatInfo, exportOptions);
                     break;
                 case 'EXCEL':
-                    console.log(`[ApiServer] 调用 ExcelExporter，传入 ${sortedMessages.length} 条 RawMessage`);
-                    exporter = new ExcelExporter(exportOptions, {}, this.core);
-                    await exporter.export(sortedMessages, chatInfo);
+                    console.log('[ApiServer] 使用流式 Excel 导出器');
+                    await exportExcelStreaming(filePath, spooler, statistics, chatInfo, exportOptions);
                     break;
                 case 'HTML':
-                    // 🚀 HTML流式导出：使用异步生成器，实现全程低内存占用
-                    console.log(`[ApiServer] 使用流式导出 HTML，传入 ${sortedMessages.length} 条 RawMessage`);
-                    const parser = new SimpleMessageParser();
-                    
+                    console.log('[ApiServer] 使用流式 HTML 导出器');
                     const htmlExporter = new ModernHtmlExporter({
                         outputPath: filePath,
                         includeResourceLinks: exportOptions.includeResourceLinks,
                         includeSystemMessages: exportOptions.includeSystemMessages,
                         encoding: exportOptions.encoding
                     });
-                    
-                    // 使用流式API：逐条解析、更新资源路径、写入HTML，全程低内存
-                    // 🔧 修复 Issue #29: 传入已排序的消息，确保时间顺序正确
-                    const messageStream = parser.parseMessagesStream(sortedMessages, resourceMap);
-                    const copiedResourcePaths = await htmlExporter.exportFromIterable(messageStream, chatInfo);
-                    console.log(`[ApiServer] HTML流式导出完成，内存占用已优化`);
-                    // 保存资源列表供ZIP打包使用
+                    const copiedResourcePaths = await htmlExporter.exportFromIterable(
+                        spooler.iterateMessages(),
+                        chatInfo
+                    );
                     (exportOptions as any)._copiedResourcePaths = copiedResourcePaths;
+                    console.log('[ApiServer] HTML流式导出完成');
                     break;
                 default:
                     throw new SystemError(ErrorType.VALIDATION_ERROR, '不支持的导出格式', 'INVALID_FORMAT');
@@ -2110,7 +2041,7 @@ export class QQChatExporterApiServer {
                     status: 'completed',
                     progress: 100,
                     message: '导出完成',
-                    messageCount: sortedMessages.length,
+                    messageCount: statistics.totalMessages,
                     fileSize: stats.size,
                     completedAt: new Date().toISOString(),
                     fileName: finalFileName,
@@ -2127,7 +2058,7 @@ export class QQChatExporterApiServer {
                     status: 'completed',
                     progress: 100,
                     message: '导出完成',
-                    messageCount: sortedMessages.length,
+                    messageCount: statistics.totalMessages,
                     fileName: finalFileName,
                     filePath: finalFilePath,
                     fileSize: stats.size,
@@ -2172,6 +2103,11 @@ export class QQChatExporterApiServer {
                 }
             });
         } finally {
+            try {
+                await spooler.dispose();
+            } catch (disposeError) {
+                console.warn('[ApiServer] 清理临时消息缓存失败:', disposeError);
+            }
             // 清理任务的资源处理器（无论成功还是失败）
             const resourceHandler = this.taskResourceHandlers.get(taskId);
             if (resourceHandler) {
