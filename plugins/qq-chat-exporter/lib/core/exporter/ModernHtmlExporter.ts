@@ -23,6 +23,9 @@ interface ChatInfo {
     name: string;
     type: 'private' | 'group';
     avatar?: string;
+    selfUid?: string;
+    selfUin?: string;
+    selfName?: string;
 }
 
 /** 内部资源任务结构 */
@@ -38,6 +41,8 @@ type ResourceTask = {
  */
 export class ModernHtmlExporter {
     private readonly options: HtmlExportOptions;
+    private currentChatInfo?: ChatInfo;
+    private lastRenderedDate?: string;
 
     constructor(options: HtmlExportOptions) {
         this.options = {
@@ -70,6 +75,8 @@ export class ModernHtmlExporter {
             encoding: (this.options.encoding || 'utf8') as BufferEncoding,
             flags: 'w'
         });
+        this.currentChatInfo = chatInfo;
+        this.lastRenderedDate = undefined;
 
         // 捕获写入流错误
         const onError = (error: unknown) => {
@@ -136,12 +143,14 @@ ${this.generateScripts()}
 <body>
     <!-- Toolbar -->
     ${this.generateToolbar()}
-    
-    <!-- Hero Section -->
+
+    <div class="chat-layout">
+        ${this.generateDateSidebar()}
+        <div class="chat-main">
+            <!-- Hero Section -->
 ${this.generateHeader(chatInfo, { totalMessages: '--' }, '--')}
-    
-    <!-- Chat Messages -->
-<div class="chat-content">
+            <!-- Chat Messages -->
+            <div class="chat-content">
 `
             );
 
@@ -189,9 +198,10 @@ ${this.generateHeader(chatInfo, { totalMessages: '--' }, '--')}
 
             await this.writeChunk(
                 ws,
-                `</div>
-
+                `            </div>
 ${this.generateFooter()}
+        </div>
+    </div>
 
     <!-- Image Modal -->
     <div class="image-modal" id="imageModal">
@@ -420,6 +430,10 @@ ${this.generateFooter()}
             --reply-bg: rgba(29, 29, 31, 0.05);
             --reply-border: rgba(29, 29, 31, 0.25);
             --footer-gradient: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.02) 100%);
+            --chat-scale: 1;
+            --message-font-size: calc(17px * var(--chat-scale));
+            --message-sender-size: calc(14px * var(--chat-scale));
+            --message-time-size: calc(12px * var(--chat-scale));
         }
         
         [data-theme="dark"] {
@@ -477,6 +491,58 @@ ${this.generateFooter()}
             display: flex;
             gap: 4px;
             align-items: center;
+        }
+
+        .toolbar-zoom {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.04);
+        }
+
+        [data-theme="dark"] .toolbar-zoom {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .toolbar-zoom input[type="range"] {
+            width: 120px;
+            accent-color: #1d1d1f;
+        }
+
+        [data-theme="dark"] .toolbar-zoom input[type="range"] {
+            accent-color: #f5f5f7;
+        }
+
+        .zoom-btn {
+            border: none;
+            background: transparent;
+            padding: 4px;
+            border-radius: 8px;
+            cursor: pointer;
+            color: var(--text-primary);
+            transition: background 0.2s;
+        }
+
+        .zoom-btn:hover {
+            background: rgba(0, 0, 0, 0.06);
+        }
+
+        [data-theme="dark"] .zoom-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .zoom-btn i {
+            width: 16px !important;
+            height: 16px !important;
+        }
+
+        .zoom-value {
+            font-size: 12px;
+            color: var(--text-secondary);
+            min-width: 48px;
+            text-align: right;
         }
         
         /* 分隔线 */
@@ -790,6 +856,139 @@ ${this.generateFooter()}
             gap: 32px;
             flex-wrap: wrap;
         }
+
+        .chat-layout {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 48px 120px;
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            gap: 32px;
+        }
+
+        .chat-main {
+            min-width: 0;
+        }
+
+        .date-sidebar {
+            position: sticky;
+            top: 120px;
+            align-self: flex-start;
+            background: var(--bg-secondary);
+            border-radius: 24px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            height: calc(100vh - 160px);
+            overflow: hidden;
+        }
+
+        .date-sidebar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .date-sidebar-title {
+            font-weight: 600;
+            font-size: 15px;
+            color: var(--text-primary);
+        }
+
+        .date-sidebar-count {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .sidebar-toggle {
+            border: none;
+            background: rgba(0, 0, 0, 0.04);
+            color: var(--text-primary);
+            padding: 6px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.2s;
+        }
+
+        .sidebar-toggle:hover {
+            background: rgba(0, 0, 0, 0.08);
+        }
+
+        [data-theme="dark"] .sidebar-toggle {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .sidebar-toggle i {
+            width: 16px !important;
+            height: 16px !important;
+        }
+
+        .date-sidebar-body {
+            overflow-y: auto;
+            flex: 1;
+            padding-right: 6px;
+        }
+
+        .date-sidebar-body::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .date-sidebar-body::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+        }
+
+        [data-theme="dark"] .date-sidebar-body::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .date-empty {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .date-nav-item {
+            display: block;
+            padding: 8px 12px;
+            border-radius: 10px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 13px;
+            margin-bottom: 4px;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .date-nav-item:hover {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .date-nav-item.active {
+            background: rgba(0, 0, 0, 0.08);
+            font-weight: 600;
+        }
+
+        [data-theme="dark"] .date-nav-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        [data-theme="dark"] .date-nav-item.active {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .date-sidebar.collapsed {
+            width: 72px;
+        }
+
+        .date-sidebar.collapsed .date-sidebar-body {
+            display: none;
+        }
+
+        .date-sidebar.collapsed .sidebar-toggle i {
+            transform: rotate(180deg);
+        }
         
         .meta-item {
             display: flex;
@@ -813,9 +1012,7 @@ ${this.generateFooter()}
         
         /* Chat Content */
         .chat-content {
-            padding: 64px 64px 120px;
-            max-width: 980px;
-            margin: 0 auto;
+            padding: 64px 0 120px;
             position: relative;
         }
         
@@ -846,8 +1043,31 @@ ${this.generateFooter()}
             font-size: 14px;
         }
         
-        .message {
+        .message-block {
             margin-bottom: 32px;
+        }
+
+        .date-divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 32px 0 16px;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+        }
+
+        .date-divider::before,
+        .date-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border-color);
+        }
+
+        .message {
+            margin-bottom: 0;
             display: flex;
             gap: 16px;
             align-items: flex-start;
@@ -875,7 +1095,7 @@ ${this.generateFooter()}
         }
         
         .message-wrapper {
-            max-width: 60%;
+            max-width: 65%;
             display: flex;
             flex-direction: column;
             gap: 8px;
@@ -893,13 +1113,13 @@ ${this.generateFooter()}
         }
         
         .sender {
-            font-size: 14px;
+            font-size: var(--message-sender-size);
             font-weight: 600;
             color: var(--text-primary);
         }
         
         .time {
-            font-size: 12px;
+            font-size: var(--message-time-size);
             color: var(--text-secondary);
         }
         
@@ -949,7 +1169,7 @@ ${this.generateFooter()}
         }
         
         .content {
-            font-size: 17px;
+            font-size: var(--message-font-size);
             line-height: 1.47;
         }
         
@@ -1256,6 +1476,25 @@ ${this.generateFooter()}
         .message.hidden {
             display: none !important;
         }
+
+        @media (max-width: 1100px) {
+            .chat-layout {
+                grid-template-columns: 1fr;
+                padding: 0 24px 80px;
+            }
+
+            .date-sidebar {
+                display: none;
+            }
+
+            .chat-content {
+                padding: 32px 0 80px;
+            }
+
+            .message-wrapper {
+                max-width: 80%;
+            }
+        }
     </style>`;
     }
 
@@ -1400,6 +1639,15 @@ ${this.generateFooter()}
             destroy() {
                 window.removeEventListener('scroll', this.handleScroll);
             }
+
+            scrollToIndex(index) {
+                if (typeof index !== 'number' || index < 0) return;
+                var targetOffset = index * (this.options.itemHeight || 100);
+                window.scrollTo({
+                    top: targetOffset,
+                    behavior: 'smooth'
+                });
+            }
         }
         
         document.addEventListener('DOMContentLoaded', function() {
@@ -1408,9 +1656,72 @@ ${this.generateFooter()}
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') hideImageModal();
             });
+
+            var zoomSlider = document.getElementById('zoomSlider');
+            var zoomValue = document.getElementById('zoomValue');
+            var zoomOutBtn = document.getElementById('zoomOutBtn');
+            var zoomInBtn = document.getElementById('zoomInBtn');
+            var minScale = 0.85;
+            var maxScale = 1.25;
+            var storedScale = parseFloat(localStorage.getItem('chatScale') || '1');
+            if (isNaN(storedScale)) storedScale = 1;
+
+            function applyScale(value) {
+                var scale = Math.min(maxScale, Math.max(minScale, value));
+                document.documentElement.style.setProperty('--chat-scale', scale.toString());
+                if (zoomSlider) zoomSlider.value = scale.toString();
+                if (zoomValue) {
+                    zoomValue.textContent = Math.round(scale * 100) + '%';
+                }
+                localStorage.setItem('chatScale', scale.toString());
+            }
+
+            applyScale(storedScale);
+
+            if (zoomSlider) {
+                zoomSlider.addEventListener('input', function(e) {
+                    var value = parseFloat(e.target.value);
+                    if (!isNaN(value)) {
+                        applyScale(value);
+                    }
+                });
+            }
+
+            if (zoomOutBtn) {
+                zoomOutBtn.addEventListener('click', function() {
+                    var current = parseFloat(localStorage.getItem('chatScale') || '1');
+                    if (isNaN(current)) current = 1;
+                    applyScale(parseFloat((current - 0.05).toFixed(2)));
+                });
+            }
+
+            if (zoomInBtn) {
+                zoomInBtn.addEventListener('click', function() {
+                    var current = parseFloat(localStorage.getItem('chatScale') || '1');
+                    if (isNaN(current)) current = 1;
+                    applyScale(parseFloat((current + 0.05).toFixed(2)));
+                });
+            }
             
             // 收集所有消息DOM
             var messages = Array.from(document.querySelectorAll('.message'));
+            var messageBlocks = Array.from(document.querySelectorAll('.message-block'));
+            var dateSections = [];
+            messageBlocks.forEach(function(block, index) {
+                var dateValue = block.getAttribute('data-date');
+                if (!dateValue) return;
+                var divider = block.querySelector('.date-divider');
+                var label = divider ? divider.getAttribute('data-label') || divider.textContent : dateValue;
+                var existing = dateSections.find(function(section) { return section.date === dateValue; });
+                if (!existing) {
+                    dateSections.push({
+                        date: dateValue,
+                        label: label || dateValue,
+                        anchorId: 'date-' + dateValue,
+                        index: index
+                    });
+                }
+            });
             var total = messages.length;
             document.getElementById('info-total').textContent = total;
             
@@ -1419,27 +1730,92 @@ ${this.generateFooter()}
                 var lastTime = messages[messages.length - 1].querySelector('.time').textContent;
                 document.getElementById('info-range').textContent = firstTime + ' ~ ' + lastTime;
             }
+
+            buildDateSidebar(dateSections);
             
             // 初始化虚拟滚动（消息超过100条时启用）
             var virtualScroller = null;
-            if (messages.length > 100) {
+            if (messageBlocks.length > 100) {
                 var chatContent = document.querySelector('.chat-content');
-                
-                // 保存原始消息
-                var originalMessages = messages.map(msg => msg.cloneNode(true));
-                
-                // 清空容器
+                var originalBlocks = messageBlocks.map(function(block) { return block.cloneNode(true); });
                 chatContent.innerHTML = '';
-                
-                // 启用虚拟滚动
-                virtualScroller = new VirtualScroller(chatContent, originalMessages, {
-                    itemHeight: 120, // 平均消息高度
-                    bufferSize: 30   // 缓冲区大小（增大以改善底部滚动体验）
+                virtualScroller = new VirtualScroller(chatContent, originalBlocks, {
+                    itemHeight: 120,
+                    bufferSize: 30
                 });
-                
-                console.log('虚拟滚动已启用，共', messages.length, '条消息');
+                console.log('启用虚拟滚动，共', messageBlocks.length, '条消息');
             }
+
             
+            function setActiveDate(dateValue) {
+                var list = document.getElementById('dateSidebarList');
+                if (!list) return;
+                list.querySelectorAll('.date-nav-item').forEach(function(item) {
+                    item.classList.toggle('active', item.dataset.date === dateValue);
+                });
+            }
+
+            function buildDateSidebar(sections) {
+                var list = document.getElementById('dateSidebarList');
+                var count = document.getElementById('dateSidebarCount');
+                var sidebar = document.getElementById('dateSidebar');
+                var collapseBtn = document.getElementById('sidebarCollapseBtn');
+
+                if (!list) return;
+
+                if (!sections || sections.length === 0) {
+                    list.innerHTML = '<div class="date-empty">暂无日期数据</div>';
+                    if (count) count.textContent = '0 天';
+                } else {
+                    list.innerHTML = '';
+                    sections.forEach(function(section, index) {
+                        var item = document.createElement('a');
+                        item.href = '#' + section.anchorId;
+                        item.className = 'date-nav-item';
+                        item.dataset.date = section.date;
+                        item.textContent = section.label;
+                        item.addEventListener('click', function(evt) {
+                            evt.preventDefault();
+                            if (virtualScroller) {
+                                virtualScroller.scrollToIndex(section.index);
+                            } else {
+                                var target = document.getElementById(section.anchorId);
+                                if (target) {
+                                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                }
+                            }
+                            setActiveDate(section.date);
+                        });
+                        if (index === 0) item.classList.add('active');
+                        list.appendChild(item);
+                    });
+                    if (count) count.textContent = sections.length + ' 天';
+                }
+
+                if (collapseBtn && sidebar) {
+                    collapseBtn.addEventListener('click', function() {
+                        sidebar.classList.toggle('collapsed');
+                    });
+                }
+
+                var updateActive = debounce(function() {
+                    var blocks = document.querySelectorAll('.message-block');
+                    for (var i = 0; i < blocks.length; i++) {
+                        var rect = blocks[i].getBoundingClientRect();
+                        if (rect.top <= 200 && rect.bottom >= 200) {
+                            var current = blocks[i].getAttribute('data-date');
+                            if (current) {
+                                setActiveDate(current);
+                            }
+                            break;
+                        }
+                    }
+                }, 150);
+
+                window.addEventListener('scroll', updateActive);
+                updateActive();
+            }
+
             // ========== 初始化 Lucide 图标 ==========
             lucide.createIcons({
                 attrs: {
@@ -1569,7 +1945,7 @@ ${this.generateFooter()}
             // ========== 搜索功能 + 高亮 ==========
             var clearSearch = document.getElementById('clearSearch');
             var originalContents = new Map();
-            var originalMessages = messages.map(msg => msg.cloneNode(true));
+            var originalMessages = messageBlocks.map(block => block.cloneNode(true));
             
             // 保存原始内容
             originalMessages.forEach(function(msg) {
@@ -1701,21 +2077,51 @@ ${this.generateFooter()}
                         <i data-lucide="user"></i>
                     </button>
                     <div class="filter-dropdown" id="filterDropdown">
-                        <div class="filter-option active" data-value="all">全部发送者</div>
+                        <div class="filter-option active" data-value="all">全部成员</div>
                     </div>
+                </div>
+                <div class="toolbar-separator"></div>
+                <div class="toolbar-zoom">
+                    <button class="zoom-btn" id="zoomOutBtn" title="缩小">
+                        <i data-lucide="minus"></i>
+                    </button>
+                    <input type="range" id="zoomSlider" min="0.85" max="1.25" step="0.05" value="1">
+                    <button class="zoom-btn" id="zoomInBtn" title="放大">
+                        <i data-lucide="plus"></i>
+                    </button>
+                    <span class="zoom-value" id="zoomValue">100%</span>
                 </div>
                 <div class="toolbar-separator"></div>
                 <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank" class="github-btn" title="GitHub">
                     <i data-lucide="github"></i>
                 </a>
                 <div class="toolbar-separator"></div>
-                <button class="theme-toggle" id="themeToggle" title="切换深色模式">
+                <button class="theme-toggle" id="themeToggle" title="切换主题">
                     <i data-lucide="sun" id="themeIcon"></i>
                 </button>
             </div>
         </div>
     </div>`;
     }
+
+    private generateDateSidebar(): string {
+        return `
+        <aside class="date-sidebar" id="dateSidebar">
+            <div class="date-sidebar-header">
+                <div>
+                    <div class="date-sidebar-title">日期索引</div>
+                    <div class="date-sidebar-count" id="dateSidebarCount">-</div>
+                </div>
+                <button class="sidebar-toggle" id="sidebarCollapseBtn" title="折叠目录">
+                    <i data-lucide="chevron-left"></i>
+                </button>
+            </div>
+            <div class="date-sidebar-body" id="dateSidebarList">
+                <div class="date-empty">暂无日期数据</div>
+            </div>
+        </aside>`;
+    }
+
 
     /**
      * Hero Section（左对齐，Apple风格）
@@ -1759,14 +2165,41 @@ ${this.generateFooter()}
         // 系统消息
         if (this.isSystemMessage(message)) {
             const content = this.parseMessageContent(message);
-            return `<div class="system-message-container" style="text-align: center; margin: 12px 0;">
-                ${content}
-                <div style="color: #999; font-size: 10px; margin-top: 2px;">${this.formatTime(message?.time)}</div>
+            const dateInfo = this.getMessageDateInfo(message);
+            const dateKey = dateInfo?.key || '';
+            const dateLabel = dateInfo ? this.formatDateLabel(dateInfo.date) : '';
+            let dateMarker = '';
+
+            if (dateKey && this.lastRenderedDate !== dateKey) {
+                this.lastRenderedDate = dateKey;
+                dateMarker = `<div class="date-divider" data-date="${dateKey}" data-label="${this.escapeHtml(dateLabel)}" id="date-${dateKey}">
+                    ${this.escapeHtml(dateLabel)}
+                </div>`;
+            }
+
+            return `<div class="message-block" data-date="${dateKey}">
+                ${dateMarker}
+                <div class="system-message-container" style="text-align: center; margin: 12px 0;">
+                    ${content}
+                    <div style="color: #999; font-size: 10px; margin-top: 2px;">${this.formatTime(message?.time)}</div>
+                </div>
             </div>`;
         }
 
         // 普通消息
-        const isSelf = false; // TODO: 根据实际逻辑判断
+        const dateInfo = this.getMessageDateInfo(message);
+        const dateKey = dateInfo?.key || '';
+        const dateLabel = dateInfo ? this.formatDateLabel(dateInfo.date) : '';
+        let dateMarker = '';
+
+        if (dateKey && this.lastRenderedDate !== dateKey) {
+            this.lastRenderedDate = dateKey;
+            dateMarker = `<div class="date-divider" data-date="${dateKey}" data-label="${this.escapeHtml(dateLabel)}" id="date-${dateKey}">
+                ${this.escapeHtml(dateLabel)}
+            </div>`;
+        }
+
+        const isSelf = this.isSelfMessage(message);
         const cssClass = isSelf ? 'self' : 'other';
         const avatarContent = this.generateAvatarHtml(
             (message as any)?.sender?.uin,
@@ -1775,15 +2208,18 @@ ${this.generateFooter()}
         const content = this.parseMessageContent(message);
 
         return `
-        <div class="message ${cssClass}" id="msg-${message.id}">
-            <div class="avatar">${avatarContent}</div>
-            <div class="message-wrapper">
-                <div class="message-header">
-                    <span class="sender">${this.escapeHtml(this.getDisplayName(message))}</span>
-                    <span class="time">${this.formatTime(message?.time)}</span>
-                </div>
-                <div class="message-bubble">
-                <div class="content">${content}</div>
+        <div class="message-block" data-date="${dateKey}">
+            ${dateMarker}
+            <div class="message ${cssClass}" data-date="${dateKey}" id="msg-${message.id}">
+                <div class="avatar">${avatarContent}</div>
+                <div class="message-wrapper">
+                    <div class="message-header">
+                        <span class="sender">${this.escapeHtml(this.getDisplayName(message))}</span>
+                        <span class="time">${this.formatTime(message?.time)}</span>
+                    </div>
+                    <div class="message-bubble">
+                        <div class="content">${content}</div>
+                    </div>
                 </div>
             </div>
         </div>`;
@@ -2048,6 +2484,33 @@ ${this.generateFooter()}
         if (s.name) return String(s.name);
         if (s.uin) return String(s.uin);
         return s.uid || '未知用户';
+    }
+
+    private getMessageDateInfo(message: CleanMessage): { key: string; date: Date } | null {
+        const rawTimestamp = (message as any)?.timestamp;
+        const date = typeof rawTimestamp === 'number'
+            ? new Date(rawTimestamp)
+            : this.safeToDate(message?.time);
+        if (!date || isNaN(date.getTime())) return null;
+        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        return { key, date };
+    }
+
+    private formatDateLabel(date: Date): string {
+        const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${weekdays[date.getDay()]}`;
+    }
+
+    private isSelfMessage(message: CleanMessage): boolean {
+        const senderUid = message?.sender?.uid;
+        const senderUin = message?.sender?.uin;
+        if (this.currentChatInfo?.selfUid && senderUid && senderUid === this.currentChatInfo.selfUid) {
+            return true;
+        }
+        if (this.currentChatInfo?.selfUin && senderUin && String(senderUin) === String(this.currentChatInfo.selfUin)) {
+            return true;
+        }
+        return false;
     }
 
     private formatTime(time: any): string {

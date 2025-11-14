@@ -169,6 +169,8 @@ export class SimpleMessageParser {
     options;
     onProgress;
     concurrency;
+    // 全局消息映射，用于查找被引用的消息
+    messageMap = new Map();
     constructor(opts = {}) {
         this.options = { ...DEFAULT_SIMPLE_OPTIONS, ...opts };
         this.onProgress = opts.onProgress;
@@ -180,6 +182,21 @@ export class SimpleMessageParser {
     async parseMessages(messages) {
         const total = messages.length;
         let processed = 0;
+        // 先建立全局消息映射
+        this.messageMap.clear();
+        for (const msg of messages) {
+            if (msg && msg.msgId) {
+                this.messageMap.set(msg.msgId, msg);
+                // 同时将 records 数组中的消息也添加到映射中
+                if (msg.records && msg.records.length > 0) {
+                    for (const record of msg.records) {
+                        if (record && record.msgId) {
+                            this.messageMap.set(record.msgId, record);
+                        }
+                    }
+                }
+            }
+        }
         const results = await mapLimit(messages, this.concurrency, async (message, idx) => {
             try {
                 const cm = await this.parseMessage(message);
@@ -200,6 +217,8 @@ export class SimpleMessageParser {
                 return this.createErrorMessage(message, error);
             }
         });
+        // 清理映射
+        this.messageMap.clear();
         return results;
     }
     /**
@@ -253,12 +272,13 @@ export class SimpleMessageParser {
         const tsMs = millisFromUnixSeconds(message.msgTime);
         const timestamp = tsMs > 0 ? tsMs : Date.now();
         // 群名片 > 好友备注 > 昵称 > QQ号 > UID
-        const senderName = message.sendMemberName ||
-            message.sendRemarkName ||
-            message.sendNickName ||
-            message.senderUin ||
-            message.senderUid ||
-            '未知用户';
+        // 过滤空字符串，只有非空值才算有效
+        const senderName = ((message.sendMemberName && message.sendMemberName.trim()) ||
+            (message.sendRemarkName && message.sendRemarkName.trim()) ||
+            (message.sendNickName && message.sendNickName.trim()) ||
+            (message.senderUin && String(message.senderUin)) ||
+            (message.senderUid && String(message.senderUid)) ||
+            '未知用户');
         const content = await this.parseMessageContent(message);
         const cleanMessage = {
             id: message.msgId,
@@ -316,7 +336,7 @@ export class SimpleMessageParser {
         let count = 0;
         for (let i = 0; i < elements.length; i++) {
             const element = elements[i];
-            const parsed = await this.parseElement(element);
+            const parsed = await this.parseElement(element, message);
             if (!parsed)
                 continue;
             parsedElements[count++] = parsed;
@@ -342,7 +362,7 @@ export class SimpleMessageParser {
     /**
      * 元素解析（尽量同步，无额外中间对象）
      */
-    async parseElement(element) {
+    async parseElement(element, message) {
         // 文本
         if (element.textElement) {
             return {
@@ -427,11 +447,12 @@ export class SimpleMessageParser {
         }
         // 回复
         if (element.replyElement) {
-            const replyData = this.extractReplyContent(element.replyElement);
+            const replyData = this.extractReplyContent(element.replyElement, message);
             return {
                 type: 'reply',
                 data: {
                     messageId: replyData.messageId,
+                    referencedMessageId: replyData.referencedMessageId, // 被引用消息的实际messageId
                     senderUin: replyData.senderUin,
                     senderName: replyData.senderName,
                     content: replyData.content,
@@ -501,6 +522,7 @@ export class SimpleMessageParser {
             filename: d.filename || '未知',
             size: d.size || 0,
             url: d.url,
+            localPath: d.localPath, // 包含本地路径信息
             width: d.width,
             height: d.height,
             duration: d.duration
@@ -577,12 +599,13 @@ export class SimpleMessageParser {
     createErrorMessage(message, error) {
         const tsMs = millisFromUnixSeconds(message.msgTime);
         const timestamp = tsMs > 0 ? tsMs : Date.now();
-        const senderName = message.sendMemberName ||
-            message.sendRemarkName ||
-            message.sendNickName ||
-            message.senderUin ||
-            message.senderUid ||
-            '未知用户';
+        // 过滤空字符串，只使用非空值
+        const senderName = ((message.sendMemberName && message.sendMemberName.trim()) ||
+            (message.sendRemarkName && message.sendRemarkName.trim()) ||
+            (message.sendNickName && message.sendNickName.trim()) ||
+            (message.senderUin && String(message.senderUin)) ||
+            (message.senderUid && String(message.senderUid)) ||
+            '未知用户');
         const errMsg = (error && (error.message || error.toString?.())) || 'Unknown';
         return {
             id: message.msgId,
@@ -786,29 +809,119 @@ export class SimpleMessageParser {
             return {};
         }
     }
-    extractReplyContent(replyElement) {
+    extractReplyContent(replyElement, message) {
+        // 使用 replayMsgId 作为被引用消息的真实ID（但要排除 "0" 的情况）
+        const replayMsgId = replyElement.replayMsgId;
+        let referencedMessageId = (replayMsgId && replayMsgId !== '0') ? replayMsgId : undefined;
+        // sourceMsgIdInRecords 用于内部查找（在 records 数组中）
+        const sourceMsgId = replyElement.sourceMsgIdInRecords;
+        let referencedMessage;
+        let source = 'none';
+        // 1. 尝试用 replayMsgId 从全局消息映射中查找（replayMsgId才是真实被引用消息ID）
+        if (referencedMessageId && this.messageMap.has(referencedMessageId)) {
+            referencedMessage = this.messageMap.get(referencedMessageId);
+            source = 'messageMap';
+        }
+        // 2. 如果全局映射中找不到，再从当前消息的 records 数组中查找
+        if (!referencedMessage && sourceMsgId && sourceMsgId !== '0' && message.records && message.records.length > 0) {
+            referencedMessage = message.records.find((record) => record.msgId === sourceMsgId);
+            if (referencedMessage) {
+                referencedMessageId = referencedMessage.msgId;
+                source = 'records';
+            }
+        }
+        // 3. 如果还是找不到，尝试用 replayMsgSeq 匹配 msgSeq
+        if (!referencedMessage && replyElement.replayMsgSeq) {
+            for (const [msgId, msg] of this.messageMap.entries()) {
+                if (msg.msgSeq === replyElement.replayMsgSeq) {
+                    referencedMessage = msg;
+                    referencedMessageId = msg.msgId;
+                    source = 'seq';
+                    break;
+                }
+            }
+        }
+        // 4. 如果还找不到，尝试用 replyMsgClientSeq 匹配
+        if (!referencedMessage && replyElement.replyMsgClientSeq) {
+            for (const [msgId, msg] of this.messageMap.entries()) {
+                if (msg.clientSeq === replyElement.replyMsgClientSeq) {
+                    referencedMessage = msg;
+                    referencedMessageId = msg.msgId;
+                    source = 'seq';
+                    break;
+                }
+            }
+        }
         const result = {
-            messageId: replyElement.replayMsgId || replyElement.replayMsgSeq || '0',
+            messageId: sourceMsgId || replyElement.replayMsgId || replyElement.replayMsgSeq || '0',
+            referencedMessageId: referencedMessageId || undefined, // 确保不会是 "0"
             senderUin: replyElement.senderUin || '',
-            senderName: replyElement.senderUinStr || '',
-            content: '引用消息',
+            senderName: replyElement.senderUidStr || '',
+            content: '原消息',
             timestamp: 0
         };
-        if (replyElement.sourceMsgText) {
-            result.content = replyElement.sourceMsgText;
-        }
-        else if (replyElement.sourceMsgTextElems && replyElement.sourceMsgTextElems.length > 0) {
-            const parts = [];
-            for (let i = 0; i < replyElement.sourceMsgTextElems.length; i++) {
-                const e = replyElement.sourceMsgTextElems[i];
-                if (e?.textElement?.content)
-                    parts.push(e.textElement.content);
+        // 如果找到了被引用的消息，从中提取内容
+        if (referencedMessage) {
+            // 保持messageId为sourceMsgId，referencedMessageId已经在前面设置
+            result.senderUin = referencedMessage.senderUin;
+            result.senderName = referencedMessage.sendNickName || referencedMessage.senderUin;
+            // 提取被引用消息的文本内容
+            if (referencedMessage.elements && referencedMessage.elements.length > 0) {
+                const parts = [];
+                for (const element of referencedMessage.elements) {
+                    if (element.textElement?.content) {
+                        parts.push(element.textElement.content);
+                    }
+                    else if (element.picElement) {
+                        parts.push('[图片]');
+                    }
+                    else if (element.videoElement) {
+                        parts.push('[视频]');
+                    }
+                    else if (element.pttElement) {
+                        parts.push('[语音]');
+                    }
+                    else if (element.fileElement) {
+                        parts.push('[文件]');
+                    }
+                    else if (element.faceElement) {
+                        parts.push(`[表情${element.faceElement.faceIndex}]`);
+                    }
+                    else if (element.marketFaceElement) {
+                        const faceName = element.marketFaceElement.faceName || '超级表情';
+                        parts.push(`[${faceName}]`);
+                    }
+                }
+                if (parts.length > 0) {
+                    result.content = parts.join('');
+                }
             }
-            if (parts.length > 0)
-                result.content = parts.join('');
+            if (referencedMessage.msgTime) {
+                result.timestamp = parseInt(referencedMessage.msgTime) || 0;
+            }
         }
-        else if (replyElement.referencedMsg && replyElement.referencedMsg.msgBody) {
-            result.content = replyElement.referencedMsg.msgBody;
+        else {
+            // 如果没有找到被引用的消息，尝试从 replyElement 中提取内容（备用方案）
+            if (replyElement.sourceMsgText) {
+                result.content = replyElement.sourceMsgText;
+                source = 'sourceMsgText';
+            }
+            else if (replyElement.sourceMsgTextElems && replyElement.sourceMsgTextElems.length > 0) {
+                const parts = [];
+                for (let i = 0; i < replyElement.sourceMsgTextElems.length; i++) {
+                    const e = replyElement.sourceMsgTextElems[i];
+                    if (e?.textElement?.content)
+                        parts.push(e.textElement.content);
+                }
+                if (parts.length > 0) {
+                    result.content = parts.join('');
+                    source = 'sourceMsgTextElems';
+                }
+            }
+            else if (replyElement.referencedMsg && replyElement.referencedMsg.msgBody) {
+                result.content = replyElement.referencedMsg.msgBody;
+                source = 'referencedMsg';
+            }
         }
         if (replyElement.senderNick)
             result.senderName = replyElement.senderNick;

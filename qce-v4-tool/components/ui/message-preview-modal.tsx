@@ -108,6 +108,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
   const [searchQuery, setSearchQuery] = useState("") // 恢复搜索功能
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
+  const [timeRangeError, setTimeRangeError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
   // 流式搜索状态
@@ -145,6 +146,19 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
+
+  const validateTimeRange = (startValue: string, endValue: string): boolean => {
+    if (startValue && endValue) {
+      const start = new Date(startValue)
+      const end = new Date(endValue)
+      if (end < start) {
+        setTimeRangeError('结束日期不能早于起始日期')
+        return false
+      }
+    }
+    setTimeRangeError(null)
+    return true
   }
 
   const fetchMessages = async (page: number, filter?: any) => {
@@ -239,6 +253,10 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
   }
   
   const handleTimeRangeChange = () => {
+    if (!validateTimeRange(startDate, endDate) || (!startDate && !endDate)) {
+      return
+    }
+
     const filter = {
       startTime: startDate ? new Date(startDate).getTime() : 0,
       endTime: endDate ? new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1 : Date.now()
@@ -261,6 +279,10 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
   }, [streamSearch.results, useStreamMode, MESSAGES_PER_PAGE])
 
   const handleExportWithTimeRange = () => {
+    if (!validateTimeRange(startDate, endDate)) {
+      return
+    }
+
     if (onExport && chat) {
       const timeRange = {
         startTime: startDate ? Math.floor(new Date(startDate).getTime() / 1000) : undefined,
@@ -343,6 +365,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
       setSearchQuery("")
       setStartDate("")
       setEndDate("")
+      setTimeRangeError(null)
       setError(null)
       fetchMessages(1)
     }
@@ -380,7 +403,11 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
                   <input
                     type="date"
                     value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setStartDate(value)
+                      validateTimeRange(value, endDate)
+                    }}
                     className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-1 focus:ring-neutral-300 focus:border-neutral-400"
                     placeholder="开始日期"
                   />
@@ -388,16 +415,23 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
                   <input
                     type="date"
                     value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setEndDate(value)
+                      validateTimeRange(startDate, value)
+                    }}
                     className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-1 focus:ring-neutral-300 focus:border-neutral-400"
                     placeholder="结束日期"
                   />
                 </div>
+                {timeRangeError && (
+                  <p className="text-xs text-red-600 mt-2">{timeRangeError}</p>
+                )}
                 <Button 
                   variant="outline" 
                   size="sm" 
                   onClick={handleTimeRangeChange}
-                  disabled={!startDate && !endDate}
+                  disabled={(!startDate && !endDate) || !!timeRangeError}
                   className="px-4"
                 >
                   <Clock className="w-3 h-3 mr-1" />
@@ -411,6 +445,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
                     onClick={() => {
                       setStartDate("")
                       setEndDate("")
+                      setTimeRangeError(null)
                       setCurrentPage(1)
                       fetchMessages(1)
                     }}

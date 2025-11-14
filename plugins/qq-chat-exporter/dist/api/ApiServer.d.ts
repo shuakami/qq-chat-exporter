@@ -19,7 +19,10 @@ export declare class QQChatExporterApiServer {
     private securityManager;
     private stickerPackExporter;
     private exportTasks;
+    private taskResourceHandlers;
     private resourceFileCache;
+    private messageCache;
+    private readonly CACHE_EXPIRE_TIME;
     /**
      * 构造函数
      */
@@ -56,6 +59,18 @@ export declare class QQChatExporterApiServer {
      * 配置WebSocket
      */
     private setupWebSocket;
+    /**
+     * 处理WebSocket消息
+     */
+    private handleWebSocketMessage;
+    /**
+     * 处理流式搜索请求
+     */
+    private handleStreamSearchRequest;
+    /**
+     * 处理取消搜索
+     */
+    private handleCancelSearch;
     /**
      * 发送WebSocket消息
      */

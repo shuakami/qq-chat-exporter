@@ -735,6 +735,17 @@ export class QQChatExporterApiServer {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, 'peer参数不完整', 'INVALID_PEER');
                 }
 
+                if (filter?.startTime && filter?.endTime) {
+                    const startTs = Number(filter.startTime);
+                    const endTs = Number(filter.endTime);
+                    if (!Number.isFinite(startTs) || !Number.isFinite(endTs)) {
+                        throw new SystemError(ErrorType.VALIDATION_ERROR, '时间范围参数无效', 'INVALID_TIME_RANGE');
+                    }
+                    if (endTs < startTs) {
+                        throw new SystemError(ErrorType.VALIDATION_ERROR, '结束时间不能早于开始时间', 'INVALID_TIME_RANGE');
+                    }
+                }
+
                 console.log(`[ApiServer] 获取消息 - 页码: ${page}, 每页: ${limit}`);
                 
                 // 生成缓存key（基于peer和时间范围）
@@ -1999,9 +2010,13 @@ export class QQChatExporterApiServer {
             // 获取友好的聊天名称
             task = this.exportTasks.get(taskId);
             const chatName = task?.sessionName || peer.peerUid;
+            const selfInfo = this.core.selfInfo;
             const chatInfo = {
                 name: chatName,
-                type: (peer.chatType === ChatType.KCHATTYPEGROUP ? 'group' : 'private') as 'group' | 'private'
+                type: (peer.chatType === ChatType.KCHATTYPEGROUP ? 'group' : 'private') as 'group' | 'private',
+                selfUid: selfInfo?.uid,
+                selfUin: selfInfo?.uin,
+                selfName: selfInfo?.nick
             };
 
             console.log(`[ApiServer] ==================== 开始导出 ====================`);
@@ -2520,6 +2535,28 @@ export class QQChatExporterApiServer {
     }
 
     /**
+     * 从 JSON 导出文件中提取元数据
+     */
+    private parseJsonMetadata(filePath: string): { messageCount?: number; chatName?: string; timeRange?: string } {
+        try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            const data = JSON.parse(content);
+            const timeRange = data?.statistics?.timeRange;
+
+            return {
+                messageCount: data?.statistics?.totalMessages,
+                chatName: data?.chatInfo?.name,
+                timeRange: timeRange?.start && timeRange?.end
+                    ? `${timeRange.start} ~ ${timeRange.end}`
+                    : undefined
+            };
+        } catch (error) {
+            // JSON 体积可能较大，解析失败时静默忽略
+        }
+        return {};
+    }
+
+    /**
      * 获取导出文件列表
      */
     private async getExportFiles(): Promise<any[]> {
@@ -2533,110 +2570,140 @@ export class QQChatExporterApiServer {
             if (fs.existsSync(exportDir)) {
                 const mainFiles = fs.readdirSync(exportDir);
                 
+
+
                 for (const fileName of mainFiles) {
-                    if (fileName.endsWith('.html')) {
-                        const filePath = path.join(exportDir, fileName);
-                        const stats = fs.statSync(filePath);
-                        const fileInfo = this.parseExportFileName(fileName);
-                        
-                        if (fileInfo) {
-                            // 从HTML文件头部读取元数据（最可靠的来源）
+                    const normalizedName = fileName.toLowerCase();
+                    if (!normalizedName.endsWith('.html') && !normalizedName.endsWith('.json')) {
+                        continue;
+                    }
+
+                    const filePath = path.join(exportDir, fileName);
+                    const stats = fs.statSync(filePath);
+                    const fileInfo = this.parseExportFileName(fileName);
+                    
+                    if (fileInfo) {
+                        if (fileInfo.format === 'HTML') {
                             const htmlMetadata = this.parseHtmlMetadata(filePath);
-                            
-                            // 优先使用HTML元数据中的信息
                             if (htmlMetadata.messageCount !== undefined) {
                                 fileInfo.messageCount = htmlMetadata.messageCount;
                             }
                             if (htmlMetadata.chatName) {
                                 fileInfo.displayName = htmlMetadata.chatName;
                             }
-                            
-                            // 如果仍然没有displayName，尝试从API实时获取
-                            if (!fileInfo.displayName) {
-                                try {
-                                    if (fileInfo.chatType === 'friend') {
-                                        const friends = await this.core.apis.FriendApi.getBuddy();
-                                        const friend = friends.find((f: any) => f.coreInfo?.uid === fileInfo.chatId);
-                                        fileInfo.displayName = friend?.coreInfo?.remark || friend?.coreInfo?.nick || fileInfo.chatId;
-                                    } else if (fileInfo.chatType === 'group') {
-                                        const groups = await this.core.apis.GroupApi.getGroups();
-                                        const group = groups.find(g => g.groupCode === fileInfo.chatId || g.groupCode === fileInfo.chatId.toString());
-                                        fileInfo.displayName = group?.groupName || fileInfo.chatId;
-                                    }
-                                } catch (error) {
-                                    console.warn(`[ApiServer] 获取会话名称失败 (${fileInfo.chatType} ${fileInfo.chatId}):`, error);
-                                    // 使用默认值
-                                    fileInfo.displayName = fileInfo.chatId;
-                                }
+                        } else if (fileInfo.format === 'JSON') {
+                            const jsonMetadata = this.parseJsonMetadata(filePath);
+                            if (jsonMetadata.messageCount !== undefined) {
+                                fileInfo.messageCount = jsonMetadata.messageCount;
                             }
-                            
-                            files.push({
-                                fileName,
-                                filePath: filePath,
-                                relativePath: `/downloads/${fileName}`,
-                                size: stats.size,
-                                createTime: stats.birthtime,
-                                modifyTime: stats.mtime,
-                                ...fileInfo
-                            });
+                            if (jsonMetadata.chatName) {
+                                fileInfo.displayName = jsonMetadata.chatName;
+                            }
+                            if (jsonMetadata.timeRange) {
+                                fileInfo.description = jsonMetadata.timeRange;
+                            }
                         }
+                        
+                        if (!fileInfo.displayName) {
+                            try {
+                                if (fileInfo.chatType === 'friend') {
+                                    const friends = await this.core.apis.FriendApi.getBuddy();
+                                    const friend = friends.find((f: any) => f.coreInfo?.uid === fileInfo.chatId);
+                                    fileInfo.displayName = friend?.coreInfo?.remark || friend?.coreInfo?.nick || fileInfo.chatId;
+                                } else if (fileInfo.chatType === 'group') {
+                                    const groups = await this.core.apis.GroupApi.getGroups();
+                                    const group = groups.find(g => g.groupCode === fileInfo.chatId || g.groupCode === fileInfo.chatId.toString());
+                                    fileInfo.displayName = group?.groupName || fileInfo.chatId;
+                                }
+                            } catch (error) {
+                                console.warn(`[ApiServer] 获取会话名称失败 (${fileInfo.chatType} ${fileInfo.chatId}):`, error);
+                                fileInfo.displayName = fileInfo.chatId;
+                            }
+                        }
+                        
+                        files.push({
+                            fileName,
+                            filePath: filePath,
+                            relativePath: `/downloads/${fileName}`,
+                            size: stats.size,
+                            createTime: stats.birthtime,
+                            modifyTime: stats.mtime,
+                            ...fileInfo
+                        });
                     }
                 }
+
+
             }
             
             // 扫描定时导出目录
             if (fs.existsSync(scheduledExportDir)) {
                 const scheduledFiles = fs.readdirSync(scheduledExportDir);
+
+
                 for (const fileName of scheduledFiles) {
-                    if (fileName.endsWith('.html')) {
-                        const filePath = path.join(scheduledExportDir, fileName);
-                        const stats = fs.statSync(filePath);
-                        const fileInfo = this.parseExportFileName(fileName);
-                        
-                        if (fileInfo) {
-                            // 从HTML文件头部读取元数据（最可靠的来源）
+                    const normalizedName = fileName.toLowerCase();
+                    if (!normalizedName.endsWith('.html') && !normalizedName.endsWith('.json')) {
+                        continue;
+                    }
+
+                    const filePath = path.join(scheduledExportDir, fileName);
+                    const stats = fs.statSync(filePath);
+                    const fileInfo = this.parseExportFileName(fileName);
+                    
+                    if (fileInfo) {
+                        if (fileInfo.format === 'HTML') {
                             const htmlMetadata = this.parseHtmlMetadata(filePath);
-                            
-                            // 优先使用HTML元数据中的信息
                             if (htmlMetadata.messageCount !== undefined) {
                                 fileInfo.messageCount = htmlMetadata.messageCount;
                             }
                             if (htmlMetadata.chatName) {
                                 fileInfo.displayName = htmlMetadata.chatName;
                             }
-                            
-                            // 如果仍然没有displayName，尝试从API实时获取
-                            if (!fileInfo.displayName) {
-                                try {
-                                    if (fileInfo.chatType === 'friend') {
-                                        const friends = await this.core.apis.FriendApi.getBuddy();
-                                        const friend = friends.find((f: any) => f.coreInfo?.uid === fileInfo.chatId);
-                                        fileInfo.displayName = friend?.coreInfo?.remark || friend?.coreInfo?.nick || fileInfo.chatId;
-                                    } else if (fileInfo.chatType === 'group') {
-                                        const groups = await this.core.apis.GroupApi.getGroups();
-                                        const group = groups.find(g => g.groupCode === fileInfo.chatId || g.groupCode === fileInfo.chatId.toString());
-                                        fileInfo.displayName = group?.groupName || fileInfo.chatId;
-                                    }
-                                } catch (error) {
-                                    console.warn(`[ApiServer] 获取会话名称失败 (${fileInfo.chatType} ${fileInfo.chatId}):`, error);
-                                    // 使用默认值
-                                    fileInfo.displayName = fileInfo.chatId;
-                                }
+                        } else if (fileInfo.format === 'JSON') {
+                            const jsonMetadata = this.parseJsonMetadata(filePath);
+                            if (jsonMetadata.messageCount !== undefined) {
+                                fileInfo.messageCount = jsonMetadata.messageCount;
                             }
-                            
-                            files.push({
-                                fileName,
-                                filePath: filePath,
-                                relativePath: `/scheduled-downloads/${fileName}`,
-                                size: stats.size,
-                                createTime: stats.birthtime,
-                                modifyTime: stats.mtime,
-                                isScheduled: true,
-                                ...fileInfo
-                            });
+                            if (jsonMetadata.chatName) {
+                                fileInfo.displayName = jsonMetadata.chatName;
+                            }
+                            if (jsonMetadata.timeRange) {
+                                fileInfo.description = jsonMetadata.timeRange;
+                            }
                         }
+                        
+                        if (!fileInfo.displayName) {
+                            try {
+                                if (fileInfo.chatType === 'friend') {
+                                    const friends = await this.core.apis.FriendApi.getBuddy();
+                                    const friend = friends.find((f: any) => f.coreInfo?.uid === fileInfo.chatId);
+                                    fileInfo.displayName = friend?.coreInfo?.remark || friend?.coreInfo?.nick || fileInfo.chatId;
+                                } else if (fileInfo.chatType === 'group') {
+                                    const groups = await this.core.apis.GroupApi.getGroups();
+                                    const group = groups.find(g => g.groupCode === fileInfo.chatId || g.groupCode === fileInfo.chatId.toString());
+                                    fileInfo.displayName = group?.groupName || fileInfo.chatId;
+                                }
+                            } catch (error) {
+                                console.warn(`[ApiServer] 获取会话名称失败 (${fileInfo.chatType} ${fileInfo.chatId}):`, error);
+                                fileInfo.displayName = fileInfo.chatId;
+                            }
+                        }
+                        
+                        files.push({
+                            fileName,
+                            filePath: filePath,
+                            relativePath: `/scheduled-downloads/${fileName}`,
+                            size: stats.size,
+                            createTime: stats.birthtime,
+                            modifyTime: stats.mtime,
+                            isScheduled: true,
+                            ...fileInfo
+                        });
                     }
                 }
+
+
             }
         } catch (error) {
             console.error('[ApiServer] 获取导出文件列表失败:', error);
@@ -2653,10 +2720,10 @@ export class QQChatExporterApiServer {
         // 匹配格式：friend_1234567890_20250830_142843.html 或 group_1234567890_20250830_142843.html
         // 或 friend_u_xxx_20250830_142843.html (支持带前缀的UID，包含下划线)
         // 使用非贪婪匹配 (.+?) 匹配 UID，直到遇到 _日期_ 的模式
-        const match = fileName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})(?:_\d{3}_TEMP)?\.html$/);
+        const match = fileName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})(?:_\d{3}_TEMP)?\.(html|json)$/i);
         if (!match) return null;
         
-        const [, type, id, date, time] = match;
+        const [, type, id, date, time, extension] = match;
         if (!date || !time) return null;
         const dateTime = `${date.substr(0,4)}-${date.substr(4,2)}-${date.substr(6,2)} ${time.substr(0,2)}:${time.substr(2,2)}:${time.substr(4,2)}`;
         
@@ -2666,6 +2733,7 @@ export class QQChatExporterApiServer {
             chatId: id,
             exportDate: dateTime,
             displayName: undefined, // 稍后从数据库或API获取
+            format: extension?.toUpperCase() === 'JSON' ? 'JSON' : 'HTML',
             avatarUrl: type === 'friend' ? 
                 `https://q1.qlogo.cn/g?b=qq&nk=${id}&s=100` : 
                 `https://p.qlogo.cn/gh/${id}/${id}/100`
@@ -2698,16 +2766,19 @@ export class QQChatExporterApiServer {
             throw new SystemError(ErrorType.VALIDATION_ERROR, '无效的文件名格式', 'INVALID_FILENAME');
         }
         
-        // 尝试从HTML文件中提取更多信息
+        // 尝试从HTML文件中提取        // 尝试从导出文件中提取会话信息
         let detailedInfo = null;
         try {
-            const htmlContent = fs.readFileSync(filePath, 'utf-8');
-            detailedInfo = this.extractChatInfoFromHtml(htmlContent);
+            if ((basicInfo.format || '').toUpperCase() === 'JSON' || fileName.toLowerCase().endsWith('.json')) {
+                detailedInfo = this.extractChatInfoFromJson(filePath);
+            } else {
+                const htmlContent = fs.readFileSync(filePath, 'utf-8');
+                detailedInfo = this.extractChatInfoFromHtml(htmlContent);
+            }
         } catch (error) {
-            console.warn('[ApiServer] 无法解析HTML文件内容:', error);
+            console.warn('[ApiServer] 无法读取导出文件内容:', error);
         }
-        
-        return {
+n {
             fileName,
             filePath,
             relativePath: isScheduled ? `/scheduled-downloads/${fileName}` : `/downloads/${fileName}`,
@@ -2771,4 +2842,43 @@ export class QQChatExporterApiServer {
         
         return info;
     }
+
+    /**
+     * 从 JSON 导出中提取会话信息
+     */
+    private extractChatInfoFromJson(filePath: string): any {
+        const info: any = {};
+        
+        try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            const data = JSON.parse(content);
+            
+            if (data?.chatInfo?.name) {
+                info.displayName = data.chatInfo.name;
+            }
+            
+            if (data?.metadata?.exportTime) {
+                info.exportTime = data.metadata.exportTime;
+            }
+            
+            if (typeof data?.statistics?.totalMessages === 'number') {
+                info.messageCount = data.statistics.totalMessages;
+            }
+            
+            const timeRange = data?.statistics?.timeRange;
+            if (timeRange?.start && timeRange?.end) {
+                info.timeRange = ${timeRange.start} ~ ;
+            }
+            
+            if (Array.isArray(data?.messages) && data.messages.length > 0) {
+                const firstMessage = data.messages[0];
+                info.senderName = firstMessage?.sender?.name || firstMessage?.sender?.uid;
+            }
+        } catch (error) {
+            console.warn('[ApiServer] 解析JSON导出失败:', error);
+        }
+        
+        return info;
+    }
+
 }

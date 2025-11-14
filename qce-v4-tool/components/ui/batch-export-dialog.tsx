@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -54,6 +54,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [downloadMedia, setDownloadMedia] = useState(false)
+  const [dateError, setDateError] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [progress, setProgress] = useState<BatchExportProgress>({
     current: 0,
@@ -63,7 +64,40 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
     results: items.map(item => ({ name: item.name, status: 'pending' }))
   })
 
+  useEffect(() => {
+    if (timeRange !== 'custom') {
+      setDateError(null)
+      return
+    }
+
+    if (customStartDate && customEndDate) {
+      const start = new Date(customStartDate)
+      const end = new Date(customEndDate)
+      if (end < start) {
+        setDateError('结束日期不能早于起始日期')
+      } else {
+        setDateError(null)
+      }
+    } else {
+      setDateError(null)
+    }
+  }, [timeRange, customStartDate, customEndDate])
+
   const handleExport = async () => {
+    if (timeRange === 'custom') {
+      if (!customStartDate || !customEndDate) {
+        setDateError('请选择开始和结束时间')
+        return
+      }
+      const start = new Date(customStartDate)
+      const end = new Date(customEndDate)
+      if (end < start) {
+        setDateError('结束日期不能早于起始日期')
+        return
+      }
+    }
+
+    setDateError(null)
     setIsExporting(true)
     setProgress({
       current: 0,
@@ -98,6 +132,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
         setTimeRange('all')
         setCustomStartDate('')
         setCustomEndDate('')
+        setDateError(null)
         setDownloadMedia(false)
         setIsExporting(false)
         setProgress({
@@ -338,6 +373,11 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                         className="font-mono rounded-xl"
                       />
                     </div>
+                    {dateError && (
+                      <div className="col-span-2 text-sm text-red-600">
+                        {dateError}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -442,7 +482,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
             </Button>
             <Button
               onClick={handleExport}
-              disabled={isExporting || (timeRange === 'custom' && (!customStartDate || !customEndDate))}
+              disabled={isExporting || (timeRange === 'custom' && (!customStartDate || !customEndDate || !!dateError))}
               className="bg-blue-600 hover:bg-blue-700 rounded-full"
             >
               {isExporting ? (
