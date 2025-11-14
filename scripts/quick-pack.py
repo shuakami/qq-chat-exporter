@@ -246,42 +246,180 @@ def main():
     print("[x] Updated")
     print()
     
-    # Create launcher script for Linux/macOS
-    if os_name != "Windows":
-        print("[9.5/12] Creating launcher script...")
+    print("[9.5/12] Creating launcher script...")
+
+    if os_name == "Windows":
+        launcher_script = r"""@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+
+rem NapCat + QCE Launcher Script
+
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR%"=="" set "SCRIPT_DIR=.\"
+pushd "%SCRIPT_DIR%" >nul
+
+set "NAPCAT_MAIN_PATH=%SCRIPT_DIR%napcat.mjs"
+if not exist "%NAPCAT_MAIN_PATH%" (
+    echo [NapCat + QCE] 错误: 未找到 napcat.mjs
+    echo 请确认已完整解压安装包后再试。
+    pause
+    exit /b 1
+)
+
+set "ORIGINAL_NODE_OPTIONS=%NODE_OPTIONS%"
+set "SELECTED_HEAP="
+
+if defined NAPCAT_NODE_HEAP (
+    set "SELECTED_HEAP=!NAPCAT_NODE_HEAP!"
+) else (
+    echo.
+    echo [NapCat + QCE] 请选择 Node.js 内存上限 (单位: MB)
+    echo   1^) 自动 (使用 Node.js 默认值)
+    echo   2^) 2048 MB - 适合小型导出 (<= 200k 消息)
+    echo   3^) 4096 MB - 推荐常规导出 (<= 400k 消息)
+    echo   4^) 6144 MB - 推荐中型导出 (≈ 600k 消息)
+    echo   5^) 8192 MB - 推荐大型导出 (≈ 800k 消息)
+    echo   6^) 自定义 (输入任意 MB 数值, 如 12288)
+    echo.
+    set /p "MEM_CHOICE=请输入选项 [1-6] (默认 3): "
+    if "!MEM_CHOICE!"=="" set "MEM_CHOICE=3"
+
+    if "!MEM_CHOICE!"=="1" goto :configure_heap
+    if "!MEM_CHOICE!"=="2" set "SELECTED_HEAP=2048"
+    if "!MEM_CHOICE!"=="3" set "SELECTED_HEAP=4096"
+    if "!MEM_CHOICE!"=="4" set "SELECTED_HEAP=6144"
+    if "!MEM_CHOICE!"=="5" set "SELECTED_HEAP=8192"
+    if "!MEM_CHOICE!"=="6" (
+        set /p "SELECTED_HEAP=请输入自定义内存 (MB): "
+    )
+)
+
+:configure_heap
+if /I "!SELECTED_HEAP!"=="auto" set "SELECTED_HEAP="
+if /I "!SELECTED_HEAP!"=="default" set "SELECTED_HEAP="
+
+for /f "tokens=*" %%I in ("!SELECTED_HEAP!") do set "SELECTED_HEAP=%%I"
+
+if defined SELECTED_HEAP (
+    echo.
+    echo [NapCat + QCE] 使用 Node.js 内存上限: !SELECTED_HEAP! MB
+    if defined ORIGINAL_NODE_OPTIONS (
+        set "NODE_OPTIONS=--max-old-space-size=!SELECTED_HEAP! !ORIGINAL_NODE_OPTIONS!"
+    ) else (
+        set "NODE_OPTIONS=--max-old-space-size=!SELECTED_HEAP!"
+    )
+) else (
+    echo.
+    echo [NapCat + QCE] 使用 Node.js 默认内存上限。
+    set "NODE_OPTIONS=!ORIGINAL_NODE_OPTIONS!"
+)
+
+echo.
+echo [NapCat + QCE] 正在启动 NapCat...
+echo 按 Ctrl+C 停止运行。
+echo.
+
+node "%NAPCAT_MAIN_PATH%"
+
+set "NODE_OPTIONS=!ORIGINAL_NODE_OPTIONS!"
+popd >nul
+echo.
+pause
+"""
+        launcher_path = f"{pack_dir}/launcher-user.bat"
+        with open(launcher_path, "w", encoding="utf-8", newline="\r\n") as f:
+            f.write(launcher_script)
+    else:
         launcher_script = """#!/bin/bash
 # NapCat + QCE Launcher Script
+
+set -e
 
 # Get script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
-# Set environment variables
-export NAPCAT_MAIN_PATH="$SCRIPT_DIR/napcat.mjs"
+NAPCAT_MAIN_PATH="$SCRIPT_DIR/napcat.mjs"
 
-# Check if node is installed
-if ! command -v node &> /dev/null; then
-    echo "Error: Node.js is not installed"
-    echo "Please install Node.js 18+ from https://nodejs.org/"
-    exit 1
+if [ ! -f "$NAPCAT_MAIN_PATH" ]; then
+  echo "[NapCat + QCE] 错误: 未找到 napcat.mjs"
+  echo "请确认已完整解压安装包后再试。"
+  exit 1
 fi
 
-# Run NapCat
-echo "Starting NapCat + QCE..."
-echo "Press Ctrl+C to stop"
-echo ""
+if ! command -v node >/dev/null 2>&1; then
+  echo "[NapCat + QCE] 错误: 未检测到 Node.js"
+  echo "请先安装 Node.js 18+ (https://nodejs.org)"
+  exit 1
+fi
+
+ORIGINAL_NODE_OPTIONS="${NODE_OPTIONS:-}"
+SELECTED_HEAP="${NAPCAT_NODE_HEAP:-}"
+
+if [ -z "$SELECTED_HEAP" ]; then
+  echo
+  echo "[NapCat + QCE] 请选择 Node.js 内存上限 (单位: MB)"
+  echo "  1) 自动 (使用 Node.js 默认值)"
+  echo "  2) 2048 MB - 适合小型导出 (<= 200k 消息)"
+  echo "  3) 4096 MB - 推荐常规导出 (<= 400k 消息)"
+  echo "  4) 6144 MB - 推荐中型导出 (~600k 消息)"
+  echo "  5) 8192 MB - 推荐大型导出 (~800k 消息)"
+  echo "  6) 自定义 (输入任意 MB 数值, 如 12288)"
+  echo
+  read -rp "请输入选项 [1-6] (默认 3): " MEM_CHOICE
+
+  case "${MEM_CHOICE:-3}" in
+    1) SELECTED_HEAP="" ;;
+    2) SELECTED_HEAP="2048" ;;
+    3) SELECTED_HEAP="4096" ;;
+    4) SELECTED_HEAP="6144" ;;
+    5) SELECTED_HEAP="8192" ;;
+    6)
+      read -rp "请输入自定义内存 (MB): " CUSTOM_HEAP
+      SELECTED_HEAP="${CUSTOM_HEAP}" ;;
+    *) SELECTED_HEAP="4096" ;;
+  esac
+fi
+
+case "${SELECTED_HEAP}" in
+  ""|auto|default|AUTO|DEFAULT)
+    echo
+    echo "[NapCat + QCE] 使用 Node.js 默认内存上限。"
+    NODE_OPTIONS="$ORIGINAL_NODE_OPTIONS"
+    ;;
+  *)
+    echo
+    echo "[NapCat + QCE] 使用 Node.js 内存上限: ${SELECTED_HEAP} MB"
+    if [ -n "$ORIGINAL_NODE_OPTIONS" ]; then
+      NODE_OPTIONS="--max-old-space-size=${SELECTED_HEAP} ${ORIGINAL_NODE_OPTIONS}"
+    else
+      NODE_OPTIONS="--max-old-space-size=${SELECTED_HEAP}"
+    fi
+    ;;
+esac
+
+export NODE_OPTIONS
+
+echo
+echo "[NapCat + QCE] 正在启动 NapCat..."
+echo "按 Ctrl+C 可随时停止。"
+echo
 
 node "$NAPCAT_MAIN_PATH"
+
+# 恢复原有 NODE_OPTIONS
+NODE_OPTIONS="$ORIGINAL_NODE_OPTIONS"
+export NODE_OPTIONS
 """
         launcher_path = f"{pack_dir}/launcher-user.sh"
         with open(launcher_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(launcher_script)
-        
-        # Make it executable
+
         import stat
         os.chmod(launcher_path, os.stat(launcher_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        print("[x] Created")
-        print()
+
+    print("[x] Created")
+    print()
     
     # Create README
     print("[10/12] Creating README...")

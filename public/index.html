@@ -180,7 +180,10 @@
                 访问 <a href="https://github.com/shuakami/qq-chat-exporter/releases/latest" target="_blank">项目 Releases 页面</a> 下载适用于您操作系统的压缩包。
             </div>
             <div class="sub-step">
-                解压后，在 Windows 上运行 <code>launcher-user.bat</code>，在 Linux/macOS 上运行 <code>./napcat-launcher.sh</code>。
+                解压后，在 Windows 上运行 <code>launcher-user.bat</code>，在 Linux/macOS 上运行 <code>./launcher-user.sh</code>。
+            </div>
+            <div class="sub-step">
+                启动脚本会提示选择 Node.js 内存上限（例如 2048/4096/6144/8192 MB）；也可以通过设置环境变量 <code>NAPCAT_NODE_HEAP</code>（单位 MB）跳过提示并直接使用指定的值。
             </div>
             <div class="sub-step">
                 程序启动后，控制台会显示一个二维码，请使用您的手机 QQ 扫码登录。
