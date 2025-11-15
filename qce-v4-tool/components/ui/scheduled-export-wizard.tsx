@@ -408,9 +408,9 @@ export function ScheduledExportWizard({
                 </div>
 
                 {/* 列表 */}
-                <div
+                <ScrollArea
                   ref={listRef}
-                  className="flex-1 overflow-y-auto space-y-1 border border-neutral-200 rounded-2xl p-2 bg-white/70"
+                  className="flex-1 border border-neutral-200 rounded-2xl p-2 bg-white/70"
                   onScroll={handleScroll}
                 >
                   {(currentChatType === 2 ? groupSearch : friendSearch).loading && getDisplayTargets().length === 0 && (
