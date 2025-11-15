@@ -380,4 +380,25 @@ export abstract class BaseExporter {
         
         return sortedMessages;
     }
+
+    // ====== [新增] 受保护工具：创建写流 ======
+    protected createWriteStream(filePath: string): import('fs').WriteStream {
+        this.ensureOutputDirectory();
+        return fs.createWriteStream(filePath, { encoding: this.options.encoding as BufferEncoding });
+    }
+
+    // ====== [新增] 受保护工具：内存监控与可选 GC ======
+    protected monitorMemory(hint: string, gc = false): void {
+        try {
+            const mu = process.memoryUsage?.();
+            const heapMB = mu?.heapUsed ? Math.round(mu.heapUsed / 1e6) : 0;
+            console.log(`[${this.format}Exporter] [Mem] ${hint} heapUsed≈${heapMB}MB`);
+            if (gc && typeof global.gc === 'function') {
+                const before = heapMB;
+                global.gc();
+                const after = Math.round(process.memoryUsage().heapUsed / 1e6);
+                console.log(`[${this.format}Exporter] [GC] ${hint} ${before}MB → ${after}MB`);
+            }
+        } catch {}
+    }
 }

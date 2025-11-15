@@ -137,6 +137,147 @@ export class JsonExporter extends BaseExporter {
     }
 
     /**
+     * [Override] 两阶段流式导出：避免内存累积
+     * 阶段1: 边解析边写NDJSON临时文件（逐行JSON）
+     * 阶段2: 流式读取NDJSON，合成最终JSON（带metadata、statistics）
+     */
+    override async export(messages: RawMessage[], chatInfo?: any): Promise<import('../../types/index.js').ExportResult> {
+        const startTime = Date.now();
+        const fs = await import('fs');
+        const path = await import('path');
+        const os = await import('os');
+
+        try {
+            this.updateProgress(0, messages.length, `开始JSON流式导出`);
+            this.ensureOutputDirectory();
+
+            // 过滤+排序
+            const validMessages = messages.filter(m => m);
+            const sortedMessages = this.sortMessagesByTimestamp(validMessages);
+            const filteredMessages = await this.applyPureImageFilter(sortedMessages);
+            const total = filteredMessages.length;
+
+            console.log(`[JsonExporter] ========== 流式导出开始 ==========`);
+            console.log(`[JsonExporter] 输入: ${messages.length} → 有效: ${total}`);
+            console.log(`[JsonExporter] 目标: ${this.options.outputPath}`);
+
+            // ========== 阶段1: 批量解析 → 写NDJSON ==========
+            const tmpFile = path.join(os.tmpdir(), `qce_${Date.now()}_${Math.random().toString(36).slice(2)}.ndjson`);
+            const writeStream = this.createWriteStream(tmpFile);
+            const statsAcc = new StatsAccumulator();
+            let resourceCount = 0;
+
+            console.log(`[JsonExporter] 阶段1: 解析并写入临时NDJSON → ${tmpFile}`);
+            this.monitorMemory('导出开始');
+
+            if (!this.core) {
+                throw new Error('[JsonExporter] 缺少NapCatCore实例，无法流式解析');
+            }
+
+            const parser = this.getMessageParser(this.core);
+            await (parser as any).parseMessagesStream(filteredMessages, {
+                batchSize: 20000,
+                onBatch: async (batch: any[], batchIndex: number, batchCount: number) => {
+                    console.log(`[JsonExporter] 处理批次 ${batchIndex + 1}/${batchCount}，${batch.length} 条消息`);
+                    for (const pm of batch) {
+                        const clean = this.convertParsedToClean(pm);
+                        statsAcc.consume(clean);
+                        // 统计资源
+                        const resArr = clean.content?.resources || [];
+                        resourceCount += resArr.length;
+                        // 写NDJSON：一条消息一行
+                        writeStream.write(JSON.stringify(clean) + '\n');
+                    }
+                    this.monitorMemory(`批次 ${batchIndex + 1}/${batchCount}`);
+                    this.updateProgress(
+                        (batchIndex + 1) * 20000,
+                        total,
+                        `解析批次 ${batchIndex + 1}/${batchCount}`
+                    );
+                }
+            });
+
+            await new Promise<void>((resolve, reject) => {
+                writeStream.end(() => resolve());
+                writeStream.on('error', reject);
+            });
+
+            console.log(`[JsonExporter] 阶段1完成，NDJSON已写入`);
+            this.monitorMemory('阶段1完成', true);
+
+            // ========== 阶段2: 流式读NDJSON → 合成JSON ==========
+            console.log(`[JsonExporter] 阶段2: 流式合成最终JSON`);
+            const finalStats = statsAcc.finalize();
+            const metadata = this.generateMetadata();
+            const formattedChatInfo = this.formatChatInfo(chatInfo);
+
+            const outStream = this.createWriteStream(this.options.outputPath);
+            const indent = this.jsonOptions.pretty ? '  ' : '';
+            const nl = this.jsonOptions.pretty ? '\n' : '';
+
+            // 写JSON开头
+            outStream.write(`{${nl}`);
+            outStream.write(`${indent}"metadata":${JSON.stringify(metadata)},${nl}`);
+            outStream.write(`${indent}"chatInfo":${JSON.stringify(formattedChatInfo)},${nl}`);
+            outStream.write(`${indent}"statistics":${JSON.stringify(finalStats)},${nl}`);
+            outStream.write(`${indent}"messages":[${nl}`);
+
+            // 流式读取NDJSON，逐行输出到messages数组
+            const readline = await import('readline');
+            const readStream = fs.createReadStream(tmpFile, { encoding: 'utf8' });
+            const rl = readline.createInterface({ input: readStream });
+
+            let isFirst = true;
+            for await (const line of rl) {
+                if (!line.trim()) continue;
+                if (!isFirst) outStream.write(`,${nl}`);
+                if (this.jsonOptions.pretty) {
+                    outStream.write(`${indent}${indent}${line}`);
+                } else {
+                    outStream.write(line);
+                }
+                isFirst = false;
+            }
+
+            // 写JSON结尾
+            outStream.write(`${nl}${indent}]${nl}`);
+            if (this.jsonOptions.includeMetadata) {
+                const exportOptions = this.generateExportOptions();
+                outStream.write(`,${nl}${indent}"exportOptions":${JSON.stringify(exportOptions)}${nl}`);
+            }
+            outStream.write(`}${nl}`);
+
+            await new Promise<void>((resolve, reject) => {
+                outStream.end(() => resolve());
+                outStream.on('error', reject);
+            });
+
+            // 清理临时文件
+            try {
+                fs.unlinkSync(tmpFile);
+            } catch {}
+
+            console.log(`[JsonExporter] ========== 流式导出完成 ==========`);
+            this.monitorMemory('最终完成', true);
+            this.updateProgress(total, total, '导出完成');
+
+            return {
+                taskId: '',
+                format: this.format,
+                filePath: this.options.outputPath,
+                fileSize: this.getFileSize(),
+                messageCount: total,
+                resourceCount,
+                exportTime: Date.now() - startTime,
+                completedAt: new Date()
+            };
+        } catch (error) {
+            console.error(`[JsonExporter] 流式导出失败:`, error);
+            throw this.wrapError(error, 'JsonExport');
+        }
+    }
+
+    /**
      * 生成JSON内容 - 使用与TXT导出器相同的双重解析机制
      */
     protected async generateContent(
@@ -239,7 +380,15 @@ export class JsonExporter extends BaseExporter {
      */
     private convertParsedMessagesToCleanMessages(parsedMessages: ParsedMessage[]): CleanMessage[] {
         return parsedMessages.map((parsedMsg: ParsedMessage): CleanMessage => {
-            return {
+            return this.convertParsedToClean(parsedMsg);
+        });
+    }
+
+    /**
+     * 将单个ParsedMessage转换为CleanMessage（流式导出使用）
+     */
+    private convertParsedToClean(parsedMsg: ParsedMessage): CleanMessage {
+        return {
             id: parsedMsg.messageId,
             seq: parsedMsg.messageSeq,
             timestamp: parsedMsg.timestamp.getTime(),
@@ -277,7 +426,6 @@ export class JsonExporter extends BaseExporter {
             recalled: parsedMsg.isRecalled,
             system: parsedMsg.isSystemMessage
         };
-        });
     }
 
     /**
@@ -633,6 +781,73 @@ export class JsonExporter extends BaseExporter {
                 }
             },
             required: ['metadata', 'chatInfo', 'messages']
+        };
+    }
+}
+
+// ========== [新增] 统计累加器：在线累积统计信息，结构与原版 generateStatistics 对齐 ==========
+class StatsAccumulator {
+    private total = 0;
+    private startTs: number | null = null;
+    private endTs: number | null = null;
+    private byType: Record<string, number> = {};
+    private bySender: Map<string, { uid: string; name?: string; count: number }> = new Map();
+    private resTotal = 0;
+    private resByType: Record<string, number> = {};
+    private resTotalSize = 0;
+
+    consume(m: CleanMessage): void {
+        this.total++;
+        if (typeof m.timestamp === 'number') {
+            if (this.startTs === null || m.timestamp < this.startTs) this.startTs = m.timestamp;
+            if (this.endTs === null || m.timestamp > this.endTs) this.endTs = m.timestamp;
+        }
+        const t = m.type || 'unknown';
+        this.byType[t] = (this.byType[t] || 0) + 1;
+
+        const senderKey = m.sender?.uid || 'unknown';
+        const prev = this.bySender.get(senderKey) || { uid: senderKey, name: m.sender?.name, count: 0 };
+        prev.count++;
+        if (!prev.name && m.sender?.name) prev.name = m.sender.name;
+        this.bySender.set(senderKey, prev);
+
+        const resArr = m.content?.resources || [];
+        for (const r of resArr) {
+            this.resTotal++;
+            const rt = r.type || 'file';
+            this.resByType[rt] = (this.resByType[rt] || 0) + 1;
+            if (typeof r.size === 'number') this.resTotalSize += r.size;
+        }
+    }
+
+    finalize() {
+        const durationDays = (this.startTs !== null && this.endTs !== null)
+            ? Math.max(1, Math.round((this.endTs - this.startTs) / (24 * 3600 * 1000)))
+            : 0;
+
+        const senders = Array.from(this.bySender.values())
+            .map(s => ({
+                uid: s.uid,
+                name: s.name,
+                messageCount: s.count,
+                percentage: this.total > 0 ? Math.round((s.count / this.total) * 10000) / 100 : 0
+            }))
+            .sort((a, b) => b.messageCount - a.messageCount);
+
+        return {
+            totalMessages: this.total,
+            timeRange: {
+                start: this.startTs ? new Date(this.startTs).toISOString() : '',
+                end: this.endTs ? new Date(this.endTs).toISOString() : '',
+                durationDays
+            },
+            messageTypes: this.byType,
+            senders,
+            resources: {
+                total: this.resTotal,
+                byType: this.resByType,
+                totalSize: this.resTotalSize
+            }
         };
     }
 }

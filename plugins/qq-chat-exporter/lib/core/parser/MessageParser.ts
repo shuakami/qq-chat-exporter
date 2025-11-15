@@ -78,6 +78,55 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
   });
 }
 
+/** 轻量 LRU 缓存实现 */
+class LRUCache<K, V> {
+  private map = new Map<K, V>();
+  constructor(private capacity: number) {
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      this.capacity = 1000;
+    }
+  }
+  get(key: K): V | undefined {
+    const v = this.map.get(key);
+    if (v !== undefined) {
+      // 最近使用：删除再插入到尾部
+      this.map.delete(key);
+      this.map.set(key, v);
+    }
+    return v;
+  }
+  set(key: K, val: V): void {
+    if (this.map.has(key)) this.map.delete(key);
+    this.map.set(key, val);
+    if (this.map.size > this.capacity) {
+      // 淘汰最旧
+      const it = this.map.keys().next();
+      if (!it.done) this.map.delete(it.value);
+    }
+  }
+  has(key: K): boolean {
+    return this.map.has(key);
+  }
+  clear(): void {
+    this.map.clear();
+  }
+  size(): number {
+    return this.map.size;
+  }
+  entries(): IterableIterator<[K, V]> {
+    return this.map.entries();
+  }
+}
+
+/** 被引用消息的轻量索引，尽量减少内存：只保留解析引用所需的最小字段 */
+type MsgRef = {
+  msgId: string;
+  msgSeq?: string;
+  clientSeq?: string;
+  // 为提取引用预览而保留的最小 elements 信息（不保留 records / 原始大字段）
+  elements?: any[];
+};
+
 /** 高性能字符串分块构建器，避免 O(n^2) 级别的拼接 */
 class ChunkedBuilder {
   private chunks: string[] = [];
@@ -314,6 +363,15 @@ export interface MessageParserConfig {
   stopOnAbort: boolean;                     // 配合 signal
   signal?: { aborted: boolean } | AbortSignal; // 可选：外部中止
   onProgress?: (processed: number, total: number) => void; // 可选：进度回调
+  
+  /** 新增：流式/批处理 & 内存控制 */
+  batchSize?: number;                       // 流式/分批解析的批大小（建议 10k~50k）
+  messageIndexCapacity?: number;            // 引用索引（messageMap）的最大容量（LRU）
+  onBatch?: (batch: ParsedMessage[], batchIndex: number, batchCount: number) => Promise<void> | void; // 批次回调（流式写出）
+  gcBetweenBatches?: boolean;               // 是否在批次间尝试 GC（需要 node 启动 --expose-gc）
+  gcMinIntervalMs?: number;                 // 两次 GC 的最小间隔，毫秒
+  memorySoftLimitMB?: number;               // 软内存上限（MB），超过则记录警告日志
+  crossBatchReference?: 'window' | 'strict'; // 跨批引用策略：window（LRU窗口） | strict（尽力回溯）
 }
 
 /** 默认解析器配置（含新增默认） */
@@ -337,7 +395,16 @@ const DEFAULT_PARSER_CONFIG: MessageParserConfig = {
   progressEvery: 100,
   yieldEvery: 1000,
   suppressFallbackWarn: true,
-  stopOnAbort: true
+  stopOnAbort: true,
+  
+  // 流式/批处理默认值
+  batchSize: 20000,
+  messageIndexCapacity: 50000,
+  onBatch: undefined,
+  gcBetweenBatches: true,
+  gcMinIntervalMs: 8000,
+  memorySoftLimitMB: 1400,
+  crossBatchReference: 'window'
 };
 
 /* ---------------------------------- 主解析器 ---------------------------------- */
@@ -353,8 +420,11 @@ export class MessageParser {
   /** 表情映射缓存 */
   private faceMap: Map<string, string> = new Map();
 
-  /** 全局消息映射，用于查找被引用的消息 */
-  private messageMap: Map<string, RawMessage> = new Map();
+  /** 全局消息映射（滑动窗口 LRU），用于引用解析 */
+  private messageMap: LRUCache<string, MsgRef>;
+  
+  /** 上次 GC 时间戳 */
+  private lastGcTs = 0;
 
   /** 并发度（内部自适应，可被配置覆盖） */
   private readonly concurrency: number;
@@ -366,6 +436,137 @@ export class MessageParser {
     // 仅需转换器
     this.oneBotMsgApi = new OneBotMsgApi(null as any, core);
     this.initializeFaceMap();
+    
+    // 初始化 LRU
+    const cap = this.config.messageIndexCapacity ?? 50000;
+    this.messageMap = new LRUCache<string, MsgRef>(cap);
+  }
+
+  // ========== [新增] 内部：将消息批量索引到 LRU ==========
+  private indexBatch(messages: RawMessage[]): void {
+    for (const msg of messages) {
+      if (!msg || !msg.msgId) continue;
+      this.messageMap.set(msg.msgId, {
+        msgId: msg.msgId,
+        msgSeq: msg.msgSeq,
+        clientSeq: (msg as any).clientSeq,
+        elements: Array.isArray(msg.elements) ? msg.elements.slice(0, 16) : undefined // 控制体积
+      });
+      // 也索引 records（引用常出现在这里）
+      if (Array.isArray(msg.records)) {
+        for (const r of msg.records) {
+          if (r?.msgId) {
+            this.messageMap.set(r.msgId, {
+              msgId: r.msgId,
+              msgSeq: r.msgSeq,
+              clientSeq: (r as any).clientSeq,
+              elements: Array.isArray(r.elements) ? r.elements.slice(0, 16) : undefined
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // ========== [新增] 内部：尝试触发 GC 与内存预警 ==========
+  private maybeGc(hint: string): void {
+    if (!this.config.gcBetweenBatches) return;
+    const now = Date.now();
+    if (now - this.lastGcTs < (this.config.gcMinIntervalMs ?? 8000)) return;
+
+    try {
+      const mu = process.memoryUsage?.();
+      const heapMB = mu?.heapUsed ? Math.round(mu.heapUsed / 1e6) : 0;
+      if (this.config.memorySoftLimitMB && heapMB > this.config.memorySoftLimitMB) {
+        console.warn(`[MessageParser] heapUsed=${heapMB}MB 超过软上限 ${this.config.memorySoftLimitMB}MB（${hint}）`);
+      }
+      if (typeof global.gc === 'function') {
+        const before = heapMB;
+        global.gc();
+        const after = Math.round(process.memoryUsage().heapUsed / 1e6);
+        console.log(`[MessageParser] GC(${hint}) -> ${before}MB → ${after}MB`);
+      }
+    } catch {
+      // 忽略：未开启 --expose-gc
+    } finally {
+      this.lastGcTs = now;
+    }
+  }
+
+  // ========== [新增] 内部：解析单批（完全沿用原有并发/OB 回退/统计等逻辑） ==========
+  private async parseBatch(messages: RawMessage[], total: number, processed0: number): Promise<ParsedMessage[]> {
+    // 将当前批次预索引到 LRU（滑窗 + records）
+    this.indexBatch(messages);
+
+    const preferNative =
+      this.config.obMode === 'native-only' || this.config.obMode === 'prefer-native';
+    const obOnly = this.config.obMode === 'ob-only';
+
+    let processed = processed0;
+
+    const results = await mapLimit(messages, this.concurrency, async (message, idx) => {
+      try {
+        if (this.config.signal?.aborted && this.config.stopOnAbort) return null;
+        if (!message || !message.msgId) return null;
+        if (!this.config.includeSystemMessages && this.isSystemMessage(message)) return null;
+
+        const t0 = Date.now();
+        let parsed: ParsedMessage | null = null;
+
+        if (preferNative) {
+          parsed = await this.parseMessage(message);
+        } else {
+          const obPromise = this.oneBotMsgApi.parseMessageV2(
+            message,
+            this.config.parseMultiForward,
+            !this.config.includeResourceLinks,
+            this.config.quickReply
+          );
+          const ob11Result = await withTimeout(obPromise, this.config.obParseTimeoutMs);
+
+          if (ob11Result && ob11Result.arrayMsg) {
+            parsed = this.convertOB11MessageToParsedMessage(ob11Result.arrayMsg, message, Date.now() - t0);
+          } else if (obOnly) {
+            if (!this.config.suppressFallbackWarn) {
+              this.log(`OneBot解析失败/超时（OB-only），使用 basic fallback: ${message.msgId}`, 'warn');
+            }
+            parsed = this.createFallbackMessage(message);
+          } else {
+            if (!this.config.suppressFallbackWarn) {
+              this.log(`OneBot解析失败/超时，回退到本地解析: ${message.msgId}`, 'warn');
+            }
+            parsed = await this.parseMessage(message);
+          }
+        }
+
+        // 进度
+        processed++;
+        if (this.config.onProgress) {
+          this.config.onProgress(processed, total);
+        } else if (processed % this.config.progressEvery === 0) {
+          const pct = Math.round((processed / total) * 100);
+          const heapMB = Math.round((process.memoryUsage?.().heapUsed || 0) / 1e6);
+          this.log(`进度 ${pct}% (${processed}/${total}) | heapUsed≈${heapMB}MB`);
+        }
+
+        // 周期性让出事件循环
+        if (this.config.yieldEvery > 0 && (idx + 1) % this.config.yieldEvery === 0) {
+          await yieldToEventLoop();
+        }
+        return parsed;
+      } catch (err) {
+        this.log(`解析消息失败 (${message?.msgId || 'unknown'}): ${err}`, 'error');
+        return message ? this.createErrorMessage(message, err) : null;
+      }
+    });
+
+    // 压紧输出
+    const out: ParsedMessage[] = [];
+    for (let i = 0; i < results.length; i++) {
+      const v = results[i];
+      if (v) out.push(v);
+    }
+    return out;
   }
 
   /**
@@ -378,101 +579,91 @@ export class MessageParser {
     const start = Date.now();
     let processed = 0;
 
-    this.log(`开始使用解析器处理 ${total} 条消息... 并发=${this.concurrency} 模式=${this.config.obMode}`);
+    this.log(`开始解析 ${total} 条消息（分批流式，batchSize=${this.config.batchSize}, concurrency=${this.concurrency}）`);
 
-    // 先建立全局消息映射
+    const batchSize = Math.max(1000, this.config.batchSize ?? 20000);
+    const batches = Math.ceil(total / batchSize);
+    const all: ParsedMessage[] = [];
+
     this.messageMap.clear();
-    for (const msg of messages) {
-      if (msg && msg.msgId) {
-        this.messageMap.set(msg.msgId, msg);
-        // 同时将 records 数组中的消息也添加到映射中
-        if (msg.records && msg.records.length > 0) {
-          for (const record of msg.records) {
-            if (record && record.msgId) {
-              this.messageMap.set(record.msgId, record);
-            }
-          }
-        }
-      }
+
+    for (let bi = 0; bi < batches; bi++) {
+      const begin = bi * batchSize;
+      const end = Math.min(begin + batchSize, total);
+      const slice = messages.slice(begin, end);
+
+      const parsed = await this.parseBatch(slice, total, processed);
+      processed += slice.length;
+
+      // 如果外部未订阅批次回调，保留结果（保持原有返回行为）
+      all.push(...parsed);
+
+      // 批次进度日志
+      const pct = Math.round((processed / total) * 100);
+      const heapMB = Math.round((process.memoryUsage?.().heapUsed || 0) / 1e6);
+      this.log(`批次 ${bi + 1}/${batches} 完成，累计 ${processed}/${total}（${pct}%），heapUsed≈${heapMB}MB`);
+
+      // 尝试 GC
+      this.maybeGc(`batch#${bi + 1}`);
+
+      // 让出事件循环（保证 UI/事件响应）
+      await yieldToEventLoop();
     }
 
-    const preferNative =
-      this.config.obMode === 'native-only' || this.config.obMode === 'prefer-native';
-    const obOnly = this.config.obMode === 'ob-only';
-
-    const results = await mapLimit(messages, this.concurrency, async (message, idx) => {
-      try {
-        if (this.config.signal?.aborted && this.config.stopOnAbort) return null;
-
-        if (!message || !message.msgId) return null;
-        if (!this.config.includeSystemMessages && this.isSystemMessage(message)) return null;
-
-        const t0 = Date.now();
-        let parsed: ParsedMessage | null = null;
-
-        if (preferNative) {
-          // 原生优先：完全本地解析，不走 OneBot
-          parsed = await this.parseMessage(message);
-        } else {
-          // 先尝试 OneBot（带超时 + quick_reply）
-          const obPromise = this.oneBotMsgApi.parseMessageV2(
-            message,
-            this.config.parseMultiForward,
-            !this.config.includeResourceLinks,
-            this.config.quickReply // 快速模式，避免重型引用抓取
-          );
-          const ob11Result = await withTimeout(obPromise, this.config.obParseTimeoutMs);
-
-          if (ob11Result && ob11Result.arrayMsg) {
-            parsed = this.convertOB11MessageToParsedMessage(ob11Result.arrayMsg, message, Date.now() - t0);
-          } else if (obOnly) {
-            // OB-only 模式：只要 OB 失败就走最轻的 fallback（不再卡死）
-            if (!this.config.suppressFallbackWarn) {
-              this.log(`OneBot解析失败/超时（OB-only），使用 basic fallback: ${message.msgId}`, 'warn');
-            }
-            parsed = this.createFallbackMessage(message);
-          } else {
-            // prefer-ob 但失败 => 原生回退
-            if (!this.config.suppressFallbackWarn) {
-              this.log(`OneBot解析失败/超时，回退到本地解析: ${message.msgId}`, 'warn');
-            }
-            parsed = await this.parseMessage(message);
-          }
-        }
-
-        // 进度（按配置节流）
-        processed++;
-        if (this.config.onProgress) {
-          this.config.onProgress(processed, total);
-        } else if (processed % this.config.progressEvery === 0) {
-          this.log(`已解析 ${processed}/${total} 条消息`);
-        }
-
-        // 周期性让出事件循环
-        if (this.config.yieldEvery > 0 && (idx + 1) % this.config.yieldEvery === 0) {
-          await yieldToEventLoop();
-        }
-
-        return parsed;
-      } catch (err) {
-        this.log(`解析消息失败 (${message?.msgId || 'unknown'}): ${err}`, 'error');
-        return message ? this.createErrorMessage(message, err) : null;
-      }
-    });
-
-    // 压紧输出（保持原有顺序，剔除 null）
-    const out: ParsedMessage[] = [];
-    for (let i = 0; i < results.length; i++) {
-      const v = results[i];
-      if (v) out.push(v);
-    }
-
-    // 清理全局映射
+    // 清理 LRU
     this.messageMap.clear();
 
     const duration = Date.now() - start;
-    this.log(`消息解析完成，共 ${out.length} 条，耗时 ${duration}ms`);
-    return out;
+    this.log(`消息解析完成，共 ${all.length} 条，耗时 ${duration}ms`);
+    return all;
+  }
+
+  // ========== [新增] 真正的"流式解析"入口：不累计所有结果，按批次回调/写出 ==========
+  /**
+   * 流式分批解析（推荐大数据量时由导出器调用）
+   * - 保持对外 API 兼容：这是新增方法，不改变 parseMessages 签名与语义
+   */
+  async parseMessagesStream(
+    messages: RawMessage[],
+    opts?: {
+      batchSize?: number;
+      onBatch?: (batch: ParsedMessage[], batchIndex: number, batchCount: number) => Promise<void> | void;
+    }
+  ): Promise<{ total: number; batches: number; yielded: number; elapsedMs: number }> {
+    const total = messages.length;
+    const batchSize = Math.max(1000, opts?.batchSize ?? this.config.batchSize ?? 20000);
+    const batches = Math.ceil(total / batchSize);
+
+    const start = Date.now();
+    let yielded = 0;
+
+    this.messageMap.clear();
+    this.log(`流式解析启动：total=${total}, batchSize=${batchSize}, batches=${batches}`);
+
+    for (let bi = 0; bi < batches; bi++) {
+      const s = bi * batchSize;
+      const e = Math.min(s + batchSize, total);
+      const slice = messages.slice(s, e);
+
+      const parsed = await this.parseBatch(slice, total, s);
+      yielded += parsed.length;
+
+      // 交给外部写出（JSON/HTML 导出器）
+      const cb = opts?.onBatch ?? this.config.onBatch;
+      if (cb) await cb(parsed, bi, batches);
+
+      // 批间 GC
+      this.maybeGc(`stream-batch#${bi + 1}`);
+
+      await yieldToEventLoop();
+    }
+
+    // 清理索引
+    this.messageMap.clear();
+
+    const elapsedMs = Date.now() - start;
+    this.log(`流式解析完成：yielded=${yielded}, batches=${batches}, 耗时=${elapsedMs}ms`);
+    return { total, batches, yielded, elapsedMs };
   }
 
   /**
