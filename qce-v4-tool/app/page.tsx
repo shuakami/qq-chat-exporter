@@ -1816,6 +1816,16 @@ export default function QCEDashboard() {
                         ? `https://p.qlogo.cn/gh/${file.chatId}/${file.chatId}/640/`
                         : `https://q1.qlogo.cn/g?b=qq&nk=${file.chatId}&s=640`;
                       
+                      // 提取文件格式
+                      const getFileFormat = (fileName: string) => {
+                        const ext = fileName.toLowerCase().split('.').pop();
+                        if (ext === 'html' || ext === 'htm') return { type: 'html', label: 'HTML', color: 'bg-blue-100 text-blue-700 border-blue-200' };
+                        if (ext === 'json') return { type: 'json', label: 'JSON', color: 'bg-green-100 text-green-700 border-green-200' };
+                        if (ext === 'zip') return { type: 'zip', label: 'ZIP', color: 'bg-purple-100 text-purple-700 border-purple-200' };
+                        return { type: 'unknown', label: ext?.toUpperCase() || 'FILE', color: 'bg-neutral-100 text-neutral-700 border-neutral-200' };
+                      };
+                      const fileFormat = getFileFormat(file.fileName);
+                      
                       return (
                         <motion.div
                           key={file.fileName}
@@ -1849,6 +1859,9 @@ export default function QCEDashboard() {
                                 <h3 className="truncate font-semibold text-neutral-900 text-lg">
                                   {file.displayName || file.sessionName || `${file.chatType === 'group' ? '群组' : '好友'} ${file.chatId}`}
                                 </h3>
+                                <Badge variant="outline" className={`rounded-full text-xs border ${fileFormat.color}`}>
+                                  {fileFormat.label}
+                                </Badge>
                                 {file.isScheduled && (
                                   <Badge variant="outline" className="rounded-full text-neutral-700 border-neutral-300 bg-neutral-50 text-xs">
                                     定时
@@ -2359,12 +2372,48 @@ export default function QCEDashboard() {
       <Dialog open={isFilePathModalOpen} onOpenChange={setIsFilePathModalOpen}>
         <DialogContent 
           overlayClassName="bg-white/60 backdrop-blur-xl"
-          className="w-full h-full max-w-full max-h-full p-0"
+          className="w-full h-full max-w-full max-h-full p-0 m-0"
         >
-          <DialogHeader className="px-6 py-4 border-b">
+          <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 px-3 rounded-full bg-white/80 backdrop-blur-sm hover:bg-white border-neutral-200"
+              onClick={() => {
+                if (selectedFile) {
+                  const link = document.createElement('a');
+                  link.href = `/api/exports/files/${selectedFile.fileName}`;
+                  link.download = selectedFile.fileName;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }
+              }}
+            >
+              <Download className="w-4 h-4 mr-1" />
+              <span className="text-xs">下载</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 w-9 p-0 rounded-full bg-white/80 backdrop-blur-sm hover:bg-white border-neutral-200"
+              onClick={() => setIsFilePathModalOpen(false)}
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+          
+          <DialogHeader className="px-6 py-4 border-b bg-white">
             <DialogTitle className="flex items-center gap-3">
               <FileText className="w-5 h-5" />
               <span>{selectedFile?.sessionName || "聊天记录"}</span>
+              {selectedFile && (
+                <Badge variant="outline" className="text-xs">
+                  {selectedFile.fileName.toLowerCase().endsWith('.html') ? 'HTML' : 
+                   selectedFile.fileName.toLowerCase().endsWith('.json') ? 'JSON' : 
+                   selectedFile.fileName.toLowerCase().endsWith('.zip') ? 'ZIP' : 'FILE'}
+                </Badge>
+              )}
             </DialogTitle>
           </DialogHeader>
           
@@ -2372,7 +2421,7 @@ export default function QCEDashboard() {
             {selectedFile && (
               <iframe
                 src={`/api/exports/files/${selectedFile.fileName}/preview`}
-                className="w-full h-[calc(100vh-120px)]"
+                className="w-full h-[calc(100vh-120px)] border-0"
                 title={`预览 ${selectedFile.sessionName}`}
               />
             )}

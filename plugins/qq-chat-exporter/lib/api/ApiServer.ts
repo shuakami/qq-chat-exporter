@@ -410,6 +410,59 @@ export class QQChatExporterApiServer {
     }
 
     /**
+     * 格式化JSON数据为带颜色的HTML字符串
+     */
+    private formatJsonForDisplay(obj: any, indent: number = 0): string {
+        const spaces = '  '.repeat(indent);
+        const nextSpaces = '  '.repeat(indent + 1);
+
+        if (obj === null) {
+            return `<span class="json-null">null</span>`;
+        }
+        
+        if (typeof obj === 'string') {
+            return `<span class="json-string">"${this.escapeHtml(obj)}"</span>`;
+        }
+        
+        if (typeof obj === 'number') {
+            return `<span class="json-number">${obj}</span>`;
+        }
+        
+        if (typeof obj === 'boolean') {
+            return `<span class="json-boolean">${obj}</span>`;
+        }
+        
+        if (Array.isArray(obj)) {
+            if (obj.length === 0) return '[]';
+            const items = obj.map(item => `${nextSpaces}${this.formatJsonForDisplay(item, indent + 1)}`).join(',\n');
+            return `[\n${items}\n${spaces}]`;
+        }
+        
+        if (typeof obj === 'object') {
+            const keys = Object.keys(obj);
+            if (keys.length === 0) return '{}';
+            const items = keys.map(key => {
+                const value = this.formatJsonForDisplay(obj[key], indent + 1);
+                return `${nextSpaces}<span class="json-key">"${this.escapeHtml(key)}"</span>: ${value}`;
+            }).join(',\n');
+            return `{\n${items}\n${spaces}}`;
+        }
+        
+        return String(obj);
+    }
+
+    /**
+     * HTML转义
+     */
+    private escapeHtml(text: string): string {
+        return text.replace(/&/g, '&amp;')
+                   .replace(/</g, '&lt;')
+                   .replace(/>/g, '&gt;')
+                   .replace(/"/g, '&quot;')
+                   .replace(/'/g, '&#39;');
+    }
+
+    /**
      * 配置路由
      */
     private setupRoutes(): void {
@@ -1518,7 +1571,7 @@ export class QQChatExporterApiServer {
             }
         });
 
-        // HTML文件预览接口（用于iframe内嵌显示）
+        // HTML/JSON文件预览接口（用于iframe内嵌显示）
         this.app.get('/api/exports/files/:fileName/preview', (req, res) => {
             try {
                 const { fileName } = req.params;
@@ -1540,14 +1593,65 @@ export class QQChatExporterApiServer {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, `文件不存在: ${fileName}`, 'FILE_NOT_FOUND');
                 }
                 
-                // 设置适当的响应头（无缓存）
-                res.setHeader('Content-Type', 'text/html; charset=utf-8');
-                res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                // 检查文件类型
+                const ext = path.extname(fileName).toLowerCase();
                 
-                // 直接读取文件内容并返回
-                const htmlContent = fs.readFileSync(path.resolve(filePath), 'utf8');
-                res.send(htmlContent);
+                if (ext === '.json') {
+                    // JSON文件 - 使用格式化预览
+                    const jsonContent = fs.readFileSync(path.resolve(filePath), 'utf8');
+                    let jsonData: any;
+                    try {
+                        jsonData = JSON.parse(jsonContent);
+                    } catch (e) {
+                        jsonData = { error: '无法解析JSON', content: jsonContent };
+                    }
+                    
+                    const htmlTemplate = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON 预览 - ${fileName}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+            background: #ffffff;
+            padding: 20px;
+            line-height: 1.6;
+            color: #1d1d1f;
+        }
+        pre {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .json-key { color: #881391; font-weight: 500; }
+        .json-string { color: #0e5c99; }
+        .json-number { color: #1c00cf; }
+        .json-boolean { color: #0d22aa; font-weight: 500; }
+        .json-null { color: #808080; font-style: italic; }
+    </style>
+</head>
+<body>
+    <pre>${this.formatJsonForDisplay(jsonData)}</pre>
+</body>
+</html>`;
+                    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+                    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                    res.send(htmlTemplate);
+                } else {
+                    // HTML或其他文件 - 直接返回
+                    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+                    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                    
+                    const htmlContent = fs.readFileSync(path.resolve(filePath), 'utf8');
+                    res.send(htmlContent);
+                }
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }
@@ -2778,7 +2882,7 @@ export class QQChatExporterApiServer {
         } catch (error) {
             console.warn('[ApiServer] 无法读取导出文件内容:', error);
         }
-n {
+        return {
             fileName,
             filePath,
             relativePath: isScheduled ? `/scheduled-downloads/${fileName}` : `/downloads/${fileName}`,
@@ -2867,7 +2971,7 @@ n {
             
             const timeRange = data?.statistics?.timeRange;
             if (timeRange?.start && timeRange?.end) {
-                info.timeRange = ${timeRange.start} ~ ;
+                info.timeRange = `${timeRange.start} ~ ${timeRange.end}`;
             }
             
             if (Array.isArray(data?.messages) && data.messages.length > 0) {

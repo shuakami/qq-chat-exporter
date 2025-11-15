@@ -12,6 +12,7 @@ export interface ExportFile {
   exportTime: string;
   isScheduled?: boolean;
   sessionName?: string;
+  displayName?: string;
   messageCount?: number;
   avatarUrl?: string;
   description?: string;
