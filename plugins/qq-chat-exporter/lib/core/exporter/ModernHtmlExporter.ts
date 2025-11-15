@@ -145,7 +145,6 @@ ${this.generateScripts()}
     ${this.generateToolbar()}
 
     <div class="chat-layout">
-        ${this.generateDateSidebar()}
         <div class="chat-main">
             <!-- Hero Section -->
 ${this.generateHeader(chatInfo, { totalMessages: '--' }, '--')}
@@ -423,8 +422,8 @@ ${this.generateFooter()}
             --border-color: rgba(0, 0, 0, 0.08);
             --shadow: rgba(0, 0, 0, 0.05);
             --bubble-other: #f2f2f7;
-            --bubble-self: #1d1d1f;
-            --bubble-self-text: #ffffff;
+            --bubble-self: #d1e9ff;
+            --bubble-self-text: #1d1d1f;
             --at-mention-bg: rgba(29, 29, 31, 0.1);
             --at-mention-text: #1d1d1f;
             --reply-bg: rgba(29, 29, 31, 0.05);
@@ -444,8 +443,8 @@ ${this.generateFooter()}
             --border-color: rgba(255, 255, 255, 0.12);
             --shadow: rgba(0, 0, 0, 0.3);
             --bubble-other: #1c1c1e;
-            --bubble-self: #f5f5f7;
-            --bubble-self-text: #000000;
+            --bubble-self: #2d5a7b;
+            --bubble-self-text: #e3f2fd;
             --at-mention-bg: rgba(245, 245, 247, 0.15);
             --at-mention-text: #f5f5f7;
             --reply-bg: rgba(255, 255, 255, 0.08);
@@ -493,58 +492,177 @@ ${this.generateFooter()}
             align-items: center;
         }
 
-        .toolbar-zoom {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 10px;
-            border-radius: 12px;
-            background: rgba(0, 0, 0, 0.04);
+        
+        /* 时间范围选择胶囊 */
+        .time-range-container {
+            position: relative;
         }
 
-        [data-theme="dark"] .toolbar-zoom {
+        .time-range-btn {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.04);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        [data-theme="dark"] .time-range-btn {
             background: rgba(255, 255, 255, 0.08);
         }
 
-        .toolbar-zoom input[type="range"] {
-            width: 120px;
-            accent-color: #1d1d1f;
+        .time-range-btn:hover {
+            background: rgba(0, 0, 0, 0.08);
         }
 
-        [data-theme="dark"] .toolbar-zoom input[type="range"] {
-            accent-color: #f5f5f7;
-        }
-
-        .zoom-btn {
-            border: none;
-            background: transparent;
-            padding: 4px;
-            border-radius: 8px;
-            cursor: pointer;
-            color: var(--text-primary);
-            transition: background 0.2s;
-        }
-
-        .zoom-btn:hover {
-            background: rgba(0, 0, 0, 0.06);
-        }
-
-        [data-theme="dark"] .zoom-btn:hover {
+        [data-theme="dark"] .time-range-btn:hover {
             background: rgba(255, 255, 255, 0.12);
         }
 
-        .zoom-btn i {
+        .time-range-btn svg {
             width: 16px !important;
             height: 16px !important;
+            stroke-width: 2 !important;
         }
 
-        .zoom-value {
+        .time-range-dropdown {
+            position: absolute;
+            bottom: calc(100% + 12px);
+            right: 0;
+            min-width: 240px;
+            padding: 12px;
+            border-radius: 14px;
+            background: rgba(249, 249, 249, 0.88);
+            backdrop-filter: saturate(180%) blur(20px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12),
+                        0 8px 40px rgba(0, 0, 0, 0.08),
+                        inset 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+            opacity: 0;
+            transform: translateY(8px);
+            pointer-events: none;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1001;
+        }
+
+        [data-theme="dark"] .time-range-dropdown {
+            background: rgba(44, 44, 46, 0.88);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4),
+                        0 8px 40px rgba(0, 0, 0, 0.3),
+                        inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+        }
+
+        .time-range-dropdown.active {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+
+        .time-range-inputs {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .time-range-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .time-range-input-group label {
             font-size: 12px;
             color: var(--text-secondary);
-            min-width: 48px;
-            text-align: right;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
-        
+
+        .time-range-input-group input {
+            padding: 6px 10px;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            border-radius: 8px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        [data-theme="dark"] .time-range-input-group input {
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .time-range-input-group input:focus {
+            outline: none;
+            border-color: #1d1d1f;
+            box-shadow: 0 0 0 3px rgba(29, 29, 31, 0.1);
+        }
+
+        [data-theme="dark"] .time-range-input-group input:focus {
+            border-color: #f5f5f7;
+            box-shadow: 0 0 0 3px rgba(245, 245, 247, 0.1);
+        }
+
+        .time-range-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(0, 0, 0, 0.08);
+        }
+
+        [data-theme="dark"] .time-range-actions {
+            border-top-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .time-range-actions button {
+            flex: 1;
+            padding: 6px 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .time-range-actions .apply-btn {
+            background: #1d1d1f;
+            color: #ffffff;
+        }
+
+        [data-theme="dark"] .time-range-actions .apply-btn {
+            background: #f5f5f7;
+            color: #000000;
+        }
+
+        .time-range-actions .apply-btn:hover {
+            opacity: 0.8;
+        }
+
+        .time-range-actions .clear-btn {
+            background: rgba(0, 0, 0, 0.06);
+            color: var(--text-primary);
+        }
+
+        [data-theme="dark"] .time-range-actions .clear-btn {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .time-range-actions .clear-btn:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        [data-theme="dark"] .time-range-actions .clear-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
         /* 分隔线 */
         .toolbar-separator {
             width: 1px;
@@ -861,133 +979,10 @@ ${this.generateFooter()}
             max-width: 1280px;
             margin: 0 auto;
             padding: 0 48px 120px;
-            display: grid;
-            grid-template-columns: 260px 1fr;
-            gap: 32px;
         }
 
         .chat-main {
             min-width: 0;
-        }
-
-        .date-sidebar {
-            position: sticky;
-            top: 120px;
-            align-self: flex-start;
-            background: var(--bg-secondary);
-            border-radius: 24px;
-            padding: 20px;
-            border: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            height: calc(100vh - 160px);
-            overflow: hidden;
-        }
-
-        .date-sidebar-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-        }
-
-        .date-sidebar-title {
-            font-weight: 600;
-            font-size: 15px;
-            color: var(--text-primary);
-        }
-
-        .date-sidebar-count {
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .sidebar-toggle {
-            border: none;
-            background: rgba(0, 0, 0, 0.04);
-            color: var(--text-primary);
-            padding: 6px;
-            border-radius: 10px;
-            cursor: pointer;
-            transition: background 0.2s, transform 0.2s;
-        }
-
-        .sidebar-toggle:hover {
-            background: rgba(0, 0, 0, 0.08);
-        }
-
-        [data-theme="dark"] .sidebar-toggle {
-            background: rgba(255, 255, 255, 0.08);
-        }
-
-        .sidebar-toggle i {
-            width: 16px !important;
-            height: 16px !important;
-        }
-
-        .date-sidebar-body {
-            overflow-y: auto;
-            flex: 1;
-            padding-right: 6px;
-        }
-
-        .date-sidebar-body::-webkit-scrollbar {
-            width: 4px;
-        }
-
-        .date-sidebar-body::-webkit-scrollbar-thumb {
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 4px;
-        }
-
-        [data-theme="dark"] .date-sidebar-body::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        .date-empty {
-            font-size: 13px;
-            color: var(--text-secondary);
-        }
-
-        .date-nav-item {
-            display: block;
-            padding: 8px 12px;
-            border-radius: 10px;
-            color: var(--text-primary);
-            text-decoration: none;
-            font-size: 13px;
-            margin-bottom: 4px;
-            transition: background 0.2s, color 0.2s;
-        }
-
-        .date-nav-item:hover {
-            background: rgba(0, 0, 0, 0.05);
-        }
-
-        .date-nav-item.active {
-            background: rgba(0, 0, 0, 0.08);
-            font-weight: 600;
-        }
-
-        [data-theme="dark"] .date-nav-item:hover {
-            background: rgba(255, 255, 255, 0.08);
-        }
-
-        [data-theme="dark"] .date-nav-item.active {
-            background: rgba(255, 255, 255, 0.12);
-        }
-
-        .date-sidebar.collapsed {
-            width: 72px;
-        }
-
-        .date-sidebar.collapsed .date-sidebar-body {
-            display: none;
-        }
-
-        .date-sidebar.collapsed .sidebar-toggle i {
-            transform: rotate(180deg);
         }
         
         .meta-item {
@@ -1014,6 +1009,8 @@ ${this.generateFooter()}
         .chat-content {
             padding: 64px 0 120px;
             position: relative;
+            max-width: 980px;
+            margin: 0 auto;
         }
         
         /* 虚拟滚动容器 */
@@ -1142,31 +1139,7 @@ ${this.generateFooter()}
             color: var(--bubble-self-text);
         }
         
-        /* 气泡左角 (其他人) */
-        .message.other .message-bubble::before {
-            content: '';
-            position: absolute;
-            left: -7px;
-            top: 14px;
-            width: 0;
-            height: 0;
-            border-style: solid;
-            border-width: 0 10px 10px 0;
-            border-color: transparent var(--bubble-other) transparent transparent;
-        }
-        
-        /* 气泡右角 (自己) */
-        .message.self .message-bubble::before {
-            content: '';
-            position: absolute;
-            right: -7px;
-            top: 14px;
-            width: 0;
-            height: 0;
-            border-style: solid;
-            border-width: 0 0 10px 10px;
-            border-color: transparent transparent var(--bubble-self) transparent;
-        }
+        /* 去掉消息角 - 直接用圆角矩形 */
         
         .content {
             font-size: var(--message-font-size);
@@ -1213,12 +1186,12 @@ ${this.generateFooter()}
         }
         
         .message.self .at-mention {
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.1);
             color: var(--bubble-self-text);
         }
         
         .message.self .at-mention:hover {
-            background: rgba(255, 255, 255, 0.25);
+            background: rgba(0, 0, 0, 0.15);
         }
         
         /* 表情 */
@@ -1249,8 +1222,8 @@ ${this.generateFooter()}
         }
         
         .message.self .reply-content {
-            background: rgba(255, 255, 255, 0.1);
-            border-left-color: rgba(255, 255, 255, 0.4);
+            background: rgba(0, 0, 0, 0.08);
+            border-left-color: rgba(0, 0, 0, 0.25);
         }
         
         .message.self .reply-content strong {
@@ -1272,12 +1245,12 @@ ${this.generateFooter()}
         }
         
         .message.self .json-card {
-            background: rgba(255, 255, 255, 0.12);
-            border-color: rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.08);
+            border-color: rgba(0, 0, 0, 0.15);
         }
         
         .message.self .json-card:hover {
-            background: rgba(255, 255, 255, 0.15);
+            background: rgba(0, 0, 0, 0.12);
         }
         
         .json-title {
@@ -1479,12 +1452,7 @@ ${this.generateFooter()}
 
         @media (max-width: 1100px) {
             .chat-layout {
-                grid-template-columns: 1fr;
                 padding: 0 24px 80px;
-            }
-
-            .date-sidebar {
-                display: none;
             }
 
             .chat-content {
@@ -1657,71 +1625,142 @@ ${this.generateFooter()}
                 if (e.key === 'Escape') hideImageModal();
             });
 
-            var zoomSlider = document.getElementById('zoomSlider');
-            var zoomValue = document.getElementById('zoomValue');
-            var zoomOutBtn = document.getElementById('zoomOutBtn');
-            var zoomInBtn = document.getElementById('zoomInBtn');
-            var minScale = 0.85;
-            var maxScale = 1.25;
-            var storedScale = parseFloat(localStorage.getItem('chatScale') || '1');
-            if (isNaN(storedScale)) storedScale = 1;
-
-            function applyScale(value) {
-                var scale = Math.min(maxScale, Math.max(minScale, value));
-                document.documentElement.style.setProperty('--chat-scale', scale.toString());
-                if (zoomSlider) zoomSlider.value = scale.toString();
-                if (zoomValue) {
-                    zoomValue.textContent = Math.round(scale * 100) + '%';
+            // ========== 时间范围选择 ==========
+            var timeRangeBtn = document.getElementById('timeRangeBtn');
+            var timeRangeDropdown = document.getElementById('timeRangeDropdown');
+            var timeRangeLabel = document.getElementById('timeRangeLabel');
+            var startDateInput = document.getElementById('startDate');
+            var endDateInput = document.getElementById('endDate');
+            var applyTimeRangeBtn = document.getElementById('applyTimeRange');
+            var clearTimeRangeBtn = document.getElementById('clearTimeRange');
+            var minDateKey = null;
+            var maxDateKey = null;
+            
+            function clampDateValue(value) {
+                if (!value) return '';
+                var normalized = value.slice(0, 10);
+                if (minDateKey && normalized < minDateKey) return minDateKey;
+                if (maxDateKey && normalized > maxDateKey) return maxDateKey;
+                return normalized;
+            }
+            
+            function applyDateRangeLimits() {
+                if (!startDateInput || !endDateInput) return;
+                startDateInput.min = minDateKey || '';
+                endDateInput.min = minDateKey || '';
+                startDateInput.max = maxDateKey || '';
+                endDateInput.max = maxDateKey || '';
+            }
+            
+            function enforceInputRange() {
+                if (startDateInput) {
+                    startDateInput.value = clampDateValue(startDateInput.value);
                 }
-                localStorage.setItem('chatScale', scale.toString());
+                if (endDateInput) {
+                    endDateInput.value = clampDateValue(endDateInput.value);
+                }
+                if (startDateInput && endDateInput && startDateInput.value && endDateInput.value && startDateInput.value > endDateInput.value) {
+                    endDateInput.value = startDateInput.value;
+                }
             }
-
-            applyScale(storedScale);
-
-            if (zoomSlider) {
-                zoomSlider.addEventListener('input', function(e) {
-                    var value = parseFloat(e.target.value);
-                    if (!isNaN(value)) {
-                        applyScale(value);
-                    }
+            
+            // 从localStorage恢复时间范围
+            var savedTimeRange = localStorage.getItem('timeRange');
+            if (savedTimeRange) {
+                try {
+                    var timeRange = JSON.parse(savedTimeRange);
+                    startDateInput.value = timeRange.start || '';
+                    endDateInput.value = timeRange.end || '';
+                    updateTimeRangeLabel();
+                } catch (e) {
+                    // 忽略解析错误
+                }
+            }
+            
+            function updateTimeRangeLabel() {
+                var start = startDateInput.value;
+                var end = endDateInput.value;
+                if (start || end) {
+                    timeRangeLabel.textContent = (start || '开始') + ' ~ ' + (end || '结束');
+                } else {
+                    timeRangeLabel.textContent = '全部时间';
+                }
+            }
+            
+            if (startDateInput) {
+                startDateInput.addEventListener('change', function() {
+                    enforceInputRange();
+                    updateTimeRangeLabel();
                 });
             }
-
-            if (zoomOutBtn) {
-                zoomOutBtn.addEventListener('click', function() {
-                    var current = parseFloat(localStorage.getItem('chatScale') || '1');
-                    if (isNaN(current)) current = 1;
-                    applyScale(parseFloat((current - 0.05).toFixed(2)));
+            
+            if (endDateInput) {
+                endDateInput.addEventListener('change', function() {
+                    enforceInputRange();
+                    updateTimeRangeLabel();
                 });
             }
-
-            if (zoomInBtn) {
-                zoomInBtn.addEventListener('click', function() {
-                    var current = parseFloat(localStorage.getItem('chatScale') || '1');
-                    if (isNaN(current)) current = 1;
-                    applyScale(parseFloat((current + 0.05).toFixed(2)));
-                });
-            }
+            
+            // 切换下拉菜单
+            timeRangeBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                timeRangeDropdown.classList.toggle('active');
+            });
+            
+            // 应用时间范围
+            applyTimeRangeBtn.addEventListener('click', function() {
+                enforceInputRange();
+                var start = startDateInput.value;
+                var end = endDateInput.value;
+                
+                // 保存到localStorage
+                localStorage.setItem('timeRange', JSON.stringify({
+                    start: start,
+                    end: end
+                }));
+                
+                updateTimeRangeLabel();
+                timeRangeDropdown.classList.remove('active');
+                
+                // 应用过滤逻辑
+                filterMessages();
+            });
+            
+            // 清除时间范围
+            clearTimeRangeBtn.addEventListener('click', function() {
+                startDateInput.value = '';
+                endDateInput.value = '';
+                localStorage.removeItem('timeRange');
+                updateTimeRangeLabel();
+                timeRangeDropdown.classList.remove('active');
+                
+                // 重新过滤消息（显示所有消息）
+                filterMessages();
+            });
+            
+            // 点击外部关闭下拉菜单
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('.time-range-container')) {
+                    timeRangeDropdown.classList.remove('active');
+                }
+            });
             
             // 收集所有消息DOM
             var messages = Array.from(document.querySelectorAll('.message'));
             var messageBlocks = Array.from(document.querySelectorAll('.message-block'));
-            var dateSections = [];
-            messageBlocks.forEach(function(block, index) {
+            var dateKeySet = new Set();
+            messageBlocks.forEach(function(block) {
                 var dateValue = block.getAttribute('data-date');
-                if (!dateValue) return;
-                var divider = block.querySelector('.date-divider');
-                var label = divider ? divider.getAttribute('data-label') || divider.textContent : dateValue;
-                var existing = dateSections.find(function(section) { return section.date === dateValue; });
-                if (!existing) {
-                    dateSections.push({
-                        date: dateValue,
-                        label: label || dateValue,
-                        anchorId: 'date-' + dateValue,
-                        index: index
-                    });
+                if (dateValue) {
+                    dateKeySet.add(dateValue);
                 }
             });
+            var dateKeys = Array.from(dateKeySet).sort();
+            minDateKey = dateKeys.length > 0 ? dateKeys[0] : null;
+            maxDateKey = dateKeys.length > 0 ? dateKeys[dateKeys.length - 1] : null;
+            applyDateRangeLimits();
+            enforceInputRange();
+            updateTimeRangeLabel();
             var total = messages.length;
             document.getElementById('info-total').textContent = total;
             
@@ -1731,8 +1770,6 @@ ${this.generateFooter()}
                 document.getElementById('info-range').textContent = firstTime + ' ~ ' + lastTime;
             }
 
-            buildDateSidebar(dateSections);
-            
             // 初始化虚拟滚动（消息超过100条时启用）
             var virtualScroller = null;
             if (messageBlocks.length > 100) {
@@ -1744,76 +1781,6 @@ ${this.generateFooter()}
                     bufferSize: 30
                 });
                 console.log('启用虚拟滚动，共', messageBlocks.length, '条消息');
-            }
-
-            
-            function setActiveDate(dateValue) {
-                var list = document.getElementById('dateSidebarList');
-                if (!list) return;
-                list.querySelectorAll('.date-nav-item').forEach(function(item) {
-                    item.classList.toggle('active', item.dataset.date === dateValue);
-                });
-            }
-
-            function buildDateSidebar(sections) {
-                var list = document.getElementById('dateSidebarList');
-                var count = document.getElementById('dateSidebarCount');
-                var sidebar = document.getElementById('dateSidebar');
-                var collapseBtn = document.getElementById('sidebarCollapseBtn');
-
-                if (!list) return;
-
-                if (!sections || sections.length === 0) {
-                    list.innerHTML = '<div class="date-empty">暂无日期数据</div>';
-                    if (count) count.textContent = '0 天';
-                } else {
-                    list.innerHTML = '';
-                    sections.forEach(function(section, index) {
-                        var item = document.createElement('a');
-                        item.href = '#' + section.anchorId;
-                        item.className = 'date-nav-item';
-                        item.dataset.date = section.date;
-                        item.textContent = section.label;
-                        item.addEventListener('click', function(evt) {
-                            evt.preventDefault();
-                            if (virtualScroller) {
-                                virtualScroller.scrollToIndex(section.index);
-                            } else {
-                                var target = document.getElementById(section.anchorId);
-                                if (target) {
-                                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                }
-                            }
-                            setActiveDate(section.date);
-                        });
-                        if (index === 0) item.classList.add('active');
-                        list.appendChild(item);
-                    });
-                    if (count) count.textContent = sections.length + ' 天';
-                }
-
-                if (collapseBtn && sidebar) {
-                    collapseBtn.addEventListener('click', function() {
-                        sidebar.classList.toggle('collapsed');
-                    });
-                }
-
-                var updateActive = debounce(function() {
-                    var blocks = document.querySelectorAll('.message-block');
-                    for (var i = 0; i < blocks.length; i++) {
-                        var rect = blocks[i].getBoundingClientRect();
-                        if (rect.top <= 200 && rect.bottom >= 200) {
-                            var current = blocks[i].getAttribute('data-date');
-                            if (current) {
-                                setActiveDate(current);
-                            }
-                            break;
-                        }
-                    }
-                }, 150);
-
-                window.addEventListener('scroll', updateActive);
-                updateActive();
             }
 
             // ========== 初始化 Lucide 图标 ==========
@@ -1969,6 +1936,8 @@ ${this.generateFooter()}
             function filterMessages() {
                 var searchTerm = searchInput.value.trim();
                 var selectedSender = currentFilter;
+                var startDate = startDateInput ? startDateInput.value : '';
+                var endDate = endDateInput ? endDateInput.value : '';
                 var filteredMessages = [];
                 var visibleCount = 0;
                 
@@ -1991,10 +1960,24 @@ ${this.generateFooter()}
                     var contentText = contentClone.textContent.toLowerCase();
                     var searchLower = searchTerm.toLowerCase();
                     
+                    // 获取消息日期进行时间范围筛选
+                    var messageDate = msgClone.getAttribute('data-date');
+                    var matchTimeRange = true;
+                    if (startDate || endDate) {
+                        if (messageDate) {
+                            if (startDate && messageDate < startDate) {
+                                matchTimeRange = false;
+                            }
+                            if (endDate && messageDate > endDate) {
+                                matchTimeRange = false;
+                            }
+                        }
+                    }
+                    
                     var matchSearch = searchTerm === '' || contentText.includes(searchLower) || senderName.toLowerCase().includes(searchLower);
                     var matchSender = selectedSender === 'all' || senderName === selectedSender;
                     
-                    if (matchSearch && matchSender) {
+                    if (matchSearch && matchSender && matchTimeRange) {
                         visibleCount++;
                         
                         // 高亮匹配文本
@@ -2049,6 +2032,11 @@ ${this.generateFooter()}
                 filterMessages();
                 searchInput.focus();
             });
+            
+            // 页面加载完成后应用已保存的过滤条件（包括时间范围）
+            setTimeout(function() {
+                filterMessages();
+            }, 100);
         });
     </script>`;
     }
@@ -2081,15 +2069,27 @@ ${this.generateFooter()}
                     </div>
                 </div>
                 <div class="toolbar-separator"></div>
-                <div class="toolbar-zoom">
-                    <button class="zoom-btn" id="zoomOutBtn" title="缩小">
-                        <i data-lucide="minus"></i>
+                <div class="time-range-container">
+                    <button class="time-range-btn" id="timeRangeBtn">
+                        <i data-lucide="calendar"></i>
+                        <span id="timeRangeLabel">全部时间</span>
                     </button>
-                    <input type="range" id="zoomSlider" min="0.85" max="1.25" step="0.05" value="1">
-                    <button class="zoom-btn" id="zoomInBtn" title="放大">
-                        <i data-lucide="plus"></i>
-                    </button>
-                    <span class="zoom-value" id="zoomValue">100%</span>
+                    <div class="time-range-dropdown" id="timeRangeDropdown">
+                        <div class="time-range-inputs">
+                            <div class="time-range-input-group">
+                                <label for="startDate">开始日期</label>
+                                <input type="date" id="startDate" class="time-range-input">
+                            </div>
+                            <div class="time-range-input-group">
+                                <label for="endDate">结束日期</label>
+                                <input type="date" id="endDate" class="time-range-input">
+                            </div>
+                        </div>
+                        <div class="time-range-actions">
+                            <button class="apply-btn" id="applyTimeRange">应用</button>
+                            <button class="clear-btn" id="clearTimeRange">清除</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="toolbar-separator"></div>
                 <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank" class="github-btn" title="GitHub">
@@ -2103,25 +2103,6 @@ ${this.generateFooter()}
         </div>
     </div>`;
     }
-
-    private generateDateSidebar(): string {
-        return `
-        <aside class="date-sidebar" id="dateSidebar">
-            <div class="date-sidebar-header">
-                <div>
-                    <div class="date-sidebar-title">日期索引</div>
-                    <div class="date-sidebar-count" id="dateSidebarCount">-</div>
-                </div>
-                <button class="sidebar-toggle" id="sidebarCollapseBtn" title="折叠目录">
-                    <i data-lucide="chevron-left"></i>
-                </button>
-            </div>
-            <div class="date-sidebar-body" id="dateSidebarList">
-                <div class="date-empty">暂无日期数据</div>
-            </div>
-        </aside>`;
-    }
-
 
     /**
      * Hero Section（左对齐，Apple风格）
