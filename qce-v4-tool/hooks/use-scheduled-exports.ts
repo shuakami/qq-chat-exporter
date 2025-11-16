@@ -68,7 +68,11 @@ export function useScheduledExports() {
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message : '获取任务列表失败';
             setError(errorMsg);
-            toast.error(errorMsg);
+            toast({
+                title: "错误",
+                description: errorMsg,
+                variant: "destructive"
+            });
         } finally {
             setLoading(false);
         }
@@ -108,7 +112,10 @@ export function useScheduledExports() {
             }) as APIResponse<ScheduledExportConfig & { id: string }>;
             
             if (response.success && response.data) {
-                toast.success('定时导出任务创建成功');
+                toast({
+                    title: "成功",
+                    description: "定时导出任务创建成功"
+                });
                 await fetchTasks(); // 刷新列表
                 return response.data;
             } else {
@@ -116,7 +123,11 @@ export function useScheduledExports() {
             }
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message : '创建任务失败';
-            toast.error(errorMsg);
+            toast({
+                title: "错误",
+                description: errorMsg,
+                variant: "destructive"
+            });
             throw err;
         } finally {
             setLoading(false);
@@ -134,7 +145,10 @@ export function useScheduledExports() {
             }) as APIResponse<ScheduledExportConfig & { id: string }>;
             
             if (response.success && response.data) {
-                toast.success('任务更新成功');
+                toast({
+                    title: "成功",
+                    description: "任务更新成功"
+                });
                 await fetchTasks(); // 刷新列表
                 return response.data;
             } else {
@@ -142,7 +156,11 @@ export function useScheduledExports() {
             }
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message : '更新任务失败';
-            toast.error(errorMsg);
+            toast({
+                title: "错误",
+                description: errorMsg,
+                variant: "destructive"
+            });
             throw err;
         } finally {
             setLoading(false);
@@ -159,7 +177,10 @@ export function useScheduledExports() {
             }) as APIResponse<{ message: string }>;
             
             if (response.success) {
-                toast.success('任务删除成功');
+                toast({
+                    title: "成功",
+                    description: "任务删除成功"
+                });
                 await fetchTasks(); // 刷新列表
                 return true;
             } else {
@@ -167,7 +188,11 @@ export function useScheduledExports() {
             }
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message : '删除任务失败';
-            toast.error(errorMsg);
+            toast({
+                title: "错误",
+                description: errorMsg,
+                variant: "destructive"
+            });
             throw err;
         } finally {
             setLoading(false);
@@ -184,7 +209,10 @@ export function useScheduledExports() {
             }) as APIResponse<{ message: string }>;
             
             if (response.success) {
-                toast.success('任务触发成功，正在后台执行');
+                toast({
+                    title: "成功",
+                    description: "任务触发成功，正在后台执行"
+                });
                 await fetchTasks(); // 刷新列表
                 return response.data;
             } else {
@@ -192,7 +220,11 @@ export function useScheduledExports() {
             }
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message : '触发任务失败';
-            toast.error(errorMsg);
+            toast({
+                title: "错误",
+                description: errorMsg,
+                variant: "destructive"
+            });
             throw err;
         } finally {
             setLoading(false);
