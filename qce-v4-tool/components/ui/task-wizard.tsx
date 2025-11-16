@@ -599,14 +599,6 @@ export function TaskWizard({
           <div className="space-y-3">
             {[
               {
-                id: "includeRecalled",
-                checked: form.includeRecalled,
-                set: (v: boolean) => setForm((p) => ({ ...p, includeRecalled: v })),
-                title: "包含已撤回的消息",
-                desc: "包含那些已经被撤回但仍在记录中的消息",
-                visible: true
-              },
-              {
                 id: "includeSystemMessages",
                 checked: form.includeSystemMessages,
                 set: (v: boolean) => setForm((p) => ({ ...p, includeSystemMessages: v })),
