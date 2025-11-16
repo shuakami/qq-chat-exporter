@@ -11,7 +11,6 @@ import { Separator } from "./separator"
 import { Badge } from "./badge"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import { Checkbox } from "./checkbox"
-import { ScrollArea } from "./scroll-area"
 import {
   Settings, Clock, Calendar, FileText, AlertCircle, CheckCircle,
   RefreshCw, Play, Search, ChevronDown, X, Users, User, Package, Loader2
@@ -410,7 +409,7 @@ export function ScheduledExportWizard({
                 {/* 列表 */}
                 <div
                   ref={listRef}
-                  className="flex-1 overflow-y-auto space-y-1 border border-neutral-200 rounded-2xl p-2 bg-white/70"
+                  className="max-h-96 overflow-y-auto space-y-1 border border-neutral-200 rounded-2xl p-2 bg-white/70"
                   onScroll={handleScroll}
                 >
                   {(currentChatType === 2 ? groupSearch : friendSearch).loading && getDisplayTargets().length === 0 && (
@@ -509,8 +508,7 @@ export function ScheduledExportWizard({
               </div>
             ) : (
               <div className="flex-1 overflow-hidden">
-                <ScrollArea className="h-full rounded-2xl border border-neutral-200 p-2 bg-white/70">
-                  <div className="space-y-1">
+                <div className="h-full overflow-y-auto space-y-1 rounded-2xl border border-neutral-200 p-2 bg-white/70">
                     {selectedTargets.map((target, idx) => (
                       <div 
                         key={`${target.type}_${target.id}`} 
@@ -556,8 +554,7 @@ export function ScheduledExportWizard({
                         </Button>
                       </div>
                     ))}
-                  </div>
-                </ScrollArea>
+                </div>
                 
                 <div className="flex justify-between items-center pt-4">
                   <Button
