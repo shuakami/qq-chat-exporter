@@ -664,6 +664,12 @@ export class ResourceHandler {
             console.error(`[ResourceHandler] 下载队列处理出现严重错误:`, error);
         } finally {
             this.isProcessing = false;
+            
+            // 唤醒所有等待队列空位的线程，因为队列肯定已空
+            while (this.queueWaiters.length > 0) {
+                this.notifyQueueSpace();
+            }
+            
             console.log(`[ResourceHandler] 下载队列处理完成`);
         }
     }
