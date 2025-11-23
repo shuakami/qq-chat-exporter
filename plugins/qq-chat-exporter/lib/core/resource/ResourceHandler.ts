@@ -40,8 +40,6 @@ export interface ResourceHandlerConfig {
     enableLocalCache: boolean;
     /** 缓存清理阈值（天） */
     cacheCleanupThreshold: number;
-    /** 最大下载队列长度（达到后 enqueue 会等待） */
-    maxQueueSize: number;
 }
 
 /**
@@ -287,7 +285,6 @@ export class ResourceHandler {
     private activeDownloads: Map<string, Promise<string>> = new Map();
     private isProcessing: boolean = false;
     private healthCheckTimer: NodeJS.Timeout | null = null;
-    private queueWaiters: Array<() => void> = [];
 
     constructor(core: NapCatCore, dbManager: DatabaseManager, config: Partial<ResourceHandlerConfig> = {}) {
         this.core = core;
@@ -303,7 +300,6 @@ export class ResourceHandler {
             healthCheckInterval: 600000, // 10分钟
             enableLocalCache: true,
             cacheCleanupThreshold: 30, // 30天
-            maxQueueSize: 500, // 最大队列长度
             ...config
         };
 
@@ -511,31 +507,11 @@ export class ResourceHandler {
         return path.join(typeDir, fileName);
     }
 
-    // [新增] 私有方法：等待队列有空位
-    private async waitForQueueSpace(): Promise<void> {
-        if (this.downloadQueue.length < this.config.maxQueueSize) return;
-        return new Promise<void>(resolve => {
-            this.queueWaiters.push(resolve);
-        });
-    }
-
-    // [新增] 私有方法：唤醒一个等待者
-    private notifyQueueSpace(): void {
-        const fn = this.queueWaiters.shift();
-        if (fn) try { fn(); } catch {}
-    }
-
     /**
      * 添加到下载队列
      */
     private async enqueueDownload(message: RawMessage, element: MessageElement, resourceInfo: ResourceInfo): Promise<void> {
         const taskId = `${message.msgId}_${element.elementId}`;
-
-        // 背压：当队列已达上限，等待
-        while (this.downloadQueue.length >= this.config.maxQueueSize) {
-            console.warn(`[ResourceHandler] 队列已满(${this.config.maxQueueSize})，等待空位...`);
-            await this.waitForQueueSpace();
-        }
         
         // 检查是否已在队列中
         if (this.downloadQueue.some(task => task.id === taskId)) {
@@ -610,7 +586,6 @@ export class ResourceHandler {
                 }
                 
                 const task = this.downloadQueue.shift();
-                if (task) this.notifyQueueSpace(); // 取出一个 -> 通知有空位
                 if (!task) continue;
                 
                 const progress = Math.round(((initialQueueSize - this.downloadQueue.length) / initialQueueSize) * 100);
@@ -642,7 +617,6 @@ export class ResourceHandler {
                 // 清理完成的任务
                 downloadPromise.finally(() => {
                     this.activeDownloads.delete(task.id);
-                    this.notifyQueueSpace(); // 完成一个 -> 也通知，避免卡住
                 });
             }
             
@@ -664,12 +638,6 @@ export class ResourceHandler {
             console.error(`[ResourceHandler] 下载队列处理出现严重错误:`, error);
         } finally {
             this.isProcessing = false;
-            
-            // 唤醒所有等待队列空位的线程，因为队列肯定已空
-            while (this.queueWaiters.length > 0) {
-                this.notifyQueueSpace();
-            }
-            
             console.log(`[ResourceHandler] 下载队列处理完成`);
         }
     }
