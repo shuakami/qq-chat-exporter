@@ -860,6 +860,8 @@ export class SimpleMessageParser {
    * 更新单条消息的资源路径（私有方法，供批量和流式使用）
    */
   private updateSingleMessageResourcePaths(message: CleanMessage, resources: any[]): void {
+    console.log(`[SimpleMessageParser] 更新消息 ${message.id} 的资源路径，资源数量: ${resources.length}`);
+    
     // 更新 message.content.resources
     const resArr = message.content.resources;
     const n = Math.min(resArr.length, resources.length);
@@ -872,28 +874,45 @@ export class SimpleMessageParser {
         resArr[i]!.localPath = `${typeDir}/${fileName}`;
         resArr[i]!.url = `resources/${typeDir}/${fileName}`;
         resArr[i]!.type = info.type;
+        console.log(`[SimpleMessageParser] 资源 ${i}: type=${info.type}, path=${typeDir}/${fileName}`);
+      } else {
+        console.warn(`[SimpleMessageParser] 资源 ${i} 无localPath:`, info);
       }
     }
 
     // 更新 elements 中的 URL
+    // 按类型和顺序匹配，而不是按文件名（因为下载后文件名可能改变）
     const els = message.content.elements;
+    let resourceIndex = 0;
+    
+    console.log(`[SimpleMessageParser] 消息有 ${els.length} 个元素`);
+    
     for (let i = 0; i < els.length; i++) {
       const el = els[i]!;
       if (!el.data || typeof el.data !== 'object') continue;
-      // 修复：大小写兼容匹配 - 支持 filename 和 fileName
-      const elementFilename = (el.data as any).filename || (el.data as any).fileName;
-      const found = resources.find((r) => 
-        r.fileName === elementFilename || 
-        r.fileName === (el.data as any).filename ||
-        r.fileName === (el.data as any).fileName
-      );
-      if (found && found.localPath) {
-        const fileName = path.basename(found.localPath);
-        const typeDir = found.type + 's';  // image -> images, video -> videos
-        // 修复 Issue #30: 保留类型子目录，让导出器能正确找到文件
-        (el.data as any).localPath = `${typeDir}/${fileName}`;
-        if (el.type === 'image' || el.type === 'video' || el.type === 'audio' || el.type === 'file') {
+      
+      // 只处理媒体类型元素
+      if (el.type === 'image' || el.type === 'video' || el.type === 'audio' || el.type === 'file') {
+        console.log(`[SimpleMessageParser] 元素 ${i}: type=${el.type}, filename=${(el.data as any).filename}`);
+        
+        // 按顺序匹配对应类型的资源
+        const matchingResource = resources.find((r, idx) => 
+          idx >= resourceIndex && r.type === el.type
+        );
+        
+        if (matchingResource && matchingResource.localPath) {
+          const fileName = path.basename(matchingResource.localPath);
+          const typeDir = matchingResource.type + 's';
+          // 修复 Issue #30: 保留类型子目录，让导出器能正确找到文件
+          (el.data as any).localPath = `${typeDir}/${fileName}`;
           (el.data as any).url = `resources/${typeDir}/${fileName}`;
+          
+          console.log(`[SimpleMessageParser] ✓ 元素 ${i} 匹配到资源: ${typeDir}/${fileName}`);
+          
+          // 更新资源索引
+          resourceIndex = resources.indexOf(matchingResource) + 1;
+        } else {
+          console.warn(`[SimpleMessageParser] ✗ 元素 ${i} (type=${el.type}) 未找到匹配资源`);
         }
       }
     }

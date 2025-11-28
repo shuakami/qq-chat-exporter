@@ -1207,18 +1207,51 @@ ${this.generateFooter()}
             background: var(--reply-bg);
             border-left: 3px solid var(--reply-border);
             padding: 10px 12px;
-            margin: 0 0 10px 0;
-            border-radius: 0 8px 8px 0;
-            font-size: 14px;
-            line-height: 1.4;
-            opacity: 0.8;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .reply-content:hover {
+            background: var(--reply-border);
+            opacity: 1;
+            transform: translateX(2px);
+        }
+        
+        .reply-content-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 6px;
         }
         
         .reply-content strong {
             font-weight: 600;
             color: var(--text-primary);
-            display: block;
-            margin-bottom: 4px;
+        }
+        
+        .reply-content-time {
+            font-size: 11px;
+            color: var(--text-tertiary);
+            margin-left: 8px;
+        }
+        
+        .reply-content-text {
+            color: var(--text-secondary);
+            margin-top: 4px;
+            word-break: break-word;
+        }
+        
+        .reply-content-image {
+            margin-top: 6px;
+            max-width: 80px;
+            max-height: 80px;
+            border-radius: 6px;
+            object-fit: cover;
         }
         
         .message.self .reply-content {
@@ -1226,8 +1259,45 @@ ${this.generateFooter()}
             border-left-color: rgba(0, 0, 0, 0.25);
         }
         
+        .message.self .reply-content:hover {
+            background: rgba(0, 0, 0, 0.12);
+        }
+        
         .message.self .reply-content strong {
             color: var(--bubble-self-text);
+        }
+        
+        /* 音频包装器 */
+        .audio-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .audio-download-link {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        
+        .audio-download-link:hover {
+            background: rgba(0, 0, 0, 0.1);
+            color: var(--text-primary);
+        }
+        
+        [data-theme="dark"] .audio-download-link {
+            background: rgba(255, 255, 255, 0.08);
+        }
+        
+        [data-theme="dark"] .audio-download-link:hover {
+            background: rgba(255, 255, 255, 0.15);
         }
         
         /* JSON 卡片 */
@@ -1283,6 +1353,104 @@ ${this.generateFooter()}
             background-position: center;
             vertical-align: middle;
             margin: 4px 0;
+        }
+        
+        /* QQ表情 */
+        .face-emoji {
+            display: inline-block;
+            padding: 2px 8px;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 6px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin: 0 2px;
+        }
+        
+        [data-theme="dark"] .face-emoji {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        /* 视频播放器 */
+        .message-video {
+            max-width: 100%;
+            width: 400px;
+            max-height: 300px;
+            border-radius: 12px;
+            margin: 8px 0;
+            display: block;
+            background: #000;
+        }
+        
+        /* 音频播放器 */
+        .message-audio {
+            width: 280px;
+            max-width: 100%;
+            margin: 8px 0;
+            display: block;
+        }
+        
+        /* 合并转发卡片 */
+        .forward-card {
+            background: var(--bubble-other);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            border-radius: 12px;
+            padding: 12px 16px;
+            margin: 4px 0;
+            cursor: default;
+            transition: all 0.2s;
+        }
+        
+        [data-theme="dark"] .forward-card {
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        .message.self .forward-card {
+            background: rgba(0, 0, 0, 0.05);
+        }
+        
+        .forward-card-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .forward-card-icon {
+            width: 20px;
+            height: 20px;
+            opacity: 0.7;
+        }
+        
+        .forward-card-content {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            max-height: 120px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .forward-card-content::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 30px;
+            background: linear-gradient(to bottom, transparent, var(--bubble-other));
+        }
+        
+        .message.self .forward-card-content::after {
+            background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.05));
+        }
+        
+        .forward-card-footer {
+            margin-top: 8px;
+            font-size: 12px;
+            color: var(--text-tertiary);
+            text-align: right;
         }
         
         /* 图片模态框 */
@@ -1463,7 +1631,8 @@ ${this.generateFooter()}
                 max-width: 80%;
             }
         }
-    </style>`;
+    </style>
+`;
     }
 
     private generateScripts(): string {
@@ -1624,6 +1793,29 @@ ${this.generateFooter()}
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') hideImageModal();
             });
+            
+            // 回复消息跳转功能
+            window.scrollToMessage = function(msgId) {
+                var targetMsg = document.getElementById(msgId);
+                if (targetMsg) {
+                    // 平滑滚动到目标消息
+                    targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    
+                    // 高亮动画
+                    targetMsg.style.transition = 'background 0.3s';
+                    var originalBg = window.getComputedStyle(targetMsg).backgroundColor;
+                    targetMsg.style.background = 'rgba(0, 122, 255, 0.1)';
+                    
+                    setTimeout(function() {
+                        targetMsg.style.background = originalBg;
+                        setTimeout(function() {
+                            targetMsg.style.transition = '';
+                        }, 300);
+                    }, 1000);
+                } else {
+                    console.warn('[Reply Jump] 未找到目标消息:', msgId);
+                }
+            };
 
             // ========== 时间范围选择 ==========
             var timeRangeBtn = document.getElementById('timeRangeBtn');
@@ -2303,26 +2495,27 @@ ${this.generateFooter()}
 
     private renderAudioElement(data: any): string {
         const duration = data?.duration || 0;
+        const filename = data?.filename || '语音';
         let src = '';
         
-        // 优先使用localPath（导出后的本地资源）
-        if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            src = `resources/audios/${data.filename || path.basename(data.localPath)}`;
-        } 
-        // 其次使用url，但要过滤掉无效的file://协议路径
-        else if (data?.url) {
-            const url = data.url;
-            // 过滤掉file://协议和本地文件系统路径
-            if (!url.startsWith('file://') && 
-                !url.startsWith('C:/') && 
-                !url.startsWith('D:/') && 
-                !url.match(/^[A-Z]:\\/)) {
-                src = url;
-            }
+        // 优先使用url（SimpleMessageParser已设置正确路径，包含MD5前缀）
+        if (data?.url && this.isValidResourcePath(data.url)) {
+            src = data.url;
+        }
+        // 其次使用localPath构建路径
+        else if (data?.localPath && this.isValidResourcePath(data.localPath)) {
+            src = `resources/audios/${path.basename(data.localPath)}`;
         }
         
         if (src) {
-            return `<audio src="${src}" controls class="message-audio" preload="metadata">[语音:${duration}秒]</audio>`;
+            // AMR格式浏览器可能不支持，同时提供下载链接
+            const isAmr = src.toLowerCase().endsWith('.amr');
+            const audioTag = `<audio src="${src}" controls class="message-audio" preload="metadata">[语音:${duration}秒]</audio>`;
+            const downloadLink = isAmr 
+                ? `<a href="${src}" download="${this.escapeHtml(filename)}" class="audio-download-link" title="浏览器可能不支持AMR格式，点击下载">下载语音</a>` 
+                : '';
+            
+            return `<div class="audio-wrapper">${audioTag}${downloadLink}</div>`;
         }
         return `<span class="text-content">🎤 [语音:${duration}秒]</span>`;
     }
@@ -2331,20 +2524,13 @@ ${this.generateFooter()}
         const filename = data?.filename || '视频';
         let src = '';
         
-        // 优先使用localPath（导出后的本地资源）
-        if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            src = `resources/videos/${data.filename || path.basename(data.localPath)}`;
-        } 
-        // 其次使用url，但要过滤掉无效的file://协议路径
-        else if (data?.url) {
-            const url = data.url;
-            // 过滤掉file://协议和本地文件系统路径
-            if (!url.startsWith('file://') && 
-                !url.startsWith('C:/') && 
-                !url.startsWith('D:/') && 
-                !url.match(/^[A-Z]:\\/)) {
-                src = url;
-            }
+        // 优先使用url（SimpleMessageParser已设置正确路径，包含MD5前缀）
+        if (data?.url && this.isValidResourcePath(data.url)) {
+            src = data.url;
+        }
+        // 其次使用localPath构建路径
+        else if (data?.localPath && this.isValidResourcePath(data.localPath)) {
+            src = `resources/videos/${path.basename(data.localPath)}`;
         }
         
         if (src) {
@@ -2380,8 +2566,80 @@ ${this.generateFooter()}
     }
 
     private renderFaceElement(data: any): string {
-        const name = data?.name || `表情${data?.id || ''}`;
+        const id = data?.id || data?.faceId || '';
+        const name = data?.name || this.getFaceNameById(id) || `表情${id}`;
         return `<span class="face-emoji">${this.escapeHtml(name)}</span>`;
+    }
+    
+    /**
+     * 根据QQ表情ID获取友好名称
+     */
+    private getFaceNameById(id: string | number): string {
+        const faceMap: Record<string, string> = {
+            '0': '/微笑', '1': '/撇嘴', '2': '/色', '3': '/发呆', '4': '/得意',
+            '5': '/流泪', '6': '/害羞', '7': '/闭嘴', '8': '/睡', '9': '/大哭',
+            '10': '/尴尬', '11': '/发怒', '12': '/调皮', '13': '/呲牙', '14': '/惊讶',
+            '15': '/难过', '16': '/酷', '17': '/冷汗', '18': '/抓狂', '19': '/吐',
+            '20': '/偷笑', '21': '/可爱', '22': '/白眼', '23': '/傲慢', '24': '/饥饿',
+            '25': '/困', '26': '/惊恐', '27': '/流汗', '28': '/憨笑', '29': '/大兵',
+            '30': '/奋斗', '31': '/咒骂', '32': '/疑问', '33': '/嘘', '34': '/晕',
+            '35': '/折磨', '36': '/衰', '37': '/骷髅', '38': '/敲打', '39': '/再见',
+            '40': '/擦汗', '41': '/抠鼻', '42': '/鼓掌', '43': '/糗大了', '44': '/坏笑',
+            '45': '/左哼哼', '46': '/右哼哼', '47': '/哈欠', '48': '/鄙视', '49': '/委屈',
+            '50': '/快哭了', '51': '/阴险', '52': '/亲亲', '53': '/吓', '54': '/可怜',
+            '55': '/菜刀', '56': '/西瓜', '57': '/啤酒', '58': '/篮球', '59': '/乒乓',
+            '60': '/咖啡', '61': '/饭', '62': '/猪头', '63': '/玫瑰', '64': '/凋谢',
+            '65': '/示爱', '66': '/爱心', '67': '/心碎', '68': '/蛋糕', '69': '/闪电',
+            '70': '/炸弹', '71': '/刀', '72': '/足球', '73': '/瓢虫', '74': '/便便',
+            '75': '/月亮', '76': '/太阳', '77': '/礼物', '78': '/拥抱', '79': '/强',
+            '80': '/弱', '81': '/握手', '82': '/胜利', '83': '/抱拳', '84': '/勾引',
+            '85': '/拳头', '86': '/差劲', '87': '/爱你', '88': '/NO', '89': '/OK',
+            '96': '/跳跳', '97': '/发抖', '98': '/怄火', '99': '/转圈',
+            '100': '/磕头', '101': '/回头', '102': '/跳绳', '103': '/挥手', '104': '/激动',
+            '105': '/街舞', '106': '/献吻', '107': '/左太极', '108': '/右太极',
+            '109': '/闭眼', '110': '/流鼻涕', '111': '/惊喜', '112': '/骂人',
+            '116': '/爱情', '117': '/飞吻', '118': '/跳跳', '120': '/颤抖',
+            '121': '/怄火', '122': '/转圈', '123': '/磕头', '124': '/回头',
+            '125': '/跳绳', '126': '/投降', '127': '/激动', '128': '/乱舞',
+            '129': '/献吻', '173': '/嘿哈', '174': '/捂脸', '175': '/奸笑',
+            '176': '/机智', '177': '/皱眉', '178': '/耶', '179': '/吃瓜',
+            '180': '/加油', '181': '/汗', '182': '/天啊', '183': '/Emm',
+            '184': '/社会社会', '185': '/旺柴', '186': '/好的', '187': '/打脸',
+            '188': '/哇', '189': '/翻白眼', '190': '/666', '191': '/让我看看',
+            '192': '/叹气', '193': '/苦涩', '194': '/裂开', '195': '/嘴唇',
+            '196': '/爱心', '197': '/惊喜', '201': '/生气', '202': '/吃惊',
+            '203': '/酸了', '204': '/太难了', '205': '/我想开了',
+            '206': '/右上看', '207': '/嘿嘿嘿', '208': '/捂眼',
+            '210': '/敬礼', '211': '/狗头', '212': '/吐舌', '214': '/哦',
+            '215': '/请', '216': '/睁眼', '217': '/敲开心', '218': '/震惊',
+            '219': '/让我康康', '220': '/摸鱼', '221': '/魔鬼笑',
+            '222': '/哦哟', '223': '/傻眼', '224': '/抽烟', '225': '/笑哭',
+            '226': '/汪汪', '227': '/汗', '228': '/打脸', '229': '/无语',
+            '230': '/拥抱', '231': '/摸头', '232': '/加油', '233': '/震惊哭',
+            '234': '/托腮', '235': '/我酸了', '236': '/快哭了',
+            '237': '/吃糖', '238': '/生气', '260': '/拜托',
+            '261': '/求你了', '262': '/好的', '263': '/我想开了',
+            '264': '/比心', '265': '/啵啵', '266': '/蹭蹭', '267': '/拍手',
+            '268': '/佛系', '269': '/喝奶茶', '270': '/吃糖', '271': '/Doge',
+            '277': '/吃', '278': '/呆', '279': '/仔细分析', '280': '/加油',
+            '281': '/崇拜', '282': '/比心', '283': '/庆祝', '284': '/生日快乐',
+            '285': '/舔屏', '286': '/笑哭', '287': '/doge', '288': '/哈哈',
+            '289': '/酸了', '290': '/汪汪', '291': '/哦呼', '292': '/喵喵',
+            '293': '/求抱抱', '294': '/期待', '295': '/拜托了', '296': '/元气满满',
+            '297': '/满分', '298': '/坏笑', '299': '/你真棒', '300': '/收到',
+            '301': '/拒绝', '302': '/吃瓜', '303': '/嗯哼', '304': '/吃鲸',
+            '305': '/汗', '306': '/无眼看', '307': '/敬礼', '308': '/面无表情',
+            '309': '/摊手', '310': '/灵魂出窍', '311': '/脑阔疼',
+            '312': '/沧桑', '313': '/捂脸哭', '314': '/笑cry', '315': '/无语凝噎',
+            '316': '/@所有人', '317': '/裂开', '318': '/叹气', '319': '/摸鱼',
+            '320': '/吃', '321': '/呐', '322': '/左看看', '323': '/右看看',
+            '324': '/叹气', '325': '/我想开了', '326': '/无语', '327': '/问号',
+            '328': '/怂', '329': '/犬', '330': '/坏笑', '331': '/喝奶茶',
+            '332': '/吃瓜', '333': '/鬼脸', '334': '/震惊', '335': '/嘿嘿',
+            '336': '/歪嘴', '337': '/狂笑', '338': '/嘻嘻', '339': '/扶墙',
+            '340': '/捂脸', '341': '/奋斗', '342': '/白眼'
+        };
+        return faceMap[String(id)] || `/表情${id}`;
     }
 
     private renderMarketFaceElement(data: any): string {
@@ -2395,8 +2653,47 @@ ${this.generateFooter()}
 
     private renderReplyElement(data: any): string {
         const senderName = data?.senderName || '用户';
-        const content = data?.content || '引用消息';
-        return `<div class="reply-content"><strong>${this.escapeHtml(senderName)}:</strong> ${this.escapeHtml(content)}</div>`;
+        const content = data?.content || data?.text || '引用消息';
+        const replyMsgId = data?.replyMsgId || data?.msgId || '';
+        const time = data?.time || data?.timestamp || '';
+        
+        // 格式化时间
+        let timeStr = '';
+        if (time) {
+            const date = this.safeToDate(time);
+            if (date) {
+                timeStr = date.toLocaleString('zh-CN', {
+                    month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit'
+                });
+            }
+        }
+        
+        // 检查是否有图片
+        let imageHtml = '';
+        if (data?.imageUrl || data?.image) {
+            const imgSrc = data?.imageUrl || data?.image;
+            imageHtml = `<img src="${imgSrc}" class="reply-content-image" alt="引用图片">`;
+        } else if (content.includes('[图片]') && data?.elements) {
+            // 尝试从elements中找到图片
+            const imgElement = data.elements.find((el: any) => el?.type === 'image');
+            if (imgElement?.data?.localPath) {
+                const imgSrc = `resources/images/${imgElement.data.filename || path.basename(imgElement.data.localPath)}`;
+                imageHtml = `<img src="${imgSrc}" class="reply-content-image" alt="引用图片" loading="lazy">`;
+            }
+        }
+        
+        const dataAttr = replyMsgId ? `data-reply-to="msg-${replyMsgId}"` : '';
+        const onClick = replyMsgId ? `onclick="scrollToMessage('msg-${replyMsgId}')"` : '';
+        
+        return `<div class="reply-content" ${dataAttr} ${onClick}>
+            <div class="reply-content-header">
+                <strong>${this.escapeHtml(senderName)}</strong>
+                ${timeStr ? `<span class="reply-content-time">${this.escapeHtml(timeStr)}</span>` : ''}
+            </div>
+            <div class="reply-content-text">${this.escapeHtml(content)}</div>
+            ${imageHtml}
+        </div>`;
     }
 
     private renderJsonElement(data: any): string {
@@ -2411,8 +2708,34 @@ ${this.generateFooter()}
     }
 
     private renderForwardElement(data: any): string {
-        const summary = data?.summary || '转发消息';
-        return `<span class="text-content">📝 ${this.escapeHtml(summary)}</span>`;
+        const title = data?.title || '聊天记录';
+        const summary = data?.summary || data?.content || '查看转发消息';
+        const preview = data?.preview || [];
+        
+        let previewHtml = '';
+        if (Array.isArray(preview) && preview.length > 0) {
+            previewHtml = preview.slice(0, 3).map((line: any) => {
+                const text = typeof line === 'string' ? line : (line?.text || '');
+                return this.escapeHtml(text);
+            }).join('<br>');
+        } else if (typeof summary === 'string') {
+            // 尝试从summary中提取预览内容
+            const lines = summary.split('\n').slice(0, 3);
+            previewHtml = lines.map(l => this.escapeHtml(l)).join('<br>');
+        }
+        
+        return `<div class="forward-card">
+            <div class="forward-card-header">
+                <svg class="forward-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span>${this.escapeHtml(title)}</span>
+            </div>
+            <div class="forward-card-content">
+                ${previewHtml || '点击查看转发的聊天记录'}
+            </div>
+            <div class="forward-card-footer">转发消息</div>
+        </div>`;
     }
 
     private renderSystemElement(data: any): string {
