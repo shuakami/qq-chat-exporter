@@ -107,6 +107,13 @@ export type TimeRangeType =
     | 'custom'          // 自定义时间范围
 
 /**
+ * 备份模式类型
+ */
+export type BackupMode = 
+    | 'full'            // 全量备份
+    | 'incremental'     // 增量备份
+
+/**
  * 定时导出任务配置
  */
 export interface ScheduledExportConfig {
@@ -139,8 +146,15 @@ export interface ScheduledExportConfig {
     options: {
         includeResourceLinks?: boolean;
         includeSystemMessages?: boolean;
+        filterPureImageMessages?: boolean;
         prettyFormat?: boolean;
     };
+    /** 备份模式（新增） */
+    backupMode?: BackupMode;
+    /** 上次备份的最后消息ID（用于增量备份） */
+    lastBackupMessageId?: string;
+    /** 上次备份的最后消息时间戳 */
+    lastBackupTimestamp?: number;
     /** 输出目录（可选，默认使用系统目录） */
     outputDir?: string;
     /** 是否启用 */
@@ -559,35 +573,30 @@ export class ScheduledExportManager {
                     await htmlExporter.exportFromIterable(htmlMessageStream, chatInfo);
                     break;
                 case 'JSON':
-                    // JSON/TXT 导出仍需要解析全部消息（它们本身就比较轻量）
-                    const parsedMessagesForJson = await parser.parseMessages(allMessages);
-                    if (resourceMap.size > 0) {
-                        await parser.updateResourcePaths(parsedMessagesForJson, resourceMap);
-                    }
+                    // JsonExporter 会自己处理消息解析（流式），直接传原始消息
                     const jsonExporter = new JsonExporter({
                         outputPath: filePath,
                         includeResourceLinks: task.options.includeResourceLinks ?? true,
                         includeSystemMessages: task.options.includeSystemMessages ?? true,
+                        filterPureImageMessages: task.options.filterPureImageMessages ?? false,
                         prettyFormat: task.options.prettyFormat ?? true,
                         timeFormat: 'YYYY-MM-DD HH:mm:ss',
                         encoding: 'utf-8'
-                    });
-                    await jsonExporter.export(parsedMessagesForJson as any, chatInfo);
+                    }, {}, this.core);
+                    await jsonExporter.export(allMessages as any, chatInfo);
                     break;
                 case 'TXT':
-                    const parsedMessagesForTxt = await parser.parseMessages(allMessages);
-                    if (resourceMap.size > 0) {
-                        await parser.updateResourcePaths(parsedMessagesForTxt, resourceMap);
-                    }
+                    // TextExporter 会自己处理消息解析，直接传原始消息
                     const textExporter = new TextExporter({
                         outputPath: filePath,
                         includeResourceLinks: task.options.includeResourceLinks ?? true,
                         includeSystemMessages: task.options.includeSystemMessages ?? true,
+                        filterPureImageMessages: task.options.filterPureImageMessages ?? false,
                         timeFormat: 'YYYY-MM-DD HH:mm:ss',
                         prettyFormat: false,
                         encoding: 'utf-8'
-                    });
-                    await textExporter.export(parsedMessagesForTxt as any, chatInfo);
+                    }, this.core);
+                    await textExporter.export(allMessages as any, chatInfo);
                     break;
             }
 

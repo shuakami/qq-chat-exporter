@@ -328,6 +328,11 @@ export class ResourceHandler {
             const resources: ResourceInfo[] = [];
             
             for (const element of message.elements) {
+                // 调试：打印所有元素类型
+                if (element.videoElement || element.pttElement) {
+                    console.log(`[ResourceHandler] 🔍 发现媒体元素: elementType=${element.elementType}, hasVideo=${!!element.videoElement}, hasAudio=${!!element.pttElement}`);
+                }
+                
                 if (this.isMediaElement(element)) {
                     try {
                         const resourceInfo = await this.processElement(message, element);
@@ -341,6 +346,8 @@ export class ResourceHandler {
                     } catch (error) {
                         console.warn(`[ResourceHandler] 处理元素失败:`, error);
                     }
+                } else if (element.videoElement || element.pttElement) {
+                    console.warn(`[ResourceHandler] ⚠️ 媒体元素未被识别: elementType=${element.elementType}, VIDEO=${ElementType.VIDEO}, PTT=${ElementType.PTT}`);
                 }
             }
             
@@ -405,77 +412,79 @@ export class ResourceHandler {
 
     /**
      * 从消息元素提取资源信息
+     * 修复：直接检查元素属性，而不是依赖可能不准确的枚举值
      */
     private extractResourceInfo(element: MessageElement): ResourceInfo | null {
-        switch (element.elementType) {
-            case ElementType.PIC:
-                if (element.picElement) {
-                    return {
-                        type: 'image' as ResourceType,
-                        originalUrl: element.picElement.sourcePath || '',
-                        fileName: element.picElement.fileName || `image_${Date.now()}.jpg`,
-                        fileSize: Number(element.picElement.fileSize) || 0,
-                        mimeType: element.picElement.picType ? 
-                            this.getMimeTypeFromPicType(element.picElement.picType) : 'image/jpeg',
-                        md5: element.picElement.md5HexStr || '',
-                        accessible: false,
-                        checkedAt: new Date(),
-                        status: ResourceStatus.PENDING,
-                        downloadAttempts: 0
-                    };
-                }
-                break;
-                
-            case ElementType.VIDEO:
-                if (element.videoElement) {
-                    return {
-                        type: 'video' as ResourceType,
-                        originalUrl: '',
-                        fileName: element.videoElement.fileName || `video_${Date.now()}.mp4`,
-                        fileSize: Number(element.videoElement.fileSize) || 0,
-                        mimeType: 'video/mp4',
-                        md5: element.videoElement.fileUuid || '',
-                        accessible: false,
-                        checkedAt: new Date(),
-                        status: ResourceStatus.PENDING,
-                        downloadAttempts: 0
-                    };
-                }
-                break;
-                
-            case ElementType.PTT:
-                if (element.pttElement) {
-                    return {
-                        type: 'audio' as ResourceType,
-                        originalUrl: '',
-                        fileName: element.pttElement.fileName || `audio_${Date.now()}.wav`,
-                        fileSize: Number(element.pttElement.fileSize) || 0,
-                        mimeType: 'audio/wav',
-                        md5: element.pttElement.md5HexStr || '',
-                        accessible: false,
-                        checkedAt: new Date(),
-                        status: ResourceStatus.PENDING,
-                        downloadAttempts: 0
-                    };
-                }
-                break;
-                
-            case ElementType.FILE:
-                if (element.fileElement) {
-                    return {
-                        type: 'file' as ResourceType,
-                        originalUrl: '',
-                        fileName: element.fileElement.fileName || `file_${Date.now()}`,
-                        fileSize: Number(element.fileElement.fileSize) || 0,
-                        mimeType: 'application/octet-stream',
-                        md5: element.fileElement.fileMd5 || '',
-                        accessible: false,
-                        checkedAt: new Date(),
-                        status: ResourceStatus.PENDING,
-                        downloadAttempts: 0
-                    };
-                }
-                break;
+        // 图片
+        if (element.picElement) {
+            return {
+                type: 'image' as ResourceType,
+                originalUrl: element.picElement.sourcePath || '',
+                fileName: element.picElement.fileName || `image_${Date.now()}.jpg`,
+                fileSize: Number(element.picElement.fileSize) || 0,
+                mimeType: element.picElement.picType ? 
+                    this.getMimeTypeFromPicType(element.picElement.picType) : 'image/jpeg',
+                md5: element.picElement.md5HexStr || '',
+                accessible: false,
+                checkedAt: new Date(),
+                status: ResourceStatus.PENDING,
+                downloadAttempts: 0
+            };
+        }
+        
+        // 视频
+        if (element.videoElement) {
+            const fileName = element.videoElement.fileName || `video_${Date.now()}.mp4`;
+            // 从文件名中提取MD5（通常格式为: {md5}.mp4）
+            const md5FromFileName = fileName.replace(/\.(mp4|avi|mov|mkv)$/i, '');
+            const md5 = element.videoElement.md5HexStr || md5FromFileName || element.videoElement.fileUuid || '';
+            
+            console.log(`[ResourceHandler] 📹 视频元素: fileName=${fileName}, md5提取=${md5FromFileName}, 最终md5=${md5.substring(0, 32)}`);
+            
+            return {
+                type: 'video' as ResourceType,
+                originalUrl: '',
+                fileName: fileName,
+                fileSize: Number(element.videoElement.fileSize) || 0,
+                mimeType: 'video/mp4',
+                md5: md5,
+                accessible: false,
+                checkedAt: new Date(),
+                status: ResourceStatus.PENDING,
+                downloadAttempts: 0
+            };
+        }
+        
+        // 语音
+        if (element.pttElement) {
+            return {
+                type: 'audio' as ResourceType,
+                originalUrl: '',
+                fileName: element.pttElement.fileName || `audio_${Date.now()}.wav`,
+                fileSize: Number(element.pttElement.fileSize) || 0,
+                mimeType: 'audio/wav',
+                md5: element.pttElement.md5HexStr || '',
+                accessible: false,
+                checkedAt: new Date(),
+                status: ResourceStatus.PENDING,
+                downloadAttempts: 0
+            };
+        }
+        
+        // 文件
+        if (element.fileElement) {
+            return {
+                type: 'file' as ResourceType,
+                originalUrl: '',
+                fileName: element.fileElement.fileName || `file_${Date.now()}`,
+                fileSize: Number(element.fileElement.fileSize) || 0,
+                mimeType: 'application/octet-stream',
+                md5: element.fileElement.fileMd5 || '',
+                accessible: false,
+                checkedAt: new Date(),
+                status: ResourceStatus.PENDING,
+                downloadAttempts: 0
+            };
         }
         
         return null;
@@ -483,14 +492,16 @@ export class ResourceHandler {
 
     /**
      * 判断是否为媒体元素
+     * 修复：直接检查元素属性，而不是依赖可能不准确的枚举值
      */
     private isMediaElement(element: MessageElement): boolean {
-        return [
-            ElementType.PIC,
-            ElementType.VIDEO,
-            ElementType.PTT,
-            ElementType.FILE
-        ].includes(element.elementType);
+        // 直接检查是否有对应的媒体元素属性
+        return !!(
+            element.picElement || 
+            element.videoElement || 
+            element.pttElement || 
+            element.fileElement
+        );
     }
 
     /**

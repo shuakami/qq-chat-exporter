@@ -11,6 +11,7 @@ import { ScheduledExportWizard } from "@/components/ui/scheduled-export-wizard"
 import { ExecutionHistoryModal } from "@/components/ui/execution-history-modal"
 import { MessagePreviewModal } from "@/components/ui/message-preview-modal"
 import { BatchExportDialog, type BatchExportItem, type BatchExportConfig } from "@/components/ui/batch-export-dialog"
+import { ScheduledBackupMergeDialog } from "@/components/ui/scheduled-backup-merge-dialog"
 import {
   Dialog,
   DialogContent,
@@ -43,6 +44,8 @@ import {
   Smile,
   Package,
   Sticker,
+  Layers,
+  Combine,
 } from "lucide-react"
 import type { CreateTaskForm, CreateScheduledExportForm } from "@/types/api"
 import { useQCE } from "@/hooks/use-qce"
@@ -145,6 +148,11 @@ export default function QCEDashboard() {
   const [batchMode, setBatchMode] = useState(false)
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
   const [isBatchExportDialogOpen, setIsBatchExportDialogOpen] = useState(false)
+  
+  // 定时备份合并状态
+  const [isScheduledMergeDialogOpen, setIsScheduledMergeDialogOpen] = useState(false)
+  const [scheduledTasks, setScheduledTasks] = useState<Array<any>>([])
+  const [loadingScheduledTasks, setLoadingScheduledTasks] = useState(false)
   
   const tasksLoadedRef = useRef(false)
   const scheduledExportsLoadedRef = useRef(false)
@@ -283,12 +291,15 @@ export default function QCEDashboard() {
     setSelectedFile(null)
   }
 
-  const addNotification = (type: 'success' | 'error' | 'info', title: string, message: string) => {
+  const addNotification = (type: 'success' | 'error' | 'info', title: string, message: string, actions?: Array<{ label: string; onClick: () => void; variant?: 'default' | 'destructive' }>, duration?: number) => {
     const id = Date.now().toString()
-    setNotifications(prev => [...prev, { id, type, title, message }])
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== id))
-    }, 5000)
+    setNotifications(prev => [...prev, { id, type, title, message, actions }])
+    const autoCloseDuration = duration ?? 5000
+    if (autoCloseDuration > 0) {
+      setTimeout(() => {
+        setNotifications(prev => prev.filter(n => n.id !== id))
+      }, autoCloseDuration)
+    }
     return id
   }
 
@@ -606,6 +617,86 @@ export default function QCEDashboard() {
     }
   }
 
+  // 加载定时备份任务
+  const loadScheduledBackups = async () => {
+    setLoadingScheduledTasks(true)
+    try {
+      const response = await fetch('/api/merge-resources/available-tasks')
+      const data = await response.json()
+      if (data.success) {
+        setScheduledTasks(data.data.scheduledTasks || [])
+      }
+    } catch (error) {
+      console.error('加载定时备份失败:', error)
+      addNotification('error', '加载失败', '无法获取定时备份列表')
+    } finally {
+      setLoadingScheduledTasks(false)
+    }
+  }
+
+  // 打开定时备份合并对话框
+  const handleOpenScheduledMergeDialog = async () => {
+    await loadScheduledBackups()
+    setIsScheduledMergeDialogOpen(true)
+  }
+
+  // 执行定时备份合并
+  const handleScheduledMerge = async (config: {
+    sourceTaskIds: string[]  // 文件名列表
+    deleteSourceFiles: boolean
+    deduplicateMessages: boolean
+  }) => {
+    const loadingId = addNotification('info', '正在合并', '合并任务已开始，请稍候...')
+    
+    try {
+      const response = await fetch('/api/merge-resources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        const result = data.data.result
+        removeNotification(loadingId)
+        
+        // 构建简洁的成功消息
+        const message = `成功合并 ${result.sourceCount} 个备份文件，共 ${result.totalMessages} 条消息${result.deduplicatedMessages > 0 ? `（去重 ${result.deduplicatedMessages} 条）` : ''}\n\n已生成 JSON${result.htmlPath ? ' 和 HTML' : ''} 文件`
+        
+        addNotification(
+          'success',
+          '合并完成',
+          message,
+          [
+            {
+              label: '打开文件位置',
+              onClick: async () => {
+                try {
+                  await fetch('/api/open-file-location', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filePath: result.jsonPath })
+                  })
+                } catch (error) {
+                  console.error('打开文件位置失败:', error)
+                }
+              }
+            }
+          ],
+          0 // 不自动关闭，需要用户手动关闭
+        )
+        setIsScheduledMergeDialogOpen(false)
+      } else {
+        removeNotification(loadingId)
+        addNotification('error', '合并失败', data.error?.message || '未知错误')
+      }
+    } catch (error) {
+      removeNotification(loadingId)
+      addNotification('error', '合并失败', error instanceof Error ? error.message : '网络错误')
+    }
+  }
+
   useEffect(() => {
     if (activeTab === "sessions" && groups.length === 0 && friends.length === 0) {
       loadChatData()
@@ -853,7 +944,7 @@ export default function QCEDashboard() {
               <div className="flex items-start gap-3 pr-8">
                 <div className="flex-1">
                   <h3 className="text-sm font-semibold text-neutral-900">{notification.title}</h3>
-                  <p className="mt-1 text-sm text-neutral-600">{notification.message}</p>
+                  <p className="mt-1 text-sm text-neutral-600 whitespace-pre-line">{notification.message}</p>
                   {notification.actions && notification.actions.length > 0 && (
                     <div className="mt-3 flex gap-2">
                       {notification.actions.map((action, idx) => (
@@ -1562,6 +1653,17 @@ export default function QCEDashboard() {
                       >
                         <RefreshCw className="w-4 h-4 mr-2" />
                         {scheduledLoading ? "加载中..." : "刷新列表"}
+                      </Button>
+                    </motion.div>
+                    <motion.div whileTap={{ scale: 0.98 }}>
+                      <Button 
+                        onClick={handleOpenScheduledMergeDialog}
+                        disabled={loadingScheduledTasks}
+                        variant="outline" 
+                        className="rounded-full"
+                      >
+                        <Combine className="w-4 h-4 mr-2" />
+                        {loadingScheduledTasks ? "加载中..." : "合并备份"}
                       </Button>
                     </motion.div>
                     <motion.div whileTap={{ scale: 0.98 }}>
@@ -2366,6 +2468,13 @@ export default function QCEDashboard() {
         onOpenChange={setIsBatchExportDialogOpen}
         items={getBatchExportItems()}
         onExport={handleBatchExport}
+      />
+
+      <ScheduledBackupMergeDialog
+        open={isScheduledMergeDialogOpen}
+        onOpenChange={setIsScheduledMergeDialogOpen}
+        scheduledTasks={scheduledTasks}
+        onMerge={handleScheduledMerge}
       />
 
       {/* 聊天记录预览模态框 */}

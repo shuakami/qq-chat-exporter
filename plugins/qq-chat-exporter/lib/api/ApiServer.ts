@@ -1454,6 +1454,116 @@ export class QQChatExporterApiServer {
             }
         });
 
+        // ===================
+        // 资源合并相关API 
+        // ===================
+
+        // 合并多个导出任务的资源
+        this.app.post('/api/merge-resources', async (req, res) => {
+            try {
+                const { sourceTaskIds, outputPath, deleteSourceFiles = false, deduplicateMessages = true } = req.body;
+
+                if (!sourceTaskIds || !Array.isArray(sourceTaskIds) || sourceTaskIds.length < 2) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '至少需要选择2个任务进行合并', 'INVALID_SOURCE_TASKS');
+                }
+
+                // 动态导入ResourceMerger
+                const { ResourceMerger } = await import('../core/merger/ResourceMerger.js');
+                const merger = new ResourceMerger();
+
+                // 设置进度回调
+                merger.setProgressCallback((progress) => {
+                    // 通过WebSocket广播合并进度
+                    this.broadcastWebSocketMessage({
+                        type: 'merge-progress',
+                        data: progress
+                    });
+                });
+
+                // 执行合并
+                const result = await merger.mergeResources({
+                    sourceTaskIds,
+                    outputPath: outputPath || path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'merged'),
+                    deleteSourceFiles,
+                    deduplicateMessages
+                });
+
+                this.sendSuccessResponse(res, { result }, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // 获取可用于合并的定时备份列表（按任务名称分组）
+        this.app.get('/api/merge-resources/available-tasks', async (req, res) => {
+            try {
+                // 扫描 scheduled-exports 目录下的定时备份文件
+                const scheduledDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
+                const scheduledBackups: Array<{
+                    fileName: string;
+                    taskName: string;
+                    timestamp: string;
+                    createdAt: string;
+                    fileSize: number;
+                }> = [];
+
+                if (fs.existsSync(scheduledDir)) {
+                    try {
+                        const files = fs.readdirSync(scheduledDir)
+                            .filter(f => f.endsWith('.html') || f.endsWith('.json'));
+                        
+                        for (const file of files) {
+                            try {
+                                const filePath = path.join(scheduledDir, file);
+                                const stats = fs.statSync(filePath);
+                                
+                                // 解析文件名：任务名_时间戳.格式
+                                // 例如: TF绝活小屋_2025-11-28T06-24-13.html
+                                const match = file.match(/^(.+)_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.(html|json)$/);
+                                if (match) {
+                                    const [, taskName, timestamp] = match;
+                                    scheduledBackups.push({
+                                        fileName: file,
+                                        taskName,
+                                        timestamp,
+                                        createdAt: stats.mtime.toISOString(),
+                                        fileSize: stats.size
+                                    });
+                                }
+                            } catch (fileError) {
+                                console.warn(`[ApiServer] 无法读取文件 ${file}:`, fileError);
+                            }
+                        }
+                    } catch (dirError) {
+                        console.warn('[ApiServer] 读取scheduled-exports目录失败:', dirError);
+                    }
+                }
+
+                // 按任务名称分组
+                const groupedTasks = new Map<string, typeof scheduledBackups>();
+                for (const backup of scheduledBackups) {
+                    if (!groupedTasks.has(backup.taskName)) {
+                        groupedTasks.set(backup.taskName, []);
+                    }
+                    groupedTasks.get(backup.taskName)!.push(backup);
+                }
+
+                // 转换为数组并排序
+                const scheduledTasks = Array.from(groupedTasks.entries()).map(([taskName, backups]) => ({
+                    taskName,
+                    backupCount: backups.length,
+                    backups: backups.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+                    latestBackup: backups.reduce((latest, current) => 
+                        new Date(current.createdAt) > new Date(latest.createdAt) ? current : latest
+                    )
+                })).sort((a, b) => new Date(b.latestBackup.createdAt).getTime() - new Date(a.latestBackup.createdAt).getTime());
+
+                this.sendSuccessResponse(res, { scheduledTasks }, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
         // 获取导出文件列表（用于聊天记录索引页面）
         this.app.get('/api/exports/files', async (req, res) => {
             try {

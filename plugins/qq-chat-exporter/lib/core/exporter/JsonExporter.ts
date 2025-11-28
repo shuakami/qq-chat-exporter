@@ -175,18 +175,20 @@ export class JsonExporter extends BaseExporter {
             }
 
             const parser = this.getMessageParser(this.core);
-            await (parser as any).parseMessagesStream(filteredMessages, {
+            
+            // 使用正确的 parseMessagesStream API（带 onBatch 回调）
+            await parser.parseMessagesStream(filteredMessages, {
                 batchSize: 20000,
                 onBatch: async (batch: any[], batchIndex: number, batchCount: number) => {
                     console.log(`[JsonExporter] 处理批次 ${batchIndex + 1}/${batchCount}，${batch.length} 条消息`);
                     for (const pm of batch) {
-                        const clean = this.convertParsedToClean(pm);
-                        statsAcc.consume(clean);
+                        // pm 已经是 ParsedMessage 格式，直接使用
+                        statsAcc.consume(pm);
                         // 统计资源
-                        const resArr = clean.content?.resources || [];
+                        const resArr = pm.content?.resources || [];
                         resourceCount += resArr.length;
                         // 写NDJSON：一条消息一行
-                        writeStream.write(JSON.stringify(clean) + '\n');
+                        writeStream.write(JSON.stringify(pm) + '\n');
                     }
                     this.monitorMemory(`批次 ${batchIndex + 1}/${batchCount}`);
                     this.updateProgress(
