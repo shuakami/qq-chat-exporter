@@ -58,11 +58,20 @@ export function TaskWizard({
     keywords: "",
     includeRecalled: false,
     includeSystemMessages: true,
-    filterPureImageMessages: false,
+    filterPureImageMessages: true, // JSON/TXT默认启用
     exportAsZip: false,
   })
 
   const { groupSearch, friendSearch } = useSearch()
+
+  // 格式改变时自动调整filterPureImageMessages默认值
+  useEffect(() => {
+    if (form.format === 'HTML') {
+      setForm(p => ({ ...p, filterPureImageMessages: false }))
+    } else if (form.format === 'JSON' || form.format === 'TXT') {
+      setForm(p => ({ ...p, filterPureImageMessages: true }))
+    }
+  }, [form.format])
 
   // ----- sync prefilled
   useEffect(() => {

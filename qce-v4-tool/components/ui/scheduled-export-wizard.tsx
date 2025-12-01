@@ -78,6 +78,15 @@ export function ScheduledExportWizard({
   const friendSearchRef = useRef(friendSearch)
   const currentChatTypeRef = useRef(currentChatType)
 
+  // 格式改变时自动调整filterPureImageMessages默认值
+  useEffect(() => {
+    if (baseForm.format === 'HTML') {
+      setBaseForm(p => ({ ...p, filterPureImageMessages: false }))
+    } else if (baseForm.format === 'JSON' || baseForm.format === 'TXT') {
+      setBaseForm(p => ({ ...p, filterPureImageMessages: true }))
+    }
+  }, [baseForm.format])
+
   // 初始化搜索引用
   useEffect(() => {
     groupSearchRef.current = groupSearch
