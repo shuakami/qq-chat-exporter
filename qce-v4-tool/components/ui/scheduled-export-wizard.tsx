@@ -97,6 +97,10 @@ export function ScheduledExportWizard({
   // 预填充数据处理
   useEffect(() => {
     if (prefilledData && isOpen) {
+      const format = (prefilledData.format as "HTML" | "JSON" | "TXT") || "HTML"
+      // 根据format设置filterPureImageMessages的默认值
+      const defaultFilter = format === 'JSON' || format === 'TXT' ? true : false
+      
       setBaseForm({
         namePrefix: prefilledData.name || "",
         scheduleType: prefilledData.scheduleType || "daily",
@@ -104,12 +108,14 @@ export function ScheduledExportWizard({
         timeRangeType: prefilledData.timeRangeType || "yesterday",
         cronExpression: prefilledData.cronExpression || "",
         customTimeRange: prefilledData.customTimeRange,
-        format: (prefilledData.format as "HTML" | "JSON" | "TXT") || "HTML",
+        format: format,
         enabled: prefilledData.enabled !== false,
         outputDir: prefilledData.outputDir || "",
         includeResourceLinks: prefilledData.includeResourceLinks !== undefined ? prefilledData.includeResourceLinks : true,
         includeSystemMessages: prefilledData.includeSystemMessages !== undefined ? prefilledData.includeSystemMessages : true,
-        filterPureImageMessages: prefilledData.filterPureImageMessages || false,
+        filterPureImageMessages: prefilledData.filterPureImageMessages !== undefined 
+          ? prefilledData.filterPureImageMessages 
+          : defaultFilter,
       })
 
       // 如果有预填充的目标，添加到选中列表

@@ -76,18 +76,24 @@ export function TaskWizard({
   // ----- sync prefilled
   useEffect(() => {
     if (prefilledData && isOpen) {
+      const format = prefilledData.format || "JSON"
+      // 根据format设置filterPureImageMessages的默认值
+      const defaultFilter = format === 'JSON' || format === 'TXT' ? true : false
+      
       setForm({
         chatType: prefilledData.chatType || 2,
         peerUid: prefilledData.peerUid || "",
         sessionName: prefilledData.sessionName || "",
-        format: prefilledData.format || "JSON",
+        format: format,
         startTime: prefilledData.startTime || "",
         endTime: prefilledData.endTime || "",
         keywords: prefilledData.keywords || "",
         includeRecalled: prefilledData.includeRecalled || false,
         includeSystemMessages:
           prefilledData.includeSystemMessages !== undefined ? prefilledData.includeSystemMessages : true,
-        filterPureImageMessages: prefilledData.filterPureImageMessages || false,
+        filterPureImageMessages: prefilledData.filterPureImageMessages !== undefined 
+          ? prefilledData.filterPureImageMessages 
+          : defaultFilter,
         exportAsZip: prefilledData.exportAsZip || false,
       })
     }
