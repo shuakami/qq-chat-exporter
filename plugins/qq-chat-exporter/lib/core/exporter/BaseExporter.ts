@@ -186,7 +186,17 @@ export abstract class BaseExporter {
             fetchUserInfo: false,
             timeFormat: this.options.timeFormat,
             maxTextLength: 50000,
-            debugMode: false
+            debugMode: false,
+            rawStrategy: 'none',  // 不生成raw字段，大幅减少JSON文件大小（从~140行/条缩减到~20行/条）
+            html: 'none',         // JSON导出不需要HTML
+            obParseTimeoutMs: 400,
+            quickReply: true,
+            obMode: 'prefer-native',
+            fallback: 'native',
+            progressEvery: 100,
+            yieldEvery: 1000,
+            suppressFallbackWarn: true,
+            stopOnAbort: true
         };
         
         return new MessageParser(core, config);

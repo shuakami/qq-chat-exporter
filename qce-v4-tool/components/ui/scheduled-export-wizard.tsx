@@ -799,8 +799,8 @@ export function ScheduledExportWizard({
                       id: "filterPureImageMessages",
                       checked: baseForm.filterPureImageMessages,
                       set: (v: boolean) => setBaseForm(p => ({ ...p, filterPureImageMessages: v })),
-                      title: "过滤纯多媒体消息",
-                      desc: "过滤掉只包含图片、视频、音频、文件、表情等没有文字的消息记录"
+                      title: "仅导出纯文字消息（不下载资源）",
+                      desc: "仅保留纯文字消息，过滤掉图片/视频/音频/文件等多媒体消息，且不下载任何资源，大幅加快导出速度"
                     }
                   ].map((opt) => (
                     <div
