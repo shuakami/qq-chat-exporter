@@ -181,6 +181,7 @@ export function useExportTasks(props?: UseExportTasksProps) {
     additionalData?: {
       error?: string
       fileName?: string
+      filePath?: string
       downloadUrl?: string
       completedAt?: string
     }
@@ -194,6 +195,7 @@ export function useExportTasks(props?: UseExportTasksProps) {
               status,
               ...(additionalData?.error && { error: additionalData.error }),
               ...(additionalData?.fileName && { fileName: additionalData.fileName }),
+              ...(additionalData?.filePath && { filePath: additionalData.filePath }),
               ...(additionalData?.downloadUrl && { downloadUrl: additionalData.downloadUrl }),
               ...(additionalData?.completedAt && { completedAt: additionalData.completedAt }),
             }
@@ -218,6 +220,7 @@ export function useExportTasks(props?: UseExportTasksProps) {
     updateTaskProgress(data.taskId, data.progress, data.status, {
       error: data.error,
       fileName: data.fileName,
+      filePath: data.filePath,
       downloadUrl: data.downloadUrl,
       completedAt: data.completedAt,
     })

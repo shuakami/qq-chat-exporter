@@ -287,7 +287,7 @@ ${this.generateFooter()}
                 if (localPath && this.isValidResourcePath(localPath)) {
                     yield {
                         type: ((r as any)?.type || 'file') as string,
-                        fileName: ((r as any)?.filename || path.basename(localPath)) as string,
+                        fileName: path.basename(localPath),
                         localPath,
                         url: (r as any)?.url
                     };
@@ -302,7 +302,7 @@ ${this.generateFooter()}
                 if (data && typeof data === 'object' && data.localPath && this.isValidResourcePath(data.localPath)) {
                     yield {
                         type: (el?.type || 'file') as string,
-                        fileName: (data.filename || path.basename(data.localPath)) as string,
+                        fileName: path.basename(data.localPath),
                         localPath: data.localPath,
                         url: data.url
                     };
@@ -2498,13 +2498,20 @@ ${this.generateFooter()}
         const filename = data?.filename || '语音';
         let src = '';
         
-        // 优先使用url（SimpleMessageParser已设置正确路径，包含MD5前缀）
-        if (data?.url && this.isValidResourcePath(data.url)) {
-            src = data.url;
-        }
-        // 其次使用localPath构建路径
-        else if (data?.localPath && this.isValidResourcePath(data.localPath)) {
+        // 优先使用localPath（导出后的本地资源，使用相对路径）
+        if (data?.localPath && this.isValidResourcePath(data.localPath)) {
             src = `resources/audios/${path.basename(data.localPath)}`;
+        }
+        // 其次使用url，但要过滤掉本地文件系统路径
+        else if (data?.url) {
+            const url = data.url;
+            // 过滤掉本地路径，只保留网络URL
+            if (!url.startsWith('file://') && 
+                !url.startsWith('C:/') && 
+                !url.startsWith('D:/') && 
+                !url.match(/^[A-Z]:\\/)) {
+                src = url;
+            }
         }
         
         if (src) {
@@ -2524,13 +2531,20 @@ ${this.generateFooter()}
         const filename = data?.filename || '视频';
         let src = '';
         
-        // 优先使用url（SimpleMessageParser已设置正确路径，包含MD5前缀）
-        if (data?.url && this.isValidResourcePath(data.url)) {
-            src = data.url;
-        }
-        // 其次使用localPath构建路径
-        else if (data?.localPath && this.isValidResourcePath(data.localPath)) {
+        // 优先使用localPath（导出后的本地资源，使用相对路径）
+        if (data?.localPath && this.isValidResourcePath(data.localPath)) {
             src = `resources/videos/${path.basename(data.localPath)}`;
+        }
+        // 其次使用url，但要过滤掉本地文件系统路径
+        else if (data?.url) {
+            const url = data.url;
+            // 过滤掉本地路径，只保留网络URL
+            if (!url.startsWith('file://') && 
+                !url.startsWith('C:/') && 
+                !url.startsWith('D:/') && 
+                !url.match(/^[A-Z]:\\/)) {
+                src = url;
+            }
         }
         
         if (src) {

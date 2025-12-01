@@ -46,6 +46,7 @@ import {
   Sticker,
   Layers,
   Combine,
+  FolderOpen,
 } from "lucide-react"
 import type { CreateTaskForm, CreateScheduledExportForm } from "@/types/api"
 import { useQCE } from "@/hooks/use-qce"
@@ -201,6 +202,30 @@ export default function QCEDashboard() {
       setNotifications(prev => [...prev, { id: Date.now().toString(), ...notification }])
     }
   })
+
+  // 打开文件位置
+  const openFileLocation = async (filePath?: string) => {
+    if (!filePath) {
+      addNotification('error', '打开失败', '文件路径不存在')
+      return
+    }
+    
+    try {
+      const response = await fetch('/api/open-file-location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath })
+      })
+      
+      const data = await response.json()
+      if (!data.success) {
+        addNotification('error', '打开失败', data.error || '未知错误')
+      }
+    } catch (error) {
+      console.error('[QCE] Open file location error:', error)
+      addNotification('error', '打开失败', error instanceof Error ? error.message : '未知错误')
+    }
+  }
 
   const {
     scheduledExports,
@@ -1193,17 +1218,30 @@ export default function QCEDashboard() {
                               </>
                             )}
                             {task.status === "completed" && (
-                              <motion.div whileTap={{ scale: 0.98 }}>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 rounded-full"
-                                  onClick={() => downloadTask(task)}
-                                >
-                                  <Download className="w-3 h-3 mr-1" />
-                                  下载
-                                </Button>
-                              </motion.div>
+                              <>
+                                <motion.div whileTap={{ scale: 0.98 }}>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 rounded-full"
+                                    onClick={() => openFileLocation(task.filePath)}
+                                    title="打开文件位置"
+                                  >
+                                    <FolderOpen className="w-3 h-3" />
+                                  </Button>
+                                </motion.div>
+                                <motion.div whileTap={{ scale: 0.98 }}>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 rounded-full"
+                                    onClick={() => downloadTask(task)}
+                                  >
+                                    <Download className="w-3 h-3 mr-1" />
+                                    下载
+                                  </Button>
+                                </motion.div>
+                              </>
                             )}
                           </div>
                         </motion.div>
@@ -1565,17 +1603,30 @@ export default function QCEDashboard() {
 
                           <div className="flex items-center gap-2">
                             {task.status === "completed" && (
-                              <motion.div whileTap={{ scale: 0.98 }}>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 rounded-full"
-                                  onClick={() => downloadTask(task)}
-                                >
-                                  <Download className="w-3 h-3 mr-1" />
-                                  下载
-                                </Button>
-                              </motion.div>
+                              <>
+                                <motion.div whileTap={{ scale: 0.98 }}>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 rounded-full"
+                                    onClick={() => openFileLocation(task.filePath)}
+                                    title="打开文件位置"
+                                  >
+                                    <FolderOpen className="w-3 h-3" />
+                                  </Button>
+                                </motion.div>
+                                <motion.div whileTap={{ scale: 0.98 }}>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 rounded-full"
+                                    onClick={() => downloadTask(task)}
+                                  >
+                                    <Download className="w-3 h-3 mr-1" />
+                                    下载
+                                  </Button>
+                                </motion.div>
+                              </>
                             )}
                             {(task.status === "completed" || task.status === "failed") && (
                               <motion.div whileTap={{ scale: 0.96 }}>

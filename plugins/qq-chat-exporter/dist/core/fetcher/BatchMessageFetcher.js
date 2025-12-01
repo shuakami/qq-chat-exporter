@@ -339,8 +339,6 @@ export class BatchMessageFetcher {
         let filtered = messages;
         // 时间筛选
         if (filter.startTime || filter.endTime) {
-            const beforeTimeFilter = filtered.length;
-            console.info(`[BatchMessageFetcher] 开始时间筛选，筛选前消息数量: ${beforeTimeFilter}, 筛选范围: ${filter.startTime} - ${filter.endTime}`);
             filtered = filtered.filter(msg => {
                 let msgTime = parseInt(msg.msgTime);
                 // 检查时间戳是否为秒级（10位数）并转换为毫秒级
@@ -348,14 +346,9 @@ export class BatchMessageFetcher {
                 if (msgTime > 1000000000 && msgTime < 10000000000) {
                     msgTime = msgTime * 1000;
                 }
-                const passes = (!filter.startTime || msgTime >= filter.startTime) &&
+                return (!filter.startTime || msgTime >= filter.startTime) &&
                     (!filter.endTime || msgTime <= filter.endTime);
-                if (!passes) {
-                    console.info(`[BatchMessageFetcher] 消息被时间筛选过滤: msgId=${msg.msgId}, 原始时间=${msg.msgTime}, 转换后=${msgTime}, 筛选范围=${filter.startTime}-${filter.endTime}`);
-                }
-                return passes;
             });
-            console.info(`[BatchMessageFetcher] 时间筛选完成，筛选后消息数量: ${filtered.length}, 过滤掉: ${beforeTimeFilter - filtered.length}`);
         }
         // 发送者筛选
         if (filter.senderUids && filter.senderUids.length > 0) {
