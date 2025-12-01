@@ -154,7 +154,7 @@ export function TaskWizard({
         keywords: "",
         includeRecalled: false,
         includeSystemMessages: true,
-        filterPureImageMessages: false,
+        filterPureImageMessages: true, // JSON默认启用
         exportAsZip: false,
       })
     }
