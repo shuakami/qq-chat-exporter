@@ -2081,6 +2081,33 @@ export class QQChatExporterApiServer {
             console.log(`[ApiServer] 平均每批次: ${batchCount > 0 ? Math.round(allMessages.length / batchCount) : 0} 条`);
             console.log(`[ApiServer] ====================================================`);
 
+            // 补全群消息的群昵称（sendMemberName）
+
+            if (Number(peer.chatType) === 2 && allMessages.length > 0) {
+                console.log(`[ApiServer] 正在获取群成员信息以补全群昵称...`);
+                try {
+                    const groupMembers = await this.core.apis.GroupApi.getGroupMemberAll(peer.peerUid, false);
+                    if (groupMembers?.result?.infos) {
+                        const memberMap = groupMembers.result.infos;
+                        let filledCount = 0;
+                        
+                        for (const message of allMessages) {
+                            if (!message.sendMemberName || message.sendMemberName.trim() === '') {
+                                const member = memberMap.get(message.senderUid);
+                                if (member?.cardName) {
+                                    message.sendMemberName = member.cardName;
+                                    filledCount++;
+                                }
+                            }
+                        }
+                        
+                        console.log(`[ApiServer] 群昵称补全完成: ${filledCount} 条消息`);
+                    }
+                } catch (error) {
+                    console.warn(`[ApiServer] 获取群成员信息失败，跳过群昵称补全:`, error);
+                }
+            }
+
             // 应用纯图片消息过滤（如果启用）
             let filteredMessages = allMessages;
             if (options?.filterPureImageMessages) {
@@ -2340,6 +2367,7 @@ export class QQChatExporterApiServer {
                     progress: 100,
                     message: '导出完成',
                     messageCount: sortedMessages.length,
+                    filePath: finalFilePath,
                     fileSize: stats.size,
                     completedAt: new Date().toISOString(),
                     fileName: finalFileName,
@@ -2510,6 +2538,10 @@ export class QQChatExporterApiServer {
             for (const { config, state } of tasks) {
                 console.info(`[ApiServer] 正在处理任务: ${config.taskId}, 状态: ${state.status}`);
                 
+                // 从state中恢复fileName和filePath（如果有的话）
+                const fileName = (state as any).fileName || `${config.chatName}_${Date.now()}.json`;
+                const filePath = (state as any).filePath;
+                
                 // 转换为API格式
                 const apiTask = {
                     taskId: config.taskId,
@@ -2519,8 +2551,9 @@ export class QQChatExporterApiServer {
                     progress: state.totalMessages > 0 ? Math.round((state.processedMessages / state.totalMessages) * 100) : 0,
                     format: config.formats[0] || 'JSON',
                     messageCount: state.processedMessages,
-                    fileName: `${config.chatName}_${Date.now()}.json`, // 重新生成文件名
-                    downloadUrl: `/downloads/${config.chatName}_${Date.now()}.json`,
+                    fileName: fileName,
+                    filePath: filePath,  // 恢复filePath
+                    downloadUrl: `/downloads/${fileName}`,
                     createdAt: typeof config.createdAt === 'string' ? config.createdAt : config.createdAt.toISOString(),
                     completedAt: state.endTime 
                         ? (typeof state.endTime === 'string' ? state.endTime : state.endTime.toISOString())
@@ -2585,8 +2618,10 @@ export class QQChatExporterApiServer {
                 error: task.error,
                 startTime: task.createdAt ? new Date(task.createdAt) : new Date(),
                 endTime: task.completedAt ? new Date(task.completedAt) : undefined,
-                processingSpeed: 0
-            };
+                processingSpeed: 0,
+                fileName: task.fileName,  // 保存文件名
+                filePath: task.filePath   // 保存文件路径
+            } as any;
 
             await this.dbManager.saveTask(config, state);
         } catch (error) {

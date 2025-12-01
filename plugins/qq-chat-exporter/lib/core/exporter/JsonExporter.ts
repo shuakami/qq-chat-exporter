@@ -407,7 +407,9 @@ export class JsonExporter extends BaseExporter {
                 uid: parsedMsg.sender.uid,
                 uin: parsedMsg.sender.uin,
                 name: parsedMsg.sender.name || parsedMsg.sender.uid,
-                remark: undefined // ParsedMessage中没有remark字段
+                nickname: (parsedMsg.sender as any).nickname,
+                groupCard: (parsedMsg.sender as any).groupCard,
+                remark: (parsedMsg.sender as any).remark
             },
             type: this.getMessageTypeFromNTMsgType(parsedMsg.messageType),
             content: {

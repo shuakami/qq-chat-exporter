@@ -3,6 +3,7 @@
  */
 
 import path from 'path';
+import fs from 'fs';
 import { RawMessage, MessageElement, NTMsgType } from 'NapCatQQ/src/core/types.js';
 
 /* ------------------------------ 内部高性能工具 ------------------------------ */
@@ -163,8 +164,10 @@ export interface CleanMessage {
   sender: {
     uid: string;
     uin?: string;
-    name: string;
-    remark?: string;
+    name: string;          // 优先显示的名称（群昵称 > 备注 > QQ昵称）
+    nickname?: string;     // QQ昵称（原始昵称）
+    groupCard?: string;    // 群名片/群昵称
+    remark?: string;       // 好友备注
   };
   type: string;
   content: MessageContent;
@@ -237,11 +240,15 @@ export class SimpleMessageParser {
 
   // 全局消息映射，用于查找被引用的消息
   private messageMap: Map<string, RawMessage> = new Map();
+  
+  // QQ表情映射表
+  private faceMap: Map<string, string> = new Map();
 
   constructor(opts: SimpleParserOptions = {}) {
     this.options = { ...DEFAULT_SIMPLE_OPTIONS, ...opts };
     this.onProgress = opts.onProgress;
     this.concurrency = this.options.concurrency ?? resolveConcurrency();
+    this.initializeFaceMap();
   }
 
   /**
@@ -354,16 +361,20 @@ export class SimpleMessageParser {
     const tsMs = millisFromUnixSeconds(message.msgTime as any);
     const timestamp = tsMs > 0 ? tsMs : Date.now();
 
+    // 提取所有可用的名称信息
+    const groupCard = message.sendMemberName && message.sendMemberName.trim() || undefined;
+    const remark = message.sendRemarkName && message.sendRemarkName.trim() || undefined;
+    const nickname = message.sendNickName && message.sendNickName.trim() || undefined;
+    
     // 群名片 > 好友备注 > 昵称 > QQ号 > UID
-    // 过滤空字符串，只有非空值才算有效
     const senderName = (
-      (message.sendMemberName && message.sendMemberName.trim()) ||
-      (message.sendRemarkName && message.sendRemarkName.trim()) ||
-      (message.sendNickName && message.sendNickName.trim()) ||
+      groupCard ||
+      remark ||
+      nickname ||
       (message.senderUin && String(message.senderUin)) ||
       (message.senderUid && String(message.senderUid)) ||
       '未知用户'
-    );
+    ).trim();
 
     const content = await this.parseMessageContent(message);
 
@@ -374,10 +385,12 @@ export class SimpleMessageParser {
       // RFC3339（UTC）
       time: rfc3339FromMillis(timestamp),
       sender: {
-        uid: message.senderUid,
+        uid: message.senderUid || '未知',
         uin: message.senderUin,
         name: senderName,
-        remark: message.sendRemarkName || undefined
+        nickname: nickname,
+        groupCard: groupCard,
+        remark: remark
       },
       type: this.getMessageTypeString(message.msgType),
       content,
@@ -466,11 +479,13 @@ export class SimpleMessageParser {
 
     // 表情
     if (element.faceElement) {
+      const faceId = element.faceElement.faceIndex?.toString() || '';
+      const faceName = element.faceElement.faceText || this.faceMap.get(faceId) || `表情${faceId}`;
       return {
         type: 'face',
         data: {
-          id: element.faceElement.faceIndex,
-          name: `表情${element.faceElement.faceIndex}`
+          id: faceId,
+          name: faceName
         }
       };
     }
@@ -709,15 +724,20 @@ export class SimpleMessageParser {
     const tsMs = millisFromUnixSeconds(message.msgTime as any);
     const timestamp = tsMs > 0 ? tsMs : Date.now();
 
-    // 过滤空字符串，只使用非空值
+    // 提取所有可用的名称信息
+    const groupCard = message.sendMemberName && message.sendMemberName.trim() || undefined;
+    const remark = message.sendRemarkName && message.sendRemarkName.trim() || undefined;
+    const nickname = message.sendNickName && message.sendNickName.trim() || undefined;
+    
+    // 群名片 > 好友备注 > 昵称 > QQ号 > UID
     const senderName = (
-      (message.sendMemberName && message.sendMemberName.trim()) ||
-      (message.sendRemarkName && message.sendRemarkName.trim()) ||
-      (message.sendNickName && message.sendNickName.trim()) ||
+      groupCard ||
+      remark ||
+      nickname ||
       (message.senderUin && String(message.senderUin)) ||
       (message.senderUid && String(message.senderUid)) ||
       '未知用户'
-    );
+    ).trim();
 
     const errMsg = (error && (error.message || error.toString?.())) || 'Unknown';
     return {
@@ -726,9 +746,12 @@ export class SimpleMessageParser {
       timestamp,
       time: rfc3339FromMillis(timestamp),
       sender: {
-        uid: message.senderUid,
+        uid: message.senderUid || '未知',
         uin: message.senderUin,
-        name: senderName
+        name: senderName,
+        nickname: nickname,
+        groupCard: groupCard,
+        remark: remark
       },
       type: 'error',
       content: {
@@ -1165,6 +1188,28 @@ export class SimpleMessageParser {
         return '转账消息';
       default:
         return `系统消息 (类型: ${t})`;
+    }
+  }
+
+  /**
+   * 初始化QQ表情映射表
+   */
+  private initializeFaceMap(): void {
+    try {
+      const faceConfigPath = path.join(__dirname, 'face_config.json');
+      if (fs.existsSync(faceConfigPath)) {
+        const faceConfig = JSON.parse(fs.readFileSync(faceConfigPath, 'utf-8'));
+        if (faceConfig.sysface && Array.isArray(faceConfig.sysface)) {
+          for (const face of faceConfig.sysface) {
+            if (face.QSid && face.QDes) {
+              this.faceMap.set(face.QSid.toString(), face.QDes);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      // 加载失败时静默失败，使用默认的"表情{ID}"格式
+      console.warn('[SimpleMessageParser] 加载表情映射失败:', error);
     }
   }
 }

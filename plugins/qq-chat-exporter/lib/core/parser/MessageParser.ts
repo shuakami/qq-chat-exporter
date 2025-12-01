@@ -313,6 +313,9 @@ export interface ParsedMessage {
     uid: string;
     uin?: string;
     name?: string;
+    nickname?: string;      // QQ昵称
+    groupCard?: string;     // 群昵称
+    remark?: string;        // 好友备注
     avatar?: string;
     role?: 'owner' | 'admin' | 'member';
   };
@@ -702,10 +705,14 @@ export class MessageParser {
       sender: {
         uid: rawMsg.senderUid,
         uin: rawMsg.senderUin,
-        name: (rawMsg.sendNickName && rawMsg.sendNickName.trim()) ||
+        name: (rawMsg.sendMemberName && rawMsg.sendMemberName.trim()) ||
               (rawMsg.sendRemarkName && rawMsg.sendRemarkName.trim()) ||
+              (rawMsg.sendNickName && rawMsg.sendNickName.trim()) ||
               (rawMsg.senderUin && String(rawMsg.senderUin)) ||
               undefined,
+        nickname: (rawMsg.sendNickName && rawMsg.sendNickName.trim()) || undefined,
+        groupCard: (rawMsg.sendMemberName && rawMsg.sendMemberName.trim()) || undefined,
+        remark: (rawMsg.sendRemarkName && rawMsg.sendRemarkName.trim()) || undefined,
         avatar: undefined,
         role: undefined
       },
@@ -1639,10 +1646,14 @@ export class MessageParser {
       sender: {
         uid: message.senderUid || '0',
         uin: message.senderUin || '0',
-        name: (message.sendNickName && message.sendNickName.trim()) || 
+        name: (message.sendMemberName && message.sendMemberName.trim()) ||
               (message.sendRemarkName && message.sendRemarkName.trim()) || 
+              (message.sendNickName && message.sendNickName.trim()) || 
               (message.senderUin && String(message.senderUin)) ||
-              '未知用户'
+              '未知用户',
+        nickname: (message.sendNickName && message.sendNickName.trim()) || undefined,
+        groupCard: (message.sendMemberName && message.sendMemberName.trim()) || undefined,
+        remark: (message.sendRemarkName && message.sendRemarkName.trim()) || undefined
       },
       receiver: {
         uid: message.peerUid,
