@@ -187,6 +187,10 @@ export class JsonExporter extends BaseExporter {
                         // 统计资源
                         const resArr = pm.content?.resources || [];
                         resourceCount += resArr.length;
+                        // 智能清理rawMessage，删除null/undefined/空值，大幅减少JSON文件大小
+                        if (pm.rawMessage) {
+                            pm.rawMessage = this.cleanRawMessage(pm.rawMessage);
+                        }
                         // 写NDJSON：一条消息一行
                         writeStream.write(JSON.stringify(pm) + '\n');
                     }
@@ -550,6 +554,56 @@ export class JsonExporter extends BaseExporter {
             ...(chatInfo.avatar && { avatar: chatInfo.avatar }),
             ...(chatInfo.participantCount !== undefined && { participantCount: chatInfo.participantCount })
         };
+    }
+
+    /**
+     * 智能清理rawMessage，递归删除null/undefined/空值，大幅减少JSON文件大小
+     */
+    private cleanRawMessage(obj: any): any {
+        if (obj === null || obj === undefined) {
+            return undefined;
+        }
+        
+        if (Array.isArray(obj)) {
+            const cleaned = obj.map(item => this.cleanRawMessage(item)).filter(item => item !== undefined);
+            return cleaned.length > 0 ? cleaned : undefined;
+        }
+        
+        if (typeof obj === 'object') {
+            const cleaned: any = {};
+            let hasValue = false;
+            
+            for (const key in obj) {
+                if (obj.hasOwnProperty(key)) {
+                    const value = obj[key];
+                    
+                    if (value === null || value === undefined || value === '') {
+                        continue;
+                    }
+                    
+                    if (typeof value === 'object') {
+                        const cleanedValue = this.cleanRawMessage(value);
+                        if (cleanedValue !== undefined) {
+                            if (Array.isArray(cleanedValue) && cleanedValue.length === 0) {
+                                continue;
+                            }
+                            if (!Array.isArray(cleanedValue) && Object.keys(cleanedValue).length === 0) {
+                                continue;
+                            }
+                            cleaned[key] = cleanedValue;
+                            hasValue = true;
+                        }
+                    } else {
+                        cleaned[key] = value;
+                        hasValue = true;
+                    }
+                }
+            }
+            
+            return hasValue ? cleaned : undefined;
+        }
+        
+        return obj;
     }
 
     /**

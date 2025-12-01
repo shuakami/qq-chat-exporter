@@ -4,6 +4,7 @@
 
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { RawMessage, MessageElement, NTMsgType } from 'NapCatQQ/src/core/types.js';
 
 /* ------------------------------ 内部高性能工具 ------------------------------ */
@@ -1196,6 +1197,10 @@ export class SimpleMessageParser {
    */
   private initializeFaceMap(): void {
     try {
+      // ES模块中获取当前文件目录
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = path.dirname(__filename);
+      
       const faceConfigPath = path.join(__dirname, 'face_config.json');
       if (fs.existsSync(faceConfigPath)) {
         const faceConfig = JSON.parse(fs.readFileSync(faceConfigPath, 'utf-8'));

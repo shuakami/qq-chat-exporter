@@ -2152,30 +2152,36 @@ export class QQChatExporterApiServer {
                 }
             });
 
-            // 处理资源下载（只处理过滤后的消息资源）
-            task = this.exportTasks.get(taskId);
-            if (task) {
-                await this.updateTaskStatus(taskId, {
-                    progress: 70,
-                    message: '正在下载资源...',
-                    messageCount: filteredMessages.length
-                });
-            }
-            
-            this.broadcastWebSocketMessage({
-                type: 'export_progress',
-                data: {
-                    taskId,
-                    status: 'running',
-                    progress: 70,
-                    message: '正在下载资源...',
-                    messageCount: filteredMessages.length
+            // 处理资源下载（如果启用了纯多媒体消息过滤，则跳过资源下载）
+            let resourceMap: Map<string, any>;
+            if (!options?.filterPureImageMessages) {
+                task = this.exportTasks.get(taskId);
+                if (task) {
+                    await this.updateTaskStatus(taskId, {
+                        progress: 70,
+                        message: '正在下载资源...',
+                        messageCount: filteredMessages.length
+                    });
                 }
-            });
+                
+                this.broadcastWebSocketMessage({
+                    type: 'export_progress',
+                    data: {
+                        taskId,
+                        status: 'running',
+                        progress: 70,
+                        message: '正在下载资源...',
+                        messageCount: filteredMessages.length
+                    }
+                });
 
-            // 下载和处理资源（使用过滤后的消息列表）
-            const resourceMap = await taskResourceHandler.processMessageResources(filteredMessages);
-            console.info(`[ApiServer] 处理了 ${resourceMap.size} 个消息的资源`);
+                // 下载和处理资源（使用过滤后的消息列表）
+                resourceMap = await taskResourceHandler.processMessageResources(filteredMessages);
+                console.info(`[ApiServer] 处理了 ${resourceMap.size} 个消息的资源`);
+            } else {
+                console.info(`[ApiServer] 已启用纯多媒体消息过滤，跳过资源下载`);
+                resourceMap = new Map(); // 不下载资源，使用空Map
+            }
 
             // 导出文件
             task = this.exportTasks.get(taskId);
