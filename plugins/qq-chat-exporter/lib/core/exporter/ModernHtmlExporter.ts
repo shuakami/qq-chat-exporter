@@ -2473,7 +2473,7 @@ ${this.generateFooter()}
         
         // 优先使用localPath（导出后的本地资源）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            src = `resources/images/${data.filename || path.basename(data.localPath)}`;
+            src = `../resources/images/${path.basename(data.localPath)}`;
         } 
         // 其次使用url，但要过滤掉无效的file://协议路径
         else if (data?.url) {
@@ -2500,7 +2500,7 @@ ${this.generateFooter()}
         
         // 优先使用localPath（导出后的本地资源，使用相对路径）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            src = `resources/audios/${path.basename(data.localPath)}`;
+            src = `../resources/audios/${path.basename(data.localPath)}`;
         }
         // 其次使用url，但要过滤掉本地文件系统路径
         else if (data?.url) {
@@ -2533,7 +2533,7 @@ ${this.generateFooter()}
         
         // 优先使用localPath（导出后的本地资源，使用相对路径）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            src = `resources/videos/${path.basename(data.localPath)}`;
+            src = `../resources/videos/${path.basename(data.localPath)}`;
         }
         // 其次使用url，但要过滤掉本地文件系统路径
         else if (data?.url) {
@@ -2559,7 +2559,7 @@ ${this.generateFooter()}
         
         // 优先使用localPath（导出后的本地资源）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            href = `resources/files/${data.filename || path.basename(data.localPath)}`;
+            href = `../resources/files/${path.basename(data.localPath)}`;
         } 
         // 其次使用url，但要过滤掉无效的file://协议路径
         else if (data?.url) {
@@ -2692,7 +2692,7 @@ ${this.generateFooter()}
             // 尝试从elements中找到图片
             const imgElement = data.elements.find((el: any) => el?.type === 'image');
             if (imgElement?.data?.localPath) {
-                const imgSrc = `resources/images/${imgElement.data.filename || path.basename(imgElement.data.localPath)}`;
+                const imgSrc = `../resources/images/${path.basename(imgElement.data.localPath)}`;
                 imageHtml = `<img src="${imgSrc}" class="reply-content-image" alt="引用图片" loading="lazy">`;
             }
         }

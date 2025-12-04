@@ -179,7 +179,18 @@ export class BatchMessageFetcher {
         while (hasMore && !this.cancelToken.cancelled) {
             console.info(`[BatchMessageFetcher] 开始获取消息批次, nextMessageId=${nextMessageId}, nextSeq=${nextSeq}`);
             const result = await this.fetchMessages(peer, filter, nextMessageId, nextSeq);
-            console.info(`[BatchMessageFetcher] 获取消息批次完成, 消息数量=${result.messages.length}, hasMore=${result.hasMore}`);
+            console.info(`[BatchMessageFetcher] 获取消息批次完成, 筛选后消息数量=${result.messages.length}, hasMore=${result.hasMore}`);
+            
+            // 调试：输出批次详情
+            if (result.messages.length > 0) {
+                const batchTimes = result.messages.map(msg => {
+                    const msgTime = typeof msg.msgTime === 'string' ? parseInt(msg.msgTime) : msg.msgTime;
+                    return msgTime > 10000000000 ? msgTime : msgTime * 1000;
+                });
+                const batchEarliest = Math.min(...batchTimes);
+                const batchLatest = Math.max(...batchTimes);
+                console.info(`[Debug] Fetcher批次详情: 时间范围=${new Date(batchEarliest).toISOString()} ~ ${new Date(batchLatest).toISOString()}, 消息数=${result.messages.length}`);
+            }
             
             // 防御性提前停止：若客户端筛选后为空，且批次最早时间早于开始时间，则无需继续回溯
             if (
@@ -188,7 +199,7 @@ export class BatchMessageFetcher {
                 typeof filter.startTime === 'number' &&
                 (result as any).earliestMsgTime < filter.startTime
             ) {
-                console.info(`[BatchMessageFetcher] 触发防御性提前停止：earliestMsgTime=${(result as any).earliestMsgTime}, startTime=${filter.startTime}`);
+                console.warn(`[BatchMessageFetcher] ⚠️ 触发防御性提前停止：earliestMsgTime=${new Date((result as any).earliestMsgTime).toISOString()}, startTime=${new Date(filter.startTime).toISOString()}`);
                 hasMore = false;
                 break;
             }

@@ -2041,9 +2041,33 @@ export class QQChatExporterApiServer {
             const messageGenerator = fetcher.fetchAllMessagesInTimeRange(peer, startTimeMs, endTimeMs);
             
             let batchCount = 0;
+            let earliestMsgTime: number | null = null;
+            let latestMsgTime: number | null = null;
+            
             for await (const batch of messageGenerator) {
                 batchCount++;
                 allMessages.push(...batch);
+                
+                // 记录每批次的消息时间范围
+                if (batch.length > 0) {
+                    const batchTimes = batch.map(msg => {
+                        const msgTime = typeof msg.msgTime === 'string' ? parseInt(msg.msgTime) : msg.msgTime;
+                        return msgTime > 10000000000 ? msgTime : msgTime * 1000;
+                    });
+                    const batchEarliest = Math.min(...batchTimes);
+                    const batchLatest = Math.max(...batchTimes);
+                    
+                    console.log(`[Debug] 批次 ${batchCount}: 消息数=${batch.length}, 时间范围=${new Date(batchEarliest).toISOString()} ~ ${new Date(batchLatest).toISOString()}`);
+                    console.log(`[Debug] 批次 ${batchCount}: 第一条msgId=${batch[0]?.msgId}, 最后一条msgId=${batch[batch.length - 1]?.msgId}`);
+                    
+                    // 更新全局最早/最晚时间
+                    if (earliestMsgTime === null || batchEarliest < earliestMsgTime) {
+                        earliestMsgTime = batchEarliest;
+                    }
+                    if (latestMsgTime === null || batchLatest > latestMsgTime) {
+                        latestMsgTime = batchLatest;
+                    }
+                }
                 
                 // 更新任务状态
                 task = this.exportTasks.get(taskId);
@@ -2075,10 +2099,17 @@ export class QQChatExporterApiServer {
             }
             
             console.log(`[ApiServer] ==================== 消息收集汇总 ====================`);
-            console.log(`[ApiServer] 时间范围: ${new Date(startTimeMs).toISOString()} - ${new Date(endTimeMs).toISOString()}`);
+            console.log(`[ApiServer] 请求时间范围: ${new Date(startTimeMs).toISOString()} - ${new Date(endTimeMs).toISOString()}`);
+            console.log(`[ApiServer] 实际获取时间: ${earliestMsgTime ? new Date(earliestMsgTime).toISOString() : 'N/A'} - ${latestMsgTime ? new Date(latestMsgTime).toISOString() : 'N/A'}`);
             console.log(`[ApiServer] 总批次数: ${batchCount}`);
             console.log(`[ApiServer] 收集到的消息总数: ${allMessages.length} 条`);
             console.log(`[ApiServer] 平均每批次: ${batchCount > 0 ? Math.round(allMessages.length / batchCount) : 0} 条`);
+            
+            // 🔍 调试：检查是否有时间断层
+            if (startTimeMs > 0 && earliestMsgTime && earliestMsgTime > startTimeMs) {
+                const gapDays = Math.round((earliestMsgTime - startTimeMs) / (1000 * 60 * 60 * 24));
+                console.warn(`[ApiServer] ⚠️ 时间断层检测: 请求从 ${new Date(startTimeMs).toISOString()} 开始，但最早消息为 ${new Date(earliestMsgTime).toISOString()}，缺少 ${gapDays} 天的消息！`);
+            }
             console.log(`[ApiServer] ====================================================`);
 
             // 补全群消息的群昵称（sendMemberName）
@@ -2108,27 +2139,11 @@ export class QQChatExporterApiServer {
                 }
             }
 
-            // 应用纯图片消息过滤（如果启用）
+            // 注意：filterPureImageMessages只是跳过资源下载，不过滤消息
+            // 所有消息都保留，只是不下载图片等资源文件
             let filteredMessages = allMessages;
             if (options?.filterPureImageMessages) {
-                const parser = new SimpleMessageParser();
-                const tempFilteredMessages: RawMessage[] = [];
-                
-                for (const message of allMessages) {
-                    try {
-                        const cleanMessage = await parser.parseSingleMessage(message);
-                        if (!parser.isPureImageMessage(cleanMessage)) {
-                            tempFilteredMessages.push(message);
-                        }
-                    } catch (error) {
-                        // 解析失败的消息保留，避免丢失数据
-                        console.warn(`[ApiServer] 过滤消息解析失败，保留消息: ${message.msgId}`, error);
-                        tempFilteredMessages.push(message);
-                    }
-                }
-                
-                filteredMessages = tempFilteredMessages;
-                console.log(`[ApiServer] 纯图片消息过滤完成: ${allMessages.length} → ${filteredMessages.length} 条`);
+                console.log(`[ApiServer] 启用纯文字模式: 跳过资源下载，保留所有 ${allMessages.length} 条消息`);
             }
 
             // 所有格式都需要通过OneBot解析器处理
