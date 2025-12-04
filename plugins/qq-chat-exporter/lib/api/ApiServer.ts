@@ -1754,12 +1754,19 @@ export class QQChatExporterApiServer {
                     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
                     res.send(htmlTemplate);
                 } else {
-                    // HTML或其他文件 - 直接返回
+                    // HTML或其他文件 - 动态修复资源路径
                     res.setHeader('Content-Type', 'text/html; charset=utf-8');
                     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
                     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
                     
-                    const htmlContent = fs.readFileSync(path.resolve(filePath), 'utf8');
+                    let htmlContent = fs.readFileSync(path.resolve(filePath), 'utf8');
+                    
+                    // 修复资源路径：将 ../resources/ 替换为 {fileName}/resources/
+                    // 这样服务器访问时路径正确，本地打开时仍然使用 ../resources/
+                    htmlContent = htmlContent
+                        .replace(/src="\.\.\/resources\//g, `src="${fileName}/resources/`)
+                        .replace(/href="\.\.\/resources\//g, `href="${fileName}/resources/`);
+                    
                     res.send(htmlContent);
                 }
             } catch (error) {
