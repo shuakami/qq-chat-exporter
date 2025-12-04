@@ -773,17 +773,26 @@ export class SimpleMessageParser {
 
   isPureMediaMessage(message: CleanMessage): boolean {
     const els = message.content.elements || [];
+    
+    // 必须包含媒体元素
     const hasMedia = els.some((e) => ['image', 'video', 'audio', 'file', 'face'].includes(e.type));
     if (!hasMedia) return false;
 
-    const textEls = els.filter((e) => e.type === 'text');
-    const allTextCQOnly = textEls.length > 0 && textEls.every((e) => this.isOnlyCQCode(e.data?.text || ''));
+    // 最可靠的判断：检查实际的文本内容
+    // content.text已经是所有元素解析后的纯文本内容
+    const actualText = (message.content.text || '').trim();
+    
+    // 如果有实际的文本内容，则不是纯媒体消息
+    if (actualText.length > 0) {
+      // 进一步检查是否只包含CQ码
+      const withoutCQ = actualText.replace(/\[CQ:[^\]]+\]/g, '').trim();
+      if (withoutCQ.length > 0) {
+        return false; // 有实际文字内容，不过滤
+      }
+    }
 
-    const nonTextEls = els.filter(
-      (e) => !['text', 'reply', 'forward', 'json', 'location', 'system'].includes(e.type)
-    );
-
-    return els.length > 0 && hasMedia && (els.length === nonTextEls.length || allTextCQOnly);
+    // 没有实际文字内容，判定为纯媒体消息
+    return true;
   }
 
   private hasRealTextContent(message: CleanMessage): boolean {

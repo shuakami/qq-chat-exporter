@@ -314,31 +314,10 @@ export abstract class BaseExporter {
     }
 
     /**
-     * 应用纯图片消息过滤
-     * 如果启用了过滤选项，会过滤掉只包含图片、表情等非文字元素的消息
+     * 纯图片消息过滤（已废弃）
      */
     protected async applyPureImageFilter(messages: RawMessage[]): Promise<RawMessage[]> {
-        if (!this.options.filterPureImageMessages) {
-            return messages;
-        }
-
-        const simpleParser = new SimpleMessageParser();
-        const filteredMessages: RawMessage[] = [];
-
-        for (const message of messages) {
-            try {
-                const cleanMessage = await simpleParser.parseSingleMessage(message as any);
-                if (!simpleParser.isPureImageMessage(cleanMessage)) {
-                    filteredMessages.push(message);
-                }
-            } catch (error) {
-                // 解析失败的消息保留，避免丢失数据
-                console.warn(`[BaseExporter] 过滤消息解析失败，保留消息: ${message.msgId}`, error);
-                filteredMessages.push(message);
-            }
-        }
-
-        return filteredMessages;
+        return messages;
     }
 
     /**
