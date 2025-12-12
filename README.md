@@ -16,6 +16,9 @@
 > [!WARNING]
 > **macOS 兼容性说明**：由于技术兼容性问题，V4 版本暂时不支持 macOS 平台。我们正在努力解决相关问题，后续有进展会及时通知。推荐 macOS 用户使用 Windows 系统运行本工具。
 
+> [!TIP]
+> 如果导出聊天记录后，想深入分析聊天内容可以试试 [@hellodigua](https://github.com/hellodigua) 的 [AI 聊天分析应用](https://chatlab.fun/)
+
 ## 快速开始
 
 本文档涵盖了系统的核心功能与架构。有关详细的安装和配置说明，请参阅[安装与设置](https://deepwiki.com/shuakami/qq-chat-exporter/1.1-installation-and-setup)。有关完整的使用说明和操作指南，请查看[快速入门指南](https://deepwiki.com/shuakami/qq-chat-exporter/1.2-quick-start-guide)。
