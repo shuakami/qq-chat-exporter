@@ -680,43 +680,45 @@ export class ResourceHandler {
             console.log(`[ResourceHandler] 没有下载任务，直接返回`);
             return;
         }
-        
-        return new Promise(resolve => {
-            let checkCount = 0;
-            const maxChecks = 600; // 最多等待60秒 (600 * 100ms)
-            
-            const checkAllDownloads = () => {
-                checkCount++;
-                
-                console.log(`[ResourceHandler] 等待状态检查 ${checkCount}: 队列=${this.downloadQueue.length}, 活跃=${this.activeDownloads.size}, 处理中=${this.isProcessing}`);
-                
-                // 更严格的完成条件：队列空、无活跃下载、且已经开始过处理或当前无任何任务
-                const queueEmpty = this.downloadQueue.length === 0;
-                const noActiveDownloads = this.activeDownloads.size === 0;
-                const notProcessing = !this.isProcessing;
-                
-                if (queueEmpty && noActiveDownloads && notProcessing) {
-                    console.log(`[ResourceHandler] 所有下载任务已完成，等待检查次数: ${checkCount}`);
-                    resolve();
-                } else if (checkCount >= maxChecks) {
-                    console.warn(`[ResourceHandler] 等待下载任务超时，强制继续。队列长度: ${this.downloadQueue.length}, 活跃下载: ${this.activeDownloads.size}, 正在处理: ${this.isProcessing}`);
-                    resolve();
-                } else {
-                    // 如果有队列任务但没在处理，可能需要手动触发处理
-                    if (this.downloadQueue.length > 0 && !this.isProcessing && this.activeDownloads.size === 0) {
-                        console.warn(`[ResourceHandler] 检测到队列有任务但未在处理，尝试重新触发处理`);
-                        this.processDownloadQueue().catch(error => {
-                            console.error('[ResourceHandler] 重新触发下载队列处理失败:', error);
-                        });
+
+        // 持续等待直到队列与活跃下载都清空；若检测到停滞则自动重启处理，但不再因时间上限提前放行
+        let previousPending = this.downloadQueue.length + this.activeDownloads.size;
+        let stagnationChecks = 0;
+        const stagnationThreshold = 20; // N 次检测无进展则尝试重启（约 10 秒，因后面 sleep 500ms）
+
+        while (true) {
+            const queueEmpty = this.downloadQueue.length === 0;
+            const noActiveDownloads = this.activeDownloads.size === 0;
+            const notProcessing = !this.isProcessing;
+
+            if (queueEmpty && noActiveDownloads && notProcessing) {
+                console.log(`[ResourceHandler] 所有下载任务已完成`);
+                return;
+            }
+
+            const currentPending = this.downloadQueue.length + this.activeDownloads.size;
+            if (currentPending === previousPending && currentPending > 0) {
+                stagnationChecks++;
+                if (stagnationChecks >= stagnationThreshold) {
+                    console.warn(`[ResourceHandler] 检测到下载队列长期无进展，尝试重新触发处理。队列=${this.downloadQueue.length}, 活跃=${this.activeDownloads.size}, 处理中=${this.isProcessing}`);
+                    try {
+                        await this.processDownloadQueue();
+                    } catch (error) {
+                        console.error('[ResourceHandler] 重新触发下载队列处理失败:', error);
                     }
-                    
-                    setTimeout(checkAllDownloads, 200); // 增加检查间隔，给处理更多时间
+                    stagnationChecks = 0;
                 }
-            };
-            
-            // 给队列处理器更多启动时间
-            setTimeout(checkAllDownloads, 300);
-        });
+            } else {
+                stagnationChecks = 0;
+                previousPending = currentPending;
+            }
+
+            await this.sleep(500);
+        }
+    }
+
+    private async sleep(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     /**
