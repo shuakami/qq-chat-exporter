@@ -217,11 +217,15 @@ export class QQChatExporterApiServer {
      * 配置中间件
      */
     private setupMiddleware(): void {
+        // 信任代理配置（用于获取真实客户端IP，支持Docker/Nginx等反向代理环境）
+        // 设置为true表示信任所有代理，在Docker环境下这是必要的
+        this.app.set('trust proxy', true);
+        
         // CORS配置
         this.app.use(cors({
             origin: '*',
             methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-            allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-Access-Token']
+            allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-Access-Token', 'X-Forwarded-For', 'X-Real-IP']
         }));
 
         // JSON解析配置
@@ -296,8 +300,8 @@ export class QQChatExporterApiServer {
                 });
             }
             
-            // 验证令牌
-            const clientIP = req.ip || req.connection.remoteAddress || '';
+            // 获取真实客户端IP（优先使用代理头）
+            const clientIP = this.getClientIP(req);
             if (!this.securityManager.verifyToken(token, clientIP)) {
                 return res.status(403).json({
                     success: false,
@@ -540,14 +544,19 @@ export class QQChatExporterApiServer {
             this.sendSuccessResponse(res, {
                 ...status,
                 requiresAuth: true,
-                serverIP: this.securityManager.getPublicIP()
+                serverIP: this.securityManager.getPublicIP(),
+                isDocker: this.securityManager.isInDocker(),
+                ipWhitelistDisabled: this.securityManager.isIPWhitelistDisabled(),
+                allowedIPs: this.securityManager.getAllowedIPs(),
+                currentClientIP: this.getClientIP(req),
+                configPath: this.securityManager.getConfigPath()
             }, (req as any).requestId);
         });
 
         // 认证验证端点
         this.app.post('/auth', (req, res) => {
             const { token } = req.body;
-            const clientIP = req.ip || req.connection.remoteAddress || '';
+            const clientIP = this.getClientIP(req);
             
             if (!token) {
                 return this.sendErrorResponse(res, new SystemError(ErrorType.VALIDATION_ERROR, '缺少访问令牌', 'MISSING_TOKEN'), (req as any).requestId, 400);
@@ -558,7 +567,8 @@ export class QQChatExporterApiServer {
                 this.sendSuccessResponse(res, {
                     authenticated: true,
                     message: '认证成功',
-                    serverIP: this.securityManager.getPublicIP()
+                    serverIP: this.securityManager.getPublicIP(),
+                    clientIP: clientIP // 返回检测到的客户端IP，便于调试
                 }, (req as any).requestId);
             } else {
                 return this.sendErrorResponse(res, new SystemError(ErrorType.AUTH_ERROR, '无效的访问令牌', 'INVALID_TOKEN'), (req as any).requestId, 403);
@@ -584,6 +594,106 @@ export class QQChatExporterApiServer {
                 return this.sendErrorResponse(res, new SystemError(ErrorType.CONFIG_ERROR, '更新服务器地址失败', 'UPDATE_HOST_FAILED'), (req as any).requestId);
             }
         });
+
+        // ==================== IP白名单管理API ====================
+        
+        // 获取IP白名单配置
+        this.app.get('/api/security/ip-whitelist', (req, res) => {
+            this.sendSuccessResponse(res, {
+                allowedIPs: this.securityManager.getAllowedIPs(),
+                disabled: this.securityManager.isIPWhitelistDisabled(),
+                isDocker: this.securityManager.isInDocker(),
+                configPath: this.securityManager.getConfigPath(),
+                currentClientIP: this.getClientIP(req)
+            }, (req as any).requestId);
+        });
+        
+        // 添加IP到白名单
+        this.app.post('/api/security/ip-whitelist', async (req, res) => {
+            try {
+                const { ip } = req.body;
+                
+                if (!ip || typeof ip !== 'string') {
+                    return this.sendErrorResponse(res, new SystemError(ErrorType.VALIDATION_ERROR, 'IP地址不能为空', 'INVALID_IP'), (req as any).requestId, 400);
+                }
+                
+                await this.securityManager.addAllowedIP(ip);
+                
+                this.sendSuccessResponse(res, {
+                    message: `IP ${ip} 已添加到白名单`,
+                    allowedIPs: this.securityManager.getAllowedIPs()
+                }, (req as any).requestId);
+            } catch (error) {
+                return this.sendErrorResponse(res, new SystemError(ErrorType.CONFIG_ERROR, '添加IP失败', 'ADD_IP_FAILED'), (req as any).requestId);
+            }
+        });
+        
+        // 从白名单移除IP
+        this.app.delete('/api/security/ip-whitelist', async (req, res) => {
+            try {
+                const { ip } = req.body;
+                
+                if (!ip || typeof ip !== 'string') {
+                    return this.sendErrorResponse(res, new SystemError(ErrorType.VALIDATION_ERROR, 'IP地址不能为空', 'INVALID_IP'), (req as any).requestId, 400);
+                }
+                
+                const removed = await this.securityManager.removeAllowedIP(ip);
+                
+                if (removed) {
+                    this.sendSuccessResponse(res, {
+                        message: `IP ${ip} 已从白名单移除`,
+                        allowedIPs: this.securityManager.getAllowedIPs()
+                    }, (req as any).requestId);
+                } else {
+                    return this.sendErrorResponse(res, new SystemError(ErrorType.VALIDATION_ERROR, `IP ${ip} 不在白名单中`, 'IP_NOT_FOUND'), (req as any).requestId, 404);
+                }
+            } catch (error) {
+                return this.sendErrorResponse(res, new SystemError(ErrorType.CONFIG_ERROR, '移除IP失败', 'REMOVE_IP_FAILED'), (req as any).requestId);
+            }
+        });
+        
+        // 启用/禁用IP白名单验证
+        this.app.put('/api/security/ip-whitelist/toggle', async (req, res) => {
+            try {
+                const { disabled } = req.body;
+                
+                if (typeof disabled !== 'boolean') {
+                    return this.sendErrorResponse(res, new SystemError(ErrorType.VALIDATION_ERROR, 'disabled参数必须是布尔值', 'INVALID_PARAM'), (req as any).requestId, 400);
+                }
+                
+                await this.securityManager.setDisableIPWhitelist(disabled);
+                
+                this.sendSuccessResponse(res, {
+                    message: `IP白名单验证已${disabled ? '禁用' : '启用'}`,
+                    disabled: this.securityManager.isIPWhitelistDisabled()
+                }, (req as any).requestId);
+            } catch (error) {
+                return this.sendErrorResponse(res, new SystemError(ErrorType.CONFIG_ERROR, '更新配置失败', 'UPDATE_CONFIG_FAILED'), (req as any).requestId);
+            }
+        });
+        
+        // 快速添加当前客户端IP到白名单
+        this.app.post('/api/security/ip-whitelist/add-current', async (req, res) => {
+            try {
+                const clientIP = this.getClientIP(req);
+                
+                if (!clientIP) {
+                    return this.sendErrorResponse(res, new SystemError(ErrorType.VALIDATION_ERROR, '无法获取客户端IP', 'NO_CLIENT_IP'), (req as any).requestId, 400);
+                }
+                
+                await this.securityManager.addAllowedIP(clientIP);
+                
+                this.sendSuccessResponse(res, {
+                    message: `当前IP ${clientIP} 已添加到白名单`,
+                    clientIP,
+                    allowedIPs: this.securityManager.getAllowedIPs()
+                }, (req as any).requestId);
+            } catch (error) {
+                return this.sendErrorResponse(res, new SystemError(ErrorType.CONFIG_ERROR, '添加IP失败', 'ADD_IP_FAILED'), (req as any).requestId);
+            }
+        });
+
+        // ==================== 系统信息API ====================
 
         // 系统信息
         this.app.get('/api/system/info', (req, res) => {
@@ -2482,6 +2592,37 @@ export class QQChatExporterApiServer {
      */
     private generateRequestId(): string {
         return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+    
+    /**
+     * 获取真实客户端IP地址
+     * 支持通过代理头获取真实IP（Docker/Nginx等反向代理环境）
+     */
+    private getClientIP(req: Request): string {
+        // 优先使用 X-Forwarded-For 头（标准代理头）
+        const xForwardedFor = req.headers['x-forwarded-for'];
+        if (xForwardedFor) {
+            // X-Forwarded-For 可能包含多个IP，取第一个（最原始的客户端IP）
+            const ips = (Array.isArray(xForwardedFor) ? xForwardedFor[0] : xForwardedFor).split(',');
+            const clientIP = ips[0].trim();
+            if (clientIP) {
+                return clientIP;
+            }
+        }
+        
+        // 其次使用 X-Real-IP 头（Nginx常用）
+        const xRealIP = req.headers['x-real-ip'];
+        if (xRealIP) {
+            return Array.isArray(xRealIP) ? xRealIP[0] : xRealIP;
+        }
+        
+        // 使用Express的req.ip（已配置trust proxy后会自动解析代理头）
+        if (req.ip) {
+            return req.ip;
+        }
+        
+        // 最后使用socket地址
+        return req.socket?.remoteAddress || req.connection?.remoteAddress || '';
     }
 
     /**

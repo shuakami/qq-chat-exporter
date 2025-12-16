@@ -16,6 +16,115 @@ export interface SecurityConfig {
     tokenExpired?: Date;
     /** 用户配置的服务器地址，用于外网访问 */
     serverHost?: string;
+    /** 是否禁用IP白名单验证（Docker环境下可能需要） */
+    disableIPWhitelist?: boolean;
+}
+
+/**
+ * 检测是否在Docker环境中运行
+ */
+function isDockerEnvironment(): boolean {
+    try {
+        // 检查 /.dockerenv 文件
+        if (fs.existsSync('/.dockerenv')) {
+            return true;
+        }
+        // 检查 /proc/self/cgroup 中是否包含 docker
+        if (fs.existsSync('/proc/self/cgroup')) {
+            const cgroup = fs.readFileSync('/proc/self/cgroup', 'utf8');
+            if (cgroup.includes('docker') || cgroup.includes('kubepods')) {
+                return true;
+            }
+        }
+        // 检查容器环境变量
+        if (process.env['container'] || process.env['DOCKER_CONTAINER']) {
+            return true;
+        }
+    } catch {
+        // 忽略错误
+    }
+    return false;
+}
+
+/**
+ * 解析CIDR格式的IP地址
+ * @param cidr CIDR格式字符串，如 "172.16.0.0/12"
+ * @returns 解析结果，包含网络地址和掩码位数
+ */
+function parseCIDR(cidr: string): { ip: number; maskBits: number } | null {
+    const parts = cidr.split('/');
+    if (parts.length !== 2) return null;
+    
+    const ipParts = parts[0].split('.');
+    if (ipParts.length !== 4) return null;
+    
+    const maskBits = parseInt(parts[1], 10);
+    if (isNaN(maskBits) || maskBits < 0 || maskBits > 32) return null;
+    
+    let ip = 0;
+    for (const part of ipParts) {
+        const num = parseInt(part, 10);
+        if (isNaN(num) || num < 0 || num > 255) return null;
+        ip = (ip << 8) | num;
+    }
+    
+    return { ip: ip >>> 0, maskBits };
+}
+
+/**
+ * 将IP地址字符串转换为数字
+ */
+function ipToNumber(ip: string): number | null {
+    // 处理IPv6映射的IPv4地址
+    const cleanIP = ip.replace(/^::ffff:/, '');
+    
+    const parts = cleanIP.split('.');
+    if (parts.length !== 4) return null;
+    
+    let result = 0;
+    for (const part of parts) {
+        const num = parseInt(part, 10);
+        if (isNaN(num) || num < 0 || num > 255) return null;
+        result = (result << 8) | num;
+    }
+    
+    return result >>> 0;
+}
+
+/**
+ * 检查IP是否匹配CIDR规则
+ */
+function ipMatchesCIDR(ip: string, cidr: string): boolean {
+    const cidrParsed = parseCIDR(cidr);
+    if (!cidrParsed) return false;
+    
+    const ipNum = ipToNumber(ip);
+    if (ipNum === null) return false;
+    
+    const mask = cidrParsed.maskBits === 0 ? 0 : (~0 << (32 - cidrParsed.maskBits)) >>> 0;
+    return (ipNum & mask) === (cidrParsed.ip & mask);
+}
+
+/**
+ * 检查是否为私有/局域网IP
+ */
+function isPrivateIP(ip: string): boolean {
+    const cleanIP = ip.replace(/^::ffff:/, '');
+    
+    // 本地回环
+    if (cleanIP === '127.0.0.1' || cleanIP === 'localhost' || cleanIP === '::1') {
+        return true;
+    }
+    
+    // 检查私有网段
+    const privateRanges = [
+        '10.0.0.0/8',      // Class A 私有网络
+        '172.16.0.0/12',   // Class B 私有网络 (172.16.0.0 - 172.31.255.255)
+        '192.168.0.0/16',  // Class C 私有网络
+        '169.254.0.0/16',  // 链路本地地址
+    ];
+    
+    return privateRanges.some(range => ipMatchesCIDR(cleanIP, range));
 }
 
 /**
@@ -25,6 +134,8 @@ export class SecurityManager {
     private configPath: string;
     private config: SecurityConfig | null = null;
     private publicIP: string | null = null;
+    private isDocker: boolean = false;
+    private configWatcher: fs.FSWatcher | null = null;
 
     constructor() {
         const userProfile = process.env['USERPROFILE'] || process.env['HOME'] || '.';
@@ -36,6 +147,11 @@ export class SecurityManager {
         }
         
         this.configPath = path.join(securityDir, 'security.json');
+        this.isDocker = isDockerEnvironment();
+        
+        if (this.isDocker) {
+            console.log('[SecurityManager] 🐳 检测到Docker环境');
+        }
     }
 
     /**
@@ -44,8 +160,8 @@ export class SecurityManager {
     async initialize(): Promise<void> {
         console.log('[SecurityManager] 正在初始化安全配置...');
         
-        // 初始化服务器地址（默认localhost）
-        this.publicIP = '127.0.0.1';
+        // 初始化服务器地址（默认localhost，Docker环境下使用0.0.0.0）
+        this.publicIP = this.isDocker ? '0.0.0.0' : '127.0.0.1';
 
         // 加载或创建安全配置
         if (fs.existsSync(this.configPath)) {
@@ -57,6 +173,51 @@ export class SecurityManager {
         // 从配置中设置服务器地址
         if (this.config?.serverHost) {
             this.setServerHost(this.config.serverHost);
+        }
+        
+        // 启动配置文件监听（热加载）
+        this.startConfigWatcher();
+    }
+    
+    /**
+     * 启动配置文件监听，支持热加载
+     */
+    private startConfigWatcher(): void {
+        if (this.configWatcher) {
+            return;
+        }
+        
+        try {
+            let debounceTimer: NodeJS.Timeout | null = null;
+            
+            this.configWatcher = fs.watch(this.configPath, (eventType) => {
+                if (eventType === 'change') {
+                    // 防抖处理，避免频繁重载
+                    if (debounceTimer) {
+                        clearTimeout(debounceTimer);
+                    }
+                    debounceTimer = setTimeout(async () => {
+                        console.log('[SecurityManager] 检测到配置文件变更，正在重新加载...');
+                        await this.loadConfig();
+                        console.log('[SecurityManager] ✅ 配置已热加载');
+                    }, 500);
+                }
+            });
+            
+            console.log('[SecurityManager] 📁 配置文件监听已启动（支持热加载）');
+        } catch (error) {
+            console.warn('[SecurityManager] 无法启动配置文件监听:', error);
+        }
+    }
+    
+    /**
+     * 停止配置文件监听
+     */
+    stopConfigWatcher(): void {
+        if (this.configWatcher) {
+            this.configWatcher.close();
+            this.configWatcher = null;
+            console.log('[SecurityManager] 配置文件监听已停止');
         }
     }
 
@@ -97,12 +258,22 @@ export class SecurityManager {
         // 生成密钥 (64字符)
         const secretKey = this.generateSecureToken(64);
         
+        // 默认白名单：本地 + Docker环境下添加常见的Docker网段
+        const defaultAllowedIPs = ['127.0.0.1', '::1'];
+        if (this.isDocker) {
+            // Docker环境下，添加常见的Docker网桥网段
+            defaultAllowedIPs.push('172.16.0.0/12');  // Docker默认网桥范围
+            defaultAllowedIPs.push('192.168.0.0/16'); // 常见局域网
+            defaultAllowedIPs.push('10.0.0.0/8');     // 大型私有网络
+        }
+        
         this.config = {
             accessToken,
             secretKey,
             createdAt: new Date(),
-            allowedIPs: ['127.0.0.1', '::1'], // 默认只允许本地访问
-            tokenExpired: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7天过期
+            allowedIPs: defaultAllowedIPs,
+            tokenExpired: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7天过期
+            disableIPWhitelist: this.isDocker // Docker环境下默认禁用IP白名单
         };
 
         await this.saveConfig();
@@ -115,6 +286,9 @@ export class SecurityManager {
         console.log(`[SecurityManager] 🛡️  密钥: ${secretKey.substring(0, 16)}...`);
         console.log('[SecurityManager] ⚠️  令牌将在7天后过期，届时需要重新生成');
         console.log('[SecurityManager] 📋 请将令牌添加到浏览器书签或复制保存');
+        if (this.isDocker) {
+            console.log('[SecurityManager] 🐳 Docker环境：IP白名单验证已禁用，仅依赖Token验证');
+        }
         console.log('[SecurityManager] ══════════════════════════════════════════════════════');
         console.log('');
     }
@@ -202,14 +376,16 @@ export class SecurityManager {
             return false;
         }
         
-        // 验证IP（如果配置了IP白名单）
-        if (clientIP && this.config.allowedIPs.length > 0) {
-            const isAllowed = this.config.allowedIPs.some(ip => {
-                return ip === clientIP || ip === '0.0.0.0';
-            });
+        // 如果禁用了IP白名单验证，跳过IP检查
+        if (this.config.disableIPWhitelist) {
+            // 仅依赖Token验证
+        } else if (clientIP && this.config.allowedIPs.length > 0) {
+            // 验证IP（支持精确匹配、CIDR网段、通配符）
+            const isAllowed = this.checkIPAllowed(clientIP);
             
             if (!isAllowed) {
                 console.warn(`[SecurityManager] IP ${clientIP} 不在白名单中`);
+                console.warn(`[SecurityManager] 提示: 可在 ${this.configPath} 中添加IP到allowedIPs，或设置 "disableIPWhitelist": true`);
                 return false;
             }
         }
@@ -224,6 +400,38 @@ export class SecurityManager {
         this.saveConfig().catch(console.error);
         
         return true;
+    }
+    
+    /**
+     * 检查IP是否在白名单中（支持精确匹配、CIDR网段、通配符）
+     */
+    private checkIPAllowed(clientIP: string): boolean {
+        if (!this.config) return false;
+        
+        // 清理IP地址（移除IPv6前缀）
+        const cleanIP = clientIP.replace(/^::ffff:/, '');
+        
+        for (const allowedIP of this.config.allowedIPs) {
+            // 通配符：允许所有
+            if (allowedIP === '0.0.0.0' || allowedIP === '*') {
+                return true;
+            }
+            
+            // CIDR格式匹配
+            if (allowedIP.includes('/')) {
+                if (ipMatchesCIDR(cleanIP, allowedIP)) {
+                    return true;
+                }
+                continue;
+            }
+            
+            // 精确匹配
+            if (allowedIP === cleanIP || allowedIP === clientIP) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 
     /**
@@ -286,6 +494,61 @@ export class SecurityManager {
             await this.saveConfig();
             console.log(`[SecurityManager] IP ${ip} 已添加到白名单`);
         }
+    }
+    
+    /**
+     * 从白名单移除IP
+     */
+    async removeAllowedIP(ip: string): Promise<boolean> {
+        if (!this.config) return false;
+        
+        const index = this.config.allowedIPs.indexOf(ip);
+        if (index > -1) {
+            this.config.allowedIPs.splice(index, 1);
+            await this.saveConfig();
+            console.log(`[SecurityManager] IP ${ip} 已从白名单移除`);
+            return true;
+        }
+        return false;
+    }
+    
+    /**
+     * 获取当前白名单列表
+     */
+    getAllowedIPs(): string[] {
+        return this.config?.allowedIPs || [];
+    }
+    
+    /**
+     * 设置是否禁用IP白名单验证
+     */
+    async setDisableIPWhitelist(disable: boolean): Promise<void> {
+        if (!this.config) return;
+        
+        this.config.disableIPWhitelist = disable;
+        await this.saveConfig();
+        console.log(`[SecurityManager] IP白名单验证已${disable ? '禁用' : '启用'}`);
+    }
+    
+    /**
+     * 获取IP白名单是否禁用
+     */
+    isIPWhitelistDisabled(): boolean {
+        return this.config?.disableIPWhitelist || false;
+    }
+    
+    /**
+     * 检查是否在Docker环境中
+     */
+    isInDocker(): boolean {
+        return this.isDocker;
+    }
+    
+    /**
+     * 获取配置文件路径
+     */
+    getConfigPath(): string {
+        return this.configPath;
     }
 
     /**
