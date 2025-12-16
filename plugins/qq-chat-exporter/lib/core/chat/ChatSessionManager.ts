@@ -163,7 +163,7 @@ export class ChatSessionManager {
                         id: `group_${group.groupCode}`,
                         type: 'group' as ChatTypeSimple,
                         peer: {
-                            chatType: ChatType.KCHATTYPEGROUP,
+                            chatType: ChatType.Group as any, // ChatType.Group = 2
                             peerUid: group.groupCode,
                             guildId: ''
                         },
@@ -213,7 +213,7 @@ export class ChatSessionManager {
                         id: `private_${friend.uid}`,
                         type: 'private' as ChatTypeSimple,
                         peer: {
-                            chatType: ChatType.KCHATTYPEC2C,
+                            chatType: ChatType.Friend as any, // ChatType.Friend = 1
                             peerUid: friend.uid || friend.uin || '',
                             guildId: ''
                         },
@@ -247,19 +247,21 @@ export class ChatSessionManager {
             return null;
         }
 
-        const sessionId = contact.chatType === ChatType.KCHATTYPEGROUP 
+        // ChatType.Group = 2
+        const isGroup = contact.chatType === ChatType.Group || contact.chatType === 2;
+        const sessionId = isGroup
             ? `group_${contact.peerUid}` 
             : `private_${contact.peerUid}`;
 
         const session: ChatSession = {
             id: sessionId,
-            type: contact.chatType === ChatType.KCHATTYPEGROUP ? 'group' as ChatTypeSimple : 'private' as ChatTypeSimple,
+            type: isGroup ? 'group' as ChatTypeSimple : 'private' as ChatTypeSimple,
             peer: {
                 chatType: contact.chatType,
                 peerUid: contact.peerUid,
                 guildId: ''
             },
-            name: contact.peerName || contact.sendNickName || `${contact.chatType === ChatType.KCHATTYPEGROUP ? '群聊' : '用户'} ${contact.peerUid}`,
+            name: contact.peerName || contact.sendNickName || `${isGroup ? '群聊' : '用户'} ${contact.peerUid}`,
             available: true,
             estimatedMessageCount: 0,
             lastMessageTime: contact.msgTime ? new Date(parseInt(contact.msgTime) * 1000) : undefined,

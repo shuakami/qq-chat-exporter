@@ -2392,7 +2392,7 @@ export class QQChatExporterApiServer {
             const selfInfo = this.core.selfInfo;
             const chatInfo = {
                 name: chatName,
-                type: (peer.chatType === ChatType.KCHATTYPEGROUP ? 'group' : 'private') as 'group' | 'private',
+                type: (peer.chatType === ChatType.Group || peer.chatType === 2 ? 'group' : 'private') as 'group' | 'private',
                 selfUid: selfInfo?.uid,
                 selfUin: selfInfo?.uin,
                 selfName: selfInfo?.nick

@@ -402,28 +402,32 @@ export class SimpleMessageParser {
     return cleanMessage;
   }
 
-  private getMessageTypeString(msgType: NTMsgType): string {
-    switch (msgType) {
-      case NTMsgType.KMSGTYPEMIX:
-      case NTMsgType.KMSGTYPENULL:
+  private getMessageTypeString(msgType: NTMsgType | number): string {
+    // NTMsgType 枚举值（兼容两种定义方式）
+    // 原始枚举: KMSGTYPENULL=1, KMSGTYPEMIX=2, KMSGTYPEFILE=3, KMSGTYPESTRUCT=4, KMSGTYPEGRAYTIPS=5, KMSGTYPEPTT=6, KMSGTYPEVIDEO=7, KMSGTYPEMULTIMSGFORWARD=8, KMSGTYPEREPLY=9, KMSGTYPEARKSTRUCT=11
+    // 简化版: Text=1, Picture=2, File=3, Video=4, Voice=5, Reply=7
+    const typeNum = typeof msgType === 'number' ? msgType : Number(msgType);
+    switch (typeNum) {
+      case 1: // KMSGTYPENULL / Text
+      case 2: // KMSGTYPEMIX / Picture (混合消息，通常包含文本)
         return 'text';
-      case NTMsgType.KMSGTYPEFILE:
+      case 3: // KMSGTYPEFILE / File
         return 'file';
-      case NTMsgType.KMSGTYPEVIDEO:
+      case 4: // KMSGTYPESTRUCT / Video (简化版)
+      case 7: // KMSGTYPEVIDEO (原始枚举)
         return 'video';
-      case NTMsgType.KMSGTYPEPTT:
-        return 'audio';
-      case NTMsgType.KMSGTYPEREPLY:
-        return 'reply';
-      case NTMsgType.KMSGTYPEMULTIMSGFORWARD:
-        return 'forward';
-      case NTMsgType.KMSGTYPEGRAYTIPS:
+      case 5: // KMSGTYPEGRAYTIPS / Voice (简化版)
         return 'system';
-      case NTMsgType.KMSGTYPESTRUCT:
-      case NTMsgType.KMSGTYPEARKSTRUCT:
+      case 6: // KMSGTYPEPTT
+        return 'audio';
+      case 8: // KMSGTYPEMULTIMSGFORWARD
+        return 'forward';
+      case 9: // KMSGTYPEREPLY
+        return 'reply';
+      case 11: // KMSGTYPEARKSTRUCT
         return 'json';
       default:
-        return `type_${msgType}`;
+        return `type_${typeNum}`;
     }
   }
 
