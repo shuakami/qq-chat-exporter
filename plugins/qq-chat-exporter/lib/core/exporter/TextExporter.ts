@@ -159,7 +159,11 @@ export class TextExporter extends BaseExporter {
                 text: cleanMsg.content.text,
                 html: cleanMsg.content.html,
                 raw: JSON.stringify(cleanMsg.content.elements),
-                mentions: [],
+                mentions: (cleanMsg.content.mentions || []).map(m => ({
+                    uid: m.uid,
+                    name: m.name,
+                    type: m.type
+                })),
                 resources: cleanMsg.content.resources.map(r => ({
                     type: r.type as 'image' | 'video' | 'audio' | 'file',
                     fileName: r.filename,

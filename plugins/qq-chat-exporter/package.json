@@ -1,6 +1,6 @@
 {
   "name": "qq-chat-exporter",
-  "version": "4.9.0",
+  "version": "4.10.4",
   "description": "QQ Chat Exporter Plugin for NapCat - Export QQ chat history with advanced features",
   "main": "index.mjs",
   "type": "module",

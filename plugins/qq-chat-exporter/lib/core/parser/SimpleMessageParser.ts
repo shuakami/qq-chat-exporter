@@ -181,6 +181,14 @@ export interface MessageContent {
   html: string;
   elements: MessageElementData[];
   resources: ResourceData[];
+  mentions: MentionData[];
+}
+
+export interface MentionData {
+  uid: string;
+  uin?: string;
+  name: string;
+  type: 'user' | 'all';
 }
 
 export interface MessageElementData {
@@ -438,6 +446,7 @@ export class SimpleMessageParser {
     const elements = message.elements || [];
     const parsedElements: MessageElementData[] = new Array(elements.length);
     const resources: ResourceData[] = [];
+    const mentions: MentionData[] = [];
 
     const textB = new ChunkedBuilder();
     const htmlB = new ChunkedBuilder();
@@ -454,6 +463,16 @@ export class SimpleMessageParser {
       const resource = this.extractResource(parsed);
       if (resource) resources.push(resource);
 
+      // 提取 @ 提及信息
+      if (parsed.type === 'at') {
+        mentions.push({
+          uid: parsed.data.uid || 'unknown',
+          uin: parsed.data.uin,
+          name: parsed.data.name || '某人',
+          type: parsed.data.uid === 'all' ? 'all' : 'user'
+        });
+      }
+
       // 文本/HTML
       const { text, html } = this.elementToText(parsed, htmlEnabled);
       textB.push(text);
@@ -466,7 +485,8 @@ export class SimpleMessageParser {
       text: textB.toString().trim(),
       html: htmlEnabled ? htmlB.toString().trim() : '',
       elements: parsedElements,
-      resources
+      resources,
+      mentions
     };
   }
 
@@ -474,11 +494,35 @@ export class SimpleMessageParser {
    * 元素解析（尽量同步，无额外中间对象）
    */
   private async parseElement(element: MessageElement, message: RawMessage): Promise<MessageElementData | null> {
-    // 文本
+    // 文本 / @ 提及
     if (element.textElement) {
+      const te = element.textElement;
+      // atType: 0=普通文本, 1=@全体成员, 2=@某人
+      if (te.atType === 1) {
+        return {
+          type: 'at',
+          data: {
+            uid: 'all',
+            uin: '0',
+            name: '全体成员',
+            atType: 1
+          }
+        };
+      } else if (te.atType === 2) {
+        return {
+          type: 'at',
+          data: {
+            uid: te.atNtUid || te.atUid || 'unknown',
+            uin: te.atUid || '0',
+            name: (te.content || '').replace(/^@/, ''),
+            atType: 2
+          }
+        };
+      }
+      // 普通文本
       return {
         type: 'text',
-        data: { text: element.textElement.content || '' }
+        data: { text: te.content || '' }
       };
     }
 
@@ -685,6 +729,15 @@ export class SimpleMessageParser {
         const t = `[语音:${element.data.duration}秒]`;
         return { text: t, html: htmlEnabled ? `<span class="audio">${escapeHtmlFast(t)}</span>` : '' };
       }
+      case 'at': {
+        const name = element.data.name || '某人';
+        const t = `@${name}`;
+        const uid = element.data.uid || 'unknown';
+        if (uid === 'all') {
+          return { text: t, html: htmlEnabled ? `<span class="mention mention-all">${escapeHtmlFast(t)}</span>` : '' };
+        }
+        return { text: t, html: htmlEnabled ? `<span class="mention" data-uid="${uid}">${escapeHtmlFast(t)}</span>` : '' };
+      }
       case 'reply': {
         const t = `[回复消息]`;
         return { text: t, html: htmlEnabled ? `<div class="reply">${t}</div>` : '' };
@@ -763,7 +816,8 @@ export class SimpleMessageParser {
         text: `[解析失败: ${errMsg}]`,
         html: `<span class="error">[解析失败: ${escapeHtmlFast(errMsg)}]</span>`,
         elements: [],
-        resources: []
+        resources: [],
+        mentions: []
       },
       recalled: false,
       system: false

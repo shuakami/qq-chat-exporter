@@ -429,6 +429,11 @@ export class JsonExporter extends BaseExporter {
                     width: undefined,
                     height: undefined,
                     duration: undefined
+                })),
+                mentions: (parsedMsg.content.mentions || []).map((m: any) => ({
+                    uid: m.uid,
+                    name: m.name,
+                    type: m.type || 'user'
                 }))
             },
             recalled: parsedMsg.isRecalled,
@@ -540,7 +545,7 @@ export class JsonExporter extends BaseExporter {
         return {
             name: 'QQChatExporter V4 / https://github.com/shuakami/qq-chat-exporter',
             copyright: '本软件是免费的开源项目~ 如果您是买来的，请立即退款！如果有帮助到您，欢迎给我点个Star~',
-            version: '4.10.3'
+            version: '4.10.4'
         };
     }
 
