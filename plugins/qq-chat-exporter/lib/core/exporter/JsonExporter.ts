@@ -540,7 +540,7 @@ export class JsonExporter extends BaseExporter {
         return {
             name: 'QQChatExporter V4 / https://github.com/shuakami/qq-chat-exporter',
             copyright: '本软件是免费的开源项目~ 如果您是买来的，请立即退款！如果有帮助到您，欢迎给我点个Star~',
-            version: '4.0.0'
+            version: '4.10.3'
         };
     }
 
@@ -854,13 +854,41 @@ class StatsAccumulator {
     private resByType: Record<string, number> = {};
     private resTotalSize = 0;
 
-    consume(m: CleanMessage): void {
+    consume(m: CleanMessage | any): void {
         this.total++;
+        
+        // 兼容三种格式的 timestamp：
+        // - CleanMessage: timestamp (number, milliseconds)
+        // - ParsedMessage: timestamp (Date object)
+        // - 字符串格式: timestamp (ISO string)
+        let ts: number | null = null;
         if (typeof m.timestamp === 'number') {
-            if (this.startTs === null || m.timestamp < this.startTs) this.startTs = m.timestamp;
-            if (this.endTs === null || m.timestamp > this.endTs) this.endTs = m.timestamp;
+            ts = m.timestamp;
+        } else if (m.timestamp instanceof Date) {
+            ts = m.timestamp.getTime();
+        } else if (typeof m.timestamp === 'string') {
+            const parsed = Date.parse(m.timestamp);
+            if (!isNaN(parsed)) ts = parsed;
         }
-        const t = m.type || 'unknown';
+        if (ts !== null && ts > 0) {
+            if (this.startTs === null || ts < this.startTs) this.startTs = ts;
+            if (this.endTs === null || ts > this.endTs) this.endTs = ts;
+        }
+        
+        // 兼容两种格式的 type：
+        // - CleanMessage: type (string like 'text', 'image')
+        // - ParsedMessage: messageType (number)
+        let t = 'unknown';
+        if (typeof m.type === 'string' && m.type) {
+            t = m.type;
+        } else if (typeof m.messageType === 'number') {
+            // 将 messageType 数字转换为字符串
+            const typeMap: Record<number, string> = {
+                1: 'text', 2: 'text', 3: 'file', 4: 'json', 5: 'system',
+                6: 'audio', 7: 'video', 8: 'forward', 9: 'reply', 11: 'json'
+            };
+            t = typeMap[m.messageType] || `type_${m.messageType}`;
+        }
         this.byType[t] = (this.byType[t] || 0) + 1;
 
         const senderKey = m.sender?.uid || 'unknown';
@@ -874,7 +902,10 @@ class StatsAccumulator {
             this.resTotal++;
             const rt = r.type || 'file';
             this.resByType[rt] = (this.resByType[rt] || 0) + 1;
-            if (typeof r.size === 'number') this.resTotalSize += r.size;
+            // 兼容两种格式的 size：size 或 fileSize
+            const size = typeof r.size === 'number' ? r.size : 
+                         typeof r.fileSize === 'number' ? r.fileSize : 0;
+            this.resTotalSize += size;
         }
     }
 
