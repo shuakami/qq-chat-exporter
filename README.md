@@ -18,6 +18,8 @@
 
 > [!TIP]
 > 如果导出聊天记录后，想深入分析聊天内容可以试试 [@hellodigua](https://github.com/hellodigua) 的 [AI 聊天分析应用](https://chatlab.fun/)
+> 
+> 也可以试试 [@CutrelyAlex](https://github.com/CutrelyAlex) 的 [QQChatAnalyzer](https://github.com/CutrelyAlex/QQChatAnalyzer) - 支持个人分析、群聊分析、社交网络可视化和 AI 摘要
 
 ## 快速开始
 
