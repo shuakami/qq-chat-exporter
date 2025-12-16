@@ -991,8 +991,20 @@ export class MessageParser {
           switch (elementType) {
             case 1: // ElementType.TEXT
             if (element.textElement) {
-              const content = element.textElement.content || '';
-              ctxText(content, escapeHtmlFast(content));
+              const te = element.textElement;
+              const content = te.content || '';
+              // atType: 0=普通文本, 1=@全体成员, 2=@某人
+              if (te.atType === 1) {
+                mentions.push({ uid: 'all', name: '全体成员', type: 'all' });
+                ctxText(content, `<span class="mention mention-all">${escapeHtmlFast(content)}</span>`);
+              } else if (te.atType === 2) {
+                const uid = te.atNtUid || te.atUid || 'unknown';
+                const name = content.replace(/^@/, '');
+                mentions.push({ uid, name, type: 'user' });
+                ctxText(content, `<span class="mention" data-uid="${uid}">${escapeHtmlFast(content)}</span>`);
+              } else {
+                ctxText(content, escapeHtmlFast(content));
+              }
             }
             break;
 
@@ -1338,14 +1350,8 @@ export class MessageParser {
       }
     }
 
-    // 解析 @
-    const atResults = this.parseAtMentions(textB.toString());
-    for (let i = 0; i < atResults.length; i++) {
-      const at = atResults[i];
-      if (at) {
-        mentions.push(at);
-      }
-    }
+    // 注意：@ 提及已在处理 textElement 时通过 atType 正确提取
+    // 不再需要从文本中重复解析，避免产生 uid: 'unknown' 的重复条目
 
     return {
       text: textB.toString().trim(),
