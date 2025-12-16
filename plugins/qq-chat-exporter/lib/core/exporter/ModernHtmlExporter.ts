@@ -821,7 +821,8 @@ ${this.generateFooter()}
             position: absolute;
             bottom: calc(100% + 12px);
             right: 0;
-            min-width: 160px;
+            min-width: 200px;
+            max-width: 280px;
             padding: 6px;
             border-radius: 14px;
             background: rgba(249, 249, 249, 0.88);
@@ -849,6 +850,73 @@ ${this.generateFooter()}
             pointer-events: auto;
         }
         
+        /* 筛选搜索框 */
+        .filter-search-wrapper {
+            padding: 4px 6px 8px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            margin-bottom: 6px;
+        }
+        
+        [data-theme="dark"] .filter-search-wrapper {
+            border-bottom-color: rgba(255, 255, 255, 0.12);
+        }
+        
+        .filter-search-input {
+            width: 100%;
+            padding: 6px 10px;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            border-radius: 8px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+            transition: all 0.2s;
+        }
+        
+        [data-theme="dark"] .filter-search-input {
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+        
+        .filter-search-input:focus {
+            border-color: #1d1d1f;
+            box-shadow: 0 0 0 2px rgba(29, 29, 31, 0.1);
+        }
+        
+        [data-theme="dark"] .filter-search-input:focus {
+            border-color: #f5f5f7;
+            box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.1);
+        }
+        
+        .filter-search-input::placeholder {
+            color: var(--text-secondary);
+        }
+        
+        /* 筛选选项列表容器 */
+        .filter-options-list {
+            max-height: 320px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+        }
+        
+        .filter-options-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .filter-options-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .filter-options-list::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+        }
+        
+        [data-theme="dark"] .filter-options-list::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
         .filter-option {
             padding: 8px 12px;
             border-radius: 8px;
@@ -857,6 +925,8 @@ ${this.generateFooter()}
             font-size: 14px;
             color: var(--text-primary);
             white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         
         .filter-option:hover {
@@ -874,6 +944,23 @@ ${this.generateFooter()}
         
         [data-theme="dark"] .filter-option.active {
             background: rgba(255, 255, 255, 0.15);
+        }
+        
+        .filter-option.hidden {
+            display: none;
+        }
+        
+        /* 无搜索结果提示 */
+        .filter-no-result {
+            padding: 12px;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 13px;
+            display: none;
+        }
+        
+        .filter-no-result.visible {
+            display: block;
         }
         
         .github-btn {
@@ -2014,43 +2101,120 @@ ${this.generateFooter()}
             // ========== 发送者筛选 ==========
             var filterBtn = document.getElementById('filterBtn');
             var filterDropdown = document.getElementById('filterDropdown');
+            var filterOptionsList = document.getElementById('filterOptionsList');
+            var filterSearchInput = document.getElementById('filterSearchInput');
+            var filterNoResult = document.getElementById('filterNoResult');
             var currentFilter = 'all';
-            var senders = new Set();
+            var currentFilterUid = null;
             
-            // 收集所有发送者
+            // 使用 Map 按 UID 整合发送者（同一用户可能有不同群名片）
+            // key: uid, value: { names: Set<string>, displayName: string }
+            var sendersByUid = new Map();
+            var senderNameToUid = new Map(); // 用于反向查找
+            
+            // 收集所有发送者，按 UID 整合
             messages.forEach(function(msg) {
                 var sender = msg.querySelector('.sender');
+                var uid = msg.getAttribute('data-sender-uid') || msg.getAttribute('data-uid');
                 if (sender) {
-                    senders.add(sender.textContent);
+                    var senderName = sender.textContent;
+                    if (uid) {
+                        // 有 UID，按 UID 整合
+                        if (!sendersByUid.has(uid)) {
+                            sendersByUid.set(uid, { names: new Set(), displayName: senderName });
+                        }
+                        sendersByUid.get(uid).names.add(senderName);
+                        senderNameToUid.set(senderName, uid);
+                    } else {
+                        // 无 UID，按名称作为唯一标识
+                        if (!sendersByUid.has(senderName)) {
+                            sendersByUid.set(senderName, { names: new Set([senderName]), displayName: senderName });
+                        }
+                        senderNameToUid.set(senderName, senderName);
+                    }
                 }
             });
             
             // 生成筛选选项
-            senders.forEach(function(sender) {
+            sendersByUid.forEach(function(info, uid) {
                 var option = document.createElement('div');
                 option.className = 'filter-option';
-                option.setAttribute('data-value', sender);
-                option.textContent = sender;
-                filterDropdown.appendChild(option);
+                option.setAttribute('data-value', uid);
+                // 如果同一用户有多个名片，显示所有名片
+                var names = Array.from(info.names);
+                if (names.length > 1) {
+                    option.textContent = names[0] + ' (' + (names.length - 1) + '个别名)';
+                    option.setAttribute('title', names.join(', '));
+                } else {
+                    option.textContent = info.displayName;
+                }
+                // 存储所有名称用于搜索
+                option.setAttribute('data-names', names.join('|').toLowerCase());
+                filterOptionsList.appendChild(option);
+            });
+            
+            // 筛选搜索功能
+            filterSearchInput.addEventListener('input', function(e) {
+                var keyword = e.target.value.toLowerCase().trim();
+                var options = filterOptionsList.querySelectorAll('.filter-option');
+                var hasVisible = false;
+                
+                options.forEach(function(opt) {
+                    var value = opt.getAttribute('data-value');
+                    var names = opt.getAttribute('data-names') || opt.textContent.toLowerCase();
+                    
+                    if (value === 'all' || names.includes(keyword) || opt.textContent.toLowerCase().includes(keyword)) {
+                        opt.classList.remove('hidden');
+                        hasVisible = true;
+                    } else {
+                        opt.classList.add('hidden');
+                    }
+                });
+                
+                // 显示/隐藏无结果提示
+                if (hasVisible) {
+                    filterNoResult.classList.remove('visible');
+                } else {
+                    filterNoResult.classList.add('visible');
+                }
             });
             
             // 切换下拉菜单
             filterBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
                 filterDropdown.classList.toggle('active');
+                if (filterDropdown.classList.contains('active')) {
+                    // 打开时聚焦搜索框
+                    setTimeout(function() {
+                        filterSearchInput.focus();
+                    }, 100);
+                }
             });
             
             // 选择选项
-            filterDropdown.addEventListener('click', function(e) {
+            filterOptionsList.addEventListener('click', function(e) {
                 if (e.target.classList.contains('filter-option')) {
                     // 移除所有active
-                    filterDropdown.querySelectorAll('.filter-option').forEach(function(opt) {
+                    filterOptionsList.querySelectorAll('.filter-option').forEach(function(opt) {
                         opt.classList.remove('active');
                     });
                     // 添加当前active
                     e.target.classList.add('active');
-                    currentFilter = e.target.getAttribute('data-value');
+                    var selectedValue = e.target.getAttribute('data-value');
+                    if (selectedValue === 'all') {
+                        currentFilter = 'all';
+                        currentFilterUid = null;
+                    } else {
+                        currentFilter = selectedValue;
+                        currentFilterUid = selectedValue;
+                    }
                     filterDropdown.classList.remove('active');
+                    // 清空搜索
+                    filterSearchInput.value = '';
+                    filterOptionsList.querySelectorAll('.filter-option').forEach(function(opt) {
+                        opt.classList.remove('hidden');
+                    });
+                    filterNoResult.classList.remove('visible');
                     filterMessages();
                 }
             });
@@ -2128,6 +2292,7 @@ ${this.generateFooter()}
             function filterMessages() {
                 var searchTerm = searchInput.value.trim();
                 var selectedSender = currentFilter;
+                var selectedUid = currentFilterUid;
                 var startDate = startDateInput ? startDateInput.value : '';
                 var endDate = endDateInput ? endDateInput.value : '';
                 var filteredMessages = [];
@@ -2137,6 +2302,7 @@ ${this.generateFooter()}
                 originalMessages.forEach(function(msg) {
                     var sender = msg.querySelector('.sender');
                     var senderName = sender ? sender.textContent : '';
+                    var msgUid = msg.getAttribute('data-sender-uid') || msg.getAttribute('data-uid');
                     var content = msg.querySelector('.content');
                     var originalContent = originalContents.get(msg);
                     
@@ -2167,7 +2333,18 @@ ${this.generateFooter()}
                     }
                     
                     var matchSearch = searchTerm === '' || contentText.includes(searchLower) || senderName.toLowerCase().includes(searchLower);
-                    var matchSender = selectedSender === 'all' || senderName === selectedSender;
+                    
+                    // 发送者筛选：优先使用 UID 匹配，支持同一用户不同群名片
+                    var matchSender = false;
+                    if (selectedSender === 'all') {
+                        matchSender = true;
+                    } else if (selectedUid && msgUid) {
+                        // 基于 UID 匹配（整合同一用户不同群名片）
+                        matchSender = msgUid === selectedUid;
+                    } else {
+                        // 回退到名称匹配（兼容无 UID 的情况）
+                        matchSender = senderName === selectedSender;
+                    }
                     
                     if (matchSearch && matchSender && matchTimeRange) {
                         visibleCount++;
@@ -2257,7 +2434,13 @@ ${this.generateFooter()}
                         <i data-lucide="user"></i>
                     </button>
                     <div class="filter-dropdown" id="filterDropdown">
-                        <div class="filter-option active" data-value="all">全部成员</div>
+                        <div class="filter-search-wrapper">
+                            <input type="text" class="filter-search-input" id="filterSearchInput" placeholder="搜索成员...">
+                        </div>
+                        <div class="filter-options-list" id="filterOptionsList">
+                            <div class="filter-option active" data-value="all">全部成员</div>
+                        </div>
+                        <div class="filter-no-result" id="filterNoResult">未找到匹配的成员</div>
                     </div>
                 </div>
                 <div class="toolbar-separator"></div>
@@ -2379,11 +2562,14 @@ ${this.generateFooter()}
             (message as any)?.sender?.name
         );
         const content = this.parseMessageContent(message);
+        
+        // 获取发送者 UID 用于筛选（支持同一用户不同群名片整合）
+        const senderUid = (message as any)?.sender?.uid || (message as any)?.sender?.uin || '';
 
         return `
         <div class="message-block" data-date="${dateKey}">
             ${dateMarker}
-            <div class="message ${cssClass}" data-date="${dateKey}" id="msg-${message.id}">
+            <div class="message ${cssClass}" data-date="${dateKey}" data-sender-uid="${this.escapeHtml(senderUid)}" id="msg-${message.id}">
                 <div class="avatar">${avatarContent}</div>
                 <div class="message-wrapper">
                     <div class="message-header">
