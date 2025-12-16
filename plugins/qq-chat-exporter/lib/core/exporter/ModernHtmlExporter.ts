@@ -596,6 +596,7 @@ ${this.generateFooter()}
 
         [data-theme="dark"] .time-range-input-group input {
             border-color: rgba(255, 255, 255, 0.12);
+            color-scheme: dark;
         }
 
         .time-range-input-group input:focus {
@@ -2113,9 +2114,11 @@ ${this.generateFooter()}
             var senderNameToUid = new Map(); // 用于反向查找
             
             // 收集所有发送者，按 UID 整合
-            messages.forEach(function(msg) {
-                var sender = msg.querySelector('.sender');
-                var uid = msg.getAttribute('data-sender-uid') || msg.getAttribute('data-uid');
+            // 使用 messageBlocks 而不是 messages，因为 filterMessages 使用的是 originalMessages（从 messageBlocks 克隆）
+            messageBlocks.forEach(function(block) {
+                var messageEl = block.querySelector('.message');
+                var sender = block.querySelector('.sender');
+                var uid = messageEl ? (messageEl.getAttribute('data-sender-uid') || messageEl.getAttribute('data-uid')) : null;
                 if (sender) {
                     var senderName = sender.textContent;
                     if (uid) {
@@ -2300,9 +2303,12 @@ ${this.generateFooter()}
                 
                 // 使用DocumentFragment优化DOM操作
                 originalMessages.forEach(function(msg) {
+                    // msg 是 .message-block，需要找到内部的 .message 元素
+                    var messageEl = msg.querySelector('.message');
                     var sender = msg.querySelector('.sender');
                     var senderName = sender ? sender.textContent : '';
-                    var msgUid = msg.getAttribute('data-sender-uid') || msg.getAttribute('data-uid');
+                    // 从 .message 元素获取 data-sender-uid
+                    var msgUid = messageEl ? (messageEl.getAttribute('data-sender-uid') || messageEl.getAttribute('data-uid')) : null;
                     var content = msg.querySelector('.content');
                     var originalContent = originalContents.get(msg);
                     
