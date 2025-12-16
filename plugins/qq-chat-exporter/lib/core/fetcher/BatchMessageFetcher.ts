@@ -538,14 +538,11 @@ export class BatchMessageFetcher {
      * 获取权限标志
      */
     private getPrivilegeFlag(chatType: ChatType): number {
-        switch (chatType) {
-            case ChatType.KCHATTYPEGROUP:
-                return 336068800; // 群聊权限标志
-            case ChatType.KCHATTYPEC2C:
-                return 0; // 私聊权限标志
-            default:
-                return 0;
+        // ChatType.Group = 2, ChatType.Friend = 1
+        if (chatType === ChatType.Group || chatType === 2) {
+            return 336068800; // 群聊权限标志
         }
+        return 0; // 私聊权限标志
     }
 
     /**
