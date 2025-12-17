@@ -27,6 +27,8 @@ interface JsonFormatOptions {
     compactFieldNames: boolean;
     /** 数组分块大小（0表示不分块） */
     chunkSize: number;
+    /** 是否将头像嵌入为base64（默认false） */
+    embedAvatarsAsBase64: boolean;
 }
 
 /**
@@ -132,6 +134,7 @@ export class JsonExporter extends BaseExporter {
             includeMetadata: true,
             compactFieldNames: false,
             chunkSize: 0, // 0表示不分块
+            embedAvatarsAsBase64: false,
             ...jsonOptions
         };
     }
@@ -175,6 +178,13 @@ export class JsonExporter extends BaseExporter {
             }
 
             const parser = this.getMessageParser(this.core);
+
+            // 如果启用了头像base64嵌入，预先下载所有头像
+            let avatarMap: Map<string, string> | null = null;
+            if (this.jsonOptions.embedAvatarsAsBase64) {
+                console.log(`[JsonExporter] 开始预下载头像...`);
+                avatarMap = await this.preDownloadAvatars(filteredMessages);
+            }
             
             // 使用正确的 parseMessagesStream API（带 onBatch 回调）
             await parser.parseMessagesStream(filteredMessages, {
@@ -225,6 +235,12 @@ export class JsonExporter extends BaseExporter {
             outStream.write(`{${nl}`);
             outStream.write(`${indent}"metadata":${JSON.stringify(metadata)},${nl}`);
             outStream.write(`${indent}"chatInfo":${JSON.stringify(formattedChatInfo)},${nl}`);
+            // 如果启用了头像嵌入，写入avatars字段
+            if (avatarMap && avatarMap.size > 0) {
+                const avatarsObj: Record<string, string> = {};
+                avatarMap.forEach((base64, uin) => { avatarsObj[uin] = base64; });
+                outStream.write(`${indent}"avatars":${JSON.stringify(avatarsObj)},${nl}`);
+            }
             outStream.write(`${indent}"statistics":${JSON.stringify(finalStats)},${nl}`);
             outStream.write(`${indent}"messages":[${nl}`);
 
@@ -319,6 +335,11 @@ export class JsonExporter extends BaseExporter {
             console.warn(`[JsonExporter] 无法确定消息类型，当作RawMessage处理`);
             cleanMessages = await this.parseWithDualStrategy(messages as RawMessage[]);
         }
+        // 如果启用了头像base64嵌入，处理消息
+        if (this.jsonOptions.embedAvatarsAsBase64) {
+            cleanMessages = await this.embedAvatarsToMessages(cleanMessages);
+        }
+
         // 构建JSON数据结构
         const exportData: JsonExportData = {
             metadata: this.generateMetadata(),
@@ -351,6 +372,13 @@ export class JsonExporter extends BaseExporter {
             try {
                 console.log(`[JsonExporter] 尝试使用MessageParser解析 ${messages.length} 条消息`);
                 const parser = this.getMessageParser(this.core);
+
+            // 如果启用了头像base64嵌入，预先下载所有头像
+            let avatarMap: Map<string, string> | null = null;
+            if (this.jsonOptions.embedAvatarsAsBase64) {
+                console.log(`[JsonExporter] 开始预下载头像...`);
+                avatarMap = await this.preDownloadAvatars(filteredMessages);
+            }
                 parsedMessages = await parser.parseMessages(messages);
                 console.log(`[JsonExporter] MessageParser解析了 ${parsedMessages.length} 条消息`);
                 
@@ -707,6 +735,132 @@ export class JsonExporter extends BaseExporter {
                 chunkSize
             },
             chunks
+        });
+    }
+
+    /**
+     * 预下载所有消息发送者的头像
+     * @param messages 原始消息列表
+     * @returns uin -> base64 映射
+     */
+    private async preDownloadAvatars(messages: RawMessage[]): Promise<Map<string, string>> {
+        const avatarMap = new Map<string, string>();
+        const uniqueUins = new Set<string>();
+
+        // 收集所有唯一的uin（senderUin可能是string或number）
+        for (const msg of messages) {
+            const uin = msg.senderUin;
+            if (uin && String(uin) !== '0' && String(uin) !== '') {
+                uniqueUins.add(String(uin));
+            }
+        }
+
+        console.log(`[JsonExporter] 发现 ${uniqueUins.size} 个唯一发送者，开始下载头像...`);
+
+        // 批量下载头像
+        let downloaded = 0;
+        for (const uin of uniqueUins) {
+            const base64 = await this.downloadAvatarAsBase64(uin);
+            if (base64) {
+                avatarMap.set(uin, base64);
+                downloaded++;
+            }
+        }
+
+        console.log(`[JsonExporter] 头像下载完成: ${downloaded}/${uniqueUins.size}`);
+        return avatarMap;
+    }
+    /**
+     * 下载头像并转换为base64
+     * @param uin QQ号
+     * @returns base64字符串或null
+     */
+    private async downloadAvatarAsBase64(uin: string): Promise<string | null> {
+        try {
+            const https = await import('https');
+            const avatarUrl = `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=100`;
+
+            return new Promise((resolve) => {
+                https.get(avatarUrl, (response) => {
+                    // 处理重定向
+                    if (response.statusCode === 301 || response.statusCode === 302) {
+                        const redirectUrl = response.headers.location;
+                        if (redirectUrl) {
+                            https.get(redirectUrl, (redirectResponse) => {
+                                const chunks: Buffer[] = [];
+                                redirectResponse.on('data', (chunk: Buffer) => chunks.push(chunk));
+                                redirectResponse.on('end', () => {
+                                    const buffer = Buffer.concat(chunks);
+                                    const base64 = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+                                    resolve(base64);
+                                });
+                                redirectResponse.on('error', () => resolve(null));
+                            }).on('error', () => resolve(null));
+                        } else {
+                            resolve(null);
+                        }
+                    } else {
+                        const chunks: Buffer[] = [];
+                        response.on('data', (chunk: Buffer) => chunks.push(chunk));
+                        response.on('end', () => {
+                            const buffer = Buffer.concat(chunks);
+                            const base64 = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+                            resolve(base64);
+                        });
+                        response.on('error', () => resolve(null));
+                    }
+                }).on('error', () => resolve(null));
+            });
+        } catch (error) {
+            console.warn(`[JsonExporter] 下载头像失败: ${uin}`, error);
+            return null;
+        }
+    }
+
+    /**
+     * 为消息列表嵌入头像base64
+     * @param messages 消息列表
+     * @returns 带有头像base64的消息列表
+     */
+    private async embedAvatarsToMessages(messages: CleanMessage[]): Promise<CleanMessage[]> {
+        console.log(`[JsonExporter] 开始嵌入头像base64...`);
+
+        // 收集所有唯一的发送者
+        const senderMap = new Map<string, string>(); // uin -> base64
+        const uniqueUins = new Set<string>();
+
+        for (const msg of messages) {
+            if (msg.sender?.uin) {
+                uniqueUins.add(msg.sender.uin);
+            }
+        }
+
+        console.log(`[JsonExporter] 发现 ${uniqueUins.size} 个唯一发送者，开始下载头像...`);
+
+        // 批量下载头像
+        let downloaded = 0;
+        for (const uin of uniqueUins) {
+            const base64 = await this.downloadAvatarAsBase64(uin);
+            if (base64) {
+                senderMap.set(uin, base64);
+                downloaded++;
+            }
+        }
+
+        console.log(`[JsonExporter] 头像下载完成: ${downloaded}/${uniqueUins.size}`);
+
+        // 将base64添加到消息中
+        return messages.map(msg => {
+            if (msg.sender?.uin && senderMap.has(msg.sender.uin)) {
+                return {
+                    ...msg,
+                    sender: {
+                        ...msg.sender,
+                        avatarBase64: senderMap.get(msg.sender.uin)
+                    }
+                };
+            }
+            return msg;
         });
     }
 
