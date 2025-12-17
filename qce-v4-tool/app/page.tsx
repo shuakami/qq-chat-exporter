@@ -197,11 +197,43 @@ export default function QCEDashboard() {
     isLoading,
     error,
     setError,
+    exportGroupAvatars,
+    avatarExportLoading,
   } = useQCE({
     onNotification: (notification) => {
       setNotifications(prev => [...prev, { id: Date.now().toString(), ...notification }])
     }
   })
+
+  // 导出群成员头像
+  const handleExportGroupAvatars = async (groupCode: string, groupName: string) => {
+    const loadingId = addNotification('info', '正在导出', `正在导出群"${groupName}"的成员头像...`)
+    
+    try {
+      const result = await exportGroupAvatars(groupCode)
+      removeNotification(loadingId)
+      
+      if (result) {
+        addNotification(
+          'success',
+          '导出成功',
+          `已导出 ${result.successCount} 个头像\n文件: ${result.fileName}`,
+          [
+            {
+              label: '打开文件位置',
+              onClick: () => openFileLocation(result.filePath)
+            }
+          ],
+          0
+        )
+      } else {
+        addNotification('error', '导出失败', '导出群头像失败')
+      }
+    } catch (error) {
+      removeNotification(loadingId)
+      addNotification('error', '导出失败', error instanceof Error ? error.message : '未知错误')
+    }
+  }
 
   // 打开文件位置
   const openFileLocation = async (filePath?: string) => {
@@ -949,7 +981,7 @@ export default function QCEDashboard() {
       </AnimatePresence>
 
       {/* Notification Cards */}
-      <div className={`fixed right-6 z-50 space-y-3 pointer-events-none transition-all duration-300 ${
+      <div className={`fixed right-6 z-[200] space-y-3 pointer-events-none transition-all duration-300 ${
         showStarToast ? 'bottom-[180px]' : 'bottom-6'
       }`}>
         <AnimatePresence>
@@ -1403,6 +1435,17 @@ export default function QCEDashboard() {
                                       })}
                                     >
                                       导出
+                                    </Button>
+                                  </motion.div>
+                                  <motion.div whileTap={{ scale: 0.98 }}>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="rounded-full h-8"
+                                      disabled={avatarExportLoading === group.groupCode}
+                                      onClick={() => handleExportGroupAvatars(group.groupCode, group.groupName)}
+                                    >
+                                      {avatarExportLoading === group.groupCode ? '导出中...' : '导出头像'}
                                     </Button>
                                   </motion.div>
                                 </div>
@@ -2473,6 +2516,8 @@ export default function QCEDashboard() {
           setPreviewingChat(chat)
           setIsPreviewModalOpen(true)
         }}
+        onExportAvatars={handleExportGroupAvatars}
+        avatarExportLoading={avatarExportLoading}
       />
 
       <ScheduledExportWizard
