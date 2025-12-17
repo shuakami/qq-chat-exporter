@@ -1445,7 +1445,7 @@ export default function QCEDashboard() {
                                       disabled={avatarExportLoading === group.groupCode}
                                       onClick={() => handleExportGroupAvatars(group.groupCode, group.groupName)}
                                     >
-                                      {avatarExportLoading === group.groupCode ? '导出中...' : '头像'}
+                                      {avatarExportLoading === group.groupCode ? '导出中...' : '导出头像'}
                                     </Button>
                                   </motion.div>
                                 </div>
