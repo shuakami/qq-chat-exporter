@@ -44,15 +44,17 @@ export function useQCE(props?: { onNotification?: UseExportTasksProps['onNotific
     // System
     systemInfo: systemInfo.systemInfo,
     refreshSystemInfo: systemInfo.refreshSystemInfo,
-    
+
     // WebSocket
     wsConnected: websocket.connected,
-    
+
     // Chat Data
     groups: chatData.groups,
     friends: chatData.friends,
     loadChatData: chatData.loadAll,
-    
+    exportGroupAvatars: chatData.exportGroupAvatars,
+    avatarExportLoading: chatData.avatarExportLoading,
+
     // Tasks
     tasks: exportTasks.tasks,
     loadTasks: exportTasks.loadTasks,
@@ -62,7 +64,7 @@ export function useQCE(props?: { onNotification?: UseExportTasksProps['onNotific
     deleteOriginalFiles: exportTasks.deleteOriginalFiles,
     getTaskStats: exportTasks.getTaskStats,
     isTaskDataStale: exportTasks.isDataStale,
-    
+
     // Global States
     isLoading,
     error: hasError,
