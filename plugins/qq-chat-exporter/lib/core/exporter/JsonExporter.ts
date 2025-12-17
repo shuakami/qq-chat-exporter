@@ -201,10 +201,6 @@ export class JsonExporter extends BaseExporter {
                         if (pm.rawMessage) {
                             pm.rawMessage = this.cleanRawMessage(pm.rawMessage);
                         }
-                        // 如果有头像映射，添加avatarBase64
-                        if (avatarMap && pm.sender?.uin && avatarMap.has(pm.sender.uin)) {
-                            pm.sender.avatarBase64 = avatarMap.get(pm.sender.uin);
-                        }
                         // 写NDJSON：一条消息一行
                         writeStream.write(JSON.stringify(pm) + '\n');
                     }
@@ -239,6 +235,12 @@ export class JsonExporter extends BaseExporter {
             outStream.write(`{${nl}`);
             outStream.write(`${indent}"metadata":${JSON.stringify(metadata)},${nl}`);
             outStream.write(`${indent}"chatInfo":${JSON.stringify(formattedChatInfo)},${nl}`);
+            // 如果启用了头像嵌入，写入avatars字段
+            if (avatarMap && avatarMap.size > 0) {
+                const avatarsObj: Record<string, string> = {};
+                avatarMap.forEach((base64, uin) => { avatarsObj[uin] = base64; });
+                outStream.write(`${indent}"avatars":${JSON.stringify(avatarsObj)},${nl}`);
+            }
             outStream.write(`${indent}"statistics":${JSON.stringify(finalStats)},${nl}`);
             outStream.write(`${indent}"messages":[${nl}`);
 
