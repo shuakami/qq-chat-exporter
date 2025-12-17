@@ -747,10 +747,11 @@ export class JsonExporter extends BaseExporter {
         const avatarMap = new Map<string, string>();
         const uniqueUins = new Set<string>();
 
-        // 收集所有唯一的uin
+        // 收集所有唯一的uin（senderUin可能是string或number）
         for (const msg of messages) {
-            if (msg.senderUin) {
-                uniqueUins.add(msg.senderUin);
+            const uin = msg.senderUin;
+            if (uin && String(uin) !== '0' && String(uin) !== '') {
+                uniqueUins.add(String(uin));
             }
         }
 
