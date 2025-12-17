@@ -817,6 +817,145 @@ export class QQChatExporterApiServer {
             }
         });
 
+        
+        // 导出群成员头像
+        this.app.post('/api/groups/:groupCode/avatars/export', async (req, res) => {
+            try {
+                const { groupCode } = req.params;
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群组代码不能为空', 'INVALID_GROUP_CODE');
+                }
+
+                console.log(`[ApiServer] 开始导出群 ${groupCode} 的成员头像...`);
+
+                // 获取群成员列表
+                const result = await this.core.apis.GroupApi.getGroupMemberAll(groupCode, true);
+                const members = Array.from(result.result.infos.values());
+
+                if (members.length === 0) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群成员列表为空', 'EMPTY_MEMBERS');
+                }
+
+                // 获取群信息
+                const groups = await this.core.apis.GroupApi.getGroups(false);
+                const groupInfo = groups.find(g => g.groupCode === groupCode);
+                const groupName = groupInfo?.groupName || groupCode;
+
+                // 创建导出目录
+                const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports', 'avatars');
+                if (!fs.existsSync(exportDir)) {
+                    fs.mkdirSync(exportDir, { recursive: true });
+                }
+
+                // 创建临时目录存放头像
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                const safeGroupName = groupName.replace(/[<>:"/\\|?*]/g, '_').slice(0, 50);
+                const tempDir = path.join(exportDir, `${safeGroupName}_${groupCode}_${timestamp}`);
+                fs.mkdirSync(tempDir, { recursive: true });
+
+                console.log(`[ApiServer] 准备下载 ${members.length} 个成员头像到 ${tempDir}`);
+
+                // 下载头像
+                let successCount = 0;
+                let failCount = 0;
+                const https = await import('https');
+                const http = await import('http');
+
+                for (const member of members) {
+                    try {
+                        const uin = (member as any).uin || (member as any).uid;
+                        if (!uin) continue;
+
+                        const nick = (member as any).nick || (member as any).cardName || uin;
+                        const safeNick = String(nick).replace(/[<>:"/\\|?*]/g, '_').slice(0, 30);
+                        const avatarUrl = `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=640`;
+                        const filePath = path.join(tempDir, `${safeNick}_${uin}.jpg`);
+
+                        // 下载头像
+                        await new Promise<void>((resolve, reject) => {
+                            const file = fs.createWriteStream(filePath);
+                            const protocol = avatarUrl.startsWith('https') ? https : http;
+                            
+                            protocol.get(avatarUrl, (response) => {
+                                if (response.statusCode === 301 || response.statusCode === 302) {
+                                    const redirectUrl = response.headers.location;
+                                    if (redirectUrl) {
+                                        const redirectProtocol = redirectUrl.startsWith('https') ? https : http;
+                                        redirectProtocol.get(redirectUrl, (redirectResponse) => {
+                                            redirectResponse.pipe(file);
+                                            file.on('finish', () => {
+                                                file.close();
+                                                resolve();
+                                            });
+                                        }).on('error', reject);
+                                    } else {
+                                        reject(new Error('Redirect without location'));
+                                    }
+                                } else {
+                                    response.pipe(file);
+                                    file.on('finish', () => {
+                                        file.close();
+                                        resolve();
+                                    });
+                                }
+                            }).on('error', (err) => {
+                                fs.unlink(filePath, () => {});
+                                reject(err);
+                            });
+                        });
+
+                        successCount++;
+                    } catch (err) {
+                        failCount++;
+                        console.warn(`[ApiServer] 下载头像失败:`, err);
+                    }
+                }
+
+                console.log(`[ApiServer] 头像下载完成: 成功 ${successCount}, 失败 ${failCount}`);
+
+                // 创建ZIP文件
+                const zipFileName = `${safeGroupName}_${groupCode}_avatars_${timestamp}.zip`;
+                const zipFilePath = path.join(exportDir, zipFileName);
+
+                // 使用archiver创建ZIP
+                const archiver = (await import('archiver')).default;
+                const output = fs.createWriteStream(zipFilePath);
+                const archive = archiver('zip', { zlib: { level: 9 } });
+
+                await new Promise<void>((resolve, reject) => {
+                    output.on('close', () => resolve());
+                    archive.on('error', (err) => reject(err));
+                    archive.pipe(output);
+                    archive.directory(tempDir, false);
+                    archive.finalize();
+                });
+
+                // 删除临时目录
+                fs.rmSync(tempDir, { recursive: true, force: true });
+
+                const stats = fs.statSync(zipFilePath);
+
+                console.log(`[ApiServer] ZIP文件创建完成: ${zipFilePath} (${stats.size} bytes)`);
+
+                this.sendSuccessResponse(res, {
+                    success: true,
+                    groupCode,
+                    groupName,
+                    totalMembers: members.length,
+                    successCount,
+                    failCount,
+                    fileName: zipFileName,
+                    filePath: zipFilePath,
+                    fileSize: stats.size,
+                    downloadUrl: `/downloads/avatars/${zipFileName}`
+                }, (req as any).requestId);
+
+            } catch (error) {
+                console.error('[ApiServer] 导出群头像失败:', error);
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
         // 获取所有好友
         this.app.get('/api/friends', async (req, res) => {
             try {
