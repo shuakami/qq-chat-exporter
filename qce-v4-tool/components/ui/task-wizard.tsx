@@ -30,6 +30,8 @@ interface TaskWizardProps {
     name: string,
     peer: { chatType: number, peerUid: string }
   }) => void
+  onExportAvatars?: (groupCode: string, groupName: string) => void
+  avatarExportLoading?: string | null
 }
 
 export function TaskWizard({
@@ -41,7 +43,9 @@ export function TaskWizard({
   groups = [],
   friends = [],
   onLoadData,
-  onPreview
+  onPreview,
+  onExportAvatars,
+  avatarExportLoading
 }: TaskWizardProps) {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedTarget, setSelectedTarget] = useState<Group | Friend | null>(null)
@@ -481,6 +485,17 @@ export function TaskWizard({
                       >
                         <Eye className="w-3 h-3 mr-1" />
                         预览
+                      </Button>
+                    )}
+                    {onExportAvatars && form.chatType === 2 && "groupCode" in selectedTarget && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="rounded-full"
+                        disabled={avatarExportLoading === selectedTarget.groupCode}
+                        onClick={() => onExportAvatars(selectedTarget.groupCode, selectedTarget.groupName)}
+                      >
+                        {avatarExportLoading === selectedTarget.groupCode ? '导出中...' : '导出头像'}
                       </Button>
                     )}
                     <Button variant="outline" size="sm" className="rounded-full" onClick={handleChangeTarget}>
