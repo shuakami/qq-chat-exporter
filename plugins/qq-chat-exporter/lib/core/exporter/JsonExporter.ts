@@ -748,17 +748,13 @@ export class JsonExporter extends BaseExporter {
         const uniqueUins = new Set<string>();
 
         // 收集所有唯一的uin（senderUin可能是string或number）
-        let skipped = 0;
         for (const msg of messages) {
             const uin = msg.senderUin;
             if (uin && String(uin) !== '0' && String(uin) !== '') {
                 uniqueUins.add(String(uin));
-            } else {
-                skipped++;
             }
         }
 
-        console.log(`[JsonExporter] 消息总数: ${messages.length}, 跳过: ${skipped}, 唯一发送者: ${uniqueUins.size}`);
         console.log(`[JsonExporter] 发现 ${uniqueUins.size} 个唯一发送者，开始下载头像...`);
 
         // 批量下载头像
