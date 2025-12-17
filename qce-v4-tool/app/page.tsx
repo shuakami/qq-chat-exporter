@@ -2516,6 +2516,8 @@ export default function QCEDashboard() {
           setPreviewingChat(chat)
           setIsPreviewModalOpen(true)
         }}
+        onExportAvatars={handleExportGroupAvatars}
+        avatarExportLoading={avatarExportLoading}
       />
 
       <ScheduledExportWizard
