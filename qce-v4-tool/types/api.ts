@@ -132,6 +132,7 @@ export interface CreateTaskForm {
   includeSystemMessages: boolean
   filterPureImageMessages: boolean
   exportAsZip?: boolean
+  embedAvatarsAsBase64?: boolean
 }
 
 export interface CreateTaskRequest {
