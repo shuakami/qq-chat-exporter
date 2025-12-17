@@ -178,6 +178,13 @@ export class JsonExporter extends BaseExporter {
             }
 
             const parser = this.getMessageParser(this.core);
+
+            // 如果启用了头像base64嵌入，预先下载所有头像
+            let avatarMap: Map<string, string> | null = null;
+            if (this.jsonOptions.embedAvatarsAsBase64) {
+                console.log(`[JsonExporter] 开始预下载头像...`);
+                avatarMap = await this.preDownloadAvatars(filteredMessages);
+            }
             
             // 使用正确的 parseMessagesStream API（带 onBatch 回调）
             await parser.parseMessagesStream(filteredMessages, {
@@ -193,6 +200,10 @@ export class JsonExporter extends BaseExporter {
                         // 智能清理rawMessage，删除null/undefined/空值，大幅减少JSON文件大小
                         if (pm.rawMessage) {
                             pm.rawMessage = this.cleanRawMessage(pm.rawMessage);
+                        }
+                        // 如果有头像映射，添加avatarBase64
+                        if (avatarMap && pm.sender?.uin && avatarMap.has(pm.sender.uin)) {
+                            pm.sender.avatarBase64 = avatarMap.get(pm.sender.uin);
                         }
                         // 写NDJSON：一条消息一行
                         writeStream.write(JSON.stringify(pm) + '\n');
@@ -359,6 +370,13 @@ export class JsonExporter extends BaseExporter {
             try {
                 console.log(`[JsonExporter] 尝试使用MessageParser解析 ${messages.length} 条消息`);
                 const parser = this.getMessageParser(this.core);
+
+            // 如果启用了头像base64嵌入，预先下载所有头像
+            let avatarMap: Map<string, string> | null = null;
+            if (this.jsonOptions.embedAvatarsAsBase64) {
+                console.log(`[JsonExporter] 开始预下载头像...`);
+                avatarMap = await this.preDownloadAvatars(filteredMessages);
+            }
                 parsedMessages = await parser.parseMessages(messages);
                 console.log(`[JsonExporter] MessageParser解析了 ${parsedMessages.length} 条消息`);
                 
@@ -718,6 +736,37 @@ export class JsonExporter extends BaseExporter {
         });
     }
 
+    /**
+     * 预下载所有消息发送者的头像
+     * @param messages 原始消息列表
+     * @returns uin -> base64 映射
+     */
+    private async preDownloadAvatars(messages: RawMessage[]): Promise<Map<string, string>> {
+        const avatarMap = new Map<string, string>();
+        const uniqueUins = new Set<string>();
+
+        // 收集所有唯一的uin
+        for (const msg of messages) {
+            if (msg.senderUin) {
+                uniqueUins.add(msg.senderUin);
+            }
+        }
+
+        console.log(`[JsonExporter] 发现 ${uniqueUins.size} 个唯一发送者，开始下载头像...`);
+
+        // 批量下载头像
+        let downloaded = 0;
+        for (const uin of uniqueUins) {
+            const base64 = await this.downloadAvatarAsBase64(uin);
+            if (base64) {
+                avatarMap.set(uin, base64);
+                downloaded++;
+            }
+        }
+
+        console.log(`[JsonExporter] 头像下载完成: ${downloaded}/${uniqueUins.size}`);
+        return avatarMap;
+    }
     /**
      * 下载头像并转换为base64
      * @param uin QQ号
