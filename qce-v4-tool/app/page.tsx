@@ -981,7 +981,7 @@ export default function QCEDashboard() {
       </AnimatePresence>
 
       {/* Notification Cards */}
-      <div className={`fixed right-6 z-50 space-y-3 pointer-events-none transition-all duration-300 ${
+      <div className={`fixed right-6 z-[200] space-y-3 pointer-events-none transition-all duration-300 ${
         showStarToast ? 'bottom-[180px]' : 'bottom-6'
       }`}>
         <AnimatePresence>
