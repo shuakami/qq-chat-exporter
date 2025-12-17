@@ -207,7 +207,7 @@ export default function QCEDashboard() {
 
   // 导出群成员头像
   const handleExportGroupAvatars = async (groupCode: string, groupName: string) => {
-    const loadingId = addNotification('info', '正在导出', 正在导出群""的成员头像...)
+    const loadingId = addNotification('info', '正在导出', `正在导出群"${groupName}"的成员头像...`)
     
     try {
       const result = await exportGroupAvatars(groupCode)
@@ -217,7 +217,7 @@ export default function QCEDashboard() {
         addNotification(
           'success',
           '导出成功',
-          已导出  个头像\n文件: ,
+          `已导出 ${result.successCount} 个头像\n文件: ${result.fileName}`,
           [
             {
               label: '打开文件位置',
