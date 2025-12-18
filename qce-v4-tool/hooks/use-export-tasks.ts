@@ -134,6 +134,7 @@ export function useExportTasks(props?: UseExportTasksProps) {
           filterPureImageMessages: form.filterPureImageMessages,
           prettyFormat: true,
           exportAsZip: form.exportAsZip,
+          embedAvatarsAsBase64: form.embedAvatarsAsBase64,
         },
       }
 

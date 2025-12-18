@@ -2562,7 +2562,7 @@ export class QQChatExporterApiServer {
                     break;
                 case 'JSON':
                     console.log(`[ApiServer] 调用 JsonExporter，传入 ${sortedMessages.length} 条 RawMessage`);
-                    exporter = new JsonExporter(exportOptions, {}, this.core);
+                    exporter = new JsonExporter(exportOptions, { embedAvatarsAsBase64: options?.embedAvatarsAsBase64 ?? false }, this.core);
                     await exporter.export(sortedMessages, chatInfo);
                     break;
                 case 'EXCEL':

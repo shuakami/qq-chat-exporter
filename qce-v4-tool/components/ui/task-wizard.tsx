@@ -65,6 +65,7 @@ export function TaskWizard({
     includeSystemMessages: true,
     filterPureImageMessages: true, // JSON/TXT默认启用
     exportAsZip: false,
+    embedAvatarsAsBase64: false,
   })
 
   const { groupSearch, friendSearch } = useSearch()
@@ -168,6 +169,7 @@ export function TaskWizard({
         includeSystemMessages: true,
         filterPureImageMessages: true, // JSON默认启用
         exportAsZip: false,
+        embedAvatarsAsBase64: false,
       })
     }
   }, [isOpen])
@@ -666,6 +668,14 @@ export function TaskWizard({
                 title: "导出为ZIP压缩包",
                 desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）",
                 visible: form.format === "HTML"
+              },
+              {
+                id: "embedAvatarsAsBase64",
+                checked: form.embedAvatarsAsBase64 || false,
+                set: (v: boolean) => setForm((p) => ({ ...p, embedAvatarsAsBase64: v })),
+                title: "嵌入头像为Base64",
+                desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）",
+                visible: form.format === "JSON"
               }
             ].filter((opt) => opt.visible).map((opt) => (
               <div
