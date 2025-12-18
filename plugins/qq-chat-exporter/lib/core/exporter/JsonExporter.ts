@@ -235,12 +235,6 @@ export class JsonExporter extends BaseExporter {
             outStream.write(`{${nl}`);
             outStream.write(`${indent}"metadata":${JSON.stringify(metadata)},${nl}`);
             outStream.write(`${indent}"chatInfo":${JSON.stringify(formattedChatInfo)},${nl}`);
-            // 如果启用了头像嵌入，写入avatars字段
-            if (avatarMap && avatarMap.size > 0) {
-                const avatarsObj: Record<string, string> = {};
-                avatarMap.forEach((base64, uin) => { avatarsObj[uin] = base64; });
-                outStream.write(`${indent}"avatars":${JSON.stringify(avatarsObj)},${nl}`);
-            }
             outStream.write(`${indent}"statistics":${JSON.stringify(finalStats)},${nl}`);
             outStream.write(`${indent}"messages":[${nl}`);
 
@@ -262,12 +256,26 @@ export class JsonExporter extends BaseExporter {
             }
 
             // 写JSON结尾
-            outStream.write(`${nl}${indent}]${nl}`);
+            outStream.write(`${nl}${indent}]`);
+            
+            // 如果启用了头像嵌入，写入avatars字段（放在messages之后，避免影响前面数据的查看）
+            if (avatarMap && avatarMap.size > 0) {
+                outStream.write(`,${nl}${indent}"avatars":{${nl}`);
+                const avatarEntries = Array.from(avatarMap.entries());
+                for (let i = 0; i < avatarEntries.length; i++) {
+                    const [uin, base64] = avatarEntries[i];
+                    const comma = i < avatarEntries.length - 1 ? ',' : '';
+                    // 每个头像单独一行，方便解析
+                    outStream.write(`${indent}${indent}${JSON.stringify(uin)}:${JSON.stringify(base64)}${comma}${nl}`);
+                }
+                outStream.write(`${indent}}`);
+            }
+            
             if (this.jsonOptions.includeMetadata) {
                 const exportOptions = this.generateExportOptions();
-                outStream.write(`,${nl}${indent}"exportOptions":${JSON.stringify(exportOptions)}${nl}`);
+                outStream.write(`,${nl}${indent}"exportOptions":${JSON.stringify(exportOptions)}`);
             }
-            outStream.write(`}${nl}`);
+            outStream.write(`${nl}}${nl}`);
 
             await new Promise<void>((resolve, reject) => {
                 outStream.end(() => resolve());
@@ -372,13 +380,6 @@ export class JsonExporter extends BaseExporter {
             try {
                 console.log(`[JsonExporter] 尝试使用MessageParser解析 ${messages.length} 条消息`);
                 const parser = this.getMessageParser(this.core);
-
-            // 如果启用了头像base64嵌入，预先下载所有头像
-            let avatarMap: Map<string, string> | null = null;
-            if (this.jsonOptions.embedAvatarsAsBase64) {
-                console.log(`[JsonExporter] 开始预下载头像...`);
-                avatarMap = await this.preDownloadAvatars(filteredMessages);
-            }
                 parsedMessages = await parser.parseMessages(messages);
                 console.log(`[JsonExporter] MessageParser解析了 ${parsedMessages.length} 条消息`);
                 
