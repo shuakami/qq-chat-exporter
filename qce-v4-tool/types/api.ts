@@ -63,6 +63,15 @@ export interface Group {
   avatarUrl?: string
 }
 
+export interface GroupMember {
+  uid: string
+  uin?: string
+  nick: string
+  cardName?: string
+  avatarUrl?: string
+  role: 'owner' | 'admin' | 'member'
+}
+
 export interface GroupsResponse {
   groups: Group[]
   totalCount: number
