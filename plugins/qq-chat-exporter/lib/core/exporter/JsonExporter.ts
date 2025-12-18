@@ -225,7 +225,7 @@ export class JsonExporter extends BaseExporter {
             console.log(`[JsonExporter] 阶段2: 流式合成最终JSON`);
             const finalStats = statsAcc.finalize();
             const metadata = this.generateMetadata();
-            const formattedChatInfo = this.formatChatInfo(chatInfo);
+            const formattedChatInfo = await this.formatChatInfoAsync(chatInfo);
 
             const outStream = this.createWriteStream(this.options.outputPath);
             const indent = this.jsonOptions.pretty ? '  ' : '';
@@ -351,7 +351,7 @@ export class JsonExporter extends BaseExporter {
         // 构建JSON数据结构
         const exportData: JsonExportData = {
             metadata: this.generateMetadata(),
-            chatInfo: this.formatChatInfo(chatInfo),
+            chatInfo: await this.formatChatInfoAsync(chatInfo),
             statistics: this.generateStatistics(cleanMessages),
             messages: cleanMessages, // 使用解析后的消息数据
             ...(this.jsonOptions.includeMetadata && {
@@ -579,15 +579,89 @@ export class JsonExporter extends BaseExporter {
     }
 
     /**
-     * 格式化聊天信息
+     * 格式化聊天信息（异步版本，支持群头像base64转换）
      */
-    private formatChatInfo(chatInfo: { name: string; type: string; avatar?: string; participantCount?: number }): JsonExportData['chatInfo'] {
-        return {
+    private async formatChatInfoAsync(chatInfo: { name: string; type: string; avatar?: string; participantCount?: number }): Promise<JsonExportData['chatInfo']> {
+        const result: JsonExportData['chatInfo'] = {
             name: chatInfo.name,
             type: chatInfo.type,
-            ...(chatInfo.avatar && { avatar: chatInfo.avatar }),
-            ...(chatInfo.participantCount !== undefined && { participantCount: chatInfo.participantCount })
         };
+        
+        if (chatInfo.avatar) {
+            // 如果启用了头像base64嵌入，下载群头像并转换
+            if (this.jsonOptions.embedAvatarsAsBase64) {
+                console.log(`[JsonExporter] 下载群/好友头像: ${chatInfo.avatar}`);
+                const base64 = await this.downloadUrlAsBase64(chatInfo.avatar);
+                if (base64) {
+                    result.avatar = base64;
+                    console.log(`[JsonExporter] 群/好友头像base64转换成功`);
+                } else {
+                    // 下载失败时保留原URL
+                    result.avatar = chatInfo.avatar;
+                    console.warn(`[JsonExporter] 群/好友头像下载失败，保留URL`);
+                }
+            } else {
+                result.avatar = chatInfo.avatar;
+            }
+        }
+        
+        if (chatInfo.participantCount !== undefined) {
+            result.participantCount = chatInfo.participantCount;
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 下载任意URL的图片并转换为base64
+     * @param url 图片URL
+     * @returns base64字符串或null
+     */
+    private async downloadUrlAsBase64(url: string): Promise<string | null> {
+        try {
+            const https = await import('https');
+            const http = await import('http');
+            const protocol = url.startsWith('https') ? https : http;
+
+            return new Promise((resolve) => {
+                protocol.get(url, (response) => {
+                    // 处理重定向
+                    if (response.statusCode === 301 || response.statusCode === 302) {
+                        const redirectUrl = response.headers.location;
+                        if (redirectUrl) {
+                            this.downloadUrlAsBase64(redirectUrl).then(resolve);
+                        } else {
+                            resolve(null);
+                        }
+                        return;
+                    }
+                    
+                    if (response.statusCode !== 200) {
+                        resolve(null);
+                        return;
+                    }
+                    
+                    const chunks: Buffer[] = [];
+                    response.on('data', (chunk: Buffer) => chunks.push(chunk));
+                    response.on('end', () => {
+                        const buffer = Buffer.concat(chunks);
+                        // 检测图片类型
+                        let mimeType = 'image/jpeg';
+                        if (buffer[0] === 0x89 && buffer[1] === 0x50) {
+                            mimeType = 'image/png';
+                        } else if (buffer[0] === 0x47 && buffer[1] === 0x49) {
+                            mimeType = 'image/gif';
+                        }
+                        const base64 = `data:${mimeType};base64,${buffer.toString('base64')}`;
+                        resolve(base64);
+                    });
+                    response.on('error', () => resolve(null));
+                }).on('error', () => resolve(null));
+            });
+        } catch (error) {
+            console.warn(`[JsonExporter] 下载图片失败: ${url}`, error);
+            return null;
+        }
     }
 
     /**

@@ -2540,9 +2540,17 @@ export class QQChatExporterApiServer {
             task = this.exportTasks.get(taskId);
             const chatName = task?.sessionName || peer.peerUid;
             const selfInfo = this.core.selfInfo;
+            
+            // 获取聊天头像 URL
+            const isGroup = peer.chatType === ChatType.Group || peer.chatType === 2;
+            const chatAvatar = isGroup 
+                ? `https://p.qlogo.cn/gh/${peer.peerUid}/${peer.peerUid}/640/`
+                : `https://q1.qlogo.cn/g?b=qq&nk=${peer.peerUid}&s=640`;
+            
             const chatInfo = {
                 name: chatName,
-                type: (peer.chatType === ChatType.Group || peer.chatType === 2 ? 'group' : 'private') as 'group' | 'private',
+                type: (isGroup ? 'group' : 'private') as 'group' | 'private',
+                avatar: chatAvatar,
                 selfUid: selfInfo?.uid,
                 selfUin: selfInfo?.uin,
                 selfName: selfInfo?.nick
