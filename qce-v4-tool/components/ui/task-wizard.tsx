@@ -10,10 +10,11 @@ import { Badge } from "./badge"
 import { Separator } from "./separator"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import {
-  Users, User, Search, Loader2, ChevronDown, RefreshCw, Settings, Eye, FileText, CheckCircle, X
+  Users, User, Search, Loader2, ChevronDown, RefreshCw, Settings, Eye, FileText, CheckCircle, X, UserMinus, Check
 } from "lucide-react"
 import { useSearch } from "@/hooks/use-search"
-import type { CreateTaskForm, Group, Friend } from "@/types/api"
+import type { CreateTaskForm, Group, Friend, GroupMember } from "@/types/api"
+import { Checkbox } from "./checkbox"
 
 interface TaskWizardProps {
   isOpen: boolean
@@ -51,6 +52,13 @@ export function TaskWizard({
   const [selectedTarget, setSelectedTarget] = useState<Group | Friend | null>(null)
   const [showTargetSelector, setShowTargetSelector] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+  
+  // 群成员选择器状态
+  const [showMemberSelector, setShowMemberSelector] = useState(false)
+  const [groupMembers, setGroupMembers] = useState<GroupMember[]>([])
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [selectedMemberUins, setSelectedMemberUins] = useState<Set<string>>(new Set())
+  const [memberSearchTerm, setMemberSearchTerm] = useState("")
 
   const [form, setForm] = useState<CreateTaskForm>({
     chatType: 2,
@@ -183,6 +191,65 @@ export function TaskWizard({
       setForm((p) => ({ ...p, chatType: 1, peerUid: target.uid, sessionName: target.remark || target.nick }))
     }
   }
+
+  // 获取群成员列表
+  const fetchGroupMembers = useCallback(async (groupCode: string) => {
+    setMembersLoading(true)
+    try {
+      const res = await fetch(`/api/groups/${groupCode}/members`)
+      const data = await res.json()
+      if (data.success && Array.isArray(data.data)) {
+        setGroupMembers(data.data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch group members:', error)
+    } finally {
+      setMembersLoading(false)
+    }
+  }, [])
+
+  // 打开群成员选择器
+  const handleOpenMemberSelector = useCallback(() => {
+    if (selectedTarget && "groupCode" in selectedTarget) {
+      // 从当前 excludeUserUins 恢复已选中的成员
+      const currentUins = form.excludeUserUins?.split(',').map(s => s.trim()).filter(Boolean) || []
+      setSelectedMemberUins(new Set(currentUins))
+      setMemberSearchTerm("")
+      fetchGroupMembers(selectedTarget.groupCode)
+      setShowMemberSelector(true)
+    }
+  }, [selectedTarget, form.excludeUserUins, fetchGroupMembers])
+
+  // 切换成员选中状态
+  const toggleMemberSelection = useCallback((uin: string) => {
+    setSelectedMemberUins(prev => {
+      const next = new Set(prev)
+      if (next.has(uin)) {
+        next.delete(uin)
+      } else {
+        next.add(uin)
+      }
+      return next
+    })
+  }, [])
+
+  // 确认选择的成员
+  const confirmMemberSelection = useCallback(() => {
+    const uins = Array.from(selectedMemberUins).join(',')
+    setForm(p => ({ ...p, excludeUserUins: uins }))
+    setShowMemberSelector(false)
+  }, [selectedMemberUins])
+
+  // 过滤群成员
+  const filteredMembers = groupMembers.filter(member => {
+    if (!memberSearchTerm.trim()) return true
+    const term = memberSearchTerm.toLowerCase()
+    return (
+      member.nick.toLowerCase().includes(term) ||
+      (member.cardName && member.cardName.toLowerCase().includes(term)) ||
+      (member.uin && member.uin.includes(term))
+    )
+  })
 
   const handleSearchInput = useCallback((value: string) => {
     setSearchTerm(value)
@@ -625,7 +692,21 @@ export function TaskWizard({
 
         {/* 排除用户 */}
         <div className="space-y-2">
-          <Label htmlFor="excludeUserUins">排除用户（可选）</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="excludeUserUins">排除用户（可选）</Label>
+            {selectedTarget && "groupCode" in selectedTarget && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleOpenMemberSelector}
+                className="rounded-full text-xs h-7"
+              >
+                <UserMinus className="w-3 h-3 mr-1" />
+                从群成员选择
+              </Button>
+            )}
+          </div>
           <Textarea
             id="excludeUserUins"
             placeholder="用逗号分隔多个QQ号，如：123456789,987654321&#10;这些用户的消息将被过滤掉（适合过滤机器人）"
@@ -634,6 +715,11 @@ export function TaskWizard({
             rows={2}
             className="rounded-2xl"
           />
+          {form.excludeUserUins && (
+            <p className="text-xs text-neutral-500">
+              已选择 {form.excludeUserUins.split(',').filter(s => s.trim()).length} 个用户
+            </p>
+          )}
         </div>
 
         {/* 高级选项 */}
@@ -796,6 +882,107 @@ export function TaskWizard({
               )}
             </Button>
           </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    {/* 群成员选择器 Dialog */}
+    <Dialog open={showMemberSelector} onOpenChange={setShowMemberSelector}>
+      <DialogContent className="max-w-md max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserMinus className="w-5 h-5" />
+            选择要排除的成员
+          </DialogTitle>
+        </DialogHeader>
+        
+        <div className="flex-1 flex flex-col min-h-0 gap-3">
+          {/* 搜索框 */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+            <Input
+              placeholder="搜索成员昵称、群名片或QQ号..."
+              value={memberSearchTerm}
+              onChange={(e) => setMemberSearchTerm(e.target.value)}
+              className="pl-9 rounded-full"
+            />
+          </div>
+
+          {/* 已选数量 */}
+          <div className="text-sm text-neutral-500">
+            已选择 {selectedMemberUins.size} 个成员
+            {selectedMemberUins.size > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedMemberUins(new Set())}
+                className="ml-2 h-6 text-xs text-red-500 hover:text-red-600"
+              >
+                清空
+              </Button>
+            )}
+          </div>
+
+          {/* 成员列表 */}
+          <div className="flex-1 overflow-y-auto border rounded-xl min-h-0">
+            {membersLoading ? (
+              <div className="flex items-center justify-center h-32">
+                <Loader2 className="w-6 h-6 animate-spin text-neutral-400" />
+              </div>
+            ) : filteredMembers.length === 0 ? (
+              <div className="flex items-center justify-center h-32 text-neutral-500 text-sm">
+                {memberSearchTerm ? "没有找到匹配的成员" : "暂无群成员数据"}
+              </div>
+            ) : (
+              <div className="divide-y">
+                {filteredMembers.map((member) => {
+                  const uin = member.uin || member.uid
+                  const isSelected = selectedMemberUins.has(uin)
+                  const displayName = member.cardName || member.nick
+                  return (
+                    <div
+                      key={uin}
+                      onClick={() => toggleMemberSelection(uin)}
+                      className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-neutral-50 transition-colors ${
+                        isSelected ? "bg-blue-50" : ""
+                      }`}
+                    >
+                      <Checkbox checked={isSelected} />
+                      <Avatar className="w-8 h-8">
+                        <AvatarImage src={member.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=100`} />
+                        <AvatarFallback>{displayName[0]}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{displayName}</p>
+                        <p className="text-xs text-neutral-500">
+                          {member.cardName && member.cardName !== member.nick && (
+                            <span className="mr-2">昵称: {member.nick}</span>
+                          )}
+                          QQ: {uin}
+                          {member.role !== 'member' && (
+                            <Badge variant="secondary" className="ml-2 text-xs">
+                              {member.role === 'owner' ? '群主' : '管理员'}
+                            </Badge>
+                          )}
+                        </p>
+                      </div>
+                      {isSelected && <Check className="w-4 h-4 text-blue-600" />}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 底部按钮 */}
+        <div className="flex justify-end gap-2 pt-3 border-t">
+          <Button variant="outline" onClick={() => setShowMemberSelector(false)} className="rounded-full">
+            取消
+          </Button>
+          <Button onClick={confirmMemberSelection} className="rounded-full bg-blue-600 hover:bg-blue-700">
+            确认选择 ({selectedMemberUins.size})
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
