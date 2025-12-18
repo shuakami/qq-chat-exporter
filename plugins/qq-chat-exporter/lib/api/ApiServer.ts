@@ -2402,6 +2402,17 @@ export class QQChatExporterApiServer {
                 console.log(`[ApiServer] 启用纯文字模式: 跳过资源下载，保留所有 ${allMessages.length} 条消息`);
             }
 
+            // 过滤指定用户的消息
+            if (filter?.excludeUserUins && filter.excludeUserUins.length > 0) {
+                const excludeSet = new Set(filter.excludeUserUins.map((uin: string) => String(uin)));
+                const beforeCount = filteredMessages.length;
+                filteredMessages = filteredMessages.filter(msg => {
+                    const senderUin = String(msg.senderUin || '');
+                    return !excludeSet.has(senderUin);
+                });
+                console.log(`[ApiServer] 用户过滤: 排除 ${excludeSet.size} 个用户，消息从 ${beforeCount} 条减少到 ${filteredMessages.length} 条`);
+            }
+
             // 所有格式都需要通过OneBot解析器处理
             task = this.exportTasks.get(taskId);
             if (task) {
