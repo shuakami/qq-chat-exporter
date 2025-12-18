@@ -712,7 +712,7 @@ export function TaskWizard({
           </div>
           
           {/* 折叠式群成员选择器 */}
-          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showMemberSelector ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0"}`}>
+          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showMemberSelector ? "max-h-[350px] opacity-100" : "max-h-0 opacity-0"}`}>
             <div className="border rounded-xl p-3 space-y-2 bg-neutral-50/50">
               {/* 搜索框 */}
               <div className="relative">
