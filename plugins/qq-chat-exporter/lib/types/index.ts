@@ -61,6 +61,8 @@ export interface MessageFilter {
     endTime?: number;
     /** 发送者UID列表（为空则获取所有） */
     senderUids?: string[];
+    /** 排除的用户UIN列表（过滤掉这些用户的消息） */
+    excludeUserUins?: string[];
     /** 消息类型筛选 */
     messageTypes?: Array<{
         type: NTMsgType;

@@ -124,6 +124,7 @@ export function useExportTasks(props?: UseExportTasksProps) {
           ...(form.startTime && { startTime: Math.floor(new Date(form.startTime).getTime() / 1000) }),
           ...(form.endTime && { endTime: Math.floor(new Date(form.endTime).getTime() / 1000) }),
           ...(form.keywords && { keywords: form.keywords.split(",").map((k) => k.trim()) }),
+          ...(form.excludeUserUins && { excludeUserUins: form.excludeUserUins.split(",").map((u) => u.trim()).filter(u => u) }),
           includeRecalled: form.includeRecalled,
         },
         options: {

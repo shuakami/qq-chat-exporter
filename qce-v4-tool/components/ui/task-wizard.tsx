@@ -10,10 +10,11 @@ import { Badge } from "./badge"
 import { Separator } from "./separator"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import {
-  Users, User, Search, Loader2, ChevronDown, RefreshCw, Settings, Eye, FileText, CheckCircle, X
+  Users, User, Search, Loader2, ChevronDown, RefreshCw, Settings, Eye, FileText, CheckCircle, X, UserMinus, Check
 } from "lucide-react"
 import { useSearch } from "@/hooks/use-search"
-import type { CreateTaskForm, Group, Friend } from "@/types/api"
+import type { CreateTaskForm, Group, Friend, GroupMember } from "@/types/api"
+import { Checkbox } from "./checkbox"
 
 interface TaskWizardProps {
   isOpen: boolean
@@ -51,6 +52,13 @@ export function TaskWizard({
   const [selectedTarget, setSelectedTarget] = useState<Group | Friend | null>(null)
   const [showTargetSelector, setShowTargetSelector] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+  
+  // 群成员选择器状态
+  const [showMemberSelector, setShowMemberSelector] = useState(false)
+  const [groupMembers, setGroupMembers] = useState<GroupMember[]>([])
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [selectedMemberUins, setSelectedMemberUins] = useState<Set<string>>(new Set())
+  const [memberSearchTerm, setMemberSearchTerm] = useState("")
 
   const [form, setForm] = useState<CreateTaskForm>({
     chatType: 2,
@@ -60,6 +68,7 @@ export function TaskWizard({
     startTime: "",
     endTime: "",
     keywords: "",
+    excludeUserUins: "",
     includeRecalled: false,
     includeSystemMessages: true,
     filterPureImageMessages: true, // JSON/TXT默认启用
@@ -163,6 +172,7 @@ export function TaskWizard({
         startTime: "",
         endTime: "",
         keywords: "",
+        excludeUserUins: "",
         includeRecalled: false,
         includeSystemMessages: true,
         filterPureImageMessages: true, // JSON默认启用
@@ -181,6 +191,67 @@ export function TaskWizard({
       setForm((p) => ({ ...p, chatType: 1, peerUid: target.uid, sessionName: target.remark || target.nick }))
     }
   }
+
+  // 获取群成员列表
+  const fetchGroupMembers = useCallback(async (groupCode: string) => {
+    setMembersLoading(true)
+    try {
+      const res = await fetch(`/api/groups/${groupCode}/members`)
+      const data = await res.json()
+      if (data.success && Array.isArray(data.data)) {
+        setGroupMembers(data.data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch group members:', error)
+    } finally {
+      setMembersLoading(false)
+    }
+  }, [])
+
+  // 切换群成员选择器展开/收起
+  const handleOpenMemberSelector = useCallback(() => {
+    if (selectedTarget && "groupCode" in selectedTarget) {
+      if (!showMemberSelector) {
+        // 展开时：从当前 excludeUserUins 恢复已选中的成员
+        const currentUins = form.excludeUserUins?.split(',').map(s => s.trim()).filter(Boolean) || []
+        setSelectedMemberUins(new Set(currentUins))
+        setMemberSearchTerm("")
+        fetchGroupMembers(selectedTarget.groupCode)
+      }
+      setShowMemberSelector(!showMemberSelector)
+    }
+  }, [selectedTarget, form.excludeUserUins, fetchGroupMembers, showMemberSelector])
+
+  // 切换成员选中状态
+  const toggleMemberSelection = useCallback((uin: string) => {
+    setSelectedMemberUins(prev => {
+      const next = new Set(prev)
+      if (next.has(uin)) {
+        next.delete(uin)
+      } else {
+        next.add(uin)
+      }
+      return next
+    })
+  }, [])
+
+  // 确认选择的成员
+  const confirmMemberSelection = useCallback(() => {
+    const uins = Array.from(selectedMemberUins).join(',')
+    setForm(p => ({ ...p, excludeUserUins: uins }))
+    setShowMemberSelector(false)
+  }, [selectedMemberUins])
+
+  // 过滤群成员
+  const filteredMembers = groupMembers.filter(member => {
+    if (!memberSearchTerm.trim()) return true
+    const term = memberSearchTerm.toLowerCase()
+    return (
+      member.nick.toLowerCase().includes(term) ||
+      (member.cardName && member.cardName.toLowerCase().includes(term)) ||
+      (member.uin && member.uin.includes(term))
+    )
+  })
 
   const handleSearchInput = useCallback((value: string) => {
     setSearchTerm(value)
@@ -621,6 +692,136 @@ export function TaskWizard({
           />
         </div>
 
+        {/* 排除用户 */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="excludeUserUins">排除用户（可选）</Label>
+            {selectedTarget && "groupCode" in selectedTarget && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleOpenMemberSelector}
+                className="text-xs h-7 text-blue-600 hover:text-blue-700"
+              >
+                <UserMinus className="w-3 h-3 mr-1" />
+                {showMemberSelector ? "收起" : "从群成员选择"}
+                <ChevronDown className={`w-3 h-3 ml-1 transition-transform duration-200 ${showMemberSelector ? "rotate-180" : ""}`} />
+              </Button>
+            )}
+          </div>
+          
+          {/* 折叠式群成员选择器 */}
+          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showMemberSelector ? "max-h-[350px] opacity-100" : "max-h-0 opacity-0"}`}>
+            <div className="border rounded-xl p-3 space-y-2 bg-neutral-50/50">
+              {/* 搜索框 */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                <Input
+                  placeholder="搜索昵称、群名片或QQ号..."
+                  value={memberSearchTerm}
+                  onChange={(e) => setMemberSearchTerm(e.target.value)}
+                  className="pl-9 h-8 text-sm rounded-full bg-white"
+                />
+              </div>
+              
+              {/* 已选数量 */}
+              <div className="flex items-center justify-between text-xs text-neutral-500">
+                <span>已选择 {selectedMemberUins.size} 个成员</span>
+                {selectedMemberUins.size > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedMemberUins(new Set())}
+                    className="h-5 px-2 text-xs text-red-500 hover:text-red-600"
+                  >
+                    清空
+                  </Button>
+                )}
+              </div>
+              
+              {/* 成员列表 */}
+              <div className="max-h-[180px] overflow-y-auto border rounded-lg bg-white">
+                {membersLoading ? (
+                  <div className="flex items-center justify-center h-20">
+                    <Loader2 className="w-5 h-5 animate-spin text-neutral-400" />
+                  </div>
+                ) : filteredMembers.length === 0 ? (
+                  <div className="flex items-center justify-center h-20 text-neutral-500 text-xs">
+                    {memberSearchTerm ? "没有找到匹配的成员" : "暂无群成员数据"}
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    {filteredMembers.slice(0, 50).map((member) => {
+                      const uin = member.uin || member.uid
+                      const isSelected = selectedMemberUins.has(uin)
+                      const displayName = member.cardName || member.nick
+                      // 处理 role: 4=owner, 3=admin, 其他=member
+                      const roleNum = typeof member.role === 'number' ? member.role : 0
+                      const isOwner = roleNum === 4 || member.role === 'owner'
+                      const isAdmin = roleNum === 3 || member.role === 'admin'
+                      return (
+                        <div
+                          key={uin}
+                          onClick={() => toggleMemberSelection(uin)}
+                          className={`flex items-center gap-2 p-2 cursor-pointer hover:bg-neutral-50 transition-colors ${
+                            isSelected ? "bg-blue-50" : ""
+                          }`}
+                        >
+                          <Checkbox checked={isSelected} className="w-4 h-4" />
+                          <Avatar className="w-6 h-6">
+                            <AvatarImage src={member.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=100`} />
+                            <AvatarFallback className="text-xs">{displayName[0]}</AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate flex items-center gap-1">
+                              {displayName}
+                              {isOwner && <Badge variant="secondary" className="text-[10px] px-1 py-0">群主</Badge>}
+                              {isAdmin && <Badge variant="secondary" className="text-[10px] px-1 py-0">管理</Badge>}
+                            </p>
+                            <p className="text-[10px] text-neutral-400 truncate">
+                              {uin}
+                            </p>
+                          </div>
+                          {isSelected && <Check className="w-3 h-3 text-blue-600 flex-shrink-0" />}
+                        </div>
+                      )
+                    })}
+                    {filteredMembers.length > 50 && (
+                      <div className="p-2 text-center text-xs text-neutral-400">
+                        仅显示前50个结果，请使用搜索缩小范围
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              {/* 确认按钮 */}
+              <Button 
+                onClick={confirmMemberSelection} 
+                size="sm"
+                className="w-full h-7 text-xs rounded-full bg-blue-600 hover:bg-blue-700"
+              >
+                确认选择 ({selectedMemberUins.size})
+              </Button>
+            </div>
+          </div>
+          
+          <Textarea
+            id="excludeUserUins"
+            placeholder="用逗号分隔多个QQ号，如：123456789,987654321&#10;这些用户的消息将被过滤掉（适合过滤机器人）"
+            value={form.excludeUserUins || ""}
+            onChange={(e) => setForm((p) => ({ ...p, excludeUserUins: e.target.value }))}
+            rows={2}
+            className="rounded-2xl"
+          />
+          {form.excludeUserUins && (
+            <p className="text-xs text-neutral-500">
+              已选择 {form.excludeUserUins.split(',').filter(s => s.trim()).length} 个用户
+            </p>
+          )}
+        </div>
+
         {/* 高级选项 */}
         <div className="space-y-3">
           <div>
@@ -700,6 +901,7 @@ export function TaskWizard({
   }
 
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
         overlayClassName="bg-white/60 backdrop-blur-xl"
@@ -784,5 +986,7 @@ export function TaskWizard({
         </div>
       </DialogContent>
     </Dialog>
+
+    </>
   )
 }
