@@ -801,6 +801,7 @@ export function TaskWizard({
   }
 
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
         overlayClassName="bg-white/60 backdrop-blur-xl"
@@ -986,5 +987,6 @@ export function TaskWizard({
         </div>
       </DialogContent>
     </Dialog>
+    </>
   )
 }
