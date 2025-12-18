@@ -17,7 +17,7 @@
 > **macOS 兼容性说明**：由于技术兼容性问题，V4 版本暂时不支持 macOS 平台。我们正在努力解决相关问题，后续有进展会及时通知。推荐 macOS 用户使用 Windows 系统运行本工具。
 
 > [!TIP]
-> 如果导出聊天记录后，想深入分析聊天内容可以试试 [@hellodigua](https://github.com/hellodigua) 的 [AI 聊天分析应用](https://chatlab.fun/)
+> 如果导出聊天记录后，想深入分析聊天内容可以试试 [@hellodigua](https://github.com/hellodigua) 的 [ChatLab](https://chatlab.fun/)
 > 
 > 也可以试试 [@CutrelyAlex](https://github.com/CutrelyAlex) 的 [QQChatAnalyzer](https://github.com/CutrelyAlex/QQChatAnalyzer) - 支持个人分析、群聊分析、社交网络可视化和 AI 摘要
 >
