@@ -60,6 +60,7 @@ export function TaskWizard({
     startTime: "",
     endTime: "",
     keywords: "",
+    excludeUserUins: "",
     includeRecalled: false,
     includeSystemMessages: true,
     filterPureImageMessages: true, // JSON/TXT默认启用
@@ -162,6 +163,7 @@ export function TaskWizard({
         startTime: "",
         endTime: "",
         keywords: "",
+        excludeUserUins: "",
         includeRecalled: false,
         includeSystemMessages: true,
         filterPureImageMessages: true, // JSON默认启用
@@ -615,6 +617,19 @@ export function TaskWizard({
             value={form.keywords}
             onChange={(e) => setForm((p) => ({ ...p, keywords: e.target.value }))}
             rows={3}
+            className="rounded-2xl"
+          />
+        </div>
+
+        {/* 排除用户 */}
+        <div className="space-y-2">
+          <Label htmlFor="excludeUserUins">排除用户（可选）</Label>
+          <Textarea
+            id="excludeUserUins"
+            placeholder="用逗号分隔多个QQ号，如：123456789,987654321&#10;这些用户的消息将被过滤掉（适合过滤机器人）"
+            value={form.excludeUserUins || ""}
+            onChange={(e) => setForm((p) => ({ ...p, excludeUserUins: e.target.value }))}
+            rows={2}
             className="rounded-2xl"
           />
         </div>
