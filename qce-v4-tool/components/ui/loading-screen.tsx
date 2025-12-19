@@ -32,7 +32,7 @@ export function LoadingScreen({ isLoading, onComplete }: LoadingScreenProps) {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.4, ease: "easeInOut" }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-white/50 backdrop-blur-md"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-white/50 dark:bg-neutral-950/50 backdrop-blur-md"
         >
           <div className="flex flex-col items-center">
             <motion.div
@@ -77,7 +77,7 @@ export function LoadingScreen({ isLoading, onComplete }: LoadingScreenProps) {
                       delay: index * 0.2,
                       ease: "easeInOut"
                     }}
-                    className="w-2 h-2 bg-neutral-400 rounded-full"
+                    className="w-2 h-2 bg-neutral-400 dark:bg-neutral-500 rounded-full"
                   />
                 ))}
               </div>
@@ -91,7 +91,7 @@ export function LoadingScreen({ isLoading, onComplete }: LoadingScreenProps) {
                 duration: 0.5, 
                 ease: "easeOut" 
               }}
-              className="mt-4 text-neutral-600 text-sm font-light"
+              className="mt-4 text-neutral-600 dark:text-neutral-400 text-sm font-light"
             >
               正在启动 QQ Chat Exporter...
             </motion.p>

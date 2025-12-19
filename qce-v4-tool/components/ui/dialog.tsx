@@ -48,7 +48,7 @@ export const DialogContent = React.forwardRef<
         // 全屏覆盖显示，修复高分辨率屏幕定位偏移问题
         "fixed inset-0 z-[101]",
         "w-full h-full",
-        "bg-white",
+        "bg-white dark:bg-neutral-900",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
         "outline-none",
@@ -63,7 +63,11 @@ export const DialogContent = React.forwardRef<
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
 export const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("px-6 py-5 border-b border-neutral-200", className)} {...props} />
+  <div className={cn("px-6 py-5 border-b border-neutral-200 dark:border-neutral-700", className)} {...props} />
+)
+
+export const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn("px-6 py-4 border-t border-neutral-200 dark:border-neutral-700", className)} {...props} />
 )
 
 export const DialogTitle = React.forwardRef<
@@ -72,7 +76,7 @@ export const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn("text-lg font-medium tracking-tight text-neutral-900", className)}
+    className={cn("text-lg font-medium tracking-tight text-neutral-900 dark:text-neutral-100", className)}
     {...props}
   />
 ))
@@ -84,7 +88,7 @@ export const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
-    className={cn("text-sm text-neutral-600", className)}
+    className={cn("text-sm text-neutral-600 dark:text-neutral-400", className)}
     {...props}
   />
 ))

@@ -199,7 +199,7 @@ export class BatchMessageFetcher {
                 typeof filter.startTime === 'number' &&
                 (result as any).earliestMsgTime < filter.startTime
             ) {
-                console.warn(`[BatchMessageFetcher] ⚠️ 触发防御性提前停止：earliestMsgTime=${new Date((result as any).earliestMsgTime).toISOString()}, startTime=${new Date(filter.startTime).toISOString()}`);
+                // 防御性提前停止：批次最早时间早于开始时间
                 hasMore = false;
                 break;
             }

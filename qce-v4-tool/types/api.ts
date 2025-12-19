@@ -118,6 +118,8 @@ export interface ExportTask {
   keywords?: string
   includeRecalled?: boolean
   messageCount?: number
+  /** 当前进度消息 */
+  progressMessage?: string
   filePath?: string
   fileName?: string
   fileSize?: number
@@ -127,6 +129,8 @@ export interface ExportTask {
   error?: string
   isZipExport?: boolean
   originalFilePath?: string
+  /** 是否为流式导出模式 */
+  streamingMode?: boolean
 }
 
 export interface CreateTaskForm {
@@ -143,6 +147,8 @@ export interface CreateTaskForm {
   exportAsZip?: boolean
   excludeUserUins?: string
   embedAvatarsAsBase64?: boolean
+  /** 流式ZIP导出模式（专为超大消息量设计，>50万消息推荐使用） */
+  streamingZipMode?: boolean
 }
 
 export interface CreateTaskRequest {

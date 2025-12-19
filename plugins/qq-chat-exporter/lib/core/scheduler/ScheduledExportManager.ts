@@ -219,7 +219,6 @@ export class ScheduledExportManager {
     async initialize(): Promise<void> {
         await this.loadScheduledTasks();
         this.startAllEnabledTasks();
-        console.log('[ScheduledExportManager] 定时导出管理器已初始化');
     }
 
     /**
@@ -242,7 +241,6 @@ export class ScheduledExportManager {
             this.startTask(scheduledExport);
         }
 
-        console.log(`[ScheduledExportManager] 创建定时导出任务: ${scheduledExport.name} (${scheduledExport.id})`);
         return scheduledExport;
     }
 
@@ -277,7 +275,6 @@ export class ScheduledExportManager {
             this.startTask(updatedTask);
         }
 
-        console.log(`[ScheduledExportManager] 更新定时导出任务: ${updatedTask.name} (${id})`);
         return updatedTask;
     }
 
@@ -297,7 +294,6 @@ export class ScheduledExportManager {
         // 从数据库删除
         await this.dbManager.deleteScheduledExport(id);
 
-        console.log(`[ScheduledExportManager] 删除定时导出任务: ${task.name} (${id})`);
         return true;
     }
 
@@ -324,7 +320,6 @@ export class ScheduledExportManager {
             return null;
         }
 
-        console.log(`[ScheduledExportManager] 手动触发定时导出任务: ${task.name} (${id})`);
         return await this.executeExportTask(task);
     }
 
@@ -456,7 +451,6 @@ export class ScheduledExportManager {
         }
 
         const cronJob = SimpleCronScheduler.schedule(cronExpression, async () => {
-            console.log(`[ScheduledExportManager] 执行定时导出任务: ${task.name} (${task.id})`);
             await this.executeExportTask(task);
         }, {
             scheduled: true,
@@ -464,7 +458,6 @@ export class ScheduledExportManager {
         });
 
         this.cronJobs.set(task.id, cronJob);
-        console.log(`[ScheduledExportManager] 启动定时任务: ${task.name} (${task.id}), cron: ${cronExpression}`);
     }
 
     /**
@@ -475,7 +468,6 @@ export class ScheduledExportManager {
         if (cronJob) {
             cronJob.stop();
             this.cronJobs.delete(id);
-            console.log(`[ScheduledExportManager] 停止定时任务: ${id}`);
         }
     }
 
@@ -612,12 +604,10 @@ export class ScheduledExportManager {
             task.nextRun = this.calculateNextRun(task.scheduleType, task.cronExpression, task.executeTime);
             await this.saveScheduledTask(task);
 
-            console.log(`[ScheduledExportManager] 定时导出任务执行成功: ${task.name}, 消息数: ${allMessages.length}, 文件: ${fileName}`);
 
         } catch (error) {
             history.status = 'failed';
             history.error = error instanceof Error ? error.message : String(error);
-            console.error(`[ScheduledExportManager] 定时导出任务执行失败: ${task.name}`, error);
         } finally {
             history.duration = Date.now() - startTime;
             
@@ -649,9 +639,8 @@ export class ScheduledExportManager {
             for (const task of tasks) {
                 this.scheduledTasks.set(task.id, task);
             }
-            console.log(`[ScheduledExportManager] 加载了 ${tasks.length} 个定时导出任务`);
         } catch (error) {
-            console.error('[ScheduledExportManager] 加载定时导出任务失败:', error);
+            // 静默处理
         }
     }
 
@@ -662,7 +651,7 @@ export class ScheduledExportManager {
         try {
             await this.dbManager.saveScheduledExport(task);
         } catch (error) {
-            console.error('[ScheduledExportManager] 保存定时导出任务失败:', error);
+            // 静默处理
         }
     }
 
@@ -673,7 +662,7 @@ export class ScheduledExportManager {
         try {
             await this.dbManager.saveExecutionHistory(history);
         } catch (error) {
-            console.error('[ScheduledExportManager] 保存执行历史失败:', error);
+            // 静默处理
         }
     }
 
@@ -685,6 +674,5 @@ export class ScheduledExportManager {
             cronJob.stop();
         }
         this.cronJobs.clear();
-        console.log('[ScheduledExportManager] 定时导出管理器已关闭');
     }
 }

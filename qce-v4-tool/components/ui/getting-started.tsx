@@ -102,21 +102,21 @@ export function GettingStarted({
             key={step.id}
             className={`flex items-center gap-4 p-4 rounded-lg border transition-colors ${
               step.completed 
-                ? "bg-green-50 border-green-200" 
-                : "bg-neutral-50 border-neutral-200"
+                ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800" 
+                : "bg-neutral-50 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700"
             }`}
           >
             <div className="flex-shrink-0">
               {step.completed ? (
                 <CheckCircle className="w-5 h-5 text-green-600" />
               ) : (
-                <Circle className="w-5 h-5 text-neutral-400" />
+                <Circle className="w-5 h-5 text-neutral-400 dark:text-neutral-500" />
               )}
             </div>
             
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-neutral-500">
+                <span className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
                   步骤 {index + 1}
                 </span>
                 {step.completed && (

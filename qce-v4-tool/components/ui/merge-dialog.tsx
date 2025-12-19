@@ -117,21 +117,21 @@ export function MergeDialog({
           {/* 步骤1: 选择要合并的任务 */}
           <div className="space-y-3">
             <Label className="text-base font-semibold">选择要合并的备份任务</Label>
-            <p className="text-sm text-neutral-500">至少选择2个已完成的导出任务进行合并</p>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">至少选择2个已完成的导出任务进行合并</p>
             
             {tasks.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center">
-                <AlertCircle className="w-8 h-8 mx-auto mb-2 text-neutral-400" />
-                <p className="text-sm text-neutral-600">暂无可合并的任务</p>
-                <p className="text-xs text-neutral-500 mt-1">请先完成至少2个导出任务</p>
+              <div className="rounded-lg border border-dashed border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 p-8 text-center">
+                <AlertCircle className="w-8 h-8 mx-auto mb-2 text-neutral-400 dark:text-neutral-500" />
+                <p className="text-sm text-neutral-600 dark:text-neutral-400">暂无可合并的任务</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-500 mt-1">请先完成至少2个导出任务</p>
               </div>
             ) : (
-              <ScrollArea className="h-64 rounded-lg border border-neutral-200 bg-neutral-50/50 p-4">
+              <ScrollArea className="h-64 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/50 p-4">
                 <div className="space-y-2">
                   {tasks.map(task => (
                     <div 
                       key={task.id}
-                      className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white p-3 transition-colors hover:border-blue-200 hover:bg-blue-50/50"
+                      className="flex items-center gap-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3 transition-colors hover:border-blue-200 dark:hover:border-blue-700 hover:bg-blue-50/50 dark:hover:bg-blue-900/20"
                     >
                       <Checkbox 
                         checked={selectedTasks.has(task.id)}
@@ -139,7 +139,7 @@ export function MergeDialog({
                       />
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-sm truncate">{task.sessionName}</div>
-                        <div className="flex items-center gap-2 mt-1 text-xs text-neutral-500">
+                        <div className="flex items-center gap-2 mt-1 text-xs text-neutral-500 dark:text-neutral-400">
                           <span>{task.messageCount} 条消息</span>
                           <span>·</span>
                           <span className="truncate">{task.fileName}</span>
@@ -164,14 +164,14 @@ export function MergeDialog({
           </div>
 
           {/* 步骤2: 配置合并选项 */}
-          <div className="space-y-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+          <div className="space-y-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 p-4">
             <Label className="text-base font-semibold">合并选项</Label>
             
             <div className="space-y-3">
-              <div className="flex items-center justify-between rounded-lg border border-neutral-200 bg-white p-3">
+              <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-3">
                 <div>
                   <Label htmlFor="deduplicate" className="font-medium">消息去重</Label>
-                  <p className="text-xs text-neutral-500 mt-1">自动移除重复的消息，节约空间</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">自动移除重复的消息，节约空间</p>
                 </div>
                 <Switch 
                   id="deduplicate"
@@ -180,10 +180,10 @@ export function MergeDialog({
                 />
               </div>
               
-              <div className="flex items-center justify-between rounded-lg border border-neutral-200 bg-white p-3">
+              <div className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-3">
                 <div>
                   <Label htmlFor="deleteSource" className="font-medium">删除源文件</Label>
-                  <p className="text-xs text-neutral-500 mt-1">合并完成后自动删除原始导出文件</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">合并完成后自动删除原始导出文件</p>
                 </div>
                 <Switch 
                   id="deleteSource"
@@ -199,9 +199,9 @@ export function MergeDialog({
                   value={outputPath}
                   onChange={(e) => setOutputPath(e.target.value)}
                   placeholder="留空使用默认路径"
-                  className="bg-white"
+                  className="bg-white dark:bg-neutral-900"
                 />
-                <p className="text-xs text-neutral-500">留空将使用默认输出目录</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">留空将使用默认输出目录</p>
               </div>
             </div>
           </div>
@@ -214,12 +214,12 @@ export function MergeDialog({
                 <span>{mergeProgress.percentage}%</span>
               </div>
               <Progress value={mergeProgress.percentage} className="h-2" />
-              <p className="text-xs text-neutral-600">{mergeProgress.message}</p>
+              <p className="text-xs text-neutral-600 dark:text-neutral-400">{mergeProgress.message}</p>
             </div>
           )}
         </div>
 
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-neutral-200">
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-neutral-200 dark:border-neutral-700">
           <Button 
             variant="outline" 
             onClick={() => onOpenChange(false)}

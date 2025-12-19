@@ -112,6 +112,10 @@ export function useExportTasks(props?: UseExportTasksProps) {
       setLoading(true)
       setError(null)
 
+      // 判断是否使用流式导出模式
+      const useStreamingMode = form.streamingZipMode === true
+      const isJsonFormat = form.format === 'JSON'
+
       const requestBody: CreateTaskRequest = {
         peer: {
           chatType: form.chatType,
@@ -119,7 +123,9 @@ export function useExportTasks(props?: UseExportTasksProps) {
           guildId: "",
         },
         sessionName: form.sessionName,
-        format: form.format,
+        format: useStreamingMode 
+          ? (isJsonFormat ? 'STREAMING_JSONL' : 'STREAMING_ZIP') 
+          : form.format,
         filter: {
           ...(form.startTime && { startTime: Math.floor(new Date(form.startTime).getTime() / 1000) }),
           ...(form.endTime && { endTime: Math.floor(new Date(form.endTime).getTime() / 1000) }),
@@ -128,7 +134,7 @@ export function useExportTasks(props?: UseExportTasksProps) {
           includeRecalled: form.includeRecalled,
         },
         options: {
-          batchSize: 5000,
+          batchSize: useStreamingMode ? 3000 : 5000, // 流式模式使用较小批次
           includeResourceLinks: true,
           includeSystemMessages: form.includeSystemMessages,
           filterPureImageMessages: form.filterPureImageMessages,
@@ -138,7 +144,15 @@ export function useExportTasks(props?: UseExportTasksProps) {
         },
       }
 
-      const response = await apiCall("/api/messages/export", {
+      // 根据模式和格式选择不同的API端点
+      let apiEndpoint = "/api/messages/export"
+      if (useStreamingMode) {
+        apiEndpoint = isJsonFormat 
+          ? "/api/messages/export-streaming-jsonl"
+          : "/api/messages/export-streaming-zip"
+      }
+
+      const response = await apiCall(apiEndpoint, {
         method: "POST",
         body: JSON.stringify(requestBody),
       }) as APIResponse<CreateTaskResponse>
@@ -211,6 +225,8 @@ export function useExportTasks(props?: UseExportTasksProps) {
     taskId: string
     progress: number
     status: "running" | "completed" | "failed"
+    message?: string
+    messageCount?: number
     error?: string
     fileName?: string
     downloadUrl?: string
@@ -219,13 +235,25 @@ export function useExportTasks(props?: UseExportTasksProps) {
     originalFilePath?: string
     filePath?: string
   }) => {
-    updateTaskProgress(data.taskId, data.progress, data.status, {
-      error: data.error,
-      fileName: data.fileName,
-      filePath: data.filePath,
-      downloadUrl: data.downloadUrl,
-      completedAt: data.completedAt,
-    })
+    // Update task with all available data including messageCount and message
+    setTasks((prev) =>
+      prev.map((task) =>
+        task.id === data.taskId 
+          ? { 
+              ...task, 
+              progress: data.progress, 
+              status: data.status,
+              ...(data.messageCount !== undefined && { messageCount: data.messageCount }),
+              ...(data.message && { progressMessage: data.message }),
+              ...(data.error && { error: data.error }),
+              ...(data.fileName && { fileName: data.fileName }),
+              ...(data.filePath && { filePath: data.filePath }),
+              ...(data.downloadUrl && { downloadUrl: data.downloadUrl }),
+              ...(data.completedAt && { completedAt: data.completedAt }),
+            }
+          : task
+      )
+    )
 
     // 更新任务的isZipExport和originalFilePath
     if (data.status === "completed") {
@@ -242,11 +270,86 @@ export function useExportTasks(props?: UseExportTasksProps) {
       )
 
       // 获取任务信息以判断格式
+      // 注意：优先通过文件名判断，因为任务创建时 format 可能存的是原始格式
+      const isStreamingJsonl = data.fileName?.includes('_chunked_jsonl') || data.fileName?.includes('chunked_jsonl')
+      const isStreamingZip = data.fileName?.includes('_streaming.zip') || data.fileName?.endsWith('_streaming.zip')
+      
       const completedTask = tasks.find(t => t.id === data.taskId)
-      const isHtmlExport = completedTask?.format?.toUpperCase() === 'HTML'
+      const taskFormat = completedTask?.format?.toUpperCase() || ''
+      const isHtmlExport = taskFormat === 'HTML' && !isStreamingZip
+      
+      console.log('[QCE] Task completed:', { 
+        taskId: data.taskId, 
+        fileName: data.fileName, 
+        filePath: data.filePath,
+        isStreamingJsonl, 
+        isStreamingZip, 
+        isHtmlExport,
+        taskFormat
+      })
 
+      // 如果是流式JSONL导出，显示使用说明
+      if (isStreamingJsonl && data.filePath) {
+        onNotificationRef.current?.({
+          type: 'success',
+          title: 'JSONL 分块导出完成',
+          message: '大规模数据已分块保存，点击查看使用方法',
+          actions: [
+            {
+              label: '查看使用方法',
+              onClick: () => {
+                // 触发显示JSONL帮助模态框的事件
+                window.dispatchEvent(new CustomEvent('show-jsonl-help', { detail: { filePath: data.filePath } }))
+              }
+            },
+            {
+              label: '打开文件位置',
+              onClick: async () => {
+                try {
+                  await apiCall(`/api/open-file-location`, {
+                    method: 'POST',
+                    body: JSON.stringify({ filePath: data.filePath })
+                  })
+                } catch (err) {
+                  console.error('打开文件位置失败:', err)
+                }
+              }
+            }
+          ]
+        })
+      }
+      // 如果是流式ZIP导出，显示使用说明
+      else if (isStreamingZip && data.filePath) {
+        onNotificationRef.current?.({
+          type: 'success',
+          title: '流式 ZIP 导出完成',
+          message: '大规模数据已打包完成，点击查看使用方法',
+          actions: [
+            {
+              label: '查看使用方法',
+              onClick: () => {
+                // 触发显示流式ZIP帮助模态框的事件
+                window.dispatchEvent(new CustomEvent('show-streaming-zip-help', { detail: { filePath: data.filePath } }))
+              }
+            },
+            {
+              label: '打开文件位置',
+              onClick: async () => {
+                try {
+                  await apiCall(`/api/open-file-location`, {
+                    method: 'POST',
+                    body: JSON.stringify({ filePath: data.filePath })
+                  })
+                } catch (err) {
+                  console.error('打开文件位置失败:', err)
+                }
+              }
+            }
+          ]
+        })
+      }
       // 如果是HTML导出（非ZIP），显示使用提示
-      if (isHtmlExport && data.isZipExport !== true && data.filePath) {
+      else if (isHtmlExport && data.isZipExport !== true && data.filePath) {
         onNotificationRef.current?.({
           type: 'info',
           title: 'HTML导出完成',

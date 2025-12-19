@@ -1,43 +1,13 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
-import { Input } from "@/components/ui/input"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Calendar } from "@/components/ui/calendar"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   MessageSquare,
   Calendar as CalendarIcon,
-  Clock,
   Search,
-  FileText,
-  Image,
-  Music,
-  Video,
-  File,
   Users,
   User,
   RefreshCw,
@@ -50,6 +20,7 @@ import {
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { useStreamSearch, type SearchProgress } from "@/lib/useStreamSearch"
+import { motion, AnimatePresence } from "framer-motion"
 
 interface MessagePreviewModalProps {
   open: boolean
@@ -74,8 +45,6 @@ interface Message {
   chatType: number
   sendType: number
   subMsgType: number
-  anonymousExtInfo?: any
-  roleInfo?: any
   sendMemberName?: string
   sendNickName?: string
 }
@@ -89,54 +58,35 @@ interface MessagePreviewResponse {
   fetchedAt: string
 }
 
-const MESSAGE_TYPES = {
-  text: { icon: MessageSquare, label: "文本", color: "blue" },
-  image: { icon: Image, label: "图片", color: "green" },
-  voice: { icon: Music, label: "语音", color: "purple" },
-  video: { icon: Video, label: "视频", color: "red" },
-  file: { icon: File, label: "文件", color: "orange" },
-}
-
 export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePreviewModalProps) {
-  const [messages, setMessages] = useState<Message[]>([]) // 当前页的消息
+  const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const [hasNext, setHasNext] = useState(false)
-  const [searchQuery, setSearchQuery] = useState("") // 恢复搜索功能
+  const [searchQuery, setSearchQuery] = useState("")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
   const [timeRangeError, setTimeRangeError] = useState<string | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  
-  // 流式搜索状态
   const [useStreamMode, setUseStreamMode] = useState(false)
-  const [searchProgress, setSearchProgress] = useState<string>("")
-  
-  // 固定的filter，避免每次请求endTime都变化导致缓存失效
+  const [searchProgress, setSearchProgress] = useState("")
   const [currentFilter, setCurrentFilter] = useState<{ startTime: number; endTime: number } | null>(null)
   
   const MESSAGES_PER_PAGE = 50
   
-  // 流式搜索Hook
   const streamSearch = useStreamSearch({
     onProgress: (progress: SearchProgress) => {
       if (progress.status === 'searching') {
-        setSearchProgress(`正在搜索... 已处理 ${progress.processedCount} 条消息，找到 ${progress.matchedCount} 条匹配`)
-        if (progress.matchedCount > 0) {
-          setLoading(false)
-        }
+        setSearchProgress(`搜索中... ${progress.matchedCount} 条匹配`)
+        if (progress.matchedCount > 0) setLoading(false)
       } else if (progress.status === 'completed') {
-        setSearchProgress(`搜索完成！共找到 ${progress.matchedCount} 条匹配（已搜索 ${progress.processedCount} 条）`)
+        setSearchProgress(`找到 ${progress.matchedCount} 条`)
         setLoading(false)
       }
     },
-    onComplete: (results: any[]) => {
-      console.log('[MessagePreview] 流式搜索完成，共', results.length, '条结果')
-      setLoading(false)
-    },
+    onComplete: () => setLoading(false),
     onError: (err: string) => {
       setError(err)
       setLoading(false)
@@ -144,15 +94,9 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
     }
   })
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
-
   const validateTimeRange = (startValue: string, endValue: string): boolean => {
     if (startValue && endValue) {
-      const start = new Date(startValue)
-      const end = new Date(endValue)
-      if (end < start) {
+      if (new Date(endValue) < new Date(startValue)) {
         setTimeRangeError('结束日期不能早于起始日期')
         return false
       }
@@ -163,62 +107,38 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
 
   const fetchMessages = async (page: number, filter?: any) => {
     if (!chat) return
-
     setLoading(true)
     setError(null)
 
     try {
-      // 使用固定的filter或创建新的filter（避免每次Date.now()导致缓存失效）
       let finalFilter = currentFilter
       if (!finalFilter) {
-        // 只在没有currentFilter时才创建新的
+        finalFilter = { startTime: filter?.startTime || 0, endTime: filter?.endTime || Date.now() }
+        setCurrentFilter(finalFilter)
+      } else if (filter) {
         finalFilter = {
-          startTime: filter?.startTime || 0,
-          endTime: filter?.endTime || Date.now()
+          startTime: filter.startTime ?? finalFilter.startTime,
+          endTime: filter.endTime ?? finalFilter.endTime
         }
         setCurrentFilter(finalFilter)
-      } else if (filter && (filter.startTime !== undefined || filter.endTime !== undefined)) {
-        // 明确传入了时间范围，更新filter
-        finalFilter = {
-          startTime: filter.startTime !== undefined ? filter.startTime : finalFilter.startTime,
-          endTime: filter.endTime !== undefined ? filter.endTime : finalFilter.endTime
-        }
-        setCurrentFilter(finalFilter)
-      }
-
-      const requestBody = {
-        peer: chat.peer,
-        page,
-        limit: MESSAGES_PER_PAGE,
-        filter: finalFilter
       }
 
       const response = await fetch('/api/messages/fetch', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody)
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ peer: chat.peer, page, limit: MESSAGES_PER_PAGE, filter: finalFilter })
       })
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
       const result = await response.json()
-      
-      if (!result.success) {
-        throw new Error(result.error?.message || '获取消息失败')
-      }
+      if (!result.success) throw new Error(result.error?.message || '获取消息失败')
 
       const data: MessagePreviewResponse = result.data
       setMessages(data.messages || [])
       setTotalCount(data.totalCount || 0)
       setTotalPages(data.totalPages || 1)
       setHasNext(data.hasNext || false)
-      
     } catch (err) {
-      console.error('获取消息失败:', err)
       setError(err instanceof Error ? err.message : '获取消息失败')
     } finally {
       setLoading(false)
@@ -226,44 +146,33 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
   }
 
   const handleSearch = () => {
-    if (!searchQuery.trim()) {
-      handleTimeRangeChange()
-      return
-    }
-    
+    if (!searchQuery.trim()) { handleTimeRangeChange(); return }
     if (!chat) return
-    
-    console.log('[MessagePreview] 启动流式搜索:', searchQuery)
     
     setUseStreamMode(true)
     setLoading(true)
     setMessages([])
-    setSearchProgress("正在连接...")
-    
-    const filter = {
-      startTime: startDate ? new Date(startDate).getTime() : 0,
-      endTime: endDate ? (new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1) : Date.now()
-    }
+    setSearchProgress("连接中...")
     
     streamSearch.startSearch({
       peer: chat.peer,
-      filter,
+      filter: {
+        startTime: startDate ? new Date(startDate).getTime() : 0,
+        endTime: endDate ? (new Date(endDate).getTime() + 86400000 - 1) : Date.now()
+      },
       searchQuery: searchQuery.trim()
     })
   }
   
   const handleTimeRangeChange = () => {
-    if (!validateTimeRange(startDate, endDate) || (!startDate && !endDate)) {
-      return
-    }
-
+    if (!validateTimeRange(startDate, endDate) || (!startDate && !endDate)) return
     const filter = {
       startTime: startDate ? new Date(startDate).getTime() : 0,
-      endTime: endDate ? new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1 : Date.now()
+      endTime: endDate ? new Date(endDate).getTime() + 86400000 - 1 : Date.now()
     }
     setCurrentPage(1)
     setUseStreamMode(false)
-    setCurrentFilter(filter)  // 重置filter
+    setCurrentFilter(filter)
     fetchMessages(1, filter)
   }
   
@@ -272,101 +181,50 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
       const sorted = [...streamSearch.results].sort((a, b) => Number(b.msgTime) - Number(a.msgTime))
       setMessages(sorted)
       setTotalCount(sorted.length)
-      // 搜索模式下不分页，全部显示
       setTotalPages(1)
       setCurrentPage(1)
     }
-  }, [streamSearch.results, useStreamMode, MESSAGES_PER_PAGE])
+  }, [streamSearch.results, useStreamMode])
 
   const handleExportWithTimeRange = () => {
-    if (!validateTimeRange(startDate, endDate)) {
-      return
-    }
-
+    if (!validateTimeRange(startDate, endDate)) return
     if (onExport && chat) {
-      const timeRange = {
+      onExport(chat.peer, {
         startTime: startDate ? Math.floor(new Date(startDate).getTime() / 1000) : undefined,
-        endTime: endDate ? Math.floor((new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1) / 1000) : undefined
-      }
-      onExport(chat.peer, timeRange)
+        endTime: endDate ? Math.floor((new Date(endDate).getTime() + 86400000 - 1) / 1000) : undefined
+      })
       onClose()
     }
   }
 
-  const getMessageType = (elements: any[]) => {
-    if (!elements || elements.length === 0) return 'text'
-    
-    const element = elements[0]
-    if (element.picElement) return 'image'
-    if (element.pttElement) return 'voice'
-    if (element.videoElement) return 'video'
-    if (element.fileElement) return 'file'
-    return 'text'
-  }
-
   const formatMessageContent = (elements: any[]) => {
-    if (!elements || elements.length === 0) return '空消息'
-    
+    if (!elements?.length) return '空消息'
     let content = ''
-    for (const element of elements) {
-      if (element.textElement) {
-        content += element.textElement.content || ''
-      } else if (element.picElement) {
-        content += '[图片]'
-      } else if (element.pttElement) {
-        content += '[语音]'
-      } else if (element.videoElement) {
-        content += '[视频]'
-      } else if (element.fileElement) {
-        content += `[文件: ${element.fileElement.fileName || '未知文件'}]`
-      } else if (element.faceElement) {
-        content += '[表情]'
-      } else if (element.atElement) {
-        content += `@${element.atElement.atNtName || element.atElement.atUid}`
-      } else if (element.replyElement) {
-        content += '[回复消息]'
-      } else {
-        content += '[未知消息类型]'
-      }
+    for (const el of elements) {
+      if (el.textElement) content += el.textElement.content || ''
+      else if (el.picElement) content += '[图片]'
+      else if (el.pttElement) content += '[语音]'
+      else if (el.videoElement) content += '[视频]'
+      else if (el.fileElement) content += `[文件]`
+      else if (el.faceElement) content += '[表情]'
+      else if (el.atElement) content += `@${el.atElement.atNtName || '某人'}`
+      else if (el.replyElement) content += '[回复]'
     }
     return content || '空消息'
   }
 
-  const formatMessageTime = (timestamp: number) => {
-    return format(new Date(timestamp * 1000), 'MM-dd HH:mm')
-  }
-
-  const getSenderName = (message: Message) => {
-    return message.sendMemberName || message.sendNickName || `用户${message.senderUin}`
-  }
-
-  const getSenderAvatar = (message: Message) => {
-    if (chat?.type === 'group') {
-      return `https://q1.qlogo.cn/g?b=qq&nk=${message.senderUin}&s=40`
-    }
-    return `https://q1.qlogo.cn/g?b=qq&nk=${message.senderUin}&s=40`
-  }
-
-
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page)
-    // 翻页时不传filter，使用已保存的currentFilter
-    fetchMessages(page)
-  }
-
-  // 打开对话框时初始化
   useEffect(() => {
     if (open && chat) {
       setMessages([])
       setCurrentPage(1)
       setTotalPages(1)
       setTotalCount(0)
-      setHasNext(false)
       setSearchQuery("")
       setStartDate("")
       setEndDate("")
       setTimeRangeError(null)
       setError(null)
+      setCurrentFilter(null)
       fetchMessages(1)
     }
   }, [open, chat])
@@ -374,331 +232,236 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
   if (!chat) return null
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="flex flex-col h-full p-0">
-        <DialogHeader className="px-6 py-4 border-b">
-          <DialogTitle className="flex items-center gap-3">
-            {chat.type === 'group' ? <Users className="w-5 h-5" /> : <User className="w-5 h-5" />}
-            <span>{chat.name}</span>
-            <Badge variant="secondary" className="ml-auto">
-              {chat.type === 'group' ? '群组' : '好友'}
-            </Badge>
-          </DialogTitle>
-          <DialogDescription>
-            预览最近的聊天记录，选择时间范围后可以直接导出
-          </DialogDescription>
-        </DialogHeader>
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-50"
+            onClick={onClose}
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            transition={{ duration: 0.2 }}
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-3xl max-h-[85vh] bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden"
+          >
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-neutral-100 dark:border-neutral-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <Avatar className="w-12 h-12 ring-2 ring-neutral-100 dark:ring-neutral-700">
+                    <AvatarImage src={chat.type === 'group' 
+                      ? `https://p.qlogo.cn/gh/${chat.id}/${chat.id}/40`
+                      : `https://q1.qlogo.cn/g?b=qq&nk=${chat.id}&s=40`
+                    } />
+                    <AvatarFallback className="bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
+                      {chat.type === 'group' ? <Users className="w-5 h-5" /> : <User className="w-5 h-5" />}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{chat.name}</h2>
+                    <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                      {chat.type === 'group' ? '群聊' : '好友'} · {totalCount.toLocaleString()} 条消息
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="p-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
 
-        <div className="flex flex-col h-[calc(90vh-120px)]">
-          {/* 控制栏 - 优化布局 */}
-          <div className="px-6 py-4 border-b bg-gray-50 space-y-3">
-            {/* 第一行：时间筛选 */}
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <CalendarIcon className="w-4 h-4 text-gray-500" />
-                  <label className="text-sm font-medium text-gray-700">时间范围:</label>
+            {/* Filters */}
+            <div className="px-6 py-4 bg-neutral-50 dark:bg-neutral-800/50 border-b border-neutral-100 dark:border-neutral-800 space-y-3">
+              {/* Time Range */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+                  <CalendarIcon className="w-4 h-4" />
+                  <span>时间:</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      setStartDate(value)
-                      validateTimeRange(value, endDate)
-                    }}
-                    className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-1 focus:ring-neutral-300 focus:border-neutral-400"
-                    placeholder="开始日期"
-                  />
-                  <span className="text-gray-400">至</span>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      setEndDate(value)
-                      validateTimeRange(startDate, value)
-                    }}
-                    className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-1 focus:ring-neutral-300 focus:border-neutral-400"
-                    placeholder="结束日期"
-                  />
-                </div>
-                {timeRangeError && (
-                  <p className="text-xs text-red-600 mt-2">{timeRangeError}</p>
-                )}
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => { setStartDate(e.target.value); validateTimeRange(e.target.value, endDate) }}
+                  className="px-3 py-1.5 text-sm border border-neutral-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-neutral-200 dark:focus:ring-neutral-600"
+                />
+                <span className="text-neutral-400">—</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => { setEndDate(e.target.value); validateTimeRange(startDate, e.target.value) }}
+                  className="px-3 py-1.5 text-sm border border-neutral-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-800 dark:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-neutral-200 dark:focus:ring-neutral-600"
+                />
                 <Button 
                   variant="outline" 
-                  size="sm" 
+                  size="sm"
                   onClick={handleTimeRangeChange}
                   disabled={(!startDate && !endDate) || !!timeRangeError}
-                  className="px-4"
+                  className="rounded-lg"
                 >
-                  <Clock className="w-3 h-3 mr-1" />
-                  应用筛选
+                  筛选
                 </Button>
-                
                 {(startDate || endDate) && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => {
-                      setStartDate("")
-                      setEndDate("")
-                      setTimeRangeError(null)
-                      setCurrentPage(1)
-                      fetchMessages(1)
-                    }}
-                    className="px-3"
+                  <button
+                    onClick={() => { setStartDate(""); setEndDate(""); setTimeRangeError(null); setCurrentFilter(null); fetchMessages(1) }}
+                    className="text-sm text-neutral-500 hover:text-neutral-300"
                   >
-                    <X className="w-3 h-3 mr-1" />
                     清除
-                  </Button>
+                  </button>
                 )}
+                {timeRangeError && <span className="text-xs text-red-500">{timeRangeError}</span>}
               </div>
-            </div>
 
-            {/* 第二行：搜索和操作 */}
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                {/* 搜索框 - 服务端搜索 */}
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-300 px-3 py-2 focus-within:ring-1 focus-within:ring-neutral-300 focus-within:border-neutral-400">
-                    <Search className="w-4 h-4 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="搜索所有消息..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                      className="border-0 outline-none text-sm w-60 bg-transparent"
-                    />
-                    {searchQuery && (
-                      <button
-                        onClick={() => {
-                          setSearchQuery("")
-                          setUseStreamMode(false)
-                          setSearchProgress("")
-                          setCurrentPage(1)
-                          const filter = {
-                            startTime: startDate ? new Date(startDate).getTime() : undefined,
-                            endTime: endDate ? new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1 : undefined
-                          }
-                          fetchMessages(1, filter)
-                        }}
-                        className="text-gray-400 hover:text-gray-600"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={handleSearch}
-                    disabled={loading || !searchQuery.trim()}
-                    className="px-3"
-                  >
-                    {streamSearch.searching ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        搜索中...
-                      </>
-                    ) : (
-                      '搜索'
-                    )}
-                  </Button>
-                  
-                  {/* 取消搜索按钮 */}
-                  {streamSearch.searching && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => streamSearch.cancelSearch()}
-                      className="px-3"
-                    >
-                      取消
-                    </Button>
+              {/* Search */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg focus-within:ring-2 focus-within:ring-neutral-200 dark:focus-within:ring-neutral-600">
+                  <Search className="w-4 h-4 text-neutral-400 dark:text-neutral-500" />
+                  <input
+                    type="text"
+                    placeholder="搜索消息内容..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                    className="flex-1 text-sm bg-transparent outline-none dark:text-neutral-200 dark:placeholder:text-neutral-500"
+                  />
+                  {searchQuery && (
+                    <button onClick={() => { setSearchQuery(""); setUseStreamMode(false); setSearchProgress(""); fetchMessages(1) }}>
+                      <X className="w-4 h-4 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300" />
+                    </button>
                   )}
                 </div>
-                
-                {/* 搜索进度 */}
-                {searchProgress && (
-                  <div className="text-xs text-muted-foreground px-3 py-1 bg-blue-50 rounded">
-                    {searchProgress}
+                <Button size="sm" onClick={handleSearch} disabled={loading || !searchQuery.trim()} className="rounded-lg">
+                  {streamSearch.searching ? <Loader2 className="w-4 h-4 animate-spin" /> : '搜索'}
+                </Button>
+                {streamSearch.searching && (
+                  <Button size="sm" variant="ghost" onClick={() => streamSearch.cancelSearch()}>取消</Button>
+                )}
+                {searchProgress && <Badge variant="secondary" className="text-xs">{searchProgress}</Badge>}
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <div className="p-6">
+                {loading && (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <RefreshCw className="w-8 h-8 text-neutral-300 dark:text-neutral-600 animate-spin mb-3" />
+                    <p className="text-sm text-neutral-500 dark:text-neutral-400">加载中...</p>
                   </div>
                 )}
-                
-                {/* 消息统计 */}
-                <Badge variant="outline" className="text-xs px-3 py-1">
-                  <span>共 <span className="font-medium">{totalCount.toLocaleString()}</span> 条消息</span>
-                  {hasNext && (
-                    <span className="ml-2 text-blue-600">（可能还有更多）</span>
-                  )}
-                </Badge>
-              </div>
 
-              {/* 操作按钮 */}
-              <div className="flex items-center gap-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setCurrentPage(1)
-                    const filter = {
-                      startTime: startDate ? new Date(startDate).getTime() : undefined,
-                      endTime: endDate ? new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1 : undefined
-                    }
-                    fetchMessages(1, filter)
-                  }}
-                  disabled={loading}
-                  className="px-4"
-                >
-                  <RefreshCw className={cn("w-3 h-3 mr-1", loading && "animate-spin")} />
-                  刷新
-                </Button>
-                {onExport && (
-                  <Button size="sm" onClick={handleExportWithTimeRange} className="px-4">
-                    <Download className="w-3 h-3 mr-1" />
-                    导出聊天记录
-                  </Button>
+                {error && (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <p className="text-sm text-red-500 dark:text-red-400 mb-3">{error}</p>
+                    <Button variant="outline" size="sm" onClick={() => fetchMessages(1)}>重试</Button>
+                  </div>
+                )}
+
+                {!loading && !error && messages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-12">
+                    <MessageSquare className="w-12 h-12 text-neutral-200 dark:text-neutral-700 mb-3" />
+                    <p className="text-neutral-500 dark:text-neutral-400">{searchQuery ? '没有找到匹配的消息' : '暂无消息'}</p>
+                  </div>
+                )}
+
+                {!loading && !error && messages.length > 0 && (
+                  <div className="space-y-2">
+                    {messages.map((msg, idx) => {
+                      const isFromSelf = msg.sendType === 1
+                      return (
+                        <div
+                          key={`${msg.msgId}-${idx}`}
+                          className={cn(
+                            "flex gap-3 p-3 rounded-xl transition-colors",
+                            isFromSelf ? "bg-blue-50/50 dark:bg-blue-900/20 ml-8" : "bg-neutral-50 dark:bg-neutral-800/50 mr-8"
+                          )}
+                        >
+                          <Avatar className="w-9 h-9 flex-shrink-0">
+                            <AvatarImage src={`https://q1.qlogo.cn/g?b=qq&nk=${msg.senderUin}&s=40`} />
+                            <AvatarFallback className="text-xs bg-neutral-200 dark:bg-neutral-700 dark:text-neutral-300">
+                              {(msg.sendMemberName || msg.sendNickName || '?')[0]}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate">
+                                {msg.sendMemberName || msg.sendNickName || `用户${msg.senderUin}`}
+                              </span>
+                              <span className="text-xs text-neutral-400 dark:text-neutral-500">
+                                {format(new Date(msg.msgTime * 1000), 'MM-dd HH:mm')}
+                              </span>
+                            </div>
+                            <p className="text-sm text-neutral-700 dark:text-neutral-300 break-words leading-relaxed">
+                              {formatMessageContent(msg.elements)}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 )}
               </div>
             </div>
-          </div>
 
-          {/* 消息列表 */}
-          <ScrollArea className="flex-1 px-6">
-            {loading && (
-              <div className="flex items-center justify-center py-8">
-                <RefreshCw className="w-6 h-6 animate-spin mr-2" />
-                <span className="text-sm text-gray-600">正在加载消息...</span>
-              </div>
-            )}
-
-            {error && (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <div className="text-red-600 text-sm mb-2">加载失败: {error}</div>
-                <Button variant="outline" size="sm" onClick={() => {
-                  setCurrentPage(1)
-                  const filter = {
-                    startTime: startDate ? new Date(startDate).getTime() : undefined,
-                    endTime: endDate ? new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1 : undefined
-                  }
-                  fetchMessages(1, filter)
-                }}>
-                  重试
-                </Button>
-              </div>
-            )}
-
-            {!loading && !error && messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-8">
-                <MessageSquare className="w-12 h-12 text-gray-300 mb-2" />
-                <div className="text-sm text-gray-600">{searchQuery ? '没有找到匹配的消息' : '暂无消息'}</div>
-                {searchQuery && (
-                  <Button variant="outline" size="sm" className="mt-2" onClick={() => {
-                    setSearchQuery("")
-                    setUseStreamMode(false)
-                    setSearchProgress("")
-                    setCurrentPage(1)
-                    const filter = {
-                      startTime: startDate ? new Date(startDate).getTime() : undefined,
-                      endTime: endDate ? new Date(endDate).getTime() + 24 * 60 * 60 * 1000 - 1 : undefined
-                    }
-                    fetchMessages(1, filter)
-                  }}>
-                    清除搜索
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 flex items-center justify-between">
+              {/* Pagination */}
+              {!useStreamMode && totalPages > 1 ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => { setCurrentPage(p => p - 1); fetchMessages(currentPage - 1) }}
+                    disabled={currentPage <= 1 || loading}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
                   </Button>
-                )}
-              </div>
-            )}
+                  <span className="text-sm text-neutral-600 dark:text-neutral-400">
+                    {currentPage} / {totalPages}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => { setCurrentPage(p => p + 1); fetchMessages(currentPage + 1) }}
+                    disabled={currentPage >= totalPages || loading}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div />
+              )}
 
-            {!loading && !error && messages.length > 0 && (
-              <div className="space-y-3 py-4">
-                {messages.map((message, index) => {
-                  const messageType = getMessageType(message.elements)
-                  const TypeIcon = MESSAGE_TYPES[messageType as keyof typeof MESSAGE_TYPES]?.icon || MessageSquare
-                  const content = formatMessageContent(message.elements)
-                  const isFromSelf = message.sendType === 1
-
-                  return (
-                    <div
-                      key={`${message.msgId}-${index}`}
-                      className={cn(
-                        "flex gap-3 p-3 rounded-lg",
-                        isFromSelf ? "bg-blue-50 ml-12" : "bg-gray-50 mr-12"
-                      )}
-                    >
-                      <Avatar className="w-8 h-8 flex-shrink-0">
-                        <AvatarImage src={getSenderAvatar(message)} />
-                        <AvatarFallback>
-                          {getSenderName(message).charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium text-gray-900 truncate">
-                            {getSenderName(message)}
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {formatMessageTime(message.msgTime)}
-                          </span>
-                          <TypeIcon className="w-3 h-3 text-gray-400" />
-                        </div>
-                        <div className="text-sm text-gray-800 break-words">
-                          {content}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-                {/* <div ref={messagesEndRef} /> */}
-              </div>
-            )}
-          </ScrollArea>
-
-          {/* 分页控制 - 仅在非搜索模式下显示 */}
-          {!useStreamMode && totalPages > 1 && (
-            <div className="flex items-center justify-between px-6 py-4 border-t bg-gray-50">
-              <div className="text-sm text-gray-600">
-                显示第 {((currentPage - 1) * MESSAGES_PER_PAGE) + 1} - {Math.min(currentPage * MESSAGES_PER_PAGE, totalCount)} 条，
-                共 {totalCount} 条
-              </div>
-              
+              {/* Actions */}
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handlePageChange(currentPage - 1)}
-                  disabled={currentPage <= 1 || loading}
-                  className="px-3"
+                  onClick={() => fetchMessages(currentPage)}
+                  disabled={loading}
+                  className="rounded-lg"
                 >
-                  <ChevronLeft className="w-4 h-4" />
+                  <RefreshCw className={cn("w-4 h-4 mr-1.5", loading && "animate-spin")} />
+                  刷新
                 </Button>
-                
-                <div className="flex items-center gap-1 text-sm">
-                  <span className="text-gray-600">第</span>
-                  <span className="font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">
-                    {currentPage}
-                  </span>
-                  <span className="text-gray-600">/ {totalPages} 页</span>
-                </div>
-                
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange(currentPage + 1)}
-                  disabled={currentPage >= totalPages || loading}
-                  className="px-3"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
+                {onExport && (
+                  <Button size="sm" onClick={handleExportWithTimeRange} className="rounded-lg">
+                    <Download className="w-4 h-4 mr-1.5" />
+                    导出
+                  </Button>
+                )}
               </div>
             </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   )
 }

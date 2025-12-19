@@ -125,15 +125,12 @@ export class StreamSearchService {
         let batchNumber = 0;
         
         try {
-            console.log(`[StreamSearch] 开始流式搜索: ${searchId}, query="${query}"`);
-            
             // 流式处理每一批消息 - 一直搜到底！
             for await (const batch of messageGenerator) {
                 batchNumber++;
                 
                 // 检查是否被用户取消
                 if (cancelled) {
-                    console.log(`[StreamSearch] 用户取消搜索: ${searchId} (已搜索${processedCount}条)`);
                     this.sendProgress(ws, {
                         searchId,
                         status: 'cancelled',
@@ -151,8 +148,6 @@ export class StreamSearchService {
                 matchedCount += matches.length;
                 
                 // 实时推送结果（无论有没有找到）
-                console.log(`[StreamSearch] 批次${batchNumber}: 处理${batch.length}条, 找到${matches.length}条匹配 (累计: ${processedCount}条已搜/${matchedCount}条匹配)`);
-                
                 this.sendProgress(ws, {
                     searchId,
                     status: 'searching',
@@ -166,8 +161,6 @@ export class StreamSearchService {
             }
             
             // 搜索完成（搜索了所有历史消息）
-            console.log(`[StreamSearch] 搜索完成: ${searchId}, 共处理${processedCount}条消息, 找到${matchedCount}条匹配`);
-            
             this.sendProgress(ws, {
                 searchId,
                 status: 'completed',
@@ -201,7 +194,6 @@ export class StreamSearchService {
         if (search) {
             search.cancel();
             this.activeSearches.delete(searchId);
-            console.log(`[StreamSearch] 取消搜索: ${searchId}`);
             return true;
         }
         return false;
@@ -220,7 +212,6 @@ export class StreamSearchService {
     cancelAllSearches(): void {
         for (const [searchId, search] of this.activeSearches) {
             search.cancel();
-            console.log(`[StreamSearch] 取消搜索: ${searchId}`);
         }
         this.activeSearches.clear();
     }

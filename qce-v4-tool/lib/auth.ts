@@ -23,7 +23,7 @@ export class AuthManager {
   }
 
   /**
-   * 初始化认证（检查URL参数）
+   * 初始化认证（检查URL参数并设置fetch拦截器）
    */
   initialize() {
     if (typeof window === 'undefined') return;
@@ -38,12 +38,6 @@ export class AuthManager {
       urlParams.delete('token');
       const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
       window.history.replaceState({}, '', newUrl);
-    }
-
-    // 如果没有token，重定向到认证页面
-    if (!this.token) {
-      window.location.href = '/qce-v4-tool/auth';
-      return;
     }
 
     // 拦截所有fetch请求，自动添加认证头
