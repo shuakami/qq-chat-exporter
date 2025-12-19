@@ -7,9 +7,9 @@ import { AuthProvider } from '@/components/auth-provider'
 import '@/styles/globals.css'
 
 export const metadata: Metadata = {
-  title: 'QCE v4 - QQ Chat Export Tool',
-  description: 'QQ聊天记录导出工具 v4.0.0 - 高效导出和管理QQ聊天记录',
-  generator: 'QCE v4',
+  title: 'QCE v5 - QQ Chat Export Tool',
+  description: 'QQ聊天记录导出工具 v5.0.0 - 高效导出和管理QQ聊天记录',
+  generator: 'QCE v5',
 }
 
 export default function RootLayout({
@@ -18,7 +18,23 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var theme = localStorage.getItem('theme');
+                  if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    document.documentElement.classList.add('dark');
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable}`}>
         <AuthProvider>
           <LoadingProvider>

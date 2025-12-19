@@ -95,7 +95,7 @@ export function StickerExportModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="flex flex-col h-full bg-white">
+      <DialogContent className="flex flex-col h-full bg-white dark:bg-neutral-900">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="w-5 h-5" />
@@ -115,10 +115,10 @@ export function StickerExportModal({
                 className="text-center space-y-4"
               >
                 <div>
-                  <p className="text-neutral-700 font-medium">
+                  <p className="text-neutral-700 dark:text-neutral-300 font-medium">
                     {exportType === 'all' ? '确定要导出所有表情包吗？' : `确定要导出"${packName}"吗？`}
                   </p>
-                  <p className="text-sm text-neutral-500 mt-2">
+                  <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-2">
                     {exportType === 'all' 
                       ? '将导出所有类型的表情包，包括收藏表情、市场表情包和系统表情包'
                       : '将导出该表情包中的所有表情文件'}
@@ -151,8 +151,8 @@ export function StickerExportModal({
                 className="text-center space-y-4"
               >
                 <div>
-                  <p className="text-neutral-700 font-medium">正在导出表情包...</p>
-                  <p className="text-sm text-neutral-500 mt-2">
+                  <p className="text-neutral-700 dark:text-neutral-300 font-medium">正在导出表情包...</p>
+                  <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-2">
                     请稍候，正在处理表情文件
                   </p>
                 </div>
@@ -172,20 +172,20 @@ export function StickerExportModal({
                 className="text-center space-y-4"
               >
                 <div>
-                  <p className="text-neutral-900 font-semibold text-lg">✓ 导出成功</p>
+                  <p className="text-neutral-900 dark:text-neutral-100 font-semibold text-lg">✓ 导出成功</p>
                   <div className="mt-3 space-y-2 text-sm">
-                    <div className="flex items-center justify-center gap-2 text-neutral-600">
+                    <div className="flex items-center justify-center gap-2 text-neutral-600 dark:text-neutral-400">
                       <Package className="w-4 h-4" />
-                      <span>已导出 <span className="font-semibold text-neutral-900">{result.packCount}</span> 个表情包</span>
+                      <span>已导出 <span className="font-semibold text-neutral-900 dark:text-neutral-100">{result.packCount}</span> 个表情包</span>
                     </div>
-                    <div className="flex items-center justify-center gap-2 text-neutral-600">
+                    <div className="flex items-center justify-center gap-2 text-neutral-600 dark:text-neutral-400">
                       <Smile className="w-4 h-4" />
-                      <span>共 <span className="font-semibold text-neutral-900">{result.stickerCount}</span> 个表情</span>
+                      <span>共 <span className="font-semibold text-neutral-900 dark:text-neutral-100">{result.stickerCount}</span> 个表情</span>
                     </div>
                   </div>
-                  <div className="mt-4 p-3 bg-neutral-50 rounded-lg">
-                    <p className="text-xs text-neutral-500 mb-1">导出路径</p>
-                    <p className="text-sm text-neutral-700 font-mono break-all">
+                  <div className="mt-4 p-3 bg-neutral-50 dark:bg-neutral-800 rounded-lg">
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">导出路径</p>
+                    <p className="text-sm text-neutral-700 dark:text-neutral-300 font-mono break-all">
                       {result.exportPath}
                     </p>
                   </div>
@@ -215,7 +215,7 @@ export function StickerExportModal({
                 className="text-center space-y-4"
               >
                 <div>
-                  <p className="text-neutral-900 font-semibold text-lg">✗ 导出失败</p>
+                  <p className="text-neutral-900 dark:text-neutral-100 font-semibold text-lg">✗ 导出失败</p>
                   <div className="mt-3 p-3 bg-red-50 rounded-lg">
                     <p className="text-sm text-red-700">
                       {result.error || '未知错误'}

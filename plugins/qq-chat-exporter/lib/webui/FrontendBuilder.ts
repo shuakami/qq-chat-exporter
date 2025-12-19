@@ -50,7 +50,6 @@ export class FrontendBuilder {
      */
     async initialize(): Promise<void> {
         if (this.isDevMode) {
-            console.log('[FrontendBuilder] 🚀 启动NextJS开发服务器');
             await this.startDevServer();
         } else {
             await this.checkStaticAssets();
@@ -62,49 +61,33 @@ export class FrontendBuilder {
      */
     private async startDevServer(): Promise<void> {
         try {
-            // 检查NextJS项目目录是否存在
             if (!fs.existsSync(this.nextjsProjectPath)) {
-                console.error('[FrontendBuilder] NextJS项目目录不存在:', this.nextjsProjectPath);
                 return;
             }
-
-            console.log('[FrontendBuilder] 正在启动NextJS开发服务器...');
             
-            // 启动NextJS开发服务器 (使用pnpm)
             this.devServer = spawn('pnpm', ['run', 'dev'], {
                 cwd: this.nextjsProjectPath,
                 stdio: 'pipe',
                 shell: true
             });
 
-            // 监听输出
-            this.devServer.stdout?.on('data', (data) => {
-                const output = data.toString();
-                console.log('[FrontendBuilder] [NextJS Dev]', output.trim());
-                
-                // 检查服务器是否启动成功
-                if (output.includes('Ready in') || output.includes('ready -')) {
-                    console.log('[FrontendBuilder] ✅ NextJS开发服务器启动成功');
-                    console.log(`[FrontendBuilder] 🌐 前端地址: http://localhost:${this.frontendPort}`);
-                }
+            this.devServer.stdout?.on('data', () => {
+                // 静默处理
             });
 
-            this.devServer.stderr?.on('data', (data) => {
-                console.error('[FrontendBuilder] [NextJS Dev Error]', data.toString().trim());
+            this.devServer.stderr?.on('data', () => {
+                // 静默处理
             });
 
-            this.devServer.on('exit', (code) => {
-                console.log(`[FrontendBuilder] NextJS开发服务器退出，退出码: ${code}`);
+            this.devServer.on('exit', () => {
                 this.devServer = null;
             });
 
-            this.devServer.on('error', (error) => {
-                console.error('[FrontendBuilder] NextJS开发服务器启动失败:', error);
+            this.devServer.on('error', () => {
                 this.devServer = null;
             });
 
         } catch (error) {
-            console.error('[FrontendBuilder] 启动NextJS开发服务器失败:', error);
             throw error;
         }
     }
@@ -113,25 +96,7 @@ export class FrontendBuilder {
      * 检查静态资源是否存在
      */
     private async checkStaticAssets(): Promise<void> {
-        try {
-            console.log('[FrontendBuilder] 正在检查静态资源路径:', this.staticPath);
-            
-            if (fs.existsSync(this.staticPath)) {
-                // 检查关键文件
-                const indexFile = path.join(this.staticPath, 'index.html');
-                if (fs.existsSync(indexFile)) {
-                    console.log('[FrontendBuilder] ✅ QCE V4 前端静态资源已就绪');
-                } else {
-                    console.warn('[FrontendBuilder] ⚠️ 静态资源目录存在，但缺少 index.html 文件');
-                }
-            } else {
-                console.warn('[FrontendBuilder] ⚠️ 前端静态资源未找到，请运行 npm run build:universal');
-                console.log('[FrontendBuilder] 当前工作目录:', process.cwd());
-                console.log('[FrontendBuilder] 期望的静态资源路径:', this.staticPath);
-            }
-        } catch (error) {
-            console.error('[FrontendBuilder] 检查静态资源失败:', error);
-        }
+        // 静默检查，不输出日志
     }
 
     /**
@@ -221,9 +186,15 @@ export class FrontendBuilder {
                 res.send('// Vercel Analytics disabled in local development');
             });
 
-            // 认证页面路由
+            // 认证页面路由 - 使用 Next.js 构建的 auth 页面
             app.get('/qce-v4-tool/auth', (_req, res) => {
-                res.send(this.generateAuthPage());
+                const authIndexPath = path.join(this.staticPath, 'auth', 'index.html');
+                if (fs.existsSync(authIndexPath)) {
+                    res.sendFile(authIndexPath);
+                } else {
+                    // 如果 auth 页面不存在，回退到旧的认证页面
+                    res.send(this.generateAuthPage());
+                }
             });
 
             // 添加前端应用的入口路由
@@ -254,7 +225,7 @@ export class FrontendBuilder {
                 res.redirect(`http://localhost:${this.frontendPort}`);
             });
 
-            console.log('[FrontendBuilder] ✅ 开发模式代理路由已设置，将重定向到NextJS开发服务器');
+            // 开发模式代理路由已设置
         }
     }
 
@@ -285,14 +256,11 @@ export class FrontendBuilder {
      */
     async stop(): Promise<void> {
         if (this.devServer && !this.devServer.killed) {
-            console.log('[FrontendBuilder] 正在停止NextJS开发服务器...');
             this.devServer.kill('SIGTERM');
             
-            // 等待进程退出
             return new Promise((resolve) => {
                 if (this.devServer) {
                     this.devServer.on('exit', () => {
-                        console.log('[FrontendBuilder] NextJS开发服务器已停止');
                         resolve();
                     });
                 } else {

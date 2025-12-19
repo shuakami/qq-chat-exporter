@@ -247,12 +247,7 @@ export class StickerPackExporter {
      */
     private async getFavoriteEmojis(packs: StickerPackInfo[]): Promise<void> {
         try {
-            console.log('[StickerPackExporter]   -> 调用 fetchFavEmojiList API...');
-            const startTime = Date.now();
             const favEmojis = await this.core.apis.MsgApi.fetchFavEmojiList(1000);
-            const elapsed = Date.now() - startTime;
-            console.log(`[StickerPackExporter]   <- fetchFavEmojiList 返回 (耗时: ${elapsed}ms)`);
-            console.log('[StickerPackExporter]      获取到收藏表情数:', favEmojis.emojiInfoList?.length || 0);
             
             if (favEmojis.emojiInfoList && favEmojis.emojiInfoList.length > 0) {
                 const stickers: StickerInfo[] = [];
@@ -448,7 +443,6 @@ export class StickerPackExporter {
      */
     private async getSystemEmoticonPacks(packs: StickerPackInfo[]): Promise<void> {
         try {
-            console.log('[StickerPackExporter]   -> 读取系统表情包配置文件...');
             
             // 从face_config.json中读取系统表情包配置
             const faceConfigPath = path.join(__dirname, '../../../core/external/face_config.json');
@@ -489,8 +483,6 @@ export class StickerPackExporter {
                             rawData: { source: 'face_config' }
                         });
                     }
-                    
-                    console.log(`[StickerPackExporter] 找到 ${packMap.size} 个系统表情包`);
                 }
             }
         } catch (error) {
@@ -504,7 +496,6 @@ export class StickerPackExporter {
     async exportStickerPack(packId: string): Promise<ExportResult> {
         let pack: StickerPackInfo | undefined;
         try {
-            console.log(`[StickerPackExporter] 开始导出表情包: ${packId}`);
             
             // 获取表情包列表
             const packs = await this.getStickerPacks();

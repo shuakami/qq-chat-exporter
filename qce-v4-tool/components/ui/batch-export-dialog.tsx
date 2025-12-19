@@ -149,7 +149,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        overlayClassName="bg-white/60 backdrop-blur-xl"
+        overlayClassName="bg-white/60 dark:bg-neutral-950/60 backdrop-blur-xl"
         className="flex flex-col h-full p-0"
       >
         <DialogHeader>
@@ -164,11 +164,11 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
           <div className="w-2/5 flex flex-col">
             <div className="mb-4">
               <h3 className="text-base font-medium mb-1">选中的会话</h3>
-              <p className="text-sm text-neutral-600">已选择 {items.length} 个会话进行批量导出</p>
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">已选择 {items.length} 个会话进行批量导出</p>
             </div>
             
             <div className="flex-1 overflow-hidden">
-              <ScrollArea className="h-full rounded-2xl border border-neutral-200 p-2 bg-white/70">
+              <ScrollArea className="h-full rounded-2xl border border-neutral-200 dark:border-neutral-700 p-2 bg-white/70 dark:bg-neutral-800/70">
                 <div className="space-y-1">
                   {items.map((item, idx) => (
                     <div 
@@ -176,14 +176,14 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                       className={[
                         "flex items-center gap-3 p-3 rounded-xl transition-all",
                         progress.current === idx && progress.status === 'running' 
-                          ? "bg-blue-50 border border-blue-200" 
-                          : "hover:bg-neutral-50"
+                          ? "bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700" 
+                          : "hover:bg-neutral-50 dark:hover:bg-neutral-800"
                       ].join(" ")}
                     >
                       {/* 状态图标 */}
                       <div className="flex-shrink-0">
                         {progress.status === 'idle' || progress.status === 'completed' ? (
-                          <div className="w-6 h-6 rounded-full bg-neutral-100 flex items-center justify-center text-xs font-medium text-neutral-600">
+                          <div className="w-6 h-6 rounded-full bg-neutral-100 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium text-neutral-600 dark:text-neutral-300">
                             {idx + 1}
                           </div>
                         ) : (
@@ -254,7 +254,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
           <div className="w-3/5 flex flex-col">
             <div className="mb-4">
               <h3 className="text-base font-medium mb-1">配置导出选项</h3>
-              <p className="text-sm text-neutral-600">设置导出格式、时间范围和其他选项</p>
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">设置导出格式、时间范围和其他选项</p>
             </div>
             
             <div className="flex-1 overflow-y-auto pr-1 space-y-6">
@@ -278,25 +278,25 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                     const chip =
                       fmt === "JSON" ? "结构化" : fmt === "HTML" ? "推荐" : fmt === "EXCEL" ? "数据分析" : "兼容"
                     const chipClass =
-                      fmt === "JSON" ? "bg-neutral-100 text-neutral-600" : fmt === "HTML" ? "bg-blue-100 text-blue-600" : fmt === "EXCEL" ? "bg-purple-100 text-purple-600" : "bg-green-100 text-green-600"
+                      fmt === "JSON" ? "bg-neutral-100 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300" : fmt === "HTML" ? "bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400" : fmt === "EXCEL" ? "bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400" : "bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-400"
                     const active = format === fmt
                     return (
                       <div
                         key={fmt}
                         className={[
                           "relative cursor-pointer rounded-2xl border-2 p-4 transition-all",
-                          active ? "border-blue-500 bg-blue-50/50 shadow-sm" : "border-neutral-200 hover:border-neutral-300",
+                          active ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/30 shadow-sm" : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600",
                           isExporting ? "opacity-50 cursor-not-allowed" : ""
                         ].join(" ")}
                         onClick={() => !isExporting && setFormat(fmt)}
                       >
                         <div className="flex items-start gap-3">
-                          <div className={active ? "text-blue-600" : "text-neutral-500"}>
+                          <div className={active ? "text-blue-600 dark:text-blue-400" : "text-neutral-500 dark:text-neutral-400"}>
                             <FileText className="w-5 h-5" />
                           </div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <h3 className="font-medium text-neutral-900">{fmt}</h3>
+                              <h3 className="font-medium text-neutral-900 dark:text-neutral-100">{fmt}</h3>
                               <span className={`text-xs px-2 py-0.5 rounded ${chipClass}`}>{chip}</span>
                             </div>
                             <p className="text-sm text-neutral-600 mt-1">{desc}</p>
@@ -328,18 +328,18 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                         key={option.value}
                         className={[
                           "relative cursor-pointer rounded-2xl border-2 p-4 transition-all",
-                          active ? "border-blue-500 bg-blue-50/50 shadow-sm" : "border-neutral-200 hover:border-neutral-300",
+                          active ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/30 shadow-sm" : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600",
                           isExporting ? "opacity-50 cursor-not-allowed" : ""
                         ].join(" ")}
                         onClick={() => !isExporting && setTimeRange(option.value as 'all' | 'recent' | 'custom')}
                       >
                         <div className="flex items-start gap-3">
-                          <div className={active ? "text-blue-600" : "text-neutral-500"}>
+                          <div className={active ? "text-blue-600 dark:text-blue-400" : "text-neutral-500 dark:text-neutral-400"}>
                             <Calendar className="w-5 h-5" />
                           </div>
                           <div className="flex-1">
-                            <h3 className="font-medium text-neutral-900">{option.label}</h3>
-                            <p className="text-sm text-neutral-600 mt-1">{option.desc}</p>
+                            <h3 className="font-medium text-neutral-900 dark:text-neutral-100">{option.label}</h3>
+                            <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">{option.desc}</p>
                           </div>
                           {active && <div className="w-2 h-2 bg-blue-600 rounded-full" />}
                         </div>
@@ -392,7 +392,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                 <div
                   className={[
                     "relative cursor-pointer rounded-2xl border p-4 transition-all",
-                    downloadMedia ? "border-neutral-300 bg-neutral-50/50" : "border-neutral-200 hover:border-neutral-300",
+                    downloadMedia ? "border-neutral-300 dark:border-neutral-600 bg-neutral-50/50 dark:bg-neutral-800/50" : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600",
                     isExporting ? "opacity-50 cursor-not-allowed" : ""
                   ].join(" ")}
                   onClick={() => !isExporting && setDownloadMedia(!downloadMedia)}
@@ -459,8 +459,8 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
         </div>
 
         {/* 底部操作栏 */}
-        <div className="flex items-center justify-between px-6 py-4 border-t">
-          <div className="text-sm text-neutral-500">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-neutral-200 dark:border-neutral-700">
+          <div className="text-sm text-neutral-500 dark:text-neutral-400">
             {isExporting ? (
               <span className="text-blue-600">
                 ⏳ 正在导出 {progress.current + 1}/{progress.total} 个会话...

@@ -148,18 +148,12 @@ export class SecurityManager {
         
         this.configPath = path.join(securityDir, 'security.json');
         this.isDocker = isDockerEnvironment();
-        
-        if (this.isDocker) {
-            console.log('[SecurityManager] 🐳 检测到Docker环境');
-        }
     }
 
     /**
      * 初始化安全配置
      */
     async initialize(): Promise<void> {
-        console.log('[SecurityManager] 正在初始化安全配置...');
-        
         // 初始化服务器地址（默认localhost，Docker环境下使用0.0.0.0）
         this.publicIP = this.isDocker ? '0.0.0.0' : '127.0.0.1';
 
@@ -192,21 +186,16 @@ export class SecurityManager {
             
             this.configWatcher = fs.watch(this.configPath, (eventType) => {
                 if (eventType === 'change') {
-                    // 防抖处理，避免频繁重载
                     if (debounceTimer) {
                         clearTimeout(debounceTimer);
                     }
                     debounceTimer = setTimeout(async () => {
-                        console.log('[SecurityManager] 检测到配置文件变更，正在重新加载...');
                         await this.loadConfig();
-                        console.log('[SecurityManager] ✅ 配置已热加载');
                     }, 500);
                 }
             });
-            
-            console.log('[SecurityManager] 📁 配置文件监听已启动（支持热加载）');
         } catch (error) {
-            console.warn('[SecurityManager] 无法启动配置文件监听:', error);
+            // 静默处理
         }
     }
     
@@ -217,7 +206,6 @@ export class SecurityManager {
         if (this.configWatcher) {
             this.configWatcher.close();
             this.configWatcher = null;
-            console.log('[SecurityManager] 配置文件监听已停止');
         }
     }
 
@@ -242,16 +230,12 @@ export class SecurityManager {
         this.config.serverHost = host;
         await this.saveConfig();
         this.setServerHost(host);
-        
-        console.log(`[SecurityManager] 服务器地址已更新为: ${this.publicIP}`);
     }
 
     /**
      * 生成初始安全配置
      */
     private async generateInitialConfig(): Promise<void> {
-        console.log('[SecurityManager] 🔐 首次启动，正在生成安全配置...');
-        
         // 生成复杂的访问令牌 (32字符)
         const accessToken = this.generateSecureToken(32);
         
@@ -261,10 +245,9 @@ export class SecurityManager {
         // 默认白名单：本地 + Docker环境下添加常见的Docker网段
         const defaultAllowedIPs = ['127.0.0.1', '::1'];
         if (this.isDocker) {
-            // Docker环境下，添加常见的Docker网桥网段
-            defaultAllowedIPs.push('172.16.0.0/12');  // Docker默认网桥范围
-            defaultAllowedIPs.push('192.168.0.0/16'); // 常见局域网
-            defaultAllowedIPs.push('10.0.0.0/8');     // 大型私有网络
+            defaultAllowedIPs.push('172.16.0.0/12');
+            defaultAllowedIPs.push('192.168.0.0/16');
+            defaultAllowedIPs.push('10.0.0.0/8');
         }
         
         this.config = {
@@ -272,25 +255,11 @@ export class SecurityManager {
             secretKey,
             createdAt: new Date(),
             allowedIPs: defaultAllowedIPs,
-            tokenExpired: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7天过期
-            disableIPWhitelist: this.isDocker // Docker环境下默认禁用IP白名单
+            tokenExpired: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            disableIPWhitelist: this.isDocker
         };
 
         await this.saveConfig();
-
-        console.log('');
-        console.log('[SecurityManager] ══════════════════════════════════════════════════════');
-        console.log('[SecurityManager] 🔒 安全配置已生成！请妥善保管以下信息：');
-        console.log('[SecurityManager] ══════════════════════════════════════════════════════');
-        console.log(`[SecurityManager] 🔑 访问令牌: ${accessToken}`);
-        console.log(`[SecurityManager] 🛡️  密钥: ${secretKey.substring(0, 16)}...`);
-        console.log('[SecurityManager] ⚠️  令牌将在7天后过期，届时需要重新生成');
-        console.log('[SecurityManager] 📋 请将令牌添加到浏览器书签或复制保存');
-        if (this.isDocker) {
-            console.log('[SecurityManager] 🐳 Docker环境：IP白名单验证已禁用，仅依赖Token验证');
-        }
-        console.log('[SecurityManager] ══════════════════════════════════════════════════════');
-        console.log('');
     }
 
     /**
@@ -311,16 +280,12 @@ export class SecurityManager {
                     this.config.tokenExpired = new Date(this.config.tokenExpired);
                 }
             }
-
-            console.log('[SecurityManager] ✅ 安全配置已加载');
             
             // 检查令牌是否过期
             if (this.config?.tokenExpired && new Date() > this.config.tokenExpired) {
-                console.log('[SecurityManager] ⚠️ 访问令牌已过期，正在重新生成...');
                 await this.regenerateToken();
             }
         } catch (error) {
-            console.error('[SecurityManager] 加载安全配置失败:', error);
             await this.generateInitialConfig();
         }
     }
@@ -333,7 +298,7 @@ export class SecurityManager {
             const data = JSON.stringify(this.config, null, 2);
             fs.writeFileSync(this.configPath, data, 'utf-8');
         } catch (error) {
-            console.error('[SecurityManager] 保存安全配置失败:', error);
+            // 静默处理
         }
     }
 
@@ -361,8 +326,6 @@ export class SecurityManager {
         this.config.tokenExpired = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
         
         await this.saveConfig();
-        
-        console.log('[SecurityManager] 🔑 新的访问令牌:', this.config.accessToken);
     }
 
     /**
@@ -384,8 +347,6 @@ export class SecurityManager {
             const isAllowed = this.checkIPAllowed(clientIP);
             
             if (!isAllowed) {
-                console.warn(`[SecurityManager] IP ${clientIP} 不在白名单中`);
-                console.warn(`[SecurityManager] 提示: 可在 ${this.configPath} 中添加IP到allowedIPs，或设置 "disableIPWhitelist": true`);
                 return false;
             }
         }
@@ -492,7 +453,6 @@ export class SecurityManager {
         if (!this.config.allowedIPs.includes(ip)) {
             this.config.allowedIPs.push(ip);
             await this.saveConfig();
-            console.log(`[SecurityManager] IP ${ip} 已添加到白名单`);
         }
     }
     
@@ -506,7 +466,6 @@ export class SecurityManager {
         if (index > -1) {
             this.config.allowedIPs.splice(index, 1);
             await this.saveConfig();
-            console.log(`[SecurityManager] IP ${ip} 已从白名单移除`);
             return true;
         }
         return false;
@@ -527,7 +486,6 @@ export class SecurityManager {
         
         this.config.disableIPWhitelist = disable;
         await this.saveConfig();
-        console.log(`[SecurityManager] IP白名单验证已${disable ? '禁用' : '启用'}`);
     }
     
     /**

@@ -3,262 +3,179 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QQ Chat Exporter V4 - 使用文档</title>
+    <title>QCE - QQ Chat Exporter</title>
     <style>
-        :root {
-            --bg-color: #fff;
-            --text-color: #333;
-            --code-bg: #f5f5f5;
-            --code-border: #e0e0e0;
-            --button-bg: #f5f5f5;
-            --button-hover: #e0e0e0;
-            --button-text: #555;
-            --highlight-bg: #fff3cd;
-            --highlight-text: #856404;
-            --line-color: #eaeaea;
-            --footer-color: #777;
-            --link-color: #3498db;
+        *{margin:0;padding:0;box-sizing:border-box}
+        :root{--c:#111;--c2:#666;--bg:#fafafa;--line:#e5e5e5}
+        @media(prefers-color-scheme:dark){:root{--c:#f5f5f5;--c2:#888;--bg:#0a0a0a;--line:#262626}}
+        html{font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--c)}
+        a{color:inherit;text-decoration:none}
+        
+        .container{
+            max-width:680px;
+            margin:0 auto;
+            padding:80px 24px 48px;
         }
         
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg-color: #1a1a1a;
-                --text-color: #e0e0e0;
-                --code-bg: #282828;
-                --code-border: #444;
-                --button-bg: #2a2a2a;
-                --button-hover: #3a3a3a;
-                --button-text: #ccc;
-                --highlight-bg: #2c2c1e;
-                --highlight-text: #e0d287;
-                --line-color: #333;
-                --footer-color: #999;
-                --link-color: #61afef;
+
+        
+        .hero{margin-bottom:48px}
+
+        .hero h1{
+            font-size:clamp(28px,5vw,42px);
+            font-weight:700;
+            letter-spacing:-0.03em;
+            line-height:1.2;
+            margin-bottom:20px;
+        }
+
+        .hero p{
+            font-size:17px;
+            color:var(--c2);
+            line-height:1.7;
+            margin-bottom:32px;
+        }
+        
+        .actions{
+            display:flex;
+            gap:12px;
+            align-items:center;
+            flex-wrap:wrap;
+        }
+        .btn{
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            gap:6px;
+            height:40px;
+            padding:0 20px;
+            font-size:14px;
+            font-weight:500;
+            border-radius:8px;
+            transition:all .2s;
+            outline:none;
+            cursor:pointer;
+        }
+        .btn-brand{
+            background:#3b82f6;
+            color:#fff;
+            border:1px solid rgba(59,130,246,0.75);
+        }
+        .btn-brand:hover{
+            background:#2563eb;
+        }
+        .btn-secondary{
+            background:var(--bg);
+            color:var(--c);
+            border:1px solid rgba(0,0,0,0.1);
+            box-shadow:0 1px 2px rgba(0,0,0,0.04);
+        }
+        .btn-secondary:hover{
+            background:rgba(0,0,0,0.02);
+        }
+        @media(prefers-color-scheme:dark){
+            .btn-secondary{
+                border-color:rgba(255,255,255,0.1);
+                box-shadow:0 1px 2px rgba(0,0,0,0.2);
+            }
+            .btn-secondary:hover{
+                background:rgba(255,255,255,0.05);
             }
         }
         
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-            line-height: 1.6;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            color: var(--text-color);
-            background-color: var(--bg-color);
-            transition: background-color 0.3s ease, color 0.3s ease;
+        .screenshot{
+            margin:48px 0;
+            border-radius:12px;
+            overflow:hidden;
+            border:1px solid var(--line);
+            box-shadow:0 4px 24px rgba(0,0,0,0.08);
+        }
+        .screenshot img{
+            width:100%;
+            display:block;
         }
         
-        h1, h2 {
-            border-bottom: 1px solid var(--line-color);
-            padding-bottom: 8px;
+        .features{
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:24px;
+            margin:48px 0;
         }
+        .feature h3{font-size:14px;font-weight:500;margin-bottom:4px}
+        .feature p{font-size:13px;color:var(--c2)}
         
-        .prerequisite-steps {
-            background: var(--code-bg);
-            border-radius: 10px;
-            padding: 20px;
-            margin: 30px 0;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        footer{
+            margin-top:64px;
+            padding-top:24px;
+            border-top:1px solid var(--line);
+            font-size:12px;
+            color:var(--c2);
+            display:flex;
+            justify-content:space-between;
         }
+        footer a{transition:color .2s}
+        footer a:hover{color:var(--c)}
+        .footer-links{display:flex;gap:16px}
         
-        .step {
-            margin-bottom: 25px;
-            position: relative;
-            padding-top: 5px;
-            border-top: 1px solid var(--line-color);
-        }
-        
-        .step:first-child {
-            border-top: none;
-            padding-top: 0;
-        }
-        
-        .sub-step {
-            margin-left: 15px;
-            margin-top: 8px;
-            position: relative;
-            padding-left: 15px;
-        }
-        
-        .sub-step:before {
-            content: "•";
-            position: absolute;
-            left: 0;
-            color: var(--text-color);
-        }
-
-        .image-container {
-            max-width: 100%;
-            margin: 12px 0;
-            text-align: center;
-        }
-        
-        .image-container img {
-            max-width: 100%;
-            border-radius: 4px;
-            border: 1px solid var(--line-color);
-        }
-
-        .notes-section {
-            background: var(--code-bg);
-            border-radius: 8px;
-            padding: 15px 20px;
-            margin: 20px 0 30px;
-            font-size: 14px;
-            line-height: 1.6;
-        }
-        
-        .note-warning {
-            border-left: 2px solid #e74c3c;
-            padding-left: 12px;
-        }
-
-        .disclaimer-section {
-            background: var(--code-bg);
-            border-radius: 8px;
-            padding: 15px 20px;
-            margin: 20px 0;
-            font-size: 14px;
-            line-height: 1.6;
-            border-left: 2px solid #e74c3c;
-        }
-        
-        a {
-            color: var(--link-color);
-            text-decoration: none;
-        }
-        
-        a:hover {
-            text-decoration: underline;
-        }
-
-        code {
-            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-            background: rgba(0,0,0,0.05);
-            padding: 2px 4px;
-            border-radius: 4px;
-        }
-        
-        footer {
-            margin-top: 50px;
-            text-align: center;
-            color: var(--footer-color);
-            font-size: 0.9rem;
-            border-top: 1px solid var(--line-color);
-            padding-top: 20px;
+        @media(max-width:480px){
+            .features{grid-template-columns:1fr}
+            footer{flex-direction:column;gap:12px;text-align:center}
+            .footer-links{justify-content:center}
         }
     </style>
 </head>
 <body>
-    
-    <h1>QQ Chat Exporter V4 - 使用文档</h1>
-    <p>欢迎使用全新的 V4 版本！这是一款深度集成到 <strong>NapCatQQ</strong> 框架的聊天记录导出工具，提供现代化的 Web 界面和强大的导出功能。</p>
-    
-    <div class="image-container">
-        <img src="https://github.com/shuakami/qq-chat-exporter/blob/9959f84b/image.png?raw=true" alt="QCE V4 界面截图" />
-    </div>
-
-    <h2>V4 版本核心特性</h2>
-    <div class="prerequisite-steps">
-        <div class="step">
-            <strong>架构升级</strong>
-            <div class="sub-step"><strong>深度集成</strong>：作为 NapCatQQ 的一部分，共享底层连接，更稳定高效。</div>
-            <div class="sub-step"><strong>现代化 Web 界面</strong>：基于 React 和 Next.js 构建，提供直观的图形化操作体验。</div>
-            <div class="sub-step"><strong>API 驱动</strong>：提供完整的 RESTful API 和 WebSocket 接口，支持实时进度更新。</div>
-            <div class="sub-step"><strong>持久化存储</strong>：采用基于 JSONL 的文件存储系统，支持断点续传和任务恢复。</div>
-            <div class="sub-step"><strong>定时任务系统</strong>：支持 cron 表达式，可配置灵活的自动备份计划。</div>
-            <div class="sub-step"><strong>多格式导出</strong>：支持 HTML、JSON、TXT 三种格式，满足不同场景的需求。</div>
+    <div class="container">
+        <section class="hero">
+            <h1>备份你的<br>QQ 聊天记录</h1>
+            <p>支持 HTML、JSON、ZIP 多种格式导出，定时自动备份，批量操作，表情包导出。</p>
+            <div class="actions">
+                <a href="https://github.com/shuakami/qq-chat-exporter/releases" class="btn btn-brand" target="_blank">下载</a>
+                <a href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C" class="btn btn-secondary" target="_blank">使用帮助</a>
+                <a href="https://github.com/shuakami/qq-chat-exporter" class="btn btn-secondary" target="_blank">GitHub <span id="stars"></span></a>
+            </div>
+        </section>
+        
+        <div class="screenshot">
+            <img src="https://github.com/shuakami/qq-chat-exporter/blob/9959f84b/image.png?raw=true" alt="QCE Screenshot">
         </div>
-    </div>
-
-    <h2>使用步骤</h2>
-    <div class="prerequisite-steps">
-        <div class="step">
-            <strong>1. 下载并启动 NapCatQQ</strong>
-            <p>V4 版本已完全集成到 NapCatQQ 中，您只需下载包含 QCE 功能的最新版本即可。</p>
-            <div class="sub-step">
-                访问 <a href="https://github.com/shuakami/qq-chat-exporter/releases/latest" target="_blank">项目 Releases 页面</a> 下载适用于您操作系统的压缩包。
+        
+        <div class="features">
+            <div class="feature">
+                <h3>多种格式</h3>
+                <p>HTML / JSON / ZIP，按需选择</p>
             </div>
-            <div class="sub-step">
-                解压后，在 Windows 上运行 <code>launcher-user.bat</code>，在 Linux/macOS 上运行 <code>./napcat-launcher.sh</code>。
+            <div class="feature">
+                <h3>定时备份</h3>
+                <p>设置计划任务，自动备份</p>
             </div>
-            <div class="sub-step">
-                程序启动后，控制台会显示一个二维码，请使用您的手机 QQ 扫码登录。
+            <div class="feature">
+                <h3>批量导出</h3>
+                <p>一次导出多个会话</p>
             </div>
-            <div class="sub-step">
-                登录成功后，程序将在后台运行并启动 Web 服务。
+            <div class="feature">
+                <h3>表情包</h3>
+                <p>导出收藏的表情包</p>
             </div>
         </div>
         
-        <div class="step">
-            <strong>2. 访问 QQ 聊天记录导出工具</strong>
-            <p>QQ 登录成功后，即可访问聊天记录导出工具：</p>
-            <div class="sub-step">
-                在浏览器中打开：<a href="http://localhost:40653/qce-v4-tool" target="_blank"><code>http://localhost:40653/qce-v4-tool</code></a>
+        <footer>
+            <span>© 2025 shuakami</span>
+            <div class="footer-links">
+                <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+                <a href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C" target="_blank">Docs</a>
+                <a href="https://github.com/shuakami/qq-chat-exporter/issues" target="_blank">Feedback</a>
             </div>
-            <div class="sub-step">
-                如果部署在服务器上，请确保防火墙已放行 40653 端口，然后通过 <code>http://服务器IP:40653/qce-v4-tool</code> 访问。
-            </div>
-            <div class="sub-step">
-                首次访问时，请根据页面提示，输入控制台中显示的访问令牌 (Access Token) 以完成身份验证。
-            </div>
-        </div>
-
-        <div class="step">
-            <strong>3. 开始导出任务</strong>
-            <p>在界面中，您可以通过以下功能模块完成导出：</p>
-            <div class="sub-step"><strong>概览</strong>：查看系统状态、任务统计和 NapCatQQ 连接状态。</div>
-            <div class="sub-step"><strong>会话</strong>：浏览好友和群组列表，选择要导出的聊天对象。</div>
-            <div class="sub-step"><strong>任务</strong>：创建、监控和管理导出任务，支持下载和删除。</div>
-            <div class="sub-step"><strong>定时</strong>：设置自动化的定时导出任务，支持每日、每周或自定义周期。</div>
-            <div class="sub-step"><strong>聊天记录</strong>：浏览和管理已导出的文件。</div>
-        </div>
+            <span>Not affiliated with Tencent</span>
+        </footer>
     </div>
-
-    <h2>注意事项和使用技巧</h2>
-    <div class="notes-section">
-        <p><strong>数据安全</strong></p>
-        <ul>
-            <li>所有聊天记录的获取和导出过程都在您的本地计算机上完成，数据不会上传到任何服务器，确保您的隐私安全。</li>
-            <li>导出的文件也默认保存在您的本地硬盘上。</li>
-        </ul>
-    </div>
-
-    <div class="notes-section">
-        <p><strong>使用技巧</strong></p>
-        <ul>
-            <li><strong>首次使用</strong>：建议先进入“会话”页面，点击“刷新列表”以确保获取到最新的好友和群组信息。</li>
-            <li><strong>大批量导出</strong>：对于包含大量消息的会话，导出可能需要较长时间。您可以在“任务”页面观察实时进度。任务在后台运行，您可以关闭浏览器标签页，但不能关闭运行中的 NapCatQQ 程序。</li>
-            <li><strong>定时备份</strong>：对于重要的聊天记录，强烈建议使用“定时”功能设置每日或每周的自动备份，以防数据丢失。</li>
-            <li><strong>格式选择</strong>：推荐使用 **HTML** 格式，因为它能最好地还原聊天界面，方便阅读。**JSON** 格式适合需要进行二次开发或数据分析的用户。</li>
-        </ul>
-    </div>
-
-    <div class="notes-section">
-        <p><strong>🔧 故障排除</strong></p>
-        <ul>
-            <li><strong>无法访问 Web 界面</strong>：请检查 NapCatQQ 程序是否已成功启动并登录。同时，请检查 40653 端口是否被其他程序占用。</li>
-            <li><strong>无法获取好友/群组列表</strong>：请确保您的 QQ 账号在线，并在 Web 界面中尝试点击“刷新列表”。</li>
-            <li><strong>任务失败</strong>：任务失败通常会有错误提示。请检查 NapCatQQ 的控制台日志或 Web 界面上的错误信息以定位问题。</li>
-        </ul>
-    </div>
-    
-    <h2>源代码</h2>
-    <p>本项目为开源项目，源代码托管在：<a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a></p>
-
-    <div class="disclaimer-section">
-        <h2>免责声明</h2>
-        <p>本工具仅供个人学习、研究和备份自己的聊天记录使用，请严格遵守相关法律法规。</p>
-        <p>使用本工具可能违反腾讯 QQ 用户协议。尽管 V4 版本通过优化请求策略显著降低了风险，但用户仍需自行承担使用本工具可能带来的一切风险，包括但不限于账号安全问题。</p>
-        <p>本工具与腾讯公司无任何关联，为非官方、非商业的开源项目。</p>
-        <p>开发者不对使用本工具导致的任何问题负责，包括但不限于账号安全、数据丢失等问题。</p>
-        <p><strong>如果您继续使用本工具，即表示您已阅读并同意以上声明。</strong></p>
-    </div>
-
-    <footer>
-        <p>© 2025 shuakami All Rights Reserved.</p>
-        <p>本项目代码采用 <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank">GNU General Public License v3.0 (GPL-3.0)</a> 开源。</p>
-    </footer>
-
+    <script>
+        fetch('https://api.github.com/repos/shuakami/qq-chat-exporter').then(r=>r.json()).then(d=>{
+            if(d.stargazers_count){
+                const s=d.stargazers_count>=1000?(d.stargazers_count/1000).toFixed(1)+'k':d.stargazers_count;
+                document.getElementById('stars').textContent='('+s+' stars)';
+            }
+        }).catch(()=>{});
+    </script>
 </body>
 </html>

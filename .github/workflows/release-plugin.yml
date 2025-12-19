@@ -88,12 +88,7 @@ jobs:
           path: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.artifact_ext }}
           retention-days: 7
       
-      - name: "[x] 上传 qce-viewer 构建产物"
-        uses: actions/upload-artifact@v4
-        with:
-          name: qce-viewer-${{ matrix.platform }}
-          path: qce-viewer.zip
-          retention-days: 7
+
 
   create-release:
     needs: [get-napcat-version, build-all-platforms]
@@ -116,8 +111,7 @@ jobs:
           # Copy main packages
           find artifacts/NapCat-QCE-Windows-x64 -type f -name "*.zip" -exec cp {} release-files/ \; 2>/dev/null || true
           find artifacts/NapCat-QCE-Linux-x64 -type f -name "*.tar.gz" -exec cp {} release-files/ \; 2>/dev/null || true
-          # Copy qce-viewer.zip from first artifact (all platforms generate the same viewer)
-          find artifacts/qce-viewer-* -type f -name "qce-viewer.zip" | head -1 | xargs -I {} cp {} release-files/ 2>/dev/null || true
+
           echo "发布文件列表："
           ls -lh release-files/
       
@@ -153,11 +147,7 @@ jobs:
           | Linux x64 | ✅ 应该支持 | `NapCat-QCE-Linux-x64.tar.gz` |
           | macOS | ⚠️ 暂不支持 | 因兼容性问题暂不提供 |
           
-          **独立查看器（仅浏览导出记录）：**
-          
-          | 工具 | 文件 | 说明 |
-          |------|------|------|
-          | QCE Viewer | `qce-viewer.zip` | 跨平台，用于浏览已导出的聊天记录，无需 QQ 登录 |
+
 
           ### 使用
 
@@ -168,14 +158,6 @@ jobs:
           - **macOS 用户**：⚠️ 暂不支持，推荐使用 Windows 系统
 
           启动后浏览器访问 `http://localhost:40653/qce-v4-tool`，输入控制台显示的访问令牌即可使用。
-
-          **独立离线查看器（QCE Viewer）使用方法：**
-
-          1. 解压 `qce-viewer.zip` 到任意目录
-          2. Windows 运行 `start.bat`，Linux/macOS 运行 `./start.sh`
-          3. 浏览器访问 `http://localhost:3000`
-
-          查看器无需 QQ 登录，只用于浏览已导出的记录）
 
           ### 系统要求
 
@@ -228,12 +210,8 @@ jobs:
           echo "包含 NapCat ${{ needs.get-napcat-version.outputs.version }}"
           echo "========================================="
           echo "发布的文件："
-          echo "完整包（含 NapCat）："
           echo "- ✅ NapCat-QCE-Windows-x64.zip"
           echo "- ✅ NapCat-QCE-Linux-x64.tar.gz"
           echo "- ⚠️  macOS 因兼容性问题暂不发布"
-          echo ""
-          echo "独立查看器："
-          echo "- ✅ qce-viewer.zip (跨平台)"
           echo "========================================="
 

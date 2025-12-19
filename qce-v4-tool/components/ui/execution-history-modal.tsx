@@ -1,10 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./dialog"
-import { Button } from "./button"
-import { Badge } from "./badge"
-import { ScrollArea } from "./scroll-area"
+import { motion, AnimatePresence } from "framer-motion"
 import { 
   CheckCircle,
   AlertCircle,
@@ -12,8 +9,7 @@ import {
   X,
   RefreshCw,
   FileText,
-  Calendar,
-  Timer
+  ChevronRight
 } from "lucide-react"
 import type { ScheduledExportHistory } from "@/types/api"
 
@@ -34,8 +30,8 @@ export function ExecutionHistoryModal({
 }: ExecutionHistoryModalProps) {
   const [history, setHistory] = useState<ScheduledExportHistory[]>([])
   const [loading, setLoading] = useState(false)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  // Load history when modal opens
   useEffect(() => {
     if (isOpen && scheduledExportId) {
       loadHistory()
@@ -55,45 +51,6 @@ export function ExecutionHistoryModal({
     }
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'success':
-        return <CheckCircle className="w-4 h-4 text-green-500" />
-      case 'failed':
-        return <AlertCircle className="w-4 h-4 text-red-500" />
-      case 'partial':
-        return <AlertCircle className="w-4 h-4 text-yellow-500" />
-      default:
-        return <Clock className="w-4 h-4 text-neutral-400" />
-    }
-  }
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'success':
-        return '成功'
-      case 'failed':
-        return '失败'
-      case 'partial':
-        return '部分成功'
-      default:
-        return '未知'
-    }
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'success':
-        return 'bg-green-50 text-green-700 border-green-200'
-      case 'failed':
-        return 'bg-red-50 text-red-700 border-red-200'
-      case 'partial':
-        return 'bg-yellow-50 text-yellow-700 border-yellow-200'
-      default:
-        return 'bg-neutral-50 text-neutral-700 border-neutral-200'
-    }
-  }
-
   const formatDuration = (ms: number) => {
     if (ms < 1000) return `${ms}ms`
     if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
@@ -106,136 +63,185 @@ export function ExecutionHistoryModal({
     return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
   }
 
+  if (!isOpen) return null
+
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="flex flex-col h-full">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Timer className="w-5 h-5" />
-            执行历史 - {taskName}
-          </DialogTitle>
-        </DialogHeader>
-        
-        <div className="flex-1 flex flex-col min-h-0">
-          {/* Header Actions */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="text-sm text-neutral-600">
-              共 {history.length} 条执行记录
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          {/* Backdrop */}
+          <motion.div 
+            className="absolute inset-0 bg-black/40"
+            onClick={onClose}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          />
+          
+          {/* Modal */}
+          <motion.div
+            className="relative w-full max-w-2xl max-h-[85vh] mx-4 bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+            transition={{ type: "spring", duration: 0.3 }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-100 dark:border-neutral-800">
+              <div>
+                <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">执行历史</h2>
+                <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">{taskName}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={loadHistory}
+                  disabled={loading}
+                  className="p-2 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+                <button
+                  onClick={onClose}
+                  className="p-2 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadHistory}
-              disabled={loading}
-            >
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-4">
               {loading ? (
-                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                <div className="flex items-center justify-center py-16">
+                  <RefreshCw className="w-6 h-6 text-neutral-300 dark:text-neutral-600 animate-spin" />
+                </div>
+              ) : history.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16">
+                  <FileText className="w-10 h-10 text-neutral-200 dark:text-neutral-700 mb-3" />
+                  <p className="text-neutral-500 dark:text-neutral-400">暂无执行记录</p>
+                </div>
               ) : (
-                <RefreshCw className="w-4 h-4 mr-2" />
-              )}
-              刷新
-            </Button>
-          </div>
-
-          {/* History List */}
-          <ScrollArea className="flex-1">
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="text-center">
-                  <RefreshCw className="w-8 h-8 text-neutral-300 mx-auto mb-2 animate-spin" />
-                  <p className="text-neutral-500">加载执行历史中...</p>
-                </div>
-              </div>
-            ) : history.length === 0 ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="text-center">
-                  <FileText className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-                  <p className="text-neutral-500 mb-2">暂无执行历史</p>
-                  <p className="text-sm text-neutral-400">任务还未执行过</p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {history.map((item) => (
-                  <div 
-                    key={item.id}
-                    className="flex items-start gap-3 p-3 border border-neutral-200 rounded-lg hover:border-neutral-300 hover:bg-neutral-50 transition-colors"
-                  >
-                    {/* Status Icon */}
-                    <div className="flex-shrink-0 mt-0.5">
-                      {getStatusIcon(item.status)}
-                    </div>
-
-                    {/* Main Content */}
-                    <div className="flex-1 min-w-0">
-                      {/* Header Row */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <Badge className={`text-xs px-2 py-0.5 border ${getStatusColor(item.status)}`}>
-                          {getStatusText(item.status)}
-                        </Badge>
-                        <div className="flex items-center gap-1 text-sm text-neutral-600">
-                          <Calendar className="w-3 h-3" />
-                          <span>{new Date(item.executedAt).toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-sm text-neutral-600">
-                          <Clock className="w-3 h-3" />
-                          <span>耗时 {formatDuration(item.duration)}</span>
-                        </div>
-                      </div>
-
-                      {/* Details */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                        <div className="space-y-1">
-                          {item.messageCount !== undefined && (
-                            <div className="flex justify-between">
-                              <span className="text-neutral-500">消息数量:</span>
-                              <span className="font-medium">{item.messageCount.toLocaleString()} 条</span>
-                            </div>
-                          )}
-                          {item.fileSize && (
-                            <div className="flex justify-between">
-                              <span className="text-neutral-500">文件大小:</span>
-                              <span className="font-medium">{formatFileSize(item.fileSize)}</span>
-                            </div>
-                          )}
-                        </div>
+                <div className="space-y-2">
+                  {history.map((item) => (
+                    <motion.div
+                      key={item.id}
+                      className="rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-800/50 overflow-hidden"
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                    >
+                      {/* Main Row */}
+                      <button
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100/50 dark:hover:bg-neutral-700/50 transition-colors"
+                        onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+                      >
+                        {/* Status Indicator */}
+                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                          item.status === 'success' ? 'bg-neutral-400 dark:bg-neutral-500' :
+                          item.status === 'failed' ? 'bg-neutral-800 dark:bg-neutral-300' :
+                          'bg-neutral-300 dark:bg-neutral-600'
+                        }`} />
                         
-                        <div className="space-y-1">
-                          {item.filePath && (
-                            <div className="text-xs">
-                              <span className="text-neutral-500">文件路径:</span>
-                              <div className="mt-1 font-mono text-xs bg-neutral-100 px-2 py-1 rounded break-all select-all">
-                                {item.filePath}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Error Message */}
-                      {item.error && (
-                        <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
-                          <div className="flex items-start gap-2">
-                            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                            <span className="break-all">{item.error}</span>
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-neutral-900 dark:text-neutral-100 font-medium">
+                              {new Date(item.executedAt).toLocaleDateString('zh-CN', {
+                                month: 'numeric',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </span>
+                            <span className="text-neutral-400 dark:text-neutral-500">·</span>
+                            <span className="text-neutral-500 dark:text-neutral-400">{formatDuration(item.duration)}</span>
+                            {item.messageCount !== undefined && item.messageCount > 0 && (
+                              <>
+                                <span className="text-neutral-400 dark:text-neutral-500">·</span>
+                                <span className="text-neutral-500 dark:text-neutral-400">{item.messageCount.toLocaleString()} 条</span>
+                              </>
+                            )}
                           </div>
                         </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+
+                        {/* Status Text */}
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          item.status === 'success' ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300' :
+                          item.status === 'failed' ? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300' :
+                          'bg-neutral-100 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'
+                        }`}>
+                          {item.status === 'success' ? '成功' : item.status === 'failed' ? '失败' : '部分'}
+                        </span>
+
+                        <ChevronRight className={`w-4 h-4 text-neutral-300 dark:text-neutral-600 transition-transform ${
+                          expandedId === item.id ? 'rotate-90' : ''
+                        }`} />
+                      </button>
+
+                      {/* Expanded Details */}
+                      <AnimatePresence>
+                        {expandedId === item.id && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="px-4 pb-3 pt-1 space-y-2 text-sm border-t border-neutral-100 dark:border-neutral-700">
+                              {item.fileSize && (
+                                <div className="flex justify-between text-neutral-600 dark:text-neutral-400">
+                                  <span>文件大小</span>
+                                  <span>{formatFileSize(item.fileSize)}</span>
+                                </div>
+                              )}
+                              {item.filePath && (
+                                <div className="text-neutral-600 dark:text-neutral-400">
+                                  <span className="block mb-1">文件路径</span>
+                                  <code className="block text-xs bg-neutral-100 dark:bg-neutral-800 px-2 py-1.5 rounded font-mono break-all select-all">
+                                    {item.filePath}
+                                  </code>
+                                </div>
+                              )}
+                              {item.error && (
+                                <div className="text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 px-3 py-2 rounded">
+                                  <div className="flex items-start gap-2">
+                                    <AlertCircle className="w-4 h-4 text-neutral-500 dark:text-neutral-400 flex-shrink-0 mt-0.5" />
+                                    <span className="break-all text-xs">{item.error}</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-800/50">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-neutral-500 dark:text-neutral-400">
+                  共 {history.length} 条记录
+                </span>
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded-lg transition-colors"
+                >
+                  关闭
+                </button>
               </div>
-            )}
-          </ScrollArea>
-        </div>
-        
-        {/* Footer */}
-        <div className="flex justify-end pt-4 border-t">
-          <Button variant="outline" onClick={onClose}>
-            关闭
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 }

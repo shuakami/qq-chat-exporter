@@ -86,12 +86,9 @@ class CircuitBreaker {
         if (this.state === CircuitBreakerState.OPEN) {
             if (this.shouldAttemptReset()) {
                 this.state = CircuitBreakerState.HALF_OPEN;
-                console.log('[CircuitBreaker] 尝试从熔断状态恢复，切换到半开状态');
             } else {
-                // 输出更详细的信息，帮助用户理解问题
                 const timeUntilRecovery = this.getTimeUntilRecovery();
-                console.warn(`[CircuitBreaker] 熔断器已开启，拒绝执行操作。预计 ${Math.ceil(timeUntilRecovery / 1000)} 秒后可尝试恢复`);
-                throw new Error(`熔断器已开启，拒绝执行操作。预计 ${Math.ceil(timeUntilRecovery / 1000)} 秒后可尝试恢复`);
+                throw new Error(`熔断器已开启，预计 ${Math.ceil(timeUntilRecovery / 1000)} 秒后恢复`);
             }
         }
 
@@ -112,9 +109,6 @@ class CircuitBreaker {
     private onSuccess(): void {
         this.failureCount = 0;
         this.consecutiveFailures = 0;
-        if (this.state === CircuitBreakerState.HALF_OPEN) {
-            console.log('[CircuitBreaker] 半开状态下操作成功，恢复到关闭状态');
-        }
         this.state = CircuitBreakerState.CLOSED;
     }
 
@@ -131,16 +125,12 @@ class CircuitBreaker {
             this.consecutiveFailures++;
             this.lastFailureTime = new Date();
             
-            console.warn(`[CircuitBreaker] 严重错误计入熔断统计: ${errorMessage} (${this.failureCount}/${this.threshold})`);
-            
             if (this.failureCount >= this.threshold) {
                 this.state = CircuitBreakerState.OPEN;
-                console.error(`[CircuitBreaker] 熔断器已开启，连续失败 ${this.failureCount} 次，将在 ${this.recoveryTime / 1000} 秒后尝试恢复`);
             }
         } else {
             // 轻微错误不计入熔断，但重置连续成功计数
             this.consecutiveFailures++;
-            console.log(`[CircuitBreaker] 轻微错误不计入熔断: ${errorMessage}`);
         }
     }
 
@@ -238,7 +228,6 @@ class ResourceHealthChecker {
                 }
             }
         } catch (error) {
-            console.warn(`[ResourceHandler] 健康检查失败:`, error);
             isHealthy = false;
         }
 
@@ -272,6 +261,17 @@ class ResourceHealthChecker {
 }
 
 /**
+ * 资源下载进度回调类型
+ */
+export type ResourceProgressCallback = (progress: {
+    total: number;
+    completed: number;
+    failed: number;
+    current?: string;
+    message: string;
+}) => void;
+
+/**
  * 资源处理器主类
  */
 export class ResourceHandler {
@@ -285,6 +285,12 @@ export class ResourceHandler {
     private activeDownloads: Map<string, Promise<string>> = new Map();
     private isProcessing: boolean = false;
     private healthCheckTimer: NodeJS.Timeout | null = null;
+    
+    // 进度回调
+    private progressCallback: ResourceProgressCallback | null = null;
+    private totalResourcesForProgress: number = 0;
+    private completedResourcesForProgress: number = 0;
+    private failedResourcesForProgress: number = 0;
 
     constructor(core: NapCatCore, dbManager: DatabaseManager, config: Partial<ResourceHandlerConfig> = {}) {
         this.core = core;
@@ -315,6 +321,33 @@ export class ResourceHandler {
     }
 
     /**
+     * 设置进度回调
+     */
+    setProgressCallback(callback: ResourceProgressCallback | null): void {
+        this.progressCallback = callback;
+    }
+
+    /**
+     * 触发进度回调
+     */
+    private emitProgress(current?: string): void {
+        if (this.progressCallback && this.totalResourcesForProgress > 0) {
+            const completed = this.completedResourcesForProgress;
+            const total = this.totalResourcesForProgress;
+            const failed = this.failedResourcesForProgress;
+            const remaining = total - completed - failed;
+            
+            this.progressCallback({
+                total,
+                completed,
+                failed,
+                current,
+                message: `下载资源 ${completed}/${total}${remaining > 0 ? ` (剩余 ${remaining})` : ''}${failed > 0 ? ` (失败 ${failed})` : ''}`
+            });
+        }
+    }
+
+    /**
      * 批量处理消息中的资源
      */
     async processMessageResources(messages: RawMessage[]): Promise<Map<string, ResourceInfo[]>> {
@@ -322,17 +355,15 @@ export class ResourceHandler {
         let totalResources = 0;
         let resourcesNeedingDownload = 0;
         
-        console.log(`[ResourceHandler] 开始处理 ${messages.length} 条消息的资源`);
+        // 重置进度计数器
+        this.totalResourcesForProgress = 0;
+        this.completedResourcesForProgress = 0;
+        this.failedResourcesForProgress = 0;
         
         for (const message of messages) {
             const resources: ResourceInfo[] = [];
             
             for (const element of message.elements) {
-                // 调试：打印所有元素类型
-                if (element.videoElement || element.pttElement) {
-                    console.log(`[ResourceHandler] 🔍 发现媒体元素: elementType=${element.elementType}, hasVideo=${!!element.videoElement}, hasAudio=${!!element.pttElement}`);
-                }
-                
                 if (this.isMediaElement(element)) {
                     try {
                         const resourceInfo = await this.processElement(message, element);
@@ -344,10 +375,8 @@ export class ResourceHandler {
                             }
                         }
                     } catch (error) {
-                        console.warn(`[ResourceHandler] 处理元素失败:`, error);
+                        // 静默处理元素失败
                     }
-                } else if (element.videoElement || element.pttElement) {
-                    console.warn(`[ResourceHandler] ⚠️ 媒体元素未被识别: elementType=${element.elementType}, VIDEO=${ElementType.VIDEO}, PTT=${ElementType.PTT}`);
                 }
             }
             
@@ -356,22 +385,18 @@ export class ResourceHandler {
             }
         }
         
-        console.log(`[ResourceHandler] 资源处理完成: 总计 ${totalResources} 个资源, 其中 ${resourcesNeedingDownload} 个需要下载`);
+        // 设置进度总数
+        this.totalResourcesForProgress = resourcesNeedingDownload;
         
         // 等待所有下载任务完成
         if (resourcesNeedingDownload > 0) {
-            console.log(`[ResourceHandler] 开始等待 ${resourcesNeedingDownload} 个资源下载完成...`);
+            // 初始进度回调
+            this.emitProgress();
             
             // 给下载队列处理器足够时间启动和处理
-            console.log(`[ResourceHandler] 等待下载队列处理器启动...`);
-            await new Promise(resolve => setTimeout(resolve, 1000)); // 增加到1秒
+            await new Promise(resolve => setTimeout(resolve, 1000));
             
-            console.log(`[ResourceHandler] 开始监控下载进度...`);
             await this.waitForAllDownloads();
-            
-            console.log(`[ResourceHandler] 所有资源下载完成`);
-        } else {
-            console.log(`[ResourceHandler] 所有资源都已可用，无需下载`);
         }
         
         return resourceMap;
@@ -394,8 +419,6 @@ export class ResourceHandler {
         const isHealthy = await this.healthChecker.checkHealth(resourceInfo);
         resourceInfo.accessible = isHealthy;
         resourceInfo.checkedAt = new Date();
-        
-        console.log(`[ResourceHandler] 健康检查结果: ${resourceInfo.fileName} - ${isHealthy ? '可用' : '需要下载'} (路径: ${localPath})`);
         
         // 如果资源不健康或不存在，添加到下载队列并等待下载完成
         if (!isHealthy) {
@@ -438,8 +461,6 @@ export class ResourceHandler {
             // 从文件名中提取MD5（通常格式为: {md5}.mp4）
             const md5FromFileName = fileName.replace(/\.(mp4|avi|mov|mkv)$/i, '');
             const md5 = element.videoElement.md5HexStr || md5FromFileName || element.videoElement.fileUuid || '';
-            
-            console.log(`[ResourceHandler] 📹 视频元素: fileName=${fileName}, md5提取=${md5FromFileName}, 最终md5=${md5.substring(0, 32)}`);
             
             return {
                 type: 'video' as ResourceType,
@@ -526,7 +547,6 @@ export class ResourceHandler {
         
         // 检查是否已在队列中
         if (this.downloadQueue.some(task => task.id === taskId)) {
-            console.log(`[ResourceHandler] 任务 ${taskId} 已在下载队列中，跳过添加`);
             return;
         }
 
@@ -543,16 +563,11 @@ export class ResourceHandler {
         this.downloadQueue.push(task);
         this.downloadQueue.sort((a, b) => b.priority - a.priority);
         
-        console.log(`[ResourceHandler] 添加下载任务: ${resourceInfo.fileName} (优先级: ${task.priority}, 队列长度: ${this.downloadQueue.length})`);
-        
         // 启动处理队列（不等待，允许异步处理）
         if (!this.isProcessing) {
-            console.log(`[ResourceHandler] 启动下载队列处理器`);
-            this.processDownloadQueue().catch(error => {
-                console.error('[ResourceHandler] 处理下载队列时发生错误:', error);
+            this.processDownloadQueue().catch(() => {
+                // 静默处理错误
             });
-        } else {
-            console.log(`[ResourceHandler] 下载队列处理器已在运行中`);
         }
     }
 
@@ -583,11 +598,6 @@ export class ResourceHandler {
         
         this.isProcessing = true;
         const initialQueueSize = this.downloadQueue.length;
-        console.log(`[ResourceHandler] 开始处理下载队列，队列长度: ${initialQueueSize}`);
-        
-        let successCount = 0;
-        let failureCount = 0;
-        let skippedCount = 0;
         
         try {
             while (this.downloadQueue.length > 0) {
@@ -599,27 +609,24 @@ export class ResourceHandler {
                 const task = this.downloadQueue.shift();
                 if (!task) continue;
                 
-                const progress = Math.round(((initialQueueSize - this.downloadQueue.length) / initialQueueSize) * 100);
-                console.log(`[ResourceHandler] [${progress}%] 开始执行下载任务: ${task.resourceInfo.fileName} (剩余队列: ${this.downloadQueue.length}, 活跃下载: ${this.activeDownloads.size})`);
-                
                 // 启动下载任务
                 const downloadPromise = this.executeDownload(task)
                     .then(result => {
                         if (result) {
-                            successCount++;
-                            console.log(`[ResourceHandler] ✅ 下载成功: ${task.resourceInfo.fileName}`);
+                            this.completedResourcesForProgress++;
+                            this.emitProgress(task.resourceInfo.fileName);
                         } else {
                             // 空字符串表示延迟重试或跳过
                             if (task.resourceInfo.status === ResourceStatus.SKIPPED) {
-                                skippedCount++;
-                                console.log(`[ResourceHandler] ⏭️ 已跳过: ${task.resourceInfo.fileName}`);
+                                this.completedResourcesForProgress++;
+                                this.emitProgress();
                             }
                         }
                         return result;
                     })
-                    .catch(error => {
-                        failureCount++;
-                        console.error(`[ResourceHandler] ❌ 下载失败: ${task.resourceInfo.fileName} - ${error.message}`);
+                    .catch(() => {
+                        this.failedResourcesForProgress++;
+                        this.emitProgress();
                         return '';
                     });
                 
@@ -631,25 +638,13 @@ export class ResourceHandler {
                 });
             }
             
-            console.log(`[ResourceHandler] 所有下载任务已启动，等待完成...`);
-            
             // 等待所有下载完成，使用allSettled避免因个别失败而中断
-            const results = await Promise.allSettled(Array.from(this.activeDownloads.values()));
-            
-            // 统计最终结果
-            console.log(`[ResourceHandler] 📊 下载统计: 成功 ${successCount}, 失败 ${failureCount}, 跳过 ${skippedCount}, 总计 ${successCount + failureCount + skippedCount}`);
-            
-            // 检查是否有意外失败
-            const rejectedResults = results.filter(r => r.status === 'rejected');
-            if (rejectedResults.length > 0) {
-                console.warn(`[ResourceHandler] ⚠️ 有 ${rejectedResults.length} 个下载任务异常终止`);
-            }
+            await Promise.allSettled(Array.from(this.activeDownloads.values()));
             
         } catch (error) {
-            console.error(`[ResourceHandler] 下载队列处理出现严重错误:`, error);
+            // 静默处理错误
         } finally {
             this.isProcessing = false;
-            console.log(`[ResourceHandler] 下载队列处理完成`);
         }
     }
 
@@ -673,11 +668,8 @@ export class ResourceHandler {
      * 等待所有下载任务完成
      */
     private async waitForAllDownloads(): Promise<void> {
-        console.log(`[ResourceHandler] 开始等待所有下载任务完成，当前队列长度: ${this.downloadQueue.length}, 活跃下载: ${this.activeDownloads.size}, 正在处理: ${this.isProcessing}`);
-        
         // 如果没有任何下载任务，直接返回
         if (this.downloadQueue.length === 0 && this.activeDownloads.size === 0 && !this.isProcessing) {
-            console.log(`[ResourceHandler] 没有下载任务，直接返回`);
             return;
         }
 
@@ -692,7 +684,6 @@ export class ResourceHandler {
             const notProcessing = !this.isProcessing;
 
             if (queueEmpty && noActiveDownloads && notProcessing) {
-                console.log(`[ResourceHandler] 所有下载任务已完成`);
                 return;
             }
 
@@ -700,11 +691,10 @@ export class ResourceHandler {
             if (currentPending === previousPending && currentPending > 0) {
                 stagnationChecks++;
                 if (stagnationChecks >= stagnationThreshold) {
-                    console.warn(`[ResourceHandler] 检测到下载队列长期无进展，尝试重新触发处理。队列=${this.downloadQueue.length}, 活跃=${this.activeDownloads.size}, 处理中=${this.isProcessing}`);
                     try {
                         await this.processDownloadQueue();
                     } catch (error) {
-                        console.error('[ResourceHandler] 重新触发下载队列处理失败:', error);
+                        // 静默处理
                     }
                     stagnationChecks = 0;
                 }
@@ -751,7 +741,6 @@ export class ResourceHandler {
                 // 不可重试的错误，直接标记为跳过
                 task.resourceInfo.status = ResourceStatus.SKIPPED;
                 task.resourceInfo.lastError = `已跳过：${errorMessage}`;
-                console.log(`[ResourceHandler] 资源不可下载，已跳过: ${task.resourceInfo.fileName} - ${errorMessage}`);
             } else {
                 // 可重试的错误
                 task.resourceInfo.status = ResourceStatus.FAILED;
@@ -764,22 +753,19 @@ export class ResourceHandler {
             if (isRetriableError && task.retries < this.config.maxRetries) {
                 // 使用指数退避策略
                 const retryDelay = Math.min(1000 * Math.pow(2, task.retries - 1), 10000);
-                console.warn(`[ResourceHandler] 下载失败，${retryDelay}ms后重试 ${task.retries}/${this.config.maxRetries}: ${task.resourceInfo.fileName} - ${errorMessage}`);
                 
                 setTimeout(() => {
                     this.downloadQueue.unshift(task); // 重新添加到队列前端
                     
                     // 如果队列处理器已停止，重新启动
                     if (!this.isProcessing && this.downloadQueue.length > 0) {
-                        this.processDownloadQueue().catch(err => {
-                            console.error('[ResourceHandler] 重新启动队列处理失败:', err);
+                        this.processDownloadQueue().catch(() => {
+                            // 静默处理
                         });
                     }
                 }, retryDelay);
                 
                 return ''; // 返回空字符串表示延迟重试
-            } else {
-                console.error(`[ResourceHandler] 下载最终失败: ${task.resourceInfo.fileName} - ${errorMessage}`);
             }
             
             // 对于不可重试错误或重试次数耗尽的情况，不要抛出错误
@@ -842,21 +828,15 @@ export class ResourceHandler {
     private async downloadResource(message: RawMessage, element: MessageElement, resourceInfo: ResourceInfo): Promise<string> {
         const localPath = resourceInfo.localPath || this.generateLocalPath(resourceInfo);
         
-        console.log(`[ResourceHandler] 开始下载资源: ${resourceInfo.fileName}`);
-        console.log(`[ResourceHandler] 本地路径: ${localPath}`);
-        console.log(`[ResourceHandler] 消息ID: ${message.msgId}, 元素ID: ${element.elementId}`);
-        
         // 确保目录存在
         const dir = path.dirname(localPath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
-            console.log(`[ResourceHandler] 创建目录: ${dir}`);
         }
         
         try {
             // 检查是否是图片类型，如果是，使用图片特定的下载方法
             if (element.picElement && resourceInfo.type === 'image') {
-                console.log(`[ResourceHandler] 下载图片，使用图片API`);
                 const downloadedPath = await this.core.apis.FileApi.downloadMedia(
                     message.msgId,
                     message.chatType as any,
@@ -868,16 +848,12 @@ export class ResourceHandler {
                     true // force
                 );
                 
-                console.log(`[ResourceHandler] 图片下载完成: ${downloadedPath || '(空路径)'}`);
-                
                 // 检查下载返回路径是否有效
                 if (!downloadedPath || downloadedPath.trim() === '') {
-                    console.error(`[ResourceHandler] API返回空路径，尝试使用本地路径: ${localPath}`);
                     // 尝试检查本地路径是否存在文件
                     if (fs.existsSync(localPath)) {
                         const stats = fs.statSync(localPath);
                         if (stats.size > 0) {
-                            console.log(`[ResourceHandler] 找到本地文件，大小: ${stats.size} bytes`);
                             return localPath;
                         }
                     }
@@ -885,16 +861,11 @@ export class ResourceHandler {
                     // 如果本地路径也没有，尝试回退到图片元素的源路径
                     if (element.picElement.sourcePath && fs.existsSync(element.picElement.sourcePath)) {
                         const sourcePath = element.picElement.sourcePath;
-                        const stats = fs.statSync(sourcePath);
-                        console.log(`[ResourceHandler] 使用图片元素源路径: ${sourcePath}, 大小: ${stats.size} bytes`);
                         
                         // 复制到我们的资源目录
                         if (sourcePath !== localPath) {
-                            console.log(`[ResourceHandler] 复制源文件到资源目录: ${sourcePath} -> ${localPath}`);
                             fs.copyFileSync(sourcePath, localPath);
                             if (fs.existsSync(localPath)) {
-                                const copiedStats = fs.statSync(localPath);
-                                console.log(`[ResourceHandler] 源文件复制成功，大小: ${copiedStats.size} bytes`);
                                 return localPath;
                             }
                         }
@@ -907,7 +878,6 @@ export class ResourceHandler {
                 // 验证文件是否成功下载
                 if (fs.existsSync(downloadedPath)) {
                     const stats = fs.statSync(downloadedPath);
-                    console.log(`[ResourceHandler] 文件大小: ${stats.size} bytes`);
                     
                     if (stats.size === 0) {
                         throw new Error('下载的文件为空');
@@ -915,16 +885,12 @@ export class ResourceHandler {
                     
                     // 将文件复制到我们指定的资源目录
                     if (downloadedPath !== localPath) {
-                        console.log(`[ResourceHandler] 复制文件到指定位置: ${downloadedPath} -> ${localPath}`);
                         fs.copyFileSync(downloadedPath, localPath);
                         
                         // 验证复制是否成功
                         if (fs.existsSync(localPath)) {
-                            const copiedStats = fs.statSync(localPath);
-                            console.log(`[ResourceHandler] 文件复制成功，大小: ${copiedStats.size} bytes`);
                             return localPath; // 返回我们的资源路径
                         } else {
-                            console.warn(`[ResourceHandler] 文件复制失败，使用原路径: ${downloadedPath}`);
                             return downloadedPath;
                         }
                     }
@@ -935,7 +901,6 @@ export class ResourceHandler {
                 }
             } else {
                 // 其他类型资源的下载（音频、视频、文件等）
-                console.log(`[ResourceHandler] 下载${resourceInfo.type}资源`);
                 const downloadedPath = await this.core.apis.FileApi.downloadMedia(
                     message.msgId,
                     message.chatType as any,
@@ -947,16 +912,12 @@ export class ResourceHandler {
                     true // force
                 );
                 
-                console.log(`[ResourceHandler] ${resourceInfo.type}资源下载完成: ${downloadedPath || '(空路径)'}`);
-                
                 // 检查下载返回路径是否有效
                 if (!downloadedPath || downloadedPath.trim() === '') {
-                    console.error(`[ResourceHandler] ${resourceInfo.type}资源API返回空路径，尝试使用本地路径: ${localPath}`);
                     // 尝试检查本地路径是否存在文件
                     if (fs.existsSync(localPath)) {
                         const stats = fs.statSync(localPath);
                         if (stats.size > 0) {
-                            console.log(`[ResourceHandler] 找到${resourceInfo.type}本地文件，大小: ${stats.size} bytes`);
                             return localPath;
                         }
                     }
@@ -972,16 +933,10 @@ export class ResourceHandler {
                     }
                     
                     if (sourcePath && fs.existsSync(sourcePath)) {
-                        const stats = fs.statSync(sourcePath);
-                        console.log(`[ResourceHandler] 使用${resourceInfo.type}元素源路径: ${sourcePath}, 大小: ${stats.size} bytes`);
-                        
                         // 复制到我们的资源目录
                         if (sourcePath !== localPath) {
-                            console.log(`[ResourceHandler] 复制${resourceInfo.type}源文件到资源目录: ${sourcePath} -> ${localPath}`);
                             fs.copyFileSync(sourcePath, localPath);
                             if (fs.existsSync(localPath)) {
-                                const copiedStats = fs.statSync(localPath);
-                                console.log(`[ResourceHandler] ${resourceInfo.type}源文件复制成功，大小: ${copiedStats.size} bytes`);
                                 return localPath;
                             }
                         }
@@ -994,7 +949,6 @@ export class ResourceHandler {
                 // 验证并复制文件
                 if (fs.existsSync(downloadedPath)) {
                     const stats = fs.statSync(downloadedPath);
-                    console.log(`[ResourceHandler] 文件大小: ${stats.size} bytes`);
                     
                     if (stats.size === 0) {
                         throw new Error('下载的文件为空');
@@ -1002,15 +956,11 @@ export class ResourceHandler {
                     
                     // 复制到指定位置（如果路径不同）
                     if (downloadedPath !== localPath) {
-                        console.log(`[ResourceHandler] 复制${resourceInfo.type}文件: ${downloadedPath} -> ${localPath}`);
                         fs.copyFileSync(downloadedPath, localPath);
                         
                         if (fs.existsSync(localPath)) {
-                            const copiedStats = fs.statSync(localPath);
-                            console.log(`[ResourceHandler] ${resourceInfo.type}文件复制成功，大小: ${copiedStats.size} bytes`);
                             return localPath;
                         } else {
-                            console.warn(`[ResourceHandler] ${resourceInfo.type}文件复制失败，使用原路径`);
                             return downloadedPath;
                         }
                     }
@@ -1022,17 +972,6 @@ export class ResourceHandler {
             }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`[ResourceHandler] 下载失败:`, {
-                error: errorMessage,
-                messageId: message.msgId,
-                elementId: element.elementId,
-                resourceType: resourceInfo.type,
-                fileName: resourceInfo.fileName,
-                localPath,
-                chatType: message.chatType,
-                peerUid: message.peerUid,
-                timeout: this.config.downloadTimeout
-            });
             
             // 根据错误类型提供更具体的错误信息
             let enhancedMessage = `${resourceInfo.type}资源下载失败`;
@@ -1113,7 +1052,7 @@ export class ResourceHandler {
                 }
             }
         } catch (error) {
-            console.warn('[ResourceHandler] 健康检查失败:', error);
+            // 静默处理
         }
     }
 
@@ -1196,16 +1135,15 @@ export class ResourceHandler {
                 if (resource.localPath && fs.existsSync(resource.localPath)) {
                     try {
                         fs.unlinkSync(resource.localPath);
-                        console.log(`[ResourceHandler] 清理过期缓存: ${resource.fileName}`);
                     } catch (error) {
-                        console.warn(`[ResourceHandler] 清理缓存失败: ${resource.fileName}`, error);
+                        // 静默处理
                     }
                 }
             }
             
             await this.dbManager.deleteExpiredResources(cutoffTime);
         } catch (error) {
-            console.error('[ResourceHandler] 清理过期缓存时发生错误:', error);
+            // 静默处理
         }
     }
 }

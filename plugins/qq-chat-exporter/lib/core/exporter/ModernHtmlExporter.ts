@@ -5,6 +5,17 @@ import os from 'os';
 import { pipeline } from 'stream/promises';
 import { once } from 'events';
 import type { CleanMessage } from '../parser/SimpleMessageParser.js';
+import {
+    renderTemplate,
+    MODERN_CSS,
+    MODERN_TOOLBAR_HTML,
+    MODERN_FOOTER_HTML,
+    MODERN_SINGLE_SCRIPTS_HTML,
+    MODERN_SINGLE_HTML_TOP_TEMPLATE,
+    MODERN_SINGLE_HTML_BOTTOM_TEMPLATE,
+    MODERN_CHUNKED_INDEX_HTML_TEMPLATE,
+    MODERN_CHUNKED_APP_JS
+} from './ModernHtmlTemplates.js';
 
 /**
  * HTML导出选项
@@ -14,6 +25,79 @@ export interface HtmlExportOptions {
     includeResourceLinks?: boolean;
     includeSystemMessages?: boolean;
     encoding?: string; // 建议使用 'utf8'
+}
+
+/**
+ * Chunked 导出选项
+ */
+export interface ChunkedHtmlExportOptions {
+    /**
+     * 资源与数据目录名（相对于 outputPath 所在目录）
+     * 默认：
+     * - assetsDirName = 'assets'
+     * - dataDirName   = 'data'
+     * - chunksDirName = 'chunks'
+     * - indexDirName  = 'index'
+     */
+    assetsDirName?: string;
+    dataDirName?: string;
+    chunksDirName?: string;
+    indexDirName?: string;
+
+    /**
+     * 分块策略
+     * - maxMessagesPerChunk: 每个 chunk 最大消息数（默认 2000）
+     * - maxChunkBytes: chunk 文件软限制（默认 50MB）
+     */
+    maxMessagesPerChunk?: number;
+    maxChunkBytes?: number;
+
+    /**
+     * 全文搜索索引（Chunk 级 Bloom Filter）
+     * - enableTextBloom: 是否生成文本 Bloom（默认 true）
+     * - bloomTextBits / bloomTextHashes: Bloom 参数（默认 16384 bits / 6 hashes）
+     * - bloomSenderBits / bloomSenderHashes: sender Bloom 参数（默认 2048 bits / 4 hashes）
+     * - bloomMaxCharsPerMessage: 单条消息用于 Bloom 的最大字符数（默认 8192）
+     */
+    enableTextBloom?: boolean;
+    bloomTextBits?: number;
+    bloomTextHashes?: number;
+    bloomSenderBits?: number;
+    bloomSenderHashes?: number;
+    bloomMaxCharsPerMessage?: number;
+
+    /**
+     * message.text 存储长度（用于 viewer 端 message-level 快速 contains）
+     * - 默认 4096
+     * - 若被截断，会写入 textTruncated=true，viewer 会在必要时回退用 html.toLowerCase().includes(term) 兜底，保证不漏
+     */
+    storeTextMaxChars?: number;
+
+    /**
+     * msgId 索引（用于 reply 跳转跨 chunk）
+     * - bucketCount: 分桶数量（默认 64）
+     * - viewer 会按需加载 bucket 文件（JSONP），不需要一次性加载全量 mapping
+     */
+    msgIdIndexBucketCount?: number;
+
+    /**
+     * 是否输出 manifest.json（默认 true）
+     * - manifest.js 总是输出（file:// 下无需 fetch）
+     */
+    writeManifestJson?: boolean;
+}
+
+/**
+ * Chunked 导出结果
+ */
+export interface ChunkedHtmlExportResult {
+    outputDir: string;
+    indexHtmlPath: string;
+    manifestJsPath: string;
+    manifestJsonPath?: string;
+    chunkCount: number;
+    totalMessages: number;
+    copiedResources: string[];
 }
 
 /**
@@ -44,6 +128,13 @@ export class ModernHtmlExporter {
     private currentChatInfo?: ChatInfo;
     private lastRenderedDate?: string;
 
+    /**
+     * 资源引用基础路径（URL 相对前缀）
+     * - 为兼容现有单文件方案默认保持 '../resources'
+     * - Chunked 方案会临时切换为 'resources'
+     */
+    private resourceBaseHref: string = '../resources';
+
     constructor(options: HtmlExportOptions) {
         this.options = {
             includeResourceLinks: true,
@@ -62,6 +153,477 @@ export class ModernHtmlExporter {
     }
 
     /**
+     * 新增：Chunked Viewer 导出（可选接口）
+     * - 输出：index.html + assets/ + data/manifest(.js/.json) + data/chunks/*.js + data/index/msgid_bXX.js
+     * - 特性：Streaming 写入、分块、索引、资源复制并发受限，避免 OOM
+     */
+    async exportChunked(messages: CleanMessage[], chatInfo: ChatInfo, options?: ChunkedHtmlExportOptions): Promise<ChunkedHtmlExportResult> {
+        return await this.exportChunkedFromIterable(messages, chatInfo, options);
+    }
+
+    /**
+     * 新增：从 Iterable/AsyncIterable 进行 Chunked 导出（最低内存占用）
+     */
+    async exportChunkedFromIterable(
+        messages: Iterable<CleanMessage> | AsyncIterable<CleanMessage>,
+        chatInfo: ChatInfo,
+        options: ChunkedHtmlExportOptions = {}
+    ): Promise<ChunkedHtmlExportResult> {
+        const encoding = (this.options.encoding || 'utf8') as BufferEncoding;
+
+        const outputDir = path.dirname(this.options.outputPath);
+        await fsp.mkdir(outputDir, { recursive: true });
+
+        // dirs
+        const assetsDirName = options.assetsDirName || 'assets';
+        const dataDirName = options.dataDirName || 'data';
+        const chunksDirName = options.chunksDirName || 'chunks';
+        const indexDirName = options.indexDirName || 'index';
+
+        const assetsDir = path.join(outputDir, assetsDirName);
+        const dataDir = path.join(outputDir, dataDirName);
+        const chunksDir = path.join(dataDir, chunksDirName);
+        const indexDir = path.join(dataDir, indexDirName);
+
+        await Promise.all([
+            fsp.mkdir(assetsDir, { recursive: true }),
+            fsp.mkdir(dataDir, { recursive: true }),
+            fsp.mkdir(chunksDir, { recursive: true }),
+            fsp.mkdir(indexDir, { recursive: true }),
+        ]);
+
+        // write assets (style.css + app.js)
+        await fsp.writeFile(path.join(assetsDir, 'style.css'), MODERN_CSS, encoding);
+        await fsp.writeFile(path.join(assetsDir, 'app.js'), MODERN_CHUNKED_APP_JS, encoding);
+
+        // resource dirs
+        if (this.options.includeResourceLinks) {
+            const resourceTypes = ['images', 'videos', 'audios', 'files'];
+            await Promise.all(
+                resourceTypes.map(type =>
+                    fsp.mkdir(path.join(outputDir, 'resources', type), { recursive: true })
+                )
+            );
+        }
+
+        // concurrency for resource copy
+        const concurrency = Math.max(2, Math.min(8, os.cpus().length || 4));
+        const running: Promise<void>[] = [];
+        const copiedResources: string[] = [];
+        let copiedCount = 0;
+
+        const scheduleCopy = (task: () => Promise<string | null>) => {
+            const p = (async () => {
+                try {
+                    const resourcePath = await task();
+                    if (resourcePath) copiedResources.push(resourcePath);
+                    copiedCount++;
+                } catch (e) {
+                    console.error(`[ModernHtmlExporter][Chunked] 复制资源失败:`, e);
+                }
+            })();
+
+            p.finally(() => {
+                const idx = running.indexOf(p);
+                if (idx >= 0) running.splice(idx, 1);
+            });
+
+            running.push(p);
+            return p;
+        };
+
+        // chunk options
+        const maxMessagesPerChunk = Math.max(100, options.maxMessagesPerChunk || 2000);
+        const maxChunkBytes = Math.max(1 * 1024 * 1024, options.maxChunkBytes || (50 * 1024 * 1024)); // 50MB
+        const enableTextBloom = options.enableTextBloom !== false; // default true
+        const bloomTextBits = Math.max(2048, options.bloomTextBits || 16384);
+        const bloomTextHashes = Math.max(2, options.bloomTextHashes || 6);
+        const bloomSenderBits = Math.max(512, options.bloomSenderBits || 2048);
+        const bloomSenderHashes = Math.max(2, options.bloomSenderHashes || 4);
+        const bloomMaxCharsPerMessage = Math.max(256, options.bloomMaxCharsPerMessage || 8192);
+        const storeTextMaxChars = Math.max(256, options.storeTextMaxChars || 4096);
+        const msgIdIndexBucketCount = Math.max(8, Math.min(256, options.msgIdIndexBucketCount || 64));
+        const writeManifestJson = options.writeManifestJson !== false; // default true
+
+        // manifest structures
+        const chunksMeta: any[] = [];
+        const sendersByUid: Map<string, { names: Set<string>, displayName: string, count: number }> = new Map();
+
+        let totalMessages = 0;
+        let firstTime: Date | null = null;
+        let lastTime: Date | null = null;
+        let minDateKey: string | null = null;
+        let maxDateKey: string | null = null;
+
+        // msgId index bucket streams
+        const bucketStreams: fs.WriteStream[] = [];
+        const bucketFirst: boolean[] = [];
+        const bucketFilePrefix = 'msgid_b';
+        const bucketFileExt = '.js';
+
+        const openBucketStreams = async () => {
+            for (let i = 0; i < msgIdIndexBucketCount; i++) {
+                const hex = i.toString(16).padStart(2, '0');
+                const fileName = `${bucketFilePrefix}${hex}${bucketFileExt}`;
+                const absPath = path.join(indexDir, fileName);
+                const ws = fs.createWriteStream(absPath, { encoding, flags: 'w' });
+                ws.on('error', (e) => console.error('[ModernHtmlExporter][Chunked] msgid index 写入错误:', e));
+                bucketStreams.push(ws);
+                bucketFirst.push(true);
+                await this.writeChunk(ws, `window.__QCE_MSGID_INDEX__ && window.__QCE_MSGID_INDEX__(${String(i)}, [\n`);
+            }
+        };
+
+        const closeBucketStreams = async () => {
+            const tasks: Promise<void>[] = [];
+            for (let i = 0; i < bucketStreams.length; i++) {
+                const ws = bucketStreams[i];
+                tasks.push((async () => {
+                    await this.writeChunk(ws, `\n]);\n`);
+                    ws.end();
+                    await once(ws, 'finish');
+                })());
+            }
+            await Promise.all(tasks);
+        };
+
+        const hashToBucket = (msgId: string) => {
+            // same as viewer: FNV1a32 % bucketCount
+            const h = fnv1a32(msgId, 0x811c9dc5);
+            return (h % msgIdIndexBucketCount) >>> 0;
+        };
+
+        // chunk writer state
+        let chunkIndex = 0;
+        let chunkId = '';
+        let chunkWs: fs.WriteStream | null = null;
+        let chunkCount = 0;
+        let chunkBytes = 0;
+        let chunkStartTs = 0;
+        let chunkEndTs = 0;
+        let chunkStartDate = '';
+        let chunkEndDate = '';
+        let chunkFirstMsgId = '';
+        let chunkLastMsgId = '';
+
+        let textBloom: BloomFilter | null = null;
+        let senderBloom: BloomFilter | null = null;
+        let textBloomIncomplete = false;
+
+        let isFirstRecordInChunk = true;
+
+        const chunkFileRel = (id: string) => {
+            // URL path must use posix separators
+            return path.posix.join(dataDirName, chunksDirName, `${id}.js`);
+        };
+
+        const bucketFileRel = (bucket: number) => {
+            const hex = bucket.toString(16).padStart(2, '0');
+            return path.posix.join(dataDirName, indexDirName, `${bucketFilePrefix}${hex}${bucketFileExt}`);
+        };
+
+        const startChunk = async () => {
+            chunkIndex++;
+            chunkId = `c${String(chunkIndex).padStart(6, '0')}`;
+            const absPath = path.join(chunksDir, `${chunkId}.js`);
+            chunkWs = fs.createWriteStream(absPath, { encoding, flags: 'w' });
+            chunkWs.on('error', (e) => console.error('[ModernHtmlExporter][Chunked] chunk 写入错误:', e));
+            chunkCount = 0;
+            chunkBytes = 0;
+            chunkStartTs = 0;
+            chunkEndTs = 0;
+            chunkStartDate = '';
+            chunkEndDate = '';
+            chunkFirstMsgId = '';
+            chunkLastMsgId = '';
+            isFirstRecordInChunk = true;
+
+            textBloomIncomplete = false;
+            textBloom = enableTextBloom ? new BloomFilter(bloomTextBits, bloomTextHashes) : null;
+            senderBloom = new BloomFilter(bloomSenderBits, bloomSenderHashes);
+
+            await this.writeChunk(chunkWs, `window.__QCE_CHUNK__ && window.__QCE_CHUNK__({id:${JSON.stringify(chunkId)},messages:[\n`);
+            chunkBytes += Buffer.byteLength(`window.__QCE_CHUNK__ && window.__QCE_CHUNK__({id:${JSON.stringify(chunkId)},messages:[\n`, encoding);
+        };
+
+        const finishChunk = async () => {
+            if (!chunkWs) return;
+            await this.writeChunk(chunkWs, `\n]});\n`);
+            chunkBytes += Buffer.byteLength(`\n]});\n`, encoding);
+            chunkWs.end();
+            await once(chunkWs, 'finish');
+
+            // meta
+            const meta = {
+                id: chunkId,
+                file: chunkFileRel(chunkId),
+                count: chunkCount,
+                startTs: chunkStartTs,
+                endTs: chunkEndTs,
+                startDate: chunkStartDate,
+                endDate: chunkEndDate,
+                textBloom: textBloom ? textBloom.toBase64() : '',
+                textBloomIncomplete: textBloomIncomplete,
+                senderBloom: senderBloom ? senderBloom.toBase64() : '',
+                firstMsgId: chunkFirstMsgId,
+                lastMsgId: chunkLastMsgId,
+                bytes: chunkBytes
+            };
+            chunksMeta.push(meta);
+
+            chunkWs = null;
+            textBloom = null;
+            senderBloom = null;
+        };
+
+        // prepare bucket streams
+        await openBucketStreams();
+
+        // setup exporter state
+        this.currentChatInfo = chatInfo;
+        this.lastRenderedDate = undefined;
+
+        // For chunked viewer, resource href base should be "resources"
+        const oldResourceBaseHref = this.resourceBaseHref;
+        this.resourceBaseHref = 'resources';
+
+        try {
+            // stream process messages
+            for await (const message of this.toAsyncIterable(messages)) {
+                if (!this.options.includeSystemMessages && this.isSystemMessage(message)) continue;
+
+                const t = this.safeToDate((message as any)?.timestamp || message?.time);
+                const ts = t ? t.getTime() : 0;
+                const dateInfo = this.getMessageDateInfo(message);
+                const dateKey = dateInfo?.key || '';
+
+                // global stats
+                if (t) {
+                    if (!firstTime || t < firstTime) firstTime = t;
+                    if (!lastTime || t > lastTime) lastTime = t;
+                }
+                if (dateKey) {
+                    if (!minDateKey || dateKey < minDateKey) minDateKey = dateKey;
+                    if (!maxDateKey || dateKey > maxDateKey) maxDateKey = dateKey;
+                }
+
+                // sender stats
+                const senderUid = String((message as any)?.sender?.uid || (message as any)?.sender?.uin || '');
+                const senderName = this.getDisplayName(message);
+                const senderNameLower = senderName ? senderName.toLowerCase() : '';
+                if (senderUid) {
+                    if (!sendersByUid.has(senderUid)) {
+                        sendersByUid.set(senderUid, { names: new Set(), displayName: senderName, count: 0 });
+                    }
+                    const info = sendersByUid.get(senderUid)!;
+                    info.names.add(senderName);
+                    info.count++;
+                    if (!info.displayName) info.displayName = senderName;
+                }
+
+                // ensure chunk
+                if (!chunkWs) await startChunk();
+
+                // set chunk boundary stats
+                if (chunkCount === 0) {
+                    chunkStartTs = ts;
+                    chunkStartDate = dateKey;
+                    chunkFirstMsgId = `msg-${message.id}`;
+                }
+                chunkEndTs = ts;
+                chunkEndDate = dateKey;
+                chunkLastMsgId = `msg-${message.id}`;
+
+                // render HTML
+                const html = this.renderMessage(message);
+
+                // extract plain text
+                const plain = this.extractPlainText(message);
+                const plainLowerFull = plain ? plain.toLowerCase() : '';
+                const storedText = plainLowerFull.slice(0, storeTextMaxChars);
+                const textTruncated = plainLowerFull.length > storeTextMaxChars;
+
+                // bloom update
+                if (senderBloom && senderUid) (senderBloom as BloomFilter).add(senderUid);
+                if (enableTextBloom && textBloom) {
+                    const bloomText = (plainLowerFull + ' ' + senderNameLower);
+                    const bloomSlice = bloomText.slice(0, bloomMaxCharsPerMessage);
+                    if (bloomText.length > bloomMaxCharsPerMessage) textBloomIncomplete = true;
+                    this.addTextToBloom(textBloom, bloomSlice);
+                }
+
+                // write msgId -> chunkId mapping (bucketed)
+                const domMsgId = `msg-${message.id}`;
+                const b = hashToBucket(domMsgId);
+                const bws = bucketStreams[b];
+                if (bws) {
+                    const pair = JSON.stringify([domMsgId, chunkId]);
+                    const sep = bucketFirst[b] ? '' : ',\n';
+                    bucketFirst[b] = false;
+                    await this.writeChunk(bws, sep + pair);
+                }
+
+                // build record
+                const record = {
+                    id: domMsgId,
+                    ts,
+                    date: dateKey,
+                    uid: senderUid,
+                    name: senderName,
+                    nameLower: senderNameLower,
+                    text: storedText,
+                    textTruncated: textTruncated,
+                    html
+                };
+
+                const json = JSON.stringify(record);
+                const prefix = isFirstRecordInChunk ? '' : ',\n';
+                isFirstRecordInChunk = false;
+
+                await this.writeChunk(chunkWs!, prefix + json);
+                chunkBytes += Buffer.byteLength(prefix + json, encoding);
+
+                totalMessages++;
+                chunkCount++;
+
+                // resource copy
+                if (this.options.includeResourceLinks) {
+                    for (const res of this.iterResources(message)) {
+                        while (running.length >= concurrency) await Promise.race(running);
+                        scheduleCopy(() => this.copyResourceFileStream(res, outputDir));
+                    }
+                }
+
+                // rotate chunk
+                if (chunkCount >= maxMessagesPerChunk || chunkBytes >= maxChunkBytes) {
+                    await finishChunk();
+                }
+            }
+
+            // final flush
+            if (chunkWs) await finishChunk();
+
+            // wait resource copies
+            await Promise.all(running);
+
+            // close bucket index streams
+            await closeBucketStreams();
+
+            // build manifest
+            const exportTimeIso = new Date().toISOString();
+            const timeRangeText = firstTime && lastTime
+                ? `${firstTime.toLocaleDateString('zh-CN')} 至 ${lastTime.toLocaleDateString('zh-CN')}`
+                : '--';
+
+            const senders = Array.from(sendersByUid.entries()).map(([uid, info]) => ({
+                uid,
+                displayName: info.displayName || uid,
+                aliases: Array.from(info.names),
+                count: info.count || 0
+            }));
+
+            const manifest = {
+                format: 'qce-modern-html-chunked',
+                version: 1,
+                exportTime: exportTimeIso,
+                chat: {
+                    name: chatInfo.name,
+                    type: chatInfo.type,
+                    avatar: chatInfo.avatar,
+                    selfUid: chatInfo.selfUid,
+                    selfUin: chatInfo.selfUin,
+                    selfName: chatInfo.selfName
+                },
+                stats: {
+                    totalMessages,
+                    firstTime: firstTime ? firstTime.toISOString() : null,
+                    lastTime: lastTime ? lastTime.toISOString() : null,
+                    timeRangeText,
+                    minDateKey: minDateKey || null,
+                    maxDateKey: maxDateKey || null
+                },
+                chunking: {
+                    maxMessagesPerChunk,
+                    maxChunkBytes
+                },
+                bloom: {
+                    textBits: bloomTextBits,
+                    textHashes: bloomTextHashes,
+                    senderBits: bloomSenderBits,
+                    senderHashes: bloomSenderHashes
+                },
+                msgidIndex: {
+                    bucketCount: msgIdIndexBucketCount,
+                    dir: path.posix.join(dataDirName, indexDirName),
+                    filePrefix: bucketFilePrefix,
+                    fileExt: bucketFileExt
+                },
+                paths: {
+                    assetsDir: assetsDirName,
+                    dataDir: dataDirName,
+                    chunksDir: path.posix.join(dataDirName, chunksDirName),
+                    indexDir: path.posix.join(dataDirName, indexDirName),
+                    resourcesDir: 'resources'
+                },
+                senders,
+                chunks: chunksMeta
+            };
+
+            // write manifest.js (JSONP)
+            const manifestJsPath = path.join(dataDir, 'manifest.js');
+            const manifestJsonPath = path.join(dataDir, 'manifest.json');
+
+            await fsp.writeFile(manifestJsPath, `window.__QCE_MANIFEST__ && window.__QCE_MANIFEST__(${JSON.stringify(manifest)});\n`, encoding);
+            if (writeManifestJson) {
+                await fsp.writeFile(manifestJsonPath, JSON.stringify(manifest, null, 2), encoding);
+            }
+
+            // write index.html (viewer shell) AFTER stats computed
+            const metadata = {
+                messageCount: totalMessages,
+                chatName: chatInfo.name,
+                chatType: chatInfo.type,
+                exportTime: exportTimeIso,
+                mode: 'chunked'
+            };
+
+            const headerHtml = this.generateHeader(chatInfo, { totalMessages: totalMessages }, timeRangeText);
+            const indexHtml = renderTemplate(MODERN_CHUNKED_INDEX_HTML_TEMPLATE, {
+                METADATA_JSON: JSON.stringify(metadata),
+                CHAT_NAME_ESC: this.escapeHtml(chatInfo.name),
+                TOOLBAR: MODERN_TOOLBAR_HTML,
+                HEADER: headerHtml,
+                FOOTER: MODERN_FOOTER_HTML
+            });
+
+            await fsp.writeFile(this.options.outputPath, indexHtml, encoding);
+
+            // 导出完成，静默处理
+
+            return {
+                outputDir,
+                indexHtmlPath: this.options.outputPath,
+                manifestJsPath,
+                manifestJsonPath: writeManifestJson ? manifestJsonPath : undefined,
+                chunkCount: chunksMeta.length,
+                totalMessages,
+                copiedResources
+            };
+
+        } catch (error) {
+            console.error(`[ModernHtmlExporter][Chunked] 导出发生错误:`, error);
+            throw error;
+        } finally {
+            // restore
+            this.resourceBaseHref = oldResourceBaseHref;
+            // close bucket streams if something went wrong
+            for (const ws of bucketStreams) {
+                try { ws.destroy(); } catch { /* noop */ }
+            }
+        }
+    }
+
+    /**
      * 从 Iterable/AsyncIterable 流式导出，最低内存占用
      */
     async exportFromIterable(
@@ -70,11 +632,11 @@ export class ModernHtmlExporter {
     ): Promise<string[]> {
         const outputDir = path.dirname(this.options.outputPath);
         await fsp.mkdir(outputDir, { recursive: true });
-
         const ws = fs.createWriteStream(this.options.outputPath, {
             encoding: (this.options.encoding || 'utf8') as BufferEncoding,
             flags: 'w'
         });
+
         this.currentChatInfo = chatInfo;
         this.lastRenderedDate = undefined;
 
@@ -83,11 +645,13 @@ export class ModernHtmlExporter {
             console.error('[ModernHtmlExporter] 写入流错误:', error);
             try { ws.destroy(); } catch { /* noop */ }
         };
+
         ws.on('error', onError);
 
         let totalMessages = 0;
         let firstTime: Date | null = null;
         let lastTime: Date | null = null;
+
         let copiedCount = 0;
         const copiedResources: string[] = [];
 
@@ -107,11 +671,13 @@ export class ModernHtmlExporter {
                     console.error(`[ModernHtmlExporter] 复制资源失败:`, e);
                 }
             })();
+
             // 完成后从运行集中移除
             p.finally(() => {
                 const idx = running.indexOf(p);
                 if (idx >= 0) running.splice(idx, 1);
             });
+
             running.push(p);
             return p;
         };
@@ -127,36 +693,30 @@ export class ModernHtmlExporter {
         }
 
         try {
-            // 1) 写入文档头与样式/脚本 + 头部信息(占位)
-            await this.writeChunk(
-                ws,
-                `<!DOCTYPE html>
-<html lang="zh-CN">
-<!-- QCE_METADATA: {"messageCount": 0, "chatName": "${this.escapeHtml(chatInfo.name)}", "chatType": "${chatInfo.type}", "exportTime": "${new Date().toISOString()}"} -->
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>聊天记录 - ${this.escapeHtml(chatInfo.name)}</title>
-${this.generateStyles()}
-${this.generateScripts()}
-</head>
-<body>
-    <!-- Toolbar -->
-    ${this.generateToolbar()}
+            const exportTimeIso = new Date().toISOString();
+            const metadata = {
+                messageCount: 0,
+                chatName: chatInfo.name,
+                chatType: chatInfo.type,
+                exportTime: exportTimeIso
+            };
 
-    <div class="chat-layout">
-        <div class="chat-main">
-            <!-- Hero Section -->
-${this.generateHeader(chatInfo, { totalMessages: '--' }, '--')}
-            <!-- Chat Messages -->
-            <div class="chat-content">
-`
-            );
+            // 1) 写入文档头与样式/脚本 + 头部信息(占位)
+            const topHtml = renderTemplate(MODERN_SINGLE_HTML_TOP_TEMPLATE, {
+                METADATA_JSON: JSON.stringify(metadata),
+                CHAT_NAME_ESC: this.escapeHtml(chatInfo.name),
+                STYLES: this.generateStyles(),
+                SCRIPTS: this.generateScripts(),
+                TOOLBAR: this.generateToolbar(),
+                HEADER: this.generateHeader(chatInfo, { totalMessages: '--' }, '--')
+            });
+
+            await this.writeChunk(ws, topHtml);
 
             // 2) 单次遍历：一边渲染消息写入，一边调度资源复制
             for await (const message of this.toAsyncIterable(messages)) {
                 // 统计时间范围（首/尾）
-                const t = this.safeToDate(message?.time);
+                const t = this.safeToDate((message as any)?.timestamp || message?.time);
                 if (t) {
                     if (!firstTime || t < firstTime) firstTime = t;
                     if (!lastTime || t > lastTime) lastTime = t;
@@ -195,33 +755,13 @@ ${this.generateHeader(chatInfo, { totalMessages: '--' }, '--')}
             // 使用安全的 JSON 转义注入文本
             const timeRangeJs = JSON.stringify(timeRangeText);
 
-            await this.writeChunk(
-                ws,
-                `            </div>
-${this.generateFooter()}
-        </div>
-    </div>
+            const bottomHtml = renderTemplate(MODERN_SINGLE_HTML_BOTTOM_TEMPLATE, {
+                FOOTER: this.generateFooter(),
+                TOTAL_MESSAGES: String(totalMessages),
+                TIME_RANGE_JS: timeRangeJs
+            });
 
-    <!-- Image Modal -->
-    <div class="image-modal" id="imageModal">
-        <img src="" alt="" id="modalImage">
-</div>
-
-<!-- 统计占位回填 -->
-<script>
-(function(){
-  try {
-    var totalEl = document.getElementById('info-total');
-    if (totalEl) totalEl.textContent = ${String(totalMessages)};
-    var rangeEl = document.getElementById('info-range');
-    if (rangeEl) rangeEl.textContent = ${timeRangeJs};
-  } catch (e) { /* noop */ }
-})();
-</script>
-
-</body>
-</html>`
-            );
+            await this.writeChunk(ws, bottomHtml);
 
             // 正常结束写入
             ws.end();
@@ -230,18 +770,10 @@ ${this.generateFooter()}
             // 更新元数据注释中的消息数量
             await this.updateMetadata(totalMessages);
 
-            // 控制台输出
-            if (this.options.includeResourceLinks) {
-                console.log(`[ModernHtmlExporter] HTML导出完成！`);
-                console.log(`[ModernHtmlExporter] 📁 HTML文件位置: ${this.options.outputPath}`);
-                console.log(`[ModernHtmlExporter] 📁 资源文件位置: ${path.join(outputDir, 'resources')}/`);
-                console.log(`[ModernHtmlExporter] ✅ 共复制资源 ${copiedCount} 个`);
-                console.log(`[ModernHtmlExporter] ⚠️ 重要提示：保持 HTML 与 resources 目录同级，移动请整体搬迁。`);
-            } else {
-                console.log(`[ModernHtmlExporter] HTML导出完成！文件位置: ${this.options.outputPath}`);
-            }
-            
+            // 导出完成，静默处理
+
             return copiedResources;
+
         } catch (error) {
             // 确保流被关闭
             try { ws.destroy(); } catch { /* noop */ }
@@ -278,7 +810,7 @@ ${this.generateFooter()}
     /* ------------------------ 资源复制（流式 + 并发受限） ------------------------ */
 
     private *iterResources(message: CleanMessage): Iterable<ResourceTask> {
-        const c = message?.content;
+        const c = (message as any)?.content;
 
         // 自带 resources 数组
         if (c?.resources && Array.isArray(c.resources)) {
@@ -299,13 +831,28 @@ ${this.generateFooter()}
         if (c?.elements && Array.isArray(c.elements)) {
             for (const el of c.elements as any[]) {
                 const data = el?.data;
+                const elType = el?.type || 'file';
+                
+                // 优先使用有效的 localPath
                 if (data && typeof data === 'object' && data.localPath && this.isValidResourcePath(data.localPath)) {
                     yield {
-                        type: (el?.type || 'file') as string,
+                        type: elType as string,
                         fileName: path.basename(data.localPath),
                         localPath: data.localPath,
                         url: data.url
                     };
+                }
+                // 如果没有有效的 localPath，但有 filename/md5，也尝试处理（用于流式导出）
+                else if (data && typeof data === 'object' && (data.filename || data.md5)) {
+                    const fileName = data.filename || (data.md5 ? `${data.md5}.jpg` : null);
+                    if (fileName) {
+                        yield {
+                            type: elType as string,
+                            fileName: fileName,
+                            localPath: '', // 空路径，copyResourceFileStream 会从 ResourceHandler 目录查找
+                            url: data.url
+                        };
+                    }
                 }
             }
         }
@@ -318,45 +865,85 @@ ${this.generateFooter()}
         try {
             // 读取HTML文件内容
             const content = await fsp.readFile(this.options.outputPath, 'utf8');
-            
+
             // 查找并替换元数据注释
             const metadataRegex = /<!-- QCE_METADATA: \{[^}]+\} -->/;
             const match = content.match(metadataRegex);
-            
+
             if (match) {
                 // 提取现有元数据
                 const metadataStr = match[0].match(/\{[^}]+\}/)?.[0];
                 if (metadataStr) {
                     const metadata = JSON.parse(metadataStr);
                     metadata.messageCount = messageCount;
-                    
+
                     // 生成新的元数据注释
                     const newMetadataComment = `<!-- QCE_METADATA: ${JSON.stringify(metadata)} -->`;
-                    
+
                     // 替换旧的元数据注释
                     const newContent = content.replace(metadataRegex, newMetadataComment);
-                    
+
                     // 写回文件
                     await fsp.writeFile(this.options.outputPath, newContent, 'utf8');
-                    
-                    console.log(`[ModernHtmlExporter] ✅ 元数据已更新: messageCount=${messageCount}`);
                 }
             }
+
         } catch (error) {
-            console.error('[ModernHtmlExporter] 更新元数据失败:', error);
+            // 静默处理元数据更新失败
             // 不抛出错误，不影响导出流程
         }
     }
 
     private async copyResourceFileStream(resource: ResourceTask, outputDir: string): Promise<string | null> {
         try {
-            const sourceAbsolutePath = this.resolveResourcePath(resource.localPath);
-
-            // 源文件存在性校验
-            await fsp.access(sourceAbsolutePath).catch(() => {
-                console.warn(`[ModernHtmlExporter] 源文件不存在: ${sourceAbsolutePath}`);
-                throw new Error('source-not-found');
-            });
+            let sourceAbsolutePath = '';
+            let sourceExists = false;
+            
+            // 如果有有效的 localPath，先尝试使用它
+            if (resource.localPath && resource.localPath.trim() !== '') {
+                sourceAbsolutePath = this.resolveResourcePath(resource.localPath);
+                sourceExists = await this.fileExists(sourceAbsolutePath);
+                // 确保不是目录
+                if (sourceExists) {
+                    const stat = await fsp.stat(sourceAbsolutePath);
+                    if (stat.isDirectory()) {
+                        sourceExists = false;
+                    }
+                }
+            }
+            
+            // 如果原始路径不存在或无效，尝试从 ResourceHandler 的资源目录查找
+            if (!sourceExists && resource.fileName) {
+                const typeDir = this.normalizeTypeDir(resource.type);
+                const resourceHandlerDir = path.join(
+                    process.env['USERPROFILE'] || process.cwd(),
+                    '.qq-chat-exporter',
+                    'resources',
+                    typeDir
+                );
+                
+                // 尝试通过文件名查找（支持带 md5 前缀的文件名）
+                if (await this.fileExists(resourceHandlerDir)) {
+                    const files = await fsp.readdir(resourceHandlerDir);
+                    const baseName = resource.fileName.toLowerCase();
+                    
+                    // 查找匹配的文件（可能有 md5 前缀）
+                    const matchedFile = files.find(f => {
+                        const fLower = f.toLowerCase();
+                        return fLower === baseName || fLower.endsWith('_' + baseName);
+                    });
+                    
+                    if (matchedFile) {
+                        sourceAbsolutePath = path.join(resourceHandlerDir, matchedFile);
+                        sourceExists = await this.fileExists(sourceAbsolutePath);
+                    }
+                }
+            }
+            
+            if (!sourceExists) {
+                // 静默跳过，不打印警告（资源可能确实不存在）
+                return null;
+            }
 
             // 目标路径（按 HTML 中引用规则）
             const typeDir = this.normalizeTypeDir(resource.type); // image -> images
@@ -365,7 +952,7 @@ ${this.generateFooter()}
 
             // 文件已存在则跳过（以磁盘为真，避免维护超大 Set）
             const exists = await this.fileExists(targetAbsolutePath);
-            if (exists) return targetRelativePath;
+            if (exists) return targetRelativePath.replace(/\\/g, '/');
 
             // 确保父目录存在（理论上已创建，这里兜底）
             await fsp.mkdir(path.dirname(targetAbsolutePath), { recursive: true });
@@ -375,10 +962,10 @@ ${this.generateFooter()}
                 fs.createReadStream(sourceAbsolutePath),
                 fs.createWriteStream(targetAbsolutePath)
             );
-            
-            return targetRelativePath;
+
+            return targetRelativePath.replace(/\\/g, '/');
+
         } catch (error) {
-            if ((error as any)?.message === 'source-not-found') return null;
             console.error(`[ModernHtmlExporter] 复制资源文件失败:`, {
                 resource,
                 error: error instanceof Error ? error.message : String(error)
@@ -407,2082 +994,22 @@ ${this.generateFooter()}
         }
     }
 
-    /* ------------------------ 原有 HTML 片段生成（小片段、可复用） ------------------------ */
+    /* ------------------------ 原有 HTML 片段生成（已解耦到模板） ------------------------ */
 
     private generateStyles(): string {
-        return `<style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
-        /* CSS Variables for Theme */
-        :root {
-            --bg-primary: #ffffff;
-            --bg-secondary: #f5f5f7;
-            --text-primary: #1d1d1f;
-            --text-secondary: #86868b;
-            --border-color: rgba(0, 0, 0, 0.08);
-            --shadow: rgba(0, 0, 0, 0.05);
-            --bubble-other: #f2f2f7;
-            --bubble-self: #d1e9ff;
-            --bubble-self-text: #1d1d1f;
-            --at-mention-bg: rgba(29, 29, 31, 0.1);
-            --at-mention-text: #1d1d1f;
-            --reply-bg: rgba(29, 29, 31, 0.05);
-            --reply-border: rgba(29, 29, 31, 0.25);
-            --footer-gradient: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.02) 100%);
-            --chat-scale: 1;
-            --message-font-size: calc(17px * var(--chat-scale));
-            --message-sender-size: calc(14px * var(--chat-scale));
-            --message-time-size: calc(12px * var(--chat-scale));
-        }
-        
-        [data-theme="dark"] {
-            --bg-primary: #000000;
-            --bg-secondary: #1c1c1e;
-            --text-primary: #f5f5f7;
-            --text-secondary: #98989f;
-            --border-color: rgba(255, 255, 255, 0.12);
-            --shadow: rgba(0, 0, 0, 0.3);
-            --bubble-other: #1c1c1e;
-            --bubble-self: #2d5a7b;
-            --bubble-self-text: #e3f2fd;
-            --at-mention-bg: rgba(245, 245, 247, 0.15);
-            --at-mention-text: #f5f5f7;
-            --reply-bg: rgba(255, 255, 255, 0.08);
-            --reply-border: rgba(255, 255, 255, 0.2);
-            --footer-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.03) 100%);
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            line-height: 1.5; 
-            font-size: 17px;
-            -webkit-font-smoothing: antialiased;
-            transition: background 0.3s, color 0.3s;
-        }
-        
-        /* Toolbar - 底部胶囊 */
-        .toolbar {
-            position: fixed;
-            bottom: 24px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(249, 249, 249, 0.78);
-            backdrop-filter: saturate(180%) blur(20px);
-            border-radius: 20px;
-            padding: 8px;
-            z-index: 1000;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08),
-                        0 8px 32px rgba(0, 0, 0, 0.06),
-                        inset 0 0 0 0.5px rgba(0, 0, 0, 0.04);
-        }
-        
-        [data-theme="dark"] .toolbar {
-            background: rgba(44, 44, 46, 0.78);
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3),
-                        0 8px 32px rgba(0, 0, 0, 0.25),
-                        inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
-        }
-        
-        .toolbar-content {
-            display: flex;
-            gap: 4px;
-            align-items: center;
-        }
-
-        
-        /* 时间范围选择胶囊 */
-        .time-range-container {
-            position: relative;
-        }
-
-        .time-range-btn {
-            padding: 8px 12px;
-            border: none;
-            border-radius: 12px;
-            background: rgba(0, 0, 0, 0.04);
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            color: var(--text-primary);
-            font-size: 13px;
-            font-weight: 500;
-        }
-
-        [data-theme="dark"] .time-range-btn {
-            background: rgba(255, 255, 255, 0.08);
-        }
-
-        .time-range-btn:hover {
-            background: rgba(0, 0, 0, 0.08);
-        }
-
-        [data-theme="dark"] .time-range-btn:hover {
-            background: rgba(255, 255, 255, 0.12);
-        }
-
-        .time-range-btn svg {
-            width: 16px !important;
-            height: 16px !important;
-            stroke-width: 2 !important;
-        }
-
-        .time-range-dropdown {
-            position: absolute;
-            bottom: calc(100% + 12px);
-            right: 0;
-            min-width: 240px;
-            padding: 12px;
-            border-radius: 14px;
-            background: rgba(249, 249, 249, 0.88);
-            backdrop-filter: saturate(180%) blur(20px);
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12),
-                        0 8px 40px rgba(0, 0, 0, 0.08),
-                        inset 0 0 0 0.5px rgba(0, 0, 0, 0.04);
-            opacity: 0;
-            transform: translateY(8px);
-            pointer-events: none;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-            z-index: 1001;
-        }
-
-        [data-theme="dark"] .time-range-dropdown {
-            background: rgba(44, 44, 46, 0.88);
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4),
-                        0 8px 40px rgba(0, 0, 0, 0.3),
-                        inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
-        }
-
-        .time-range-dropdown.active {
-            opacity: 1;
-            transform: translateY(0);
-            pointer-events: auto;
-        }
-
-        .time-range-inputs {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .time-range-input-group {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .time-range-input-group label {
-            font-size: 12px;
-            color: var(--text-secondary);
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .time-range-input-group input {
-            padding: 6px 10px;
-            border: 1px solid rgba(0, 0, 0, 0.08);
-            border-radius: 8px;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            font-size: 13px;
-            transition: all 0.2s;
-        }
-
-        [data-theme="dark"] .time-range-input-group input {
-            border-color: rgba(255, 255, 255, 0.12);
-            color-scheme: dark;
-        }
-
-        .time-range-input-group input:focus {
-            outline: none;
-            border-color: #1d1d1f;
-            box-shadow: 0 0 0 3px rgba(29, 29, 31, 0.1);
-        }
-
-        [data-theme="dark"] .time-range-input-group input:focus {
-            border-color: #f5f5f7;
-            box-shadow: 0 0 0 3px rgba(245, 245, 247, 0.1);
-        }
-
-        .time-range-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 8px;
-            padding-top: 8px;
-            border-top: 1px solid rgba(0, 0, 0, 0.08);
-        }
-
-        [data-theme="dark"] .time-range-actions {
-            border-top-color: rgba(255, 255, 255, 0.12);
-        }
-
-        .time-range-actions button {
-            flex: 1;
-            padding: 6px 10px;
-            border: none;
-            border-radius: 8px;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .time-range-actions .apply-btn {
-            background: #1d1d1f;
-            color: #ffffff;
-        }
-
-        [data-theme="dark"] .time-range-actions .apply-btn {
-            background: #f5f5f7;
-            color: #000000;
-        }
-
-        .time-range-actions .apply-btn:hover {
-            opacity: 0.8;
-        }
-
-        .time-range-actions .clear-btn {
-            background: rgba(0, 0, 0, 0.06);
-            color: var(--text-primary);
-        }
-
-        [data-theme="dark"] .time-range-actions .clear-btn {
-            background: rgba(255, 255, 255, 0.12);
-        }
-
-        .time-range-actions .clear-btn:hover {
-            background: rgba(0, 0, 0, 0.1);
-        }
-
-        [data-theme="dark"] .time-range-actions .clear-btn:hover {
-            background: rgba(255, 255, 255, 0.15);
-        }
-
-        /* 分隔线 */
-        .toolbar-separator {
-            width: 1px;
-            height: 20px;
-            background: rgba(0, 0, 0, 0.08);
-            margin: 0 4px;
-        }
-        
-        [data-theme="dark"] .toolbar-separator {
-            background: rgba(255, 255, 255, 0.12);
-        }
-        
-        .search-container {
-            display: flex;
-            align-items: center;
-        }
-        
-        .search-btn {
-            padding: 8px;
-            border: none;
-            border-radius: 12px;
-            background: transparent;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-primary);
-        }
-        
-        .search-btn:hover {
-            background: rgba(0, 0, 0, 0.06);
-        }
-        
-        [data-theme="dark"] .search-btn:hover {
-            background: rgba(255, 255, 255, 0.12);
-        }
-        
-        .search-btn svg {
-            width: 18px !important;
-            height: 18px !important;
-            stroke-width: 2 !important;
-        }
-        
-        .search-input-wrapper {
-            position: relative;
-            width: 0;
-            overflow: hidden;
-            transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        
-        .search-input-wrapper.active {
-            width: 240px;
-            margin-left: 4px;
-        }
-        
-        .search-input {
-            width: 100%;
-            padding: 7px 32px 7px 12px;
-            border: none;
-            border-radius: 12px;
-            background: rgba(0, 0, 0, 0.06);
-            color: var(--text-primary);
-            font-size: 14px;
-            outline: none;
-            transition: all 0.2s;
-            font-family: inherit;
-        }
-        
-        [data-theme="dark"] .search-input {
-            background: rgba(255, 255, 255, 0.12);
-        }
-        
-        .search-input:focus {
-            background: rgba(0, 0, 0, 0.1);
-        }
-        
-        [data-theme="dark"] .search-input:focus {
-            background: rgba(255, 255, 255, 0.18);
-        }
-        
-        .search-input::placeholder {
-            color: var(--text-secondary);
-        }
-        
-        .clear-search {
-            position: absolute;
-            right: 4px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            cursor: pointer;
-            padding: 4px;
-            border-radius: 50%;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .clear-search:hover {
-            background: rgba(0, 0, 0, 0.1);
-            color: var(--text-primary);
-        }
-        
-        [data-theme="dark"] .clear-search:hover {
-            background: rgba(255, 255, 255, 0.15);
-        }
-        
-        .clear-search svg {
-            width: 14px !important;
-            height: 14px !important;
-            stroke-width: 2.5 !important;
-        }
-        
-        .toolbar-actions {
-            display: flex;
-            gap: 4px;
-            align-items: center;
-        }
-        
-        .filter-container {
-            position: relative;
-        }
-        
-        .filter-btn {
-            padding: 8px;
-            border: none;
-            border-radius: 12px;
-            background: transparent;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-primary);
-        }
-        
-        .filter-btn:hover {
-            background: rgba(0, 0, 0, 0.06);
-        }
-        
-        [data-theme="dark"] .filter-btn:hover {
-            background: rgba(255, 255, 255, 0.12);
-        }
-        
-        .filter-btn svg {
-            width: 18px !important;
-            height: 18px !important;
-            stroke-width: 2 !important;
-        }
-        
-        .filter-dropdown {
-            position: absolute;
-            bottom: calc(100% + 12px);
-            right: 0;
-            min-width: 200px;
-            max-width: 280px;
-            padding: 6px;
-            border-radius: 14px;
-            background: rgba(249, 249, 249, 0.88);
-            backdrop-filter: saturate(180%) blur(20px);
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12),
-                        0 8px 40px rgba(0, 0, 0, 0.08),
-                        inset 0 0 0 0.5px rgba(0, 0, 0, 0.04);
-            opacity: 0;
-            transform: translateY(8px);
-            pointer-events: none;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-            z-index: 1001;
-        }
-        
-        [data-theme="dark"] .filter-dropdown {
-            background: rgba(44, 44, 46, 0.88);
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4),
-                        0 8px 40px rgba(0, 0, 0, 0.3),
-                        inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
-        }
-        
-        .filter-dropdown.active {
-            opacity: 1;
-            transform: translateY(0);
-            pointer-events: auto;
-        }
-        
-        /* 筛选搜索框 */
-        .filter-search-wrapper {
-            padding: 4px 6px 8px;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-            margin-bottom: 6px;
-        }
-        
-        [data-theme="dark"] .filter-search-wrapper {
-            border-bottom-color: rgba(255, 255, 255, 0.12);
-        }
-        
-        .filter-search-input {
-            width: 100%;
-            padding: 6px 10px;
-            border: 1px solid rgba(0, 0, 0, 0.08);
-            border-radius: 8px;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            font-size: 13px;
-            outline: none;
-            transition: all 0.2s;
-        }
-        
-        [data-theme="dark"] .filter-search-input {
-            border-color: rgba(255, 255, 255, 0.12);
-        }
-        
-        .filter-search-input:focus {
-            border-color: #1d1d1f;
-            box-shadow: 0 0 0 2px rgba(29, 29, 31, 0.1);
-        }
-        
-        [data-theme="dark"] .filter-search-input:focus {
-            border-color: #f5f5f7;
-            box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.1);
-        }
-        
-        .filter-search-input::placeholder {
-            color: var(--text-secondary);
-        }
-        
-        /* 筛选选项列表容器 */
-        .filter-options-list {
-            max-height: 320px;
-            overflow-y: auto;
-            overflow-x: hidden;
-            scrollbar-width: thin;
-            scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
-        }
-        
-        .filter-options-list::-webkit-scrollbar {
-            width: 6px;
-        }
-        
-        .filter-options-list::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        
-        .filter-options-list::-webkit-scrollbar-thumb {
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 3px;
-        }
-        
-        [data-theme="dark"] .filter-options-list::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-        }
-        
-        .filter-option {
-            padding: 8px 12px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: background 0.15s;
-            font-size: 14px;
-            color: var(--text-primary);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        
-        .filter-option:hover {
-            background: rgba(0, 0, 0, 0.06);
-        }
-        
-        [data-theme="dark"] .filter-option:hover {
-            background: rgba(255, 255, 255, 0.12);
-        }
-        
-        .filter-option.active {
-            background: rgba(0, 0, 0, 0.08);
-            font-weight: 600;
-        }
-        
-        [data-theme="dark"] .filter-option.active {
-            background: rgba(255, 255, 255, 0.15);
-        }
-        
-        .filter-option.hidden {
-            display: none;
-        }
-        
-        /* 无搜索结果提示 */
-        .filter-no-result {
-            padding: 12px;
-            text-align: center;
-            color: var(--text-secondary);
-            font-size: 13px;
-            display: none;
-        }
-        
-        .filter-no-result.visible {
-            display: block;
-        }
-        
-        .github-btn {
-            padding: 8px;
-            border: none;
-            border-radius: 12px;
-            background: transparent;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-primary);
-            text-decoration: none;
-        }
-        
-        .github-btn:hover {
-            background: rgba(0, 0, 0, 0.06);
-        }
-        
-        [data-theme="dark"] .github-btn:hover {
-            background: rgba(255, 255, 255, 0.12);
-        }
-        
-        .github-btn svg {
-            width: 18px !important;
-            height: 18px !important;
-            stroke-width: 2 !important;
-        }
-        
-        .theme-toggle {
-            padding: 8px;
-            border: none;
-            border-radius: 12px;
-            background: transparent;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-primary);
-        }
-        
-        .theme-toggle:hover {
-            background: rgba(0, 0, 0, 0.06);
-        }
-        
-        [data-theme="dark"] .theme-toggle:hover {
-            background: rgba(255, 255, 255, 0.12);
-        }
-        
-        .theme-toggle svg {
-            width: 18px !important;
-            height: 18px !important;
-            stroke-width: 2 !important;
-        }
-        
-        /* 搜索高亮 */
-        mark.highlight {
-            background: #00ffc860 !important;
-            color: #000000 !important;
-            font-weight: 600;
-            padding: 2px 4px;
-            border-radius: 4px;
-        }
-        
-        [data-theme="dark"] mark.highlight {
-            background: #00ffc860 !important;
-            color: #000000 !important;
-        }
-        
-        /* Hero Section - 左对齐 */
-        .hero {
-            padding: 80px 64px 48px;
-            max-width: 980px;
-            margin: 0 auto;
-            border-bottom: 1px solid var(--border-color);
-        }
-        
-        .hero-title {
-            font-size: 64px;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin-bottom: 8px;
-            letter-spacing: -0.03em;
-            line-height: 1.05;
-        }
-        
-        .hero-subtitle {
-            font-size: 17px;
-            color: var(--text-secondary);
-            font-weight: 400;
-            margin-bottom: 24px;
-        }
-        
-        .hero-meta {
-            display: flex;
-            gap: 32px;
-            flex-wrap: wrap;
-        }
-
-        .chat-layout {
-            max-width: 1280px;
-            margin: 0 auto;
-            padding: 0 48px 120px;
-        }
-
-        .chat-main {
-            min-width: 0;
-        }
-        
-        .meta-item {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        
-        .meta-label {
-            font-size: 13px;
-            color: var(--text-secondary);
-            font-weight: 400;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        
-        .meta-value {
-            font-size: 17px;
-            color: var(--text-primary);
-            font-weight: 500;
-        }
-        
-        /* Chat Content */
-        .chat-content {
-            padding: 64px 0 120px;
-            position: relative;
-            max-width: 980px;
-            margin: 0 auto;
-        }
-        
-        /* 虚拟滚动容器 */
-        .virtual-scroll-container {
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .virtual-scroll-spacer {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 1px;
-            pointer-events: none;
-        }
-        
-        .virtual-scroll-content {
-            position: relative;
-            will-change: transform;
-        }
-        
-        /* 加载指示器 */
-        .scroll-loader {
-            text-align: center;
-            padding: 20px;
-            color: var(--text-secondary);
-            font-size: 14px;
-        }
-        
-        .message-block {
-            margin-bottom: 32px;
-        }
-
-        .date-divider {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin: 32px 0 16px;
-            text-transform: uppercase;
-            font-size: 12px;
-            letter-spacing: 0.1em;
-            color: var(--text-secondary);
-        }
-
-        .date-divider::before,
-        .date-divider::after {
-            content: '';
-            flex: 1;
-            height: 1px;
-            background: var(--border-color);
-        }
-
-        .message {
-            margin-bottom: 0;
-            display: flex;
-            gap: 16px;
-            align-items: flex-start;
-            contain: layout style paint;
-            will-change: auto;
-        }
-        
-        .message.self {
-            flex-direction: row-reverse;
-        }
-        
-        .avatar {
-            width: 42px;
-            height: 42px;
-            border-radius: 50%;
-            background: var(--bg-secondary);
-            flex-shrink: 0;
-            overflow: hidden;
-        }
-        
-        .avatar img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        
-        .message-wrapper {
-            max-width: 65%;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        
-        .message-header {
-            display: flex;
-            align-items: baseline;
-            gap: 10px;
-            padding: 0 4px;
-        }
-        
-        .message.self .message-header {
-            flex-direction: row-reverse;
-        }
-        
-        .sender {
-            font-size: var(--message-sender-size);
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-        
-        .time {
-            font-size: var(--message-time-size);
-            color: var(--text-secondary);
-        }
-        
-        /* 消息气泡 - 带角 */
-        .message-bubble {
-            padding: 14px 18px;
-            border-radius: 20px;
-            position: relative;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
-        }
-        
-        .message.other .message-bubble {
-            background: var(--bubble-other);
-            color: var(--text-primary);
-        }
-        
-        .message.self .message-bubble {
-            background: var(--bubble-self);
-            color: var(--bubble-self-text);
-        }
-        
-        /* 去掉消息角 - 直接用圆角矩形 */
-        
-        .content {
-            font-size: var(--message-font-size);
-            line-height: 1.47;
-        }
-        
-        .text-content {
-            display: inline;
-        }
-        
-        /* 图片内容 */
-        .image-content {
-            margin: 10px 0 4px;
-            border-radius: 16px;
-            overflow: hidden;
-            max-width: 320px;
-        }
-        
-        .image-content img {
-            width: 100%;
-            height: auto;
-            display: block;
-            cursor: pointer;
-            transition: opacity 0.2s;
-        }
-        
-        .image-content img:hover {
-            opacity: 0.9;
-        }
-        
-        /* @提及 */
-        .at-mention {
-            background: var(--at-mention-bg);
-            color: var(--at-mention-text);
-            padding: 3px 8px;
-            border-radius: 8px;
-            font-weight: 600;
-            display: inline;
-            transition: background 0.2s;
-        }
-        
-        .message.other .at-mention:hover {
-            opacity: 0.85;
-        }
-        
-        .message.self .at-mention {
-            background: rgba(0, 0, 0, 0.1);
-            color: var(--bubble-self-text);
-        }
-        
-        .message.self .at-mention:hover {
-            background: rgba(0, 0, 0, 0.15);
-        }
-        
-        /* 表情 */
-        .face-emoji {
-            display: inline;
-            font-size: 20px;
-            margin: 0 2px;
-            vertical-align: baseline;
-        }
-        
-        /* 引用消息 */
-        .reply-content {
-            background: var(--reply-bg);
-            border-left: 3px solid var(--reply-border);
-            padding: 10px 12px;
-            border-radius: 8px;
-            margin-bottom: 8px;
-            font-size: 13px;
-            line-height: 1.5;
-            color: var(--text-secondary);
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        
-        .reply-content:hover {
-            background: var(--reply-border);
-            opacity: 1;
-            transform: translateX(2px);
-        }
-        
-        .reply-content-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 6px;
-        }
-        
-        .reply-content strong {
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-        
-        .reply-content-time {
-            font-size: 11px;
-            color: var(--text-tertiary);
-            margin-left: 8px;
-        }
-        
-        .reply-content-text {
-            color: var(--text-secondary);
-            margin-top: 4px;
-            word-break: break-word;
-        }
-        
-        .reply-content-image {
-            margin-top: 6px;
-            max-width: 80px;
-            max-height: 80px;
-            border-radius: 6px;
-            object-fit: cover;
-        }
-        
-        .message.self .reply-content {
-            background: rgba(0, 0, 0, 0.08);
-            border-left-color: rgba(0, 0, 0, 0.25);
-        }
-        
-        .message.self .reply-content:hover {
-            background: rgba(0, 0, 0, 0.12);
-        }
-        
-        .message.self .reply-content strong {
-            color: var(--bubble-self-text);
-        }
-        
-        /* 音频包装器 */
-        .audio-wrapper {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-        
-        .audio-download-link {
-            display: inline-flex;
-            align-items: center;
-            padding: 4px 10px;
-            background: rgba(0, 0, 0, 0.05);
-            border-radius: 8px;
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-size: 13px;
-            transition: all 0.2s;
-        }
-        
-        .audio-download-link:hover {
-            background: rgba(0, 0, 0, 0.1);
-            color: var(--text-primary);
-        }
-        
-        [data-theme="dark"] .audio-download-link {
-            background: rgba(255, 255, 255, 0.08);
-        }
-        
-        [data-theme="dark"] .audio-download-link:hover {
-            background: rgba(255, 255, 255, 0.15);
-        }
-        
-        /* JSON 卡片 */
-        .json-card {
-            background: rgba(29, 29, 31, 0.06);
-            border: 1px solid rgba(29, 29, 31, 0.1);
-            border-radius: 12px;
-            padding: 14px 16px;
-            margin: 8px 0;
-            transition: background 0.2s;
-        }
-        
-        .json-card:hover {
-            background: rgba(29, 29, 31, 0.08);
-        }
-        
-        .message.self .json-card {
-            background: rgba(0, 0, 0, 0.08);
-            border-color: rgba(0, 0, 0, 0.15);
-        }
-        
-        .message.self .json-card:hover {
-            background: rgba(0, 0, 0, 0.12);
-        }
-        
-        .json-title {
-            font-weight: 600;
-            font-size: 15px;
-            margin-bottom: 6px;
-            line-height: 1.3;
-        }
-        
-        .json-description {
-            font-size: 14px;
-            opacity: 0.75;
-            margin-bottom: 8px;
-            line-height: 1.4;
-        }
-        
-        .json-url {
-            font-size: 12px;
-            opacity: 0.6;
-            text-decoration: none;
-        }
-        
-        /* 市场表情 */
-        .market-face {
-            display: inline-block;
-            width: 80px;
-            height: 80px;
-            background-size: contain;
-            background-repeat: no-repeat;
-            background-position: center;
-            vertical-align: middle;
-            margin: 4px 0;
-        }
-        
-        /* QQ表情 */
-        .face-emoji {
-            display: inline-block;
-            padding: 2px 8px;
-            background: rgba(0, 0, 0, 0.05);
-            border-radius: 6px;
-            font-size: 13px;
-            color: var(--text-secondary);
-            margin: 0 2px;
-        }
-        
-        [data-theme="dark"] .face-emoji {
-            background: rgba(255, 255, 255, 0.1);
-        }
-        
-        /* 视频播放器 */
-        .message-video {
-            max-width: 100%;
-            width: 400px;
-            max-height: 300px;
-            border-radius: 12px;
-            margin: 8px 0;
-            display: block;
-            background: #000;
-        }
-        
-        /* 音频播放器 */
-        .message-audio {
-            width: 280px;
-            max-width: 100%;
-            margin: 8px 0;
-            display: block;
-        }
-        
-        /* 合并转发卡片 */
-        .forward-card {
-            background: var(--bubble-other);
-            border: 1px solid rgba(0, 0, 0, 0.08);
-            border-radius: 12px;
-            padding: 12px 16px;
-            margin: 4px 0;
-            cursor: default;
-            transition: all 0.2s;
-        }
-        
-        [data-theme="dark"] .forward-card {
-            border-color: rgba(255, 255, 255, 0.1);
-        }
-        
-        .message.self .forward-card {
-            background: rgba(0, 0, 0, 0.05);
-        }
-        
-        .forward-card-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-        
-        .forward-card-icon {
-            width: 20px;
-            height: 20px;
-            opacity: 0.7;
-        }
-        
-        .forward-card-content {
-            font-size: 13px;
-            color: var(--text-secondary);
-            line-height: 1.6;
-            max-height: 120px;
-            overflow: hidden;
-            position: relative;
-        }
-        
-        .forward-card-content::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 30px;
-            background: linear-gradient(to bottom, transparent, var(--bubble-other));
-        }
-        
-        .message.self .forward-card-content::after {
-            background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.05));
-        }
-        
-        .forward-card-footer {
-            margin-top: 8px;
-            font-size: 12px;
-            color: var(--text-tertiary);
-            text-align: right;
-        }
-        
-        /* 图片模态框 */
-        .image-modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.95);
-            cursor: pointer;
-        }
-        
-        .image-modal img {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            max-width: 90vw;
-            max-height: 90vh;
-            object-fit: contain;
-            border-radius: 8px;
-        }
-        
-        /* 滚动条 */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: #d1d1d6;
-            border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: #c7c7cc;
-        }
-        
-        /* 响应式 */
-        @media (max-width: 768px) {
-            .hero {
-                padding: 48px 24px 32px;
-            }
-            
-            .hero-title {
-                font-size: 40px;
-            }
-            
-            .hero-subtitle {
-                font-size: 15px;
-            }
-            
-            .hero-meta {
-                gap: 24px;
-            }
-            
-            .chat-content {
-                padding: 48px 24px 80px;
-            }
-            
-            .message {
-                margin-bottom: 28px;
-                gap: 12px;
-            }
-            
-            .avatar {
-                width: 38px;
-                height: 38px;
-            }
-            
-            .message-wrapper {
-                max-width: 75%;
-            }
-        }
-        
-        /* Footer */
-        .footer {
-            margin-top: 100px;
-            padding: 80px 0;
-            background: var(--footer-gradient);
-        }
-        
-        .footer-content {
-            max-width: 800px;
-            margin: 0 auto;
-            text-align: center;
-        }
-        
-        .footer-brand h3 {
-            font-size: 24px;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-            color: var(--text-primary);
-            margin-bottom: 8px;
-        }
-        
-        .footer-version {
-            font-size: 13px;
-            color: var(--text-secondary);
-            font-weight: 500;
-            margin-bottom: 32px;
-        }
-        
-        .footer-info {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        
-        .footer-copyright {
-            font-size: 15px;
-            color: var(--text-primary);
-            font-weight: 400;
-        }
-        
-        .footer-copyright strong {
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-        
-        .footer-links {
-            font-size: 14px;
-            color: var(--text-secondary);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-        }
-        
-        .footer-links a,
-        .footer-links > span:not(.separator) {
-            color: var(--text-primary);
-            text-decoration: none;
-            font-weight: 500;
-        }
-        
-        .footer-links a {
-            transition: opacity 0.2s;
-        }
-        
-        .footer-links a:hover {
-            opacity: 0.7;
-        }
-        
-        .footer-links .separator {
-            color: var(--text-secondary);
-            font-weight: 300;
-        }
-        
-        .footer-notice {
-            font-size: 13px;
-            color: var(--text-secondary);
-            margin-top: 8px;
-            font-weight: 400;
-        }
-        
-        /* 隐藏消息 (搜索/筛选) */
-        .message.hidden {
-            display: none !important;
-        }
-
-        @media (max-width: 1100px) {
-            .chat-layout {
-                padding: 0 24px 80px;
-            }
-
-            .chat-content {
-                padding: 32px 0 80px;
-            }
-
-            .message-wrapper {
-                max-width: 80%;
-            }
-        }
-    </style>
-`;
+        return `<style>\n${MODERN_CSS}\n</style>\n`;
     }
 
     private generateScripts(): string {
-        return `<script src="https://unpkg.com/lucide@latest"></script>
-    <script>
-        function showImageModal(imgSrc) {
-            var modal = document.getElementById('imageModal');
-            var modalImg = document.getElementById('modalImage');
-            modal.style.display = 'block';
-            modalImg.src = imgSrc;
-        }
-        function hideImageModal() {
-            document.getElementById('imageModal').style.display = 'none';
-        }
-        // ========== 虚拟滚动管理器 ==========
-        class VirtualScroller {
-            constructor(container, items, options = {}) {
-                this.container = container;
-                this.allItems = items;
-                this.options = {
-                    itemHeight: options.itemHeight || 100,
-                    bufferSize: options.bufferSize || 10,
-                    ...options
-                };
-                
-                this.visibleItems = [];
-                this.startIndex = 0;
-                this.endIndex = 0;
-                this.scrollTop = 0;
-                this.containerHeight = 0;
-                this.totalHeight = 0;
-                this.isUpdating = false;
-                
-                this.init();
-            }
-            
-            init() {
-                // 创建虚拟滚动结构
-                this.spacer = document.createElement('div');
-                this.spacer.className = 'virtual-scroll-spacer';
-                
-                this.content = document.createElement('div');
-                this.content.className = 'virtual-scroll-content';
-                
-                this.container.appendChild(this.spacer);
-                this.container.appendChild(this.content);
-                
-                // 初始化总高度
-                this.totalHeight = this.allItems.length * this.options.itemHeight;
-                this.spacer.style.height = this.totalHeight + 'px';
-                
-                // 监听滚动
-                this.handleScroll = this.handleScroll.bind(this);
-                window.addEventListener('scroll', this.handleScroll, { passive: true });
-                window.addEventListener('resize', () => this.update());
-                
-                this.update();
-            }
-            
-            handleScroll() {
-                const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                // 降低阈值，提高响应性
-                if (Math.abs(scrollTop - this.scrollTop) > 30 && !this.isUpdating) {
-                    this.scrollTop = scrollTop;
-                    requestAnimationFrame(() => this.update());
-                }
-            }
-            
-            update() {
-                if (!this.allItems || this.allItems.length === 0 || this.isUpdating) return;
-                
-                this.isUpdating = true;
-                
-                this.containerHeight = window.innerHeight;
-                this.totalHeight = this.allItems.length * this.options.itemHeight;
-                
-                // 获取容器在文档中的位置
-                const containerRect = this.container.getBoundingClientRect();
-                const containerTop = this.scrollTop + containerRect.top;
-                
-                // 计算当前视口相对于容器的位置
-                const viewportTop = this.scrollTop;
-                const viewportBottom = viewportTop + this.containerHeight;
-                
-                // 计算可见区域在容器内的偏移
-                const visibleStart = Math.max(0, viewportTop - containerTop);
-                const visibleEnd = Math.max(0, viewportBottom - containerTop);
-                
-                // 计算应该渲染的项目范围（使用更大的缓冲区）
-                const startIndex = Math.max(0, Math.floor(visibleStart / this.options.itemHeight) - this.options.bufferSize);
-                const endIndex = Math.min(
-                    this.allItems.length,
-                    Math.ceil(visibleEnd / this.options.itemHeight) + this.options.bufferSize
-                );
-                
-                // 只在范围变化时才重新渲染
-                if (startIndex !== this.startIndex || endIndex !== this.endIndex) {
-                    this.startIndex = startIndex;
-                    this.endIndex = endIndex;
-                    this.render();
-                }
-                
-                this.isUpdating = false;
-            }
-            
-            render() {
-                const fragment = document.createDocumentFragment();
-                const offset = this.startIndex * this.options.itemHeight;
-                
-                // 批量渲染可见项
-                for (let i = this.startIndex; i < this.endIndex; i++) {
-                    if (this.allItems[i]) {
-                        fragment.appendChild(this.allItems[i].cloneNode(true));
-                    }
-                }
-                
-                // 一次性更新DOM
-                this.content.innerHTML = '';
-                this.content.appendChild(fragment);
-                this.content.style.transform = 'translateY(' + offset + 'px)';
-                
-                // 重新初始化图标
-                if (typeof lucide !== 'undefined') {
-                    lucide.createIcons({
-                        attrs: { 'stroke-width': 2 }
-                    });
-                }
-            }
-            
-            updateItems(items) {
-                this.allItems = items;
-                this.totalHeight = items.length * this.options.itemHeight;
-                // 更新后重新计算滚动位置
-                this.scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                // 强制完整更新
-                this.startIndex = -1;
-                this.endIndex = -1;
-                this.update();
-            }
-            
-            destroy() {
-                window.removeEventListener('scroll', this.handleScroll);
-            }
-
-            scrollToIndex(index) {
-                if (typeof index !== 'number' || index < 0) return;
-                var targetOffset = index * (this.options.itemHeight || 100);
-                window.scrollTo({
-                    top: targetOffset,
-                    behavior: 'smooth'
-                });
-            }
-        }
-        
-        document.addEventListener('DOMContentLoaded', function() {
-            var modal = document.getElementById('imageModal');
-            if (modal) modal.addEventListener('click', hideImageModal);
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') hideImageModal();
-            });
-            
-            // 回复消息跳转功能
-            window.scrollToMessage = function(msgId) {
-                var targetMsg = document.getElementById(msgId);
-                if (targetMsg) {
-                    // 平滑滚动到目标消息
-                    targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    
-                    // 高亮动画
-                    targetMsg.style.transition = 'background 0.3s';
-                    var originalBg = window.getComputedStyle(targetMsg).backgroundColor;
-                    targetMsg.style.background = 'rgba(0, 122, 255, 0.1)';
-                    
-                    setTimeout(function() {
-                        targetMsg.style.background = originalBg;
-                        setTimeout(function() {
-                            targetMsg.style.transition = '';
-                        }, 300);
-                    }, 1000);
-                } else {
-                    console.warn('[Reply Jump] 未找到目标消息:', msgId);
-                }
-            };
-
-            // ========== 时间范围选择 ==========
-            var timeRangeBtn = document.getElementById('timeRangeBtn');
-            var timeRangeDropdown = document.getElementById('timeRangeDropdown');
-            var timeRangeLabel = document.getElementById('timeRangeLabel');
-            var startDateInput = document.getElementById('startDate');
-            var endDateInput = document.getElementById('endDate');
-            var applyTimeRangeBtn = document.getElementById('applyTimeRange');
-            var clearTimeRangeBtn = document.getElementById('clearTimeRange');
-            var minDateKey = null;
-            var maxDateKey = null;
-            
-            function clampDateValue(value) {
-                if (!value) return '';
-                var normalized = value.slice(0, 10);
-                if (minDateKey && normalized < minDateKey) return minDateKey;
-                if (maxDateKey && normalized > maxDateKey) return maxDateKey;
-                return normalized;
-            }
-            
-            function applyDateRangeLimits() {
-                if (!startDateInput || !endDateInput) return;
-                startDateInput.min = minDateKey || '';
-                endDateInput.min = minDateKey || '';
-                startDateInput.max = maxDateKey || '';
-                endDateInput.max = maxDateKey || '';
-            }
-            
-            function enforceInputRange() {
-                if (startDateInput) {
-                    startDateInput.value = clampDateValue(startDateInput.value);
-                }
-                if (endDateInput) {
-                    endDateInput.value = clampDateValue(endDateInput.value);
-                }
-                if (startDateInput && endDateInput && startDateInput.value && endDateInput.value && startDateInput.value > endDateInput.value) {
-                    endDateInput.value = startDateInput.value;
-                }
-            }
-            
-            // 从localStorage恢复时间范围
-            var savedTimeRange = localStorage.getItem('timeRange');
-            if (savedTimeRange) {
-                try {
-                    var timeRange = JSON.parse(savedTimeRange);
-                    startDateInput.value = timeRange.start || '';
-                    endDateInput.value = timeRange.end || '';
-                    updateTimeRangeLabel();
-                } catch (e) {
-                    // 忽略解析错误
-                }
-            }
-            
-            function updateTimeRangeLabel() {
-                var start = startDateInput.value;
-                var end = endDateInput.value;
-                if (start || end) {
-                    timeRangeLabel.textContent = (start || '开始') + ' ~ ' + (end || '结束');
-                } else {
-                    timeRangeLabel.textContent = '全部时间';
-                }
-            }
-            
-            if (startDateInput) {
-                startDateInput.addEventListener('change', function() {
-                    enforceInputRange();
-                    updateTimeRangeLabel();
-                });
-            }
-            
-            if (endDateInput) {
-                endDateInput.addEventListener('change', function() {
-                    enforceInputRange();
-                    updateTimeRangeLabel();
-                });
-            }
-            
-            // 切换下拉菜单
-            timeRangeBtn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                timeRangeDropdown.classList.toggle('active');
-            });
-            
-            // 应用时间范围
-            applyTimeRangeBtn.addEventListener('click', function() {
-                enforceInputRange();
-                var start = startDateInput.value;
-                var end = endDateInput.value;
-                
-                // 保存到localStorage
-                localStorage.setItem('timeRange', JSON.stringify({
-                    start: start,
-                    end: end
-                }));
-                
-                updateTimeRangeLabel();
-                timeRangeDropdown.classList.remove('active');
-                
-                // 应用过滤逻辑
-                filterMessages();
-            });
-            
-            // 清除时间范围
-            clearTimeRangeBtn.addEventListener('click', function() {
-                startDateInput.value = '';
-                endDateInput.value = '';
-                localStorage.removeItem('timeRange');
-                updateTimeRangeLabel();
-                timeRangeDropdown.classList.remove('active');
-                
-                // 重新过滤消息（显示所有消息）
-                filterMessages();
-            });
-            
-            // 点击外部关闭下拉菜单
-            document.addEventListener('click', function(e) {
-                if (!e.target.closest('.time-range-container')) {
-                    timeRangeDropdown.classList.remove('active');
-                }
-            });
-            
-            // 收集所有消息DOM
-            var messages = Array.from(document.querySelectorAll('.message'));
-            var messageBlocks = Array.from(document.querySelectorAll('.message-block'));
-            var dateKeySet = new Set();
-            messageBlocks.forEach(function(block) {
-                var dateValue = block.getAttribute('data-date');
-                if (dateValue) {
-                    dateKeySet.add(dateValue);
-                }
-            });
-            var dateKeys = Array.from(dateKeySet).sort();
-            minDateKey = dateKeys.length > 0 ? dateKeys[0] : null;
-            maxDateKey = dateKeys.length > 0 ? dateKeys[dateKeys.length - 1] : null;
-            applyDateRangeLimits();
-            enforceInputRange();
-            updateTimeRangeLabel();
-            var total = messages.length;
-            document.getElementById('info-total').textContent = total;
-            
-            if (messages.length > 0) {
-                var firstTime = messages[0].querySelector('.time').textContent;
-                var lastTime = messages[messages.length - 1].querySelector('.time').textContent;
-                document.getElementById('info-range').textContent = firstTime + ' ~ ' + lastTime;
-            }
-
-            // 初始化虚拟滚动（消息超过100条时启用）
-            var virtualScroller = null;
-            if (messageBlocks.length > 100) {
-                var chatContent = document.querySelector('.chat-content');
-                var originalBlocks = messageBlocks.map(function(block) { return block.cloneNode(true); });
-                chatContent.innerHTML = '';
-                virtualScroller = new VirtualScroller(chatContent, originalBlocks, {
-                    itemHeight: 120,
-                    bufferSize: 30
-                });
-                console.log('启用虚拟滚动，共', messageBlocks.length, '条消息');
-            }
-
-            // ========== 初始化 Lucide 图标 ==========
-            lucide.createIcons({
-                attrs: {
-                    'stroke-width': 2
-                }
-            });
-            
-            // ========== 主题切换 ==========
-            var themeToggle = document.getElementById('themeToggle');
-            var themeIconElement = document.getElementById('themeIcon');
-            var currentTheme = localStorage.getItem('theme') || 'light';
-            
-            function setTheme(theme) {
-                if (theme === 'dark') {
-                    document.documentElement.setAttribute('data-theme', 'dark');
-                    themeIconElement.setAttribute('data-lucide', 'moon');
-                    localStorage.setItem('theme', 'dark');
-                } else {
-                    document.documentElement.removeAttribute('data-theme');
-                    themeIconElement.setAttribute('data-lucide', 'sun');
-                    localStorage.setItem('theme', 'light');
-                }
-                lucide.createIcons({
-                    attrs: {
-                        'stroke-width': 2
-                    }
-                });
-            }
-            
-            setTheme(currentTheme);
-            
-            themeToggle.addEventListener('click', function() {
-                currentTheme = localStorage.getItem('theme') || 'light';
-                setTheme(currentTheme === 'dark' ? 'light' : 'dark');
-            });
-            
-            // ========== 发送者筛选 ==========
-            var filterBtn = document.getElementById('filterBtn');
-            var filterDropdown = document.getElementById('filterDropdown');
-            var filterOptionsList = document.getElementById('filterOptionsList');
-            var filterSearchInput = document.getElementById('filterSearchInput');
-            var filterNoResult = document.getElementById('filterNoResult');
-            var currentFilter = 'all';
-            var currentFilterUid = null;
-            
-            // 使用 Map 按 UID 整合发送者（同一用户可能有不同群名片）
-            // key: uid, value: { names: Set<string>, displayName: string }
-            var sendersByUid = new Map();
-            var senderNameToUid = new Map(); // 用于反向查找
-            
-            // 收集所有发送者，按 UID 整合
-            // 使用 messageBlocks 而不是 messages，因为 filterMessages 使用的是 originalMessages（从 messageBlocks 克隆）
-            messageBlocks.forEach(function(block) {
-                var messageEl = block.querySelector('.message');
-                var sender = block.querySelector('.sender');
-                var uid = messageEl ? (messageEl.getAttribute('data-sender-uid') || messageEl.getAttribute('data-uid')) : null;
-                if (sender) {
-                    var senderName = sender.textContent;
-                    if (uid) {
-                        // 有 UID，按 UID 整合
-                        if (!sendersByUid.has(uid)) {
-                            sendersByUid.set(uid, { names: new Set(), displayName: senderName });
-                        }
-                        sendersByUid.get(uid).names.add(senderName);
-                        senderNameToUid.set(senderName, uid);
-                    } else {
-                        // 无 UID，按名称作为唯一标识
-                        if (!sendersByUid.has(senderName)) {
-                            sendersByUid.set(senderName, { names: new Set([senderName]), displayName: senderName });
-                        }
-                        senderNameToUid.set(senderName, senderName);
-                    }
-                }
-            });
-            
-            // 生成筛选选项
-            sendersByUid.forEach(function(info, uid) {
-                var option = document.createElement('div');
-                option.className = 'filter-option';
-                option.setAttribute('data-value', uid);
-                // 如果同一用户有多个名片，显示所有名片
-                var names = Array.from(info.names);
-                if (names.length > 1) {
-                    option.textContent = names[0] + ' (' + (names.length - 1) + '个别名)';
-                    option.setAttribute('title', names.join(', '));
-                } else {
-                    option.textContent = info.displayName;
-                }
-                // 存储所有名称用于搜索
-                option.setAttribute('data-names', names.join('|').toLowerCase());
-                filterOptionsList.appendChild(option);
-            });
-            
-            // 筛选搜索功能
-            filterSearchInput.addEventListener('input', function(e) {
-                var keyword = e.target.value.toLowerCase().trim();
-                var options = filterOptionsList.querySelectorAll('.filter-option');
-                var hasVisible = false;
-                
-                options.forEach(function(opt) {
-                    var value = opt.getAttribute('data-value');
-                    var names = opt.getAttribute('data-names') || opt.textContent.toLowerCase();
-                    
-                    if (value === 'all' || names.includes(keyword) || opt.textContent.toLowerCase().includes(keyword)) {
-                        opt.classList.remove('hidden');
-                        hasVisible = true;
-                    } else {
-                        opt.classList.add('hidden');
-                    }
-                });
-                
-                // 显示/隐藏无结果提示
-                if (hasVisible) {
-                    filterNoResult.classList.remove('visible');
-                } else {
-                    filterNoResult.classList.add('visible');
-                }
-            });
-            
-            // 切换下拉菜单
-            filterBtn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                filterDropdown.classList.toggle('active');
-                if (filterDropdown.classList.contains('active')) {
-                    // 打开时聚焦搜索框
-                    setTimeout(function() {
-                        filterSearchInput.focus();
-                    }, 100);
-                }
-            });
-            
-            // 选择选项
-            filterOptionsList.addEventListener('click', function(e) {
-                if (e.target.classList.contains('filter-option')) {
-                    // 移除所有active
-                    filterOptionsList.querySelectorAll('.filter-option').forEach(function(opt) {
-                        opt.classList.remove('active');
-                    });
-                    // 添加当前active
-                    e.target.classList.add('active');
-                    var selectedValue = e.target.getAttribute('data-value');
-                    if (selectedValue === 'all') {
-                        currentFilter = 'all';
-                        currentFilterUid = null;
-                    } else {
-                        currentFilter = selectedValue;
-                        currentFilterUid = selectedValue;
-                    }
-                    filterDropdown.classList.remove('active');
-                    // 清空搜索
-                    filterSearchInput.value = '';
-                    filterOptionsList.querySelectorAll('.filter-option').forEach(function(opt) {
-                        opt.classList.remove('hidden');
-                    });
-                    filterNoResult.classList.remove('visible');
-                    filterMessages();
-                }
-            });
-            
-            // 点击外部关闭
-            document.addEventListener('click', function(e) {
-                if (!e.target.closest('.filter-container')) {
-                    filterDropdown.classList.remove('active');
-                }
-            });
-            
-            // ========== 搜索框展开/收起 ==========
-            var searchBtn = document.getElementById('searchBtn');
-            var searchWrapper = document.getElementById('searchWrapper');
-            var searchInput = document.getElementById('searchInput');
-            var searchActive = false;
-            
-            searchBtn.addEventListener('click', function() {
-                searchActive = !searchActive;
-                if (searchActive) {
-                    searchWrapper.classList.add('active');
-                    searchInput.focus();
-                } else {
-                    searchWrapper.classList.remove('active');
-                    searchInput.value = '';
-                    filterMessages();
-                }
-            });
-            
-            // 点击外部关闭搜索框
-            document.addEventListener('click', function(e) {
-                if (!e.target.closest('.search-container') && searchActive) {
-                    searchActive = false;
-                    searchWrapper.classList.remove('active');
-                    if (!searchInput.value) {
-                        searchInput.value = '';
-                        filterMessages();
-                    }
-                }
-            });
-            
-            // ========== 防抖函数 ==========
-            function debounce(func, wait) {
-                let timeout;
-                return function(...args) {
-                    clearTimeout(timeout);
-                    timeout = setTimeout(() => func.apply(this, args), wait);
-                };
-            }
-            
-            // ========== 搜索功能 + 高亮 ==========
-            var clearSearch = document.getElementById('clearSearch');
-            var originalContents = new Map();
-            var originalMessages = messageBlocks.map(block => block.cloneNode(true));
-            
-            // 保存原始内容
-            originalMessages.forEach(function(msg) {
-                var content = msg.querySelector('.content');
-                if (content) {
-                    originalContents.set(msg, content.innerHTML);
-                }
-            });
-            
-            function escapeRegExp(string) {
-                return string.replace(/[.*+?^$\\{\\}()|\\[\\]\\\\]/g, '\\\\$&');
-            }
-            
-            function highlightText(text, searchTerm) {
-                if (!searchTerm) return text;
-                var escapedTerm = escapeRegExp(searchTerm);
-                var regex = new RegExp('(' + escapedTerm + ')', 'gi');
-                return text.replace(regex, '<mark class="highlight">$1</mark>');
-            }
-            
-            function filterMessages() {
-                var searchTerm = searchInput.value.trim();
-                var selectedSender = currentFilter;
-                var selectedUid = currentFilterUid;
-                var startDate = startDateInput ? startDateInput.value : '';
-                var endDate = endDateInput ? endDateInput.value : '';
-                var filteredMessages = [];
-                var visibleCount = 0;
-                
-                // 使用DocumentFragment优化DOM操作
-                originalMessages.forEach(function(msg) {
-                    // msg 是 .message-block，需要找到内部的 .message 元素
-                    var messageEl = msg.querySelector('.message');
-                    var sender = msg.querySelector('.sender');
-                    var senderName = sender ? sender.textContent : '';
-                    // 从 .message 元素获取 data-sender-uid
-                    var msgUid = messageEl ? (messageEl.getAttribute('data-sender-uid') || messageEl.getAttribute('data-uid')) : null;
-                    var content = msg.querySelector('.content');
-                    var originalContent = originalContents.get(msg);
-                    
-                    if (!content || !originalContent) return;
-                    
-                    // 克隆消息用于过滤
-                    var msgClone = msg.cloneNode(true);
-                    var contentClone = msgClone.querySelector('.content');
-                    
-                    // 恢复原始内容
-                    contentClone.innerHTML = originalContent;
-                    
-                    var contentText = contentClone.textContent.toLowerCase();
-                    var searchLower = searchTerm.toLowerCase();
-                    
-                    // 获取消息日期进行时间范围筛选
-                    var messageDate = msgClone.getAttribute('data-date');
-                    var matchTimeRange = true;
-                    if (startDate || endDate) {
-                        if (messageDate) {
-                            if (startDate && messageDate < startDate) {
-                                matchTimeRange = false;
-                            }
-                            if (endDate && messageDate > endDate) {
-                                matchTimeRange = false;
-                            }
-                        }
-                    }
-                    
-                    var matchSearch = searchTerm === '' || contentText.includes(searchLower) || senderName.toLowerCase().includes(searchLower);
-                    
-                    // 发送者筛选：优先使用 UID 匹配，支持同一用户不同群名片
-                    var matchSender = false;
-                    if (selectedSender === 'all') {
-                        matchSender = true;
-                    } else if (selectedUid && msgUid) {
-                        // 基于 UID 匹配（整合同一用户不同群名片）
-                        matchSender = msgUid === selectedUid;
-                    } else {
-                        // 回退到名称匹配（兼容无 UID 的情况）
-                        matchSender = senderName === selectedSender;
-                    }
-                    
-                    if (matchSearch && matchSender && matchTimeRange) {
-                        visibleCount++;
-                        
-                        // 高亮匹配文本
-                        if (searchTerm && contentText.includes(searchLower)) {
-                            var textContent = contentClone.querySelector('.text-content');
-                            if (textContent) {
-                                var originalText = textContent.textContent;
-                                textContent.innerHTML = highlightText(originalText, searchTerm);
-                            }
-                        }
-                        
-                        filteredMessages.push(msgClone);
-                    }
-                });
-                
-                // 更新虚拟滚动器
-                if (virtualScroller) {
-                    virtualScroller.updateItems(filteredMessages);
-                    // 延迟滚动到顶部，确保虚拟滚动器已更新
-                    setTimeout(function() {
-                        window.scrollTo({ top: 0, behavior: 'auto' });
-                    }, 50);
-                } else {
-                    // 非虚拟滚动模式：直接更新DOM
-                    var chatContent = document.querySelector('.chat-content');
-                    var fragment = document.createDocumentFragment();
-                    filteredMessages.forEach(msg => fragment.appendChild(msg));
-                    chatContent.innerHTML = '';
-                    chatContent.appendChild(fragment);
-                }
-                
-                // 显示/隐藏清除按钮
-                clearSearch.style.display = searchTerm ? 'block' : 'none';
-                
-                // 更新统计
-                document.getElementById('info-total').textContent = visibleCount + ' / ' + total;
-                
-                // 更新图标
-                lucide.createIcons({
-                    attrs: {
-                        'stroke-width': 2
-                    }
-                });
-            }
-            
-            // 使用防抖优化搜索
-            var debouncedFilter = debounce(filterMessages, 300);
-            searchInput.addEventListener('input', debouncedFilter);
-            
-            clearSearch.addEventListener('click', function() {
-                searchInput.value = '';
-                filterMessages();
-                searchInput.focus();
-            });
-            
-            // 页面加载完成后应用已保存的过滤条件（包括时间范围）
-            setTimeout(function() {
-                filterMessages();
-            }, 100);
-        });
-    </script>`;
+        // 保持原结构：lucide CDN + 内联脚本
+        return MODERN_SINGLE_SCRIPTS_HTML;
     }
 
     /**
      * 生成Toolbar（底部胶囊）
      */
     private generateToolbar(): string {
-        return `<div class="toolbar">
-        <div class="toolbar-content">
-            <div class="search-container">
-                <button class="search-btn" id="searchBtn">
-                    <i data-lucide="search"></i>
-                </button>
-                <div class="search-input-wrapper" id="searchWrapper">
-                    <input type="text" id="searchInput" class="search-input" placeholder="搜索消息...">
-                    <button class="clear-search" id="clearSearch" style="display: none;">
-                        <i data-lucide="x"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="toolbar-separator"></div>
-            <div class="toolbar-actions">
-                <div class="filter-container">
-                    <button class="filter-btn" id="filterBtn">
-                        <i data-lucide="user"></i>
-                    </button>
-                    <div class="filter-dropdown" id="filterDropdown">
-                        <div class="filter-search-wrapper">
-                            <input type="text" class="filter-search-input" id="filterSearchInput" placeholder="搜索成员...">
-                        </div>
-                        <div class="filter-options-list" id="filterOptionsList">
-                            <div class="filter-option active" data-value="all">全部成员</div>
-                        </div>
-                        <div class="filter-no-result" id="filterNoResult">未找到匹配的成员</div>
-                    </div>
-                </div>
-                <div class="toolbar-separator"></div>
-                <div class="time-range-container">
-                    <button class="time-range-btn" id="timeRangeBtn">
-                        <i data-lucide="calendar"></i>
-                        <span id="timeRangeLabel">全部时间</span>
-                    </button>
-                    <div class="time-range-dropdown" id="timeRangeDropdown">
-                        <div class="time-range-inputs">
-                            <div class="time-range-input-group">
-                                <label for="startDate">开始日期</label>
-                                <input type="date" id="startDate" class="time-range-input">
-                            </div>
-                            <div class="time-range-input-group">
-                                <label for="endDate">结束日期</label>
-                                <input type="date" id="endDate" class="time-range-input">
-                            </div>
-                        </div>
-                        <div class="time-range-actions">
-                            <button class="apply-btn" id="applyTimeRange">应用</button>
-                            <button class="clear-btn" id="clearTimeRange">清除</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="toolbar-separator"></div>
-                <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank" class="github-btn" title="GitHub">
-                    <i data-lucide="github"></i>
-                </a>
-                <div class="toolbar-separator"></div>
-                <button class="theme-toggle" id="themeToggle" title="切换主题">
-                    <i data-lucide="sun" id="themeIcon"></i>
-                </button>
-            </div>
-        </div>
-    </div>`;
+        return MODERN_TOOLBAR_HTML;
     }
 
     /**
@@ -2499,7 +1026,6 @@ ${this.generateFooter()}
         }).replace(/\//g, '/');
         const total = typeof stats.totalMessages === 'number' ? String(stats.totalMessages) : (stats.totalMessages || '--');
         const range = timeRange ?? '--';
-
         return `<div class="hero">
         <h1 class="hero-title">${this.escapeHtml(chatInfo.name)}</h1>
         <p class="hero-subtitle">聊天记录</p>
@@ -2531,19 +1057,17 @@ ${this.generateFooter()}
             const dateKey = dateInfo?.key || '';
             const dateLabel = dateInfo ? this.formatDateLabel(dateInfo.date) : '';
             let dateMarker = '';
-
             if (dateKey && this.lastRenderedDate !== dateKey) {
                 this.lastRenderedDate = dateKey;
                 dateMarker = `<div class="date-divider" data-date="${dateKey}" data-label="${this.escapeHtml(dateLabel)}" id="date-${dateKey}">
                     ${this.escapeHtml(dateLabel)}
                 </div>`;
             }
-
             return `<div class="message-block" data-date="${dateKey}">
                 ${dateMarker}
                 <div class="system-message-container" style="text-align: center; margin: 12px 0;">
                     ${content}
-                    <div style="color: #999; font-size: 10px; margin-top: 2px;">${this.formatTime(message?.time)}</div>
+                    <div style="color: #999; font-size: 10px; margin-top: 2px;">${this.formatTime((message as any)?.time)}</div>
                 </div>
             </div>`;
         }
@@ -2568,19 +1092,18 @@ ${this.generateFooter()}
             (message as any)?.sender?.name
         );
         const content = this.parseMessageContent(message);
-        
+
         // 获取发送者 UID 用于筛选（支持同一用户不同群名片整合）
         const senderUid = (message as any)?.sender?.uid || (message as any)?.sender?.uin || '';
-
         return `
         <div class="message-block" data-date="${dateKey}">
             ${dateMarker}
-            <div class="message ${cssClass}" data-date="${dateKey}" data-sender-uid="${this.escapeHtml(senderUid)}" id="msg-${message.id}">
+            <div class="message ${cssClass}" data-date="${dateKey}" data-sender-uid="${this.escapeHtml(senderUid)}" id="msg-${(message as any).id}">
                 <div class="avatar">${avatarContent}</div>
                 <div class="message-wrapper">
                     <div class="message-header">
                         <span class="sender">${this.escapeHtml(this.getDisplayName(message))}</span>
-                        <span class="time">${this.formatTime(message?.time)}</span>
+                        <span class="time">${this.formatTime((message as any)?.time)}</span>
                     </div>
                     <div class="message-bubble">
                         <div class="content">${content}</div>
@@ -2591,17 +1114,17 @@ ${this.generateFooter()}
     }
 
     private isSystemMessage(message: CleanMessage): boolean {
-        return message?.type === 'system' ||
-               !!(message?.content?.elements && message.content.elements.some((el: any) => el?.type === 'system'));
+        return (message as any)?.type === 'system' ||
+               !!((message as any)?.content?.elements && (message as any).content.elements.some((el: any) => el?.type === 'system'));
     }
 
     /**
      * 解析消息内容（按元素渲染）
      */
     private parseMessageContent(message: CleanMessage): string {
-        const elements = message?.content?.elements;
+        const elements = (message as any)?.content?.elements;
         if (!elements || elements.length === 0) {
-            return `<span class="text-content">${this.escapeHtml(message?.content?.text || '[空消息]')}</span>`;
+            return `<span class="text-content">${this.escapeHtml((message as any)?.content?.text || '[空消息]')}</span>`;
         }
 
         let result = '';
@@ -2648,7 +1171,6 @@ ${this.generateFooter()}
                     if (rawText) result += `<span class="text-content">${this.escapeHtml(rawText)}</span>`;
             }
         }
-
         return result || `<span class="text-content">[空消息]</span>`;
     }
 
@@ -2662,23 +1184,27 @@ ${this.generateFooter()}
     private renderImageElement(data: any): string {
         const filename = data?.filename || '图片';
         let src = '';
-        
+
         // 优先使用localPath（导出后的本地资源）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            src = `../resources/images/${path.basename(data.localPath)}`;
-        } 
+            src = `${this.resourceBaseHref}/images/${path.basename(data.localPath)}`;
+        }
+        // 如果有 filename，尝试使用本地资源路径（用于分块导出模式）
+        else if (data?.filename && this.options.includeResourceLinks) {
+            src = `${this.resourceBaseHref}/images/${data.filename}`;
+        }
         // 其次使用url，但要过滤掉无效的file://协议路径
         else if (data?.url) {
             const url = data.url;
             // 过滤掉file://协议和本地文件系统路径
-            if (!url.startsWith('file://') && 
-                !url.startsWith('C:/') && 
-                !url.startsWith('D:/') && 
+            if (!url.startsWith('file://') &&
+                !url.startsWith('C:/') &&
+                !url.startsWith('D:/') &&
                 !url.match(/^[A-Z]:\\/)) {
                 src = url;
             }
         }
-        
+
         if (src) {
             return `<div class="image-content"><img src="${src}" alt="${this.escapeHtml(filename)}" loading="lazy" onclick="showImageModal('${src}')"></div>`;
         }
@@ -2689,31 +1215,35 @@ ${this.generateFooter()}
         const duration = data?.duration || 0;
         const filename = data?.filename || '语音';
         let src = '';
-        
+
         // 优先使用localPath（导出后的本地资源，使用相对路径）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            src = `../resources/audios/${path.basename(data.localPath)}`;
+            src = `${this.resourceBaseHref}/audios/${path.basename(data.localPath)}`;
+        }
+        // 如果有 filename，尝试使用本地资源路径（用于分块导出模式）
+        else if (data?.filename && this.options.includeResourceLinks) {
+            src = `${this.resourceBaseHref}/audios/${data.filename}`;
         }
         // 其次使用url，但要过滤掉本地文件系统路径
         else if (data?.url) {
             const url = data.url;
             // 过滤掉本地路径，只保留网络URL
-            if (!url.startsWith('file://') && 
-                !url.startsWith('C:/') && 
-                !url.startsWith('D:/') && 
+            if (!url.startsWith('file://') &&
+                !url.startsWith('C:/') &&
+                !url.startsWith('D:/') &&
                 !url.match(/^[A-Z]:\\/)) {
                 src = url;
             }
         }
-        
+
         if (src) {
             // AMR格式浏览器可能不支持，同时提供下载链接
             const isAmr = src.toLowerCase().endsWith('.amr');
             const audioTag = `<audio src="${src}" controls class="message-audio" preload="metadata">[语音:${duration}秒]</audio>`;
-            const downloadLink = isAmr 
-                ? `<a href="${src}" download="${this.escapeHtml(filename)}" class="audio-download-link" title="浏览器可能不支持AMR格式，点击下载">下载语音</a>` 
+            const downloadLink = isAmr
+                ? `<a href="${src}" download="${this.escapeHtml(filename)}" class="audio-download-link" title="浏览器可能不支持AMR格式，点击下载">下载语音</a>`
                 : '';
-            
+
             return `<div class="audio-wrapper">${audioTag}${downloadLink}</div>`;
         }
         return `<span class="text-content">🎤 [语音:${duration}秒]</span>`;
@@ -2722,23 +1252,27 @@ ${this.generateFooter()}
     private renderVideoElement(data: any): string {
         const filename = data?.filename || '视频';
         let src = '';
-        
+
         // 优先使用localPath（导出后的本地资源，使用相对路径）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            src = `../resources/videos/${path.basename(data.localPath)}`;
+            src = `${this.resourceBaseHref}/videos/${path.basename(data.localPath)}`;
+        }
+        // 如果有 filename，尝试使用本地资源路径（用于分块导出模式）
+        else if (data?.filename && this.options.includeResourceLinks) {
+            src = `${this.resourceBaseHref}/videos/${data.filename}`;
         }
         // 其次使用url，但要过滤掉本地文件系统路径
         else if (data?.url) {
             const url = data.url;
             // 过滤掉本地路径，只保留网络URL
-            if (!url.startsWith('file://') && 
-                !url.startsWith('C:/') && 
-                !url.startsWith('D:/') && 
+            if (!url.startsWith('file://') &&
+                !url.startsWith('C:/') &&
+                !url.startsWith('D:/') &&
                 !url.match(/^[A-Z]:\\/)) {
                 src = url;
             }
         }
-        
+
         if (src) {
             return `<video src="${src}" controls class="message-video" preload="metadata">[视频: ${this.escapeHtml(filename)}]</video>`;
         }
@@ -2748,23 +1282,27 @@ ${this.generateFooter()}
     private renderFileElement(data: any): string {
         const filename = data?.filename || '文件';
         let href = '';
-        
+
         // 优先使用localPath（导出后的本地资源）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            href = `../resources/files/${path.basename(data.localPath)}`;
-        } 
+            href = `${this.resourceBaseHref}/files/${path.basename(data.localPath)}`;
+        }
+        // 如果有 filename，尝试使用本地资源路径（用于分块导出模式）
+        else if (data?.filename && this.options.includeResourceLinks) {
+            href = `${this.resourceBaseHref}/files/${data.filename}`;
+        }
         // 其次使用url，但要过滤掉无效的file://协议路径
         else if (data?.url) {
             const url = data.url;
             // 过滤掉file://协议和本地文件系统路径
-            if (!url.startsWith('file://') && 
-                !url.startsWith('C:/') && 
-                !url.startsWith('D:/') && 
+            if (!url.startsWith('file://') &&
+                !url.startsWith('C:/') &&
+                !url.startsWith('D:/') &&
                 !url.match(/^[A-Z]:\\/)) {
                 href = url;
             }
         }
-        
+
         if (href) {
             return `<a href="${href}" class="message-file" download="${this.escapeHtml(filename)}">📎 ${this.escapeHtml(filename)}</a>`;
         }
@@ -2776,7 +1314,7 @@ ${this.generateFooter()}
         const name = data?.name || this.getFaceNameById(id) || `表情${id}`;
         return `<span class="face-emoji">${this.escapeHtml(name)}</span>`;
     }
-    
+
     /**
      * 根据QQ表情ID获取友好名称
      */
@@ -2862,7 +1400,7 @@ ${this.generateFooter()}
         const content = data?.content || data?.text || '引用消息';
         const replyMsgId = data?.replyMsgId || data?.msgId || '';
         const time = data?.time || data?.timestamp || '';
-        
+
         // 格式化时间
         let timeStr = '';
         if (time) {
@@ -2874,24 +1412,24 @@ ${this.generateFooter()}
                 });
             }
         }
-        
+
         // 检查是否有图片
         let imageHtml = '';
         if (data?.imageUrl || data?.image) {
             const imgSrc = data?.imageUrl || data?.image;
             imageHtml = `<img src="${imgSrc}" class="reply-content-image" alt="引用图片">`;
-        } else if (content.includes('[图片]') && data?.elements) {
+        } else if (String(content).includes('[图片]') && data?.elements) {
             // 尝试从elements中找到图片
             const imgElement = data.elements.find((el: any) => el?.type === 'image');
             if (imgElement?.data?.localPath) {
-                const imgSrc = `../resources/images/${path.basename(imgElement.data.localPath)}`;
+                const imgSrc = `${this.resourceBaseHref}/images/${path.basename(imgElement.data.localPath)}`;
                 imageHtml = `<img src="${imgSrc}" class="reply-content-image" alt="引用图片" loading="lazy">`;
             }
         }
-        
+
         const dataAttr = replyMsgId ? `data-reply-to="msg-${replyMsgId}"` : '';
         const onClick = replyMsgId ? `onclick="scrollToMessage('msg-${replyMsgId}')"` : '';
-        
+
         return `<div class="reply-content" ${dataAttr} ${onClick}>
             <div class="reply-content-header">
                 <strong>${this.escapeHtml(senderName)}</strong>
@@ -2917,7 +1455,7 @@ ${this.generateFooter()}
         const title = data?.title || '聊天记录';
         const summary = data?.summary || data?.content || '查看转发消息';
         const preview = data?.preview || [];
-        
+
         let previewHtml = '';
         if (Array.isArray(preview) && preview.length > 0) {
             previewHtml = preview.slice(0, 3).map((line: any) => {
@@ -2929,7 +1467,7 @@ ${this.generateFooter()}
             const lines = summary.split('\n').slice(0, 3);
             previewHtml = lines.map(l => this.escapeHtml(l)).join('<br>');
         }
-        
+
         return `<div class="forward-card">
             <div class="forward-card-header">
                 <svg class="forward-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -2954,7 +1492,7 @@ ${this.generateFooter()}
         const address = data?.address || '';
         const lat = data?.lat || data?.latitude || '';
         const lng = data?.lng || data?.longitude || '';
-        
+
         let locationText = `📍 ${this.escapeHtml(name)}`;
         if (address) {
             locationText += ` - ${this.escapeHtml(address)}`;
@@ -2962,28 +1500,91 @@ ${this.generateFooter()}
         if (lat && lng) {
             locationText += ` (${lat}, ${lng})`;
         }
-        
+
         return `<span class="text-content">${locationText}</span>`;
     }
 
     private generateFooter(): string {
-        return `    <!-- Footer -->
-    <footer class="footer">
-        <div class="footer-content">
-            <div class="footer-brand">
-                <h3>QQ Chat Exporter Pro</h3>
-            </div>
-            <div class="footer-info">
-                <p class="footer-copyright">Made with ❤️ by <strong>shuakami</strong></p>
-                <p class="footer-links">
-                    <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
-                    <span class="separator">·</span>
-                    <span>GPL-3.0 License</span>
-                </p>
-                <p class="footer-notice">本软件完全免费开源 · 如果有帮助到您，欢迎给个 Star 喵，谢谢喵</p>
-            </div>
-        </div>
-    </footer>`;
+        return MODERN_FOOTER_HTML;
+    }
+
+    /* ------------------------ Chunked：全文检索文本提取（新增） ------------------------ */
+
+    /**
+     * 提取消息的纯文本用于索引/搜索（不影响原 HTML 渲染）
+     * - 仅用于 Chunked 模式 message.text 与 Bloom 建索引
+     */
+    private extractPlainText(message: CleanMessage): string {
+        const elements = (message as any)?.content?.elements;
+        if (!elements || elements.length === 0) {
+            return String((message as any)?.content?.text || '');
+        }
+
+        const parts: string[] = [];
+        for (const el of elements as any[]) {
+            const t = el?.type;
+            const d = el?.data || {};
+            switch (t) {
+                case 'text':
+                    if (d?.text) parts.push(String(d.text));
+                    break;
+                case 'image':
+                    parts.push(`[图片${d?.filename ? ':' + d.filename : ''}]`);
+                    break;
+                case 'audio':
+                    parts.push(`[语音${d?.duration ? ':' + d.duration + '秒' : ''}]`);
+                    break;
+                case 'video':
+                    parts.push(`[视频${d?.filename ? ':' + d.filename : ''}]`);
+                    break;
+                case 'file':
+                    parts.push(`[文件${d?.filename ? ':' + d.filename : ''}]`);
+                    break;
+                case 'face': {
+                    const id = d?.id || d?.faceId || '';
+                    const name = d?.name || this.getFaceNameById(id) || '';
+                    if (name) parts.push(String(name));
+                    break;
+                }
+                case 'market_face':
+                    parts.push(`[${d?.name || '商城表情'}]`);
+                    break;
+                case 'reply':
+                    if (d?.content) parts.push(String(d.content));
+                    else if (d?.text) parts.push(String(d.text));
+                    else parts.push('[回复]');
+                    break;
+                case 'json':
+                    parts.push(`${d?.title || d?.summary || 'JSON'} ${d?.description || ''} ${d?.url || ''}`.trim());
+                    break;
+                case 'forward':
+                    parts.push(`${d?.title || '转发'} ${d?.summary || d?.content || ''}`.trim());
+                    break;
+                case 'location':
+                    parts.push(`${d?.name || '位置'} ${d?.address || ''}`.trim());
+                    break;
+                case 'system':
+                    parts.push(`${d?.text || d?.content || '系统消息'}`.trim());
+                    break;
+                default: {
+                    const rawText = d?.text || d?.summary || d?.content || '';
+                    if (rawText) parts.push(String(rawText));
+                }
+            }
+        }
+        return parts.join(' ').trim();
+    }
+
+    private addTextToBloom(bloom: BloomFilter, textLower: string): void {
+        if (!textLower) return;
+        // ngrams 2 & 3
+        const ngrams = [2, 3];
+        for (const n of ngrams) {
+            if (textLower.length < n) continue;
+            for (let i = 0; i <= textLower.length - n; i++) {
+                bloom.add(textLower.slice(i, i + n));
+            }
+        }
     }
 
     /* ------------------------ 基础工具 ------------------------ */
@@ -3000,7 +1601,7 @@ ${this.generateFooter()}
         const rawTimestamp = (message as any)?.timestamp;
         const date = typeof rawTimestamp === 'number'
             ? new Date(rawTimestamp)
-            : this.safeToDate(message?.time);
+            : this.safeToDate((message as any)?.time);
         if (!date || isNaN(date.getTime())) return null;
         const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
         return { key, date };
@@ -3012,8 +1613,8 @@ ${this.generateFooter()}
     }
 
     private isSelfMessage(message: CleanMessage): boolean {
-        const senderUid = message?.sender?.uid;
-        const senderUin = message?.sender?.uin;
+        const senderUid = (message as any)?.sender?.uid;
+        const senderUin = (message as any)?.sender?.uin;
         if (this.currentChatInfo?.selfUid && senderUid && senderUid === this.currentChatInfo.selfUid) {
             return true;
         }
@@ -3045,10 +1646,8 @@ ${this.generateFooter()}
     private resolveResourcePath(resourcePath: string): string {
         // 已是绝对路径
         if (path.isAbsolute(resourcePath)) return resourcePath;
-
         // 资源根目录：跨平台 HOME 目录
         const resourceRoot = path.join(os.homedir(), '.qq-chat-exporter', 'resources');
-
         // 修复 Issue #30: 处理 images/xxx.jpg 格式的相对路径
         const resourceTypes = ['images/', 'videos/', 'audios/', 'files/'];
         for (const type of resourceTypes) {
@@ -3056,19 +1655,16 @@ ${this.generateFooter()}
                 return path.join(resourceRoot, resourcePath);
             }
         }
-
         // resources/ 相对路径
         if (resourcePath.startsWith('resources/')) {
             return path.resolve(resourceRoot, resourcePath.substring(10)); // 去掉 'resources/'
         }
-
         // 仅文件名：遍历资源类型目录
         const resourceTypeDirs = ['images', 'videos', 'audios', 'files'];
         for (const type of resourceTypeDirs) {
             const fullPath = path.join(resourceRoot, type, resourcePath);
             if (fs.existsSync(fullPath)) return fullPath;
         }
-
         // 默认回退
         return path.resolve(resourceRoot, resourcePath);
     }
@@ -3076,11 +1672,11 @@ ${this.generateFooter()}
     private isValidResourcePath(resourcePath: string): boolean {
         if (!resourcePath || typeof resourcePath !== 'string') return false;
         const trimmed = resourcePath.trim();
-        
+
         // 修复 Issue #30: 允许 images/videos/audios/files 开头的相对路径
         const resourceTypePrefixes = ['images/', 'videos/', 'audios/', 'files/'];
         const hasValidPrefix = resourceTypePrefixes.some(prefix => trimmed.startsWith(prefix));
-        
+
         return (
             trimmed !== '' &&
             (trimmed.startsWith('resources/') ||
@@ -3101,5 +1697,95 @@ ${this.generateFooter()}
             const fallbackText = name ? name.charAt(0).toUpperCase() : 'U';
             return `<span style="display:inline-flex; width:40px; height:40px; border-radius:50%; background:#007AFF; color:white; align-items:center; justify-content:center; font-size:14px; font-weight:500;">${this.escapeHtml(fallbackText)}</span>`;
         }
+    }
+
+    /* ------------------------ 公共方法（供流式导出使用） ------------------------ */
+
+    /**
+     * 生成 HTML 文档头部（用于流式导出）
+     */
+    public generateHtmlTop(chatInfo: ChatInfo, metadata: any): string {
+        return renderTemplate(MODERN_SINGLE_HTML_TOP_TEMPLATE, {
+            METADATA_JSON: JSON.stringify(metadata),
+            CHAT_NAME_ESC: this.escapeHtml(chatInfo.name),
+            STYLES: this.generateStyles(),
+            SCRIPTS: this.generateScripts(),
+            TOOLBAR: this.generateToolbar(),
+            HEADER: this.generateHeader(chatInfo, { totalMessages: '--' }, '--')
+        });
+    }
+
+    /**
+     * 生成 HTML 文档尾部（用于流式导出）
+     */
+    public generateHtmlBottom(chatInfo: ChatInfo, stats: { totalMessages: number }, exportTime: string): string {
+        const timeRangeText = '--'; // 流式导出时无法预知时间范围
+        const timeRangeJs = JSON.stringify(timeRangeText);
+
+        return renderTemplate(MODERN_SINGLE_HTML_BOTTOM_TEMPLATE, {
+            FOOTER: this.generateFooter(),
+            TOTAL_MESSAGES: String(stats.totalMessages),
+            TIME_RANGE_JS: timeRangeJs
+        });
+    }
+
+    /**
+     * 渲染单条消息（公共方法，供流式导出使用）
+     */
+    public renderMessagePublic(message: CleanMessage): string {
+        return this.renderMessage(message);
+    }
+
+    /**
+     * 迭代消息中的资源（公共方法，供流式导出使用）
+     */
+    public *iterResourcesPublic(message: CleanMessage): Generator<{ type: string; localPath?: string; fileName?: string }> {
+        yield* this.iterResources(message);
+    }
+
+    /**
+     * 判断是否为系统消息（公共方法）
+     */
+    public isSystemMessagePublic(message: CleanMessage): boolean {
+        return this.isSystemMessage(message);
+    }
+}
+
+/* ------------------------ Bloom Filter & Hash（Chunked 模式使用） ------------------------ */
+
+function fnv1a32(str: string, seed: number): number {
+    let h = (seed >>> 0) || 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+}
+
+class BloomFilter {
+    private readonly bits: number;
+    private readonly hashes: number;
+    private readonly bytes: Uint8Array;
+
+    constructor(bits: number, hashes: number) {
+        this.bits = bits >>> 0;
+        this.hashes = hashes >>> 0;
+        this.bytes = new Uint8Array(Math.ceil(this.bits / 8));
+    }
+
+    add(token: string): void {
+        if (!token) return;
+        const h1 = fnv1a32(token, 0x811c9dc5);
+        const h2 = fnv1a32(token, 0x811c9dc5 ^ 0x5bd1e995);
+        for (let i = 0; i < this.hashes; i++) {
+            const idx = (h1 + i * h2) % this.bits;
+            const byteIndex = idx >>> 3;
+            const mask = 1 << (idx & 7);
+            this.bytes[byteIndex] |= mask;
+        }
+    }
+
+    toBase64(): string {
+        return Buffer.from(this.bytes).toString('base64');
     }
 }

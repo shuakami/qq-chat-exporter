@@ -42,7 +42,7 @@ export function ChatItem({ type, data, onExport }: ChatItemProps) {
           
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-medium text-neutral-900 truncate">
+              <h3 className="font-medium text-neutral-900 dark:text-neutral-100 truncate">
                 {displayName}
               </h3>
               {!isGroup && friend?.isOnline && (
@@ -53,12 +53,12 @@ export function ChatItem({ type, data, onExport }: ChatItemProps) {
               )}
             </div>
             
-            <div className="flex items-center gap-2 text-sm text-neutral-600">
+            <div className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
               {isGroup ? (
                 <>
                   <Users className="w-4 h-4" />
                   <span>{group?.memberCount} 成员</span>
-                  <span className="text-neutral-400">•</span>
+                  <span className="text-neutral-400 dark:text-neutral-500">•</span>
                   <span className="font-mono text-xs">{identifier}</span>
                 </>
               ) : (
@@ -67,8 +67,8 @@ export function ChatItem({ type, data, onExport }: ChatItemProps) {
                   <span className="font-mono text-xs">{identifier}</span>
                   {friend?.remark && friend.nick !== friend.remark && (
                     <>
-                      <span className="text-neutral-400">•</span>
-                      <span className="text-xs text-neutral-500">{friend.nick}</span>
+                      <span className="text-neutral-400 dark:text-neutral-500">•</span>
+                      <span className="text-xs text-neutral-500 dark:text-neutral-400">{friend.nick}</span>
                     </>
                   )}
                 </>
