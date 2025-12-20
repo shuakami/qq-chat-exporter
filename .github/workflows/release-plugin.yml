@@ -201,6 +201,12 @@ jobs:
           本软件完全免费开源，遵循 GPL-3.0 协议。如果有人向你收费，立即申请退款并举报。
 
           [使用文档](https://deepwiki.com/shuakami/qq-chat-exporter) | [问题反馈](https://github.com/shuakami/qq-chat-exporter/issues) | [NapCat 项目](https://github.com/NapNeko/NapCatQQ)
+
+          ### Contributors
+
+          <a href="https://github.com/shuakami/qq-chat-exporter/graphs/contributors">
+            <img src="https://contrib.rocks/image?repo=shuakami/qq-chat-exporter&max=12&columns=12" width="125" />
+          </a>
           EOF
           
           # 移除每行开头的空格（heredoc 缩进问题）
