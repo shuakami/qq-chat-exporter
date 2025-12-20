@@ -127,12 +127,23 @@ jobs:
             PRERELEASE_WARNING=$'> [!TIP]\n> **'"${VERSION}"' 为 Beta 版本**，包含大量新功能但可能存在未知问题。如追求稳定，请使用 [最新稳定版](https://github.com/shuakami/qq-chat-exporter/releases?q=NOT+beta+NOT+alpha+NOT+rc&expanded=true)\n'
           fi
           
-          # 获取当前 tag 对应 commit 的完整 message body（不只是标题）
-          COMMIT_BODY=$(git log -1 --format="%b" HEAD)
+          # 获取上一个 tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           
-          # 如果 commit body 为空，尝试从上一个 tag 获取所有 commit
+          # 在当前 tag 范围内找第一个有 body 的 commit
+          COMMIT_BODY=""
+          if [ -n "$PREV_TAG" ]; then
+            for commit in $(git log ${PREV_TAG}..HEAD --format="%H"); do
+              body=$(git log -1 --format="%b" $commit)
+              if [ -n "$body" ]; then
+                COMMIT_BODY="$body"
+                break
+              fi
+            done
+          fi
+          
+          # 如果还是没找到，用 commit 标题列表
           if [ -z "$COMMIT_BODY" ]; then
-            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
             if [ -n "$PREV_TAG" ]; then
               COMMIT_BODY=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges | head -20)
             else
