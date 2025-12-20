@@ -119,61 +119,70 @@ jobs:
         id: release_notes
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
+          NAPCAT_VERSION="${{ needs.get-napcat-version.outputs.version }}"
+          
+          # 判断是否为预发布版本
+          IS_PRERELEASE="false"
+          PRERELEASE_WARNING=""
+          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"rc"* ]]; then
+            IS_PRERELEASE="true"
+            PRERELEASE_WARNING="> [!TIP]
+          > **${VERSION} 为 Beta 版本**，包含大量新功能但可能存在未知问题。如追求稳定，请使用 [最新稳定版](https://github.com/shuakami/qq-chat-exporter/releases?q=NOT+beta+NOT+alpha+NOT+rc&expanded=true)"
+          fi
           
           # 获取上一个标签用于生成更新日志
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           
           # 生成更新日志
           if [ -n "$PREV_TAG" ]; then
-            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges | sed 's/^/  /')
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges | head -20)
           else
-            CHANGELOG="  - 首次发布完整集成包
-            - 集成 NapCat ${{ needs.get-napcat-version.outputs.version }}
-            - 预配置所有必要文件
-            - 开箱即用，无需手动配置"
+            CHANGELOG="- 首次发布完整集成包
+          - 集成 NapCat ${NAPCAT_VERSION}
+          - 预配置所有必要文件
+          - 开箱即用，无需手动配置"
           fi
           
           # 创建发布说明
           cat > RELEASE_NOTES.md << 'EOFNOTES'
-          这是集成了 NapCat ${{ needs.get-napcat-version.outputs.version }} 和 QQ 聊天记录导出插件 $VERSION 的开箱即用完整包。所有依赖已经安装完毕，配置文件已经预配置好，解压后直接运行就能用。
+          集成了 NapCat ${NAPCAT_VERSION} 和 QQ 聊天记录导出插件 ${VERSION} 的开箱即用完整包。所有依赖已安装完毕，配置文件已预配置好，解压后直接运行即可使用。
+
+          ${PRERELEASE_WARNING}
+
+          ### ${VERSION} 更新内容
+
+          ${CHANGELOG}
 
           ### 下载
-
-          **完整包（含 NapCat）：**
 
           | 平台 | 状态 | 文件 |
           |------|------|------|
           | Windows 10/11 x64 | ✅ 完全支持 | `NapCat-QCE-Windows-x64.zip` |
           | Linux x64 | ✅ 应该支持 | `NapCat-QCE-Linux-x64.tar.gz` |
           | macOS | ⚠️ 暂不支持 | 因兼容性问题暂不提供 |
-          
 
+          <details>
+          <summary>使用方法</summary>
 
-          ### 使用
-
-          **完整包（NapCat + QCE）使用方法：**
-
-          - **Windows 用户**：解压后运行 `launcher-user.bat`
-          - **Linux 用户**：需要在 QQ 安装目录（通常是 /opt/QQ）解压并运行 `./launcher-user.sh`，或者设置 `NAPCAT_QQ_PATH` 环境变量后在任意位置运行
-          - **macOS 用户**：⚠️ 暂不支持，推荐使用 Windows 系统
+          - **Windows**：解压后运行 `launcher-user.bat`
+          - **Linux**：在 QQ 安装目录（通常是 `/opt/QQ`）解压并运行 `./launcher-user.sh`，或设置 `NAPCAT_QQ_PATH` 环境变量后在任意位置运行
 
           启动后浏览器访问 `http://localhost:40653/qce-v4-tool`，输入控制台显示的访问令牌即可使用。
 
-          ### 系统要求
+          </details>
+
+          <details>
+          <summary>系统要求</summary>
 
           需要 QQ 客户端版本 34606 以上（推荐 9.9.19-34740），[下载地址](https://im.qq.com/)
 
-          **Windows**：需要 Windows 10/11 x64。如果提示缺少 DLL 文件，安装 [Visual C++ 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+          - **Windows**：Windows 10/11 x64。如提示缺少 DLL，安装 [Visual C++ 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+          - **Linux**：Ubuntu 20.04+ / Debian 11+ / CentOS 8+，glibc 2.31+。QQ 需安装在 `/opt/QQ` 或通过环境变量指定路径
+          - **macOS**：⚠️ 因兼容性问题暂不支持
 
-          **Linux**：需要 Ubuntu 20.04+、Debian 11+ 或 CentOS 8+ 以及 glibc 2.31+。QQ 必须安装在 /opt/QQ 或通过环境变量指定路径
+          </details>
 
-          **macOS**：⚠️ 因兼容性问题暂不支持，正在努力解决中，后续有进展会及时通知
-
-          ### 版本信息
-
-          NapCat ${{ needs.get-napcat-version.outputs.version }} + QCE 插件 $VERSION
-
-          $CHANGELOG
+          ---
 
           本软件完全免费开源，遵循 GPL-3.0 协议。如果有人向你收费，立即申请退款并举报。
 
@@ -181,15 +190,17 @@ jobs:
           EOFNOTES
           
           # 替换变量
-          sed -i "s/\$VERSION/${VERSION}/g" RELEASE_NOTES.md
+          sed -i "s/\${VERSION}/${VERSION}/g" RELEASE_NOTES.md
+          sed -i "s/\${NAPCAT_VERSION}/${NAPCAT_VERSION}/g" RELEASE_NOTES.md
+          sed -i "s/\${PRERELEASE_WARNING}/${PRERELEASE_WARNING}/g" RELEASE_NOTES.md
           
-          # 替换 CHANGELOG（保留换行）
+          # 替换 CHANGELOG
           echo "$CHANGELOG" > /tmp/changelog.txt
-          sed -i "/\$CHANGELOG/r /tmp/changelog.txt" RELEASE_NOTES.md
-          sed -i "/\$CHANGELOG/d" RELEASE_NOTES.md
+          sed -i "/\${CHANGELOG}/r /tmp/changelog.txt" RELEASE_NOTES.md
+          sed -i "/\${CHANGELOG}/d" RELEASE_NOTES.md
           
           echo "已为版本 ${VERSION} 生成发布说明"
-          echo "包含 NapCat ${{ needs.get-napcat-version.outputs.version }}"
+          echo "包含 NapCat ${NAPCAT_VERSION}"
       
       - name: "[5/5] 创建 GitHub Release"
         uses: softprops/action-gh-release@v1
