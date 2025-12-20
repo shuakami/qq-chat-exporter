@@ -3242,10 +3242,9 @@ export class QQChatExporterApiServer {
             // 创建消息流生成器
             const messageGenerator = fetcher.fetchAllMessagesInTimeRange(peer, startTimeMs, endTimeMs);
             
-            // 收集所有原始消息（流式）
+            // 真正流式处理：边获取边解析边写入，不累积到内存
             let totalRawMessages = 0;
             let batchCount = 0;
-            const allMessages: any[] = [];
 
             const broadcastProgress = (progress: number, message: string, count?: number) => {
                 this.exportTasks.get(taskId) && this.updateTaskStatus(taskId, {
@@ -3259,10 +3258,54 @@ export class QQChatExporterApiServer {
                 });
             };
 
-            // 流式获取消息
+            // 准备 JSONL 输出目录
+            const chunksDir = path.join(jsonlOutputDir, 'chunks');
+            if (!fs.existsSync(chunksDir)) {
+                fs.mkdirSync(chunksDir, { recursive: true });
+            }
+
+            // 初始化解析器
+            const { SimpleMessageParser } = await import('../core/parser/SimpleMessageParser.js');
+            const parser = new SimpleMessageParser(this.core);
+
+            // 流式 JSONL 写入状态
+            const maxMessagesPerChunk = 50000;
+            const maxBytesPerChunk = 50 * 1024 * 1024;
+            let currentChunkIndex = 0;
+            let currentChunkMessages = 0;
+            let currentChunkBytes = 0;
+            let currentWriteStream: ReturnType<typeof fs.createWriteStream> | null = null;
+            const chunks: Array<{ file: string; messages: number; bytes: number; startTime?: number; endTime?: number }> = [];
+            let chunkStartTime: number | undefined;
+            let chunkEndTime: number | undefined;
+
+            const startNewChunk = () => {
+                if (currentWriteStream) {
+                    currentWriteStream.end();
+                    chunks.push({
+                        file: `chunks/chunk_${String(currentChunkIndex).padStart(4, '0')}.jsonl`,
+                        messages: currentChunkMessages,
+                        bytes: currentChunkBytes,
+                        startTime: chunkStartTime,
+                        endTime: chunkEndTime
+                    });
+                }
+                currentChunkIndex++;
+                currentChunkMessages = 0;
+                currentChunkBytes = 0;
+                chunkStartTime = undefined;
+                chunkEndTime = undefined;
+                const chunkPath = path.join(chunksDir, `chunk_${String(currentChunkIndex).padStart(4, '0')}.jsonl`);
+                currentWriteStream = fs.createWriteStream(chunkPath, { encoding: 'utf-8' });
+            };
+
+            // 开始第一个 chunk
+            startNewChunk();
+
+            // 流式获取 -> 解析 -> 写入
             for await (const batch of messageGenerator) {
                 batchCount++;
-                const currentProgress = Math.min(batchCount * 5, 40);
+                const currentProgress = Math.min(batchCount * 3, 80);
                 
                 // 过滤指定用户
                 let filteredBatch = batch;
@@ -3271,10 +3314,34 @@ export class QQChatExporterApiServer {
                     filteredBatch = filteredBatch.filter((msg: any) => !excludeSet.has(String(msg.senderUin || '')));
                 }
 
-                allMessages.push(...filteredBatch);
-                totalRawMessages += filteredBatch.length;
+                // 逐条解析并写入（不累积）
+                for (const rawMsg of filteredBatch) {
+                    const cleanMsg = await parser.parseSingleMessage(rawMsg);
+                    if (!cleanMsg) continue;
 
-                broadcastProgress(currentProgress, `已获取 ${totalRawMessages} 条消息...`, totalRawMessages);
+                    const line = JSON.stringify(cleanMsg) + '\n';
+                    const lineBytes = Buffer.byteLength(line, 'utf-8');
+
+                    // 检查是否需要切换到新 chunk
+                    if (currentChunkMessages >= maxMessagesPerChunk || currentChunkBytes + lineBytes > maxBytesPerChunk) {
+                        startNewChunk();
+                    }
+
+                    // 写入当前 chunk
+                    currentWriteStream!.write(line);
+                    currentChunkMessages++;
+                    currentChunkBytes += lineBytes;
+                    totalRawMessages++;
+
+                    // 更新时间范围
+                    const msgTime = cleanMsg.timestamp;
+                    if (msgTime) {
+                        if (!chunkStartTime || msgTime < chunkStartTime) chunkStartTime = msgTime;
+                        if (!chunkEndTime || msgTime > chunkEndTime) chunkEndTime = msgTime;
+                    }
+                }
+
+                broadcastProgress(currentProgress, `已处理 ${totalRawMessages} 条消息...`, totalRawMessages);
 
                 // 每5批次触发垃圾回收
                 if (batchCount % 5 === 0 && global.gc) {
@@ -3282,46 +3349,55 @@ export class QQChatExporterApiServer {
                 }
             }
 
-            // 更新进度
-            broadcastProgress(50, '正在导出JSONL分块...', totalRawMessages);
+            // 关闭最后一个 chunk
+            if (currentWriteStream !== null) {
+                (currentWriteStream as any).end();
+                if (currentChunkMessages > 0) {
+                    chunks.push({
+                        file: `chunks/chunk_${String(currentChunkIndex).padStart(4, '0')}.jsonl`,
+                        messages: currentChunkMessages,
+                        bytes: currentChunkBytes,
+                        startTime: chunkStartTime,
+                        endTime: chunkEndTime
+                    });
+                }
+            }
 
-            // 使用 JsonExporter 的 exportChunkedJsonl 方法
-            const { JsonExporter } = await import('../core/exporter/JsonExporter.js');
-            const jsonExporter = new JsonExporter(
-                {
-                    outputPath: path.join(jsonlOutputDir, 'manifest.json'),
-                    encoding: 'utf-8',
-                    includeResourceLinks: true,
-                    includeSystemMessages: options?.includeSystemMessages ?? true,
-                    filterPureImageMessages: options?.filterPureImageMessages ?? false,
-                    timeFormat: 'YYYY-MM-DD HH:mm:ss',
-                    prettyFormat: options?.prettyFormat ?? true
+            // 写入 manifest.json
+            const manifest = {
+                metadata: {
+                    exportTime: new Date().toISOString(),
+                    version: '5.0.0',
+                    format: 'chunked-jsonl'
                 },
-                {
-                    pretty: options?.prettyFormat ?? true,
-                    indent: 2,
-                    includeRawData: false,
-                    includeMetadata: true,
-                    compactFieldNames: false,
-                    chunkSize: 0,
-                    embedAvatarsAsBase64: options?.embedAvatarsAsBase64 ?? false,
-                    exportMode: 'chunked-jsonl',
-                    chunkedJsonl: {
-                        outputDir: jsonlOutputDir,
-                        maxMessagesPerChunk: 50000,
-                        maxBytesPerChunk: 50 * 1024 * 1024,
-                        parseBatchSize: 5000
-                    }
+                chatInfo,
+                statistics: {
+                    totalMessages: totalRawMessages,
+                    chunkCount: chunks.length
                 },
-                this.core
-            );
+                chunked: {
+                    format: 'jsonl',
+                    chunksDir: 'chunks',
+                    chunkFileExt: '.jsonl',
+                    maxMessagesPerChunk,
+                    maxBytesPerChunk,
+                    chunks
+                }
+            };
+            const manifestPath = path.join(jsonlOutputDir, 'manifest.json');
+            fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
 
-            const result = await jsonExporter.exportChunkedJsonl(allMessages, chatInfo, {
-                outputDir: jsonlOutputDir,
-                maxMessagesPerChunk: 50000,
-                maxBytesPerChunk: 50 * 1024 * 1024,
-                parseBatchSize: 5000
-            });
+            // 计算总大小
+            let totalSize = fs.statSync(manifestPath).size;
+            for (const chunk of chunks) {
+                totalSize += chunk.bytes;
+            }
+
+            const result = {
+                messageCount: totalRawMessages,
+                fileSize: totalSize,
+                chunkCount: chunks.length
+            };
 
             // 更新任务为完成状态
             task = this.exportTasks.get(taskId);
