@@ -3627,9 +3627,17 @@ export class QQChatExporterApiServer {
                 const accessToken = this.securityManager.getAccessToken();
                 const frontendStatus = this.frontendBuilder.getStatus();
                 
-                // 简洁的启动信息
-                const green = '\x1b[38;5;28m';
-                const reset = '\x1b[0m';
+                // 检测终端是否支持 ANSI 颜色
+                const supportsColor = process.stdout.isTTY && (
+                    process.platform !== 'win32' ||
+                    process.env.TERM === 'xterm' ||
+                    process.env.TERM === 'xterm-256color' ||
+                    process.env.WT_SESSION || // Windows Terminal
+                    process.env.COLORTERM ||
+                    process.env.ANSICON
+                );
+                const green = supportsColor ? '\x1b[38;5;28m' : '';
+                const reset = supportsColor ? '\x1b[0m' : '';
                 
                 console.log('');
                 console.log(`${green}[QCE]${reset} QQChatExporter v5.0.0`);
