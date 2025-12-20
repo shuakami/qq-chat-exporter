@@ -28,6 +28,12 @@
 
 感谢 [NapCatQQ](https://github.com/NapNeko/NapCatQQ) 团队提供的框架支持。
 
+<a href="https://github.com/shuakami/qq-chat-exporter/graphs/contributors">
+
+  <img src="https://contrib.rocks/image?repo=shuakami/qq-chat-exporter&max=12&columns=12" width="125" />
+
+</a>
+
 ## 许可证
 
 [GPL-3.0](https://github.com/shuakami/qq-chat-exporter/blob/main/LICENSE)

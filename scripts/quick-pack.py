@@ -33,7 +33,7 @@ def get_platform_info():
 
 def get_napcat_latest_version():
     """Get latest NapCat version from GitHub API"""
-    print("[1/12] Getting NapCat latest version...")
+    print("[1/11] Getting NapCat latest version...")
     try:
         with urlopen("https://api.github.com/repos/NapNeko/NapCatQQ/releases/latest") as response:
             data = json.loads(response.read())
@@ -110,7 +110,7 @@ def main():
     print()
     
     # Clean old files
-    print("[2/12] Cleaning old files...")
+    print("[2/11] Cleaning old files...")
     if os.path.exists(pack_dir):
         shutil.rmtree(pack_dir)
     if os.path.exists("NapCat.Shell.zip"):
@@ -121,7 +121,7 @@ def main():
     print()
     
     # Download NapCat
-    print(f"[3/12] Downloading NapCat.Shell {napcat_version}...")
+    print(f"[3/11] Downloading NapCat.Shell {napcat_version}...")
     try:
         download_file(napcat_url, "NapCat.Shell.zip")
     except Exception as e:
@@ -130,7 +130,7 @@ def main():
     print()
     
     # Extract NapCat
-    print("[4/12] Extracting NapCat.Shell...")
+    print("[4/11] Extracting NapCat.Shell...")
     temp_extract_dir = "temp_napcat_extract"
     if os.path.exists(temp_extract_dir):
         shutil.rmtree(temp_extract_dir)
@@ -151,20 +151,20 @@ def main():
     print()
     
     # Create plugin directories
-    print("[5/12] Creating plugin directories...")
+    print("[5/11] Creating plugin directories...")
     os.makedirs(f"{pack_dir}/plugins", exist_ok=True)
     os.makedirs(f"{pack_dir}/static", exist_ok=True)
     print("[x] Created")
     print()
     
     # Copy plugin files
-    print("[6/12] Copying plugin files...")
+    print("[6/11] Copying plugin files...")
     copy_directory("plugins/qq-chat-exporter", f"{pack_dir}/plugins/qq-chat-exporter")
     print("[x] Copied")
     print()
     
     # Install plugin dependencies
-    print("[7/12] Installing plugin dependencies...")
+    print("[7/11] Installing plugin dependencies...")
     plugin_dir = f"{pack_dir}/plugins/qq-chat-exporter"
     npm_cmd = ["npm.cmd" if os_name == "Windows" else "npm", "install", "--omit=dev"]
     if not run_command(npm_cmd, cwd=plugin_dir):
@@ -183,7 +183,7 @@ def main():
     print()
     
     # Copy frontend files
-    print("[8/12] Copying frontend files...")
+    print("[8/11] Copying frontend files...")
     frontend_out = "qce-v4-tool/out"
     if not os.path.exists(f"{frontend_out}/index.html"):
         print("[-] Building frontend...")
@@ -194,9 +194,8 @@ def main():
     print("[x] Copied")
     print()
     
-    
     # Update config files
-    print("[9/12] Updating config files...")
+    print("[9/11] Updating config files...")
     os.makedirs(f"{pack_dir}/config", exist_ok=True)
     
     napcat_config = {
@@ -246,9 +245,137 @@ def main():
     print("[x] Updated")
     print()
     
+    # Create standalone mode scripts
+    print("[9.5/11] Creating standalone mode scripts...")
+    
+    # Create standalone.mjs entry point
+    standalone_mjs = '''#!/usr/bin/env node
+/**
+ * QCE 独立模式启动脚本
+ * 无需 NapCat 登录即可运行，用于浏览已导出的聊天记录和资源
+ */
+
+async function main() {
+    const port = parseInt(process.argv[2]) || 40653;
+    
+    console.log('[QCE] 正在启动独立模式...');
+    
+    try {
+        // 使用 tsx 加载 TypeScript
+        const tsx = await import('tsx/esm/api');
+        tsx.register();
+        
+        // 动态导入 StandaloneServer
+        const { startStandaloneServer } = await import('./lib/api/StandaloneServer.ts');
+        
+        await startStandaloneServer(port);
+        
+        // 保持进程运行
+        process.on('SIGINT', () => {
+            console.log('\\n[QCE] 正在关闭...');
+            process.exit(0);
+        });
+    } catch (error) {
+        console.error('[QCE] 启动失败:', error);
+        process.exit(1);
+    }
+}
+
+main();
+'''
+    
+    with open(f"{pack_dir}/plugins/qq-chat-exporter/standalone.mjs", "w", encoding="utf-8", newline="\n") as f:
+        f.write(standalone_mjs)
+    
+    # Create Windows batch launcher for standalone mode
+    if os_name == "Windows":
+        standalone_bat = '''@echo off
+chcp 65001 > nul
+title QCE 独立模式
+
+echo.
+echo [QCE] 独立模式
+echo [QCE] 无需登录QQ即可浏览已导出的聊天记录
+echo.
+
+:: 检查 Node.js - 首先尝试使用打包的 Node
+set "NODE_EXE="
+
+:: 检查是否有打包的 Node.js
+if exist "%~dp0node.exe" (
+    set "NODE_EXE=%~dp0node.exe"
+    goto :found_node
+)
+
+:: 检查系统 Node.js
+where node >nul 2>&1
+if %errorlevel% equ 0 (
+    set "NODE_EXE=node"
+    goto :found_node
+)
+
+:: 未找到 Node.js
+echo [错误] 未检测到 Node.js
+echo.
+echo 解决方案:
+echo   1. 安装 Node.js: https://nodejs.org/
+echo   2. 或使用完整版 NapCat+QCE 包（运行 launcher-user.bat）
+echo.
+pause
+exit /b 1
+
+:found_node
+echo [信息] 正在启动独立模式服务器...
+echo.
+"%NODE_EXE%" plugins/qq-chat-exporter/standalone.mjs %1
+
+pause
+'''
+        with open(f"{pack_dir}/start-standalone.bat", "w", encoding="utf-8") as f:
+            f.write(standalone_bat)
+    
+    # Create Linux/macOS shell launcher for standalone mode
+    if os_name != "Windows":
+        standalone_sh = '''#!/bin/bash
+# QCE 独立模式启动脚本
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+echo ""
+echo "[QCE] 独立模式"
+echo "[QCE] 无需登录QQ即可浏览已导出的聊天记录"
+echo ""
+
+# 检查 Node.js
+if ! command -v node &> /dev/null; then
+    echo "[错误] 未检测到 Node.js"
+    echo ""
+    echo "解决方案:"
+    echo "  1. 安装 Node.js: https://nodejs.org/"
+    echo "  2. 或使用完整版 NapCat+QCE 包（运行 ./launcher-user.sh）"
+    echo ""
+    exit 1
+fi
+
+echo "[信息] 正在启动独立模式服务器..."
+echo ""
+node plugins/qq-chat-exporter/standalone.mjs "$@"
+'''
+        standalone_sh_path = f"{pack_dir}/start-standalone.sh"
+        with open(standalone_sh_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(standalone_sh)
+        
+        # Make it executable
+        import stat
+        os.chmod(standalone_sh_path, os.stat(standalone_sh_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    
+    print("[x] Created standalone scripts")
+    print()
+    
     # Create launcher script for Linux/macOS
     if os_name != "Windows":
-        print("[9.5/12] Creating launcher script...")
+        print("[9.6/11] Creating launcher script...")
         launcher_script = """#!/bin/bash
 # NapCat + QCE Launcher Script
 
@@ -278,56 +405,71 @@ node "$NAPCAT_MAIN_PATH"
             f.write(launcher_script)
         
         # Make it executable
-        import stat
         os.chmod(launcher_path, os.stat(launcher_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         print("[x] Created")
         print()
     
     # Create README
-    print("[10/12] Creating README...")
+    print("[10/11] Creating README...")
     
     if os_name == "Windows":
-        usage_steps = """Usage:
-1. Extract to any directory
-2. Run: launcher-user.bat
-3. Browser: http://localhost:40653/qce-v4-tool
-   Enter the token shown in console"""
-    else:  # Linux/macOS
-        usage_steps = """Usage:
-1. Extract to any directory
-2. Run: ./launcher-user.sh
-3. Browser: http://localhost:40653/qce-v4-tool
-   Enter the token shown in console
+        usage_steps = """使用方法:
+1. 解压到任意目录
+2. 完整模式: 运行 launcher-user.bat (需要登录QQ，支持导出新记录)
+3. 独立模式: 运行 start-standalone.bat (无需登录，仅浏览已导出文件)
+4. 浏览器访问: http://localhost:40653/qce-v4-tool
+   完整模式需输入控制台显示的访问令牌
 
-Note: First run, execute: chmod +x launcher-user.sh"""
+独立模式说明:
+- 无需安装或登录QQ
+- 可浏览已导出的聊天记录
+- 可使用资源画廊（图片/视频/音频）
+- 不支持导出新的聊天记录"""
+    else:  # Linux/macOS
+        usage_steps = """使用方法:
+1. 解压到任意目录
+2. 完整模式: 运行 ./launcher-user.sh (需要登录QQ，支持导出新记录)
+3. 独立模式: 运行 ./start-standalone.sh (无需登录，仅浏览已导出文件)
+4. 浏览器访问: http://localhost:40653/qce-v4-tool
+   完整模式需输入控制台显示的访问令牌
+
+注意: 首次运行需执行: chmod +x launcher-user.sh start-standalone.sh
+
+独立模式说明:
+- 无需安装或登录QQ
+- 可浏览已导出的聊天记录
+- 可使用资源画廊（图片/视频/音频）
+- 不支持导出新的聊天记录"""
         if os_name == "Linux":
-            usage_steps += "\n      QQ must be installed at /opt/QQ or set NAPCAT_QQ_PATH"
+            usage_steps += "\n\n完整模式要求: QQ 需安装在 /opt/QQ 或设置 NAPCAT_QQ_PATH 环境变量"
         else:  # macOS
-            usage_steps += "\n      Run: xattr -r -d com.apple.quarantine . to remove system quarantine"
+            usage_steps += "\n\nmacOS 用户: 运行 xattr -r -d com.apple.quarantine . 移除系统隔离"
     
     readme_content = f"""{"=" * 50}
-NapCat + QQ Chat Exporter - Complete Package
+NapCat + QQ Chat Exporter - 完整包
 {"=" * 50}
-NapCat Version: {napcat_version}
-QCE Version: {VERSION}
-Platform: {os_name}-{arch}
-Build Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+NapCat 版本: {napcat_version}
+QCE 版本: {VERSION}
+平台: {os_name}-{arch}
+构建时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 {"=" * 50}
 
-Complete package includes:
+包含内容:
 - NapCat {napcat_version}
-- QQ Chat Exporter Plugin {VERSION}
-- Pre-configured web interface
+- QQ Chat Exporter 插件 {VERSION}
+- 预配置的 Web 界面
+- 独立模式支持（无需登录QQ）
 
 {usage_steps}
 
-Requirements:
-- QQ Client 34606+ (recommended 9.9.19-34740)
-- Download: https://im.qq.com/
+系统要求:
+- QQ 客户端 34606+ (推荐 9.9.19-34740)
+- 下载地址: https://im.qq.com/
+- 独立模式需要 Node.js 18+
 
-Support:
+支持:
 - NapCat: https://github.com/NapNeko/NapCatQQ
-- QCE Plugin: https://github.com/shuakami/qq-chat-exporter
+- QCE 插件: https://github.com/shuakami/qq-chat-exporter
 {"=" * 50}
 """
     
@@ -338,74 +480,9 @@ Support:
     print()
     
     # Create main archive
-    print("[11/12] Creating main archive...")
+    print("[11/11] Creating main archive...")
     output_file = f"{pack_dir}{archive_ext}"
     create_archive(pack_dir, output_file, archive_ext)
-    print()
-    
-    # Create qce-viewer standalone package
-    print("[12/12] Creating qce-viewer standalone package...")
-    viewer_pack_dir = "qce-viewer-standalone"
-    
-    # Clean old viewer package
-    if os.path.exists(viewer_pack_dir):
-        shutil.rmtree(viewer_pack_dir)
-    if os.path.exists("qce-viewer.zip"):
-        os.remove("qce-viewer.zip")
-    
-    # Copy qce-viewer
-    copy_directory("qce-viewer", viewer_pack_dir)
-    
-    # Install dependencies
-    print("[->] Installing qce-viewer dependencies...")
-    npm_cmd = ["npm.cmd" if os_name == "Windows" else "npm", "install", "--omit=dev"]
-    if not run_command(npm_cmd, cwd=viewer_pack_dir):
-        print("[!] qce-viewer dependency install failed")
-        sys.exit(1)
-    
-    # Create qce-viewer README
-    viewer_readme = f"""{"=" * 50}
-QCE Viewer - Standalone Export Viewer
-{"=" * 50}
-Version: {VERSION}
-Build Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-{"=" * 50}
-
-Lightweight viewer for browsing exported QQ chat records.
-
-Usage:
-1. Windows: Run start.bat
-2. Linux/macOS: Run ./start.sh (chmod +x start.sh first)
-3. Browser: http://localhost:3000
-
-Features:
-- Browse all exported chat records
-- Search and filter chats
-- View messages, images, and other resources
-- No QQ login required
-
-Requirements:
-- Node.js 16+ (https://nodejs.org/)
-
-Support:
-- GitHub: https://github.com/shuakami/qq-chat-exporter
-{"=" * 50}
-"""
-    
-    with open(f"{viewer_pack_dir}/README.txt", "w", encoding="utf-8") as f:
-        f.write(viewer_readme)
-    
-    # Create qce-viewer.zip (always ZIP regardless of platform)
-    viewer_output = "qce-viewer.zip"
-    with zipfile.ZipFile(viewer_output, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        for root, dirs, files in os.walk(viewer_pack_dir):
-            for file in files:
-                file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, os.path.dirname(viewer_pack_dir))
-                zipf.write(file_path, arcname)
-    
-    viewer_size = os.path.getsize(viewer_output)
-    print(f"[x] Created: {viewer_output} ({viewer_size / 1024 / 1024:.2f} MB)")
     print()
     
     # Clean up
@@ -413,32 +490,22 @@ Support:
         os.remove("NapCat.Shell.zip")
     if os.path.exists("temp_napcat_extract"):
         shutil.rmtree("temp_napcat_extract")
-    if os.path.exists(viewer_pack_dir):
-        shutil.rmtree(viewer_pack_dir)
     
     # Summary
     print("=" * 50)
-    print("[x] All Packages Complete!")
+    print("[x] Package Complete!")
     print("=" * 50)
     print()
-    print("Output Files:")
-    print(f"1. {output_file}")
-    print(f"   Size: {os.path.getsize(output_file) / 1024 / 1024:.2f} MB")
-    print(f"   Complete package with NapCat {napcat_version}")
+    print("Output File:")
+    print(f"  {output_file}")
+    print(f"  Size: {os.path.getsize(output_file) / 1024 / 1024:.2f} MB")
+    print(f"  NapCat: {napcat_version}")
     print()
-    print(f"2. {viewer_output}")
-    print(f"   Size: {viewer_size / 1024 / 1024:.2f} MB")
-    print(f"   Standalone viewer for exported chat records")
-    print()
-    print("Main Package Usage:")
+    print("Usage:")
     print("1. Extract to any directory")
-    print(f"2. Run launcher-user.{'bat' if os_name == 'Windows' else 'sh'}")
-    print("3. Visit http://localhost:40653/qce-v4-tool")
-    print()
-    print("Viewer Package Usage:")
-    print("1. Extract to any directory")
-    print(f"2. Run start.{'bat' if os_name == 'Windows' else 'sh'}")
-    print("3. Visit http://localhost:3000")
+    print(f"2. Full mode: launcher-user.{'bat' if os_name == 'Windows' else 'sh'}")
+    print(f"3. Standalone mode: start-standalone.{'bat' if os_name == 'Windows' else 'sh'}")
+    print("4. Visit http://localhost:40653/qce-v4-tool")
     print()
     print("=" * 50)
 
@@ -453,4 +520,3 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
-
