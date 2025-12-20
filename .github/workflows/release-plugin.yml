@@ -130,25 +130,28 @@ jobs:
           # 获取上一个 tag
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           
-          # 在当前 tag 范围内找第一个有 body 的 commit
-          COMMIT_BODY=""
+          # 生成更新内容：遍历所有 commit，有 body 的展开，没 body 的只显示标题
+          CHANGELOG=""
           if [ -n "$PREV_TAG" ]; then
-            for commit in $(git log ${PREV_TAG}..HEAD --format="%H"); do
-              body=$(git log -1 --format="%b" $commit)
+            for commit in $(git log ${PREV_TAG}..HEAD --format="%H" --reverse); do
+              subject=$(git log -1 --format="%s" $commit)
+              body=$(git log -1 --format="%b" $commit | sed '/^$/d')
+              
               if [ -n "$body" ]; then
-                COMMIT_BODY="$body"
-                break
+                # 有 body，展开详细内容
+                CHANGELOG="${CHANGELOG}
+          
+          **${subject}**
+          
+          ${body}"
+              else
+                # 没 body，只显示标题
+                CHANGELOG="${CHANGELOG}
+          - ${subject}"
               fi
             done
-          fi
-          
-          # 如果还是没找到，用 commit 标题列表
-          if [ -z "$COMMIT_BODY" ]; then
-            if [ -n "$PREV_TAG" ]; then
-              COMMIT_BODY=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges | head -20)
-            else
-              COMMIT_BODY="- 首次发布完整集成包"
-            fi
+          else
+            CHANGELOG="- 首次发布完整集成包"
           fi
           
           # 创建发布说明
@@ -157,8 +160,7 @@ jobs:
 
           ${PRERELEASE_WARNING}
           ### ${VERSION} 更新内容
-
-          ${COMMIT_BODY}
+          ${CHANGELOG}
 
           ### 下载
 
