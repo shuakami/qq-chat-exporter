@@ -173,10 +173,15 @@ jobs:
           <details>
           <summary>使用方法</summary>
 
+          **完整模式**（需要登录QQ，支持导出新记录）：
           - **Windows**：解压后运行 \`launcher-user.bat\`
-          - **Linux**：在 QQ 安装目录（通常是 \`/opt/QQ\`）解压并运行 \`./launcher-user.sh\`，或设置 \`NAPCAT_QQ_PATH\` 环境变量后在任意位置运行
+          - **Linux**：运行 \`./launcher-user.sh\`
 
-          启动后浏览器访问 \`http://localhost:40653/qce-v4-tool\`，输入控制台显示的访问令牌即可使用。
+          **独立模式**（无需登录QQ，仅浏览已导出文件）：
+          - **Windows**：运行 \`start-standalone.bat\`
+          - **Linux**：运行 \`./start-standalone.sh\`
+
+          启动后浏览器访问 \`http://localhost:40653/qce-v4-tool\`，完整模式需输入控制台显示的访问令牌。
 
           </details>
 
