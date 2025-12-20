@@ -3,15 +3,25 @@
  * 简洁、清晰、无emoji的日志输出
  */
 
+// 检测终端是否支持 ANSI 颜色（Windows CMD 不支持）
+const supportsColor = process.stdout.isTTY && (
+    process.platform !== 'win32' ||
+    process.env.TERM === 'xterm' ||
+    process.env.TERM === 'xterm-256color' ||
+    process.env.WT_SESSION || // Windows Terminal
+    process.env.COLORTERM ||
+    process.env.ANSICON
+);
+
 // ANSI颜色代码
 const colors = {
-    reset: '\x1b[0m',
-    green: '\x1b[32m',
-    cyan: '\x1b[36m',      // 青色用于强调，比绿色更舒服
-    yellow: '\x1b[33m',
-    red: '\x1b[31m',
-    gray: '\x1b[90m',
-    white: '\x1b[37m',
+    reset: supportsColor ? '\x1b[0m' : '',
+    green: supportsColor ? '\x1b[32m' : '',
+    cyan: supportsColor ? '\x1b[36m' : '',      // 青色用于强调，比绿色更舒服
+    yellow: supportsColor ? '\x1b[33m' : '',
+    red: supportsColor ? '\x1b[31m' : '',
+    gray: supportsColor ? '\x1b[90m' : '',
+    white: supportsColor ? '\x1b[37m' : '',
 };
 
 /**
