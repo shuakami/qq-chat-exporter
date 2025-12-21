@@ -239,7 +239,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 z-50"
+            className="fixed inset-0 bg-black/50 z-[110]"
             onClick={onClose}
           />
           <motion.div
@@ -247,7 +247,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ duration: 0.2 }}
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-3xl max-h-[85vh] bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden"
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-3xl max-h-[85vh] bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl z-[111] flex flex-col overflow-hidden"
           >
             {/* Header */}
             <div className="px-6 py-5 border-b border-neutral-100 dark:border-neutral-800">
