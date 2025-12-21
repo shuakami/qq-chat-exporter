@@ -1,30 +1,14 @@
 blank_issues_enabled: false
 contact_links:
-
   - name: "📖 用户手册"
-    url: https
-://shuakami.me/posts/qce-manual
-    about: "
-完整使用教程，从入门到进阶"
-  -
- name: "📌 已知问题汇总"
-    url: ht
-tps://github.com/shuakami/qq-chat-exporter/is
-sues/164
-    about: "先看这里！很多�
-�题已经记录了"
-  - name: "📖 消息�
-��型对照表"
-    url: https://github.com/
-shuakami/qq-chat-exporter/issues/167
-    abo
-ut: "开发者技术参考"
-  - name: "🌟 
-社区项目"
-    url: https://github.com/sh
-uakami/qq-chat-exporter/issues/164#-社区贡
-献
-    about: "chatlab、napcat-qce-python 
-等"
-
-
+    url: https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C
+    about: "完整使用教程，从入门到进阶"
+  - name: "📌 已知问题汇总"
+    url: https://github.com/shuakami/qq-chat-exporter/issues/164
+    about: "先看这里！很多问题已经记录了"
+  - name: "📖 消息类型对照表"
+    url: https://github.com/shuakami/qq-chat-exporter/issues/167
+    about: "开发者技术参考"
+  - name: "🌟 社区项目"
+    url: https://github.com/shuakami/qq-chat-exporter/issues/164#-社区贡献
+    about: "chatlab、napcat-qce-python 等"
