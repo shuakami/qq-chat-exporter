@@ -1,158 +1,101 @@
 name: "📤 导出问题"
-description: "导�
-��聊天记录时遇到问题"
-title: "[导�
-��] "
+description: "导出聊天记录时遇到问题"
+title: "[导出] "
 labels: ["bug", "export"]
 body:
-  - 
-type: markdown
+  - type: markdown
     attributes:
-      value:
- |
+      value: |
         ## 📤 导出问题反馈
-     
-   
-        导出遇到问题？我们来�
-�看！
         
-        > ⚠️ **大量�
-��息导出（>50万条）？** 请使用流�
-��导出功能！
-        > 📖 [查看用�
-��手册](https://shuakami.me/posts/qce-manua
-l)
+        导出遇到问题？我们来帮你看！
+        
+        > ⚠️ **大量消息导出（>50万条）？** 请使用流式导出功能！
+        > 📖 [查看用户手册](https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C)
 
   - type: input
     id: qce-version
- 
-   attributes:
-      label: "📦 QCE 版本
-"
+    attributes:
+      label: "📦 QCE 版本"
       placeholder: "v5.0.0"
-    validatio
-ns:
+    validations:
       required: true
 
-  - type: dropdo
-wn
+  - type: dropdown
     id: export-format
     attributes:
- 
-     label: "📁 导出格式"
-      option
-s:
+      label: "📁 导出格式"
+      options:
         - "HTML"
         - "JSON"
-     
-   - "TXT"
+        - "TXT"
         - "Excel"
-    validation
-s:
+    validations:
       required: true
 
-  - type: dropdow
-n
+  - type: dropdown
     id: chat-type
     attributes:
-      
-label: "💬 聊天类型"
+      label: "💬 聊天类型"
       options:
- 
-       - "群聊"
-        - "私聊/好友"
-
+        - "群聊"
+        - "私聊/好友"
         - "批量导出"
     validations:
-
       required: true
 
   - type: input
-    
-id: message-count
+    id: message-count
     attributes:
-      lab
-el: "📊 大约消息数量"
-      placehol
-der: "50000"
+      label: "📊 大约消息数量"
+      placeholder: "50000"
 
   - type: textarea
-    id: p
-roblem
+    id: problem
     attributes:
-      label: "🤔 �
-��生了什么？"
+      label: "🤔 发生了什么？"
       placeholder: |
-   
-     描述导出问题
+        描述导出问题
         
-        �
-�如:
+        比如:
         - 导出卡在 50%
-        - 
-内存溢出 / OOM 错误
-        - 消息�
-�失
+        - 内存溢出 / OOM 错误
+        - 消息丢失
         - 图片/视频无法显示
-  
-  validations:
+    validations:
       required: true
 
-  - t
-ype: textarea
+  - type: textarea
     id: error
     attributes:
-
       label: "📋 错误信息"
-      ren
-der: shell
+      render: shell
       placeholder: |
-        粘
-贴终端或 Web 界面的错误信息
-     
-   
+        粘贴终端或 Web 界面的错误信息
+        
         [ERROR] xxx
 
-  - type: checkbo
-xes
+  - type: checkboxes
     id: export-options
-    attributes:
-
-      label: "⚙️ 使用的导出选项"
-
-      description: "勾选你启用的选项
-"
+    attributes:
+      label: "⚙️ 使用的导出选项"
+      description: "勾选你启用的选项"
       options:
-        - label: "流式�
-�出（超大消息量专用）"
-        - l
-abel: "导出为 ZIP 压缩包"
-        - la
-bel: "快速导出（跳过资源下载）"
-
+        - label: "流式导出（超大消息量专用）"
+        - label: "导出为 ZIP 压缩包"
+        - label: "快速导出（跳过资源下载）"
         - label: "设置了时间范围"
-   
-     - label: "设置了关键词过滤"
-   
-     - label: "设置了排除用户"
+        - label: "设置了关键词过滤"
+        - label: "设置了排除用户"
 
-  - 
-type: dropdown
+  - type: dropdown
     id: resource-status
-    
-attributes:
-      label: "🖼️ 资源下�
-��情况"
-      description: "图片/视频/
-语音等媒体文件"
+    attributes:
+      label: "🖼️ 资源下载情况"
+      description: "图片/视频/语音等媒体文件"
       options:
-     
-   - "正常下载"
+        - "正常下载"
         - "部分缺失"
-
         - "全部缺失"
-        - "跳过
-了资源下载"
+        - "跳过了资源下载"
         - "不确定"
-
-
