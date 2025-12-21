@@ -1,58 +1,94 @@
 name: "❓ 提问"
-description: "需要帮助？在这里提问！"
+description: "需要帮�
+�？在这里提问！"
 title: "[提问] "
+
 labels: ["question"]
 body:
-  - type: markdown
+  - type: markdo
+wn
     attributes:
       value: |
-        ## 🤔 有问题？
         
-        提问前，请先查看：
+## 🤔 有问题？
         
-        - 📖 [用户手册](https://shuakami.me/posts/qce-manual)
-        - 📌 [已知问题汇总](https://github.com/shuakami/qq-chat-exporter/issues/164)
-        - 📖 [消息类型对照表](https://github.com/shuakami/qq-chat-exporter/issues/167)
+        提�
+�前，请先查看：
         
-        > 💡 很多常见问题在这些文档里都有解答！
+        - �
+��� [用户手册](https://shuakami.me/posts/
+qce-manual)
+        - 📌 [已知问题汇�
+��](https://github.com/shuakami/qq-chat-expor
+ter/issues/164)
+        - 📖 [消息类型
+对照表](https://github.com/shuakami/qq-cha
+t-exporter/issues/167)
+        
+        > �
+��� 很多常见问题在这些文档里都�
+�解答！
 
   - type: dropdown
-    id: topic
+    id: top
+ic
     attributes:
-      label: "📂 主题"
+      label: "📂 主�
+�"
       options:
         - "安装/启动"
+
         - "登录/扫码"
-        - "导出"
+        - "导�
+�"
         - "查看导出文件"
-        - "定时任务"
+        -
+ "定时任务"
         - "表情包"
-        - "Docker"
+     
+   - "Docker"
         - "其他"
-    validations:
+    valida
+tions:
       required: true
 
-  - type: textarea
+  - type: tex
+tarea
     id: question
     attributes:
-      label: "❓ 你的问题"
-      placeholder: |
-        在这里提问，尽量具体！
+   
+   label: "❓ 你的问题"
+      placehold
+er: |
+        在这里提问，尽量具体
+！
         
-        好的问题: "如何只导出群聊中的图片？"
-        不太好的问题: "用不了"
-    validations:
+        好的问题: "如何�
+��导出群聊中的图片？"
+        不�
+�好的问题: "用不了"
+    validations:
+
       required: true
 
   - type: textarea
+
     id: tried
     attributes:
-      label: "🔍 你尝试过什么？"
-      placeholder: |
+      label: 
+"🔍 你尝试过什么？"
+      placehold
+er: |
         提问前你尝试过什么？
+
 
   - type: textarea
     id: context
-    attributes:
+    
+attributes:
       label: "📋 补充信息"
-      description: "截图、日志、你的环境..."
+
+      description: "截图、日志、你�
+�环境..."
+
+
