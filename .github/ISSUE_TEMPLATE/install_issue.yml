@@ -1,86 +1,132 @@
 name: "🔧 安装问题"
-description: "QCE 跑不起来？"
+description: "QCE 
+跑不起来？"
 title: "[安装] "
-labels: ["bug", "installation"]
+labels:
+ ["bug", "installation"]
 body:
-  - type: markdown
+  - type: ma
+rkdown
     attributes:
       value: |
-        ## 🔧 安装帮助
+    
+    ## 🔧 安装帮助
         
-        安装 QCE 遇到问题？我们来帮忙！
+        �
+��装 QCE 遇到问题？我们来帮忙！
+
         
-        > 📖 先看看 [用户手册 - 快速开始](https://shuakami.me/posts/qce-manual)
+        > 📖 先看看 [用户手
+册 - 快速开始](https://shuakami.me/posts
+/qce-manual)
 
   - type: dropdown
-    id: os
+    id: o
+s
     attributes:
-      label: "💻 操作系统"
+      label: "💻 操作
+系统"
       options:
         - Windows 11
+
         - Windows 10
-        - Ubuntu / Debian
+        - Ubuntu / De
+bian
         - 其他 Linux
-        - Docker
+        - Docke
+r
     validations:
       required: true
+
 
   - type: dropdown
     id: install-method
-    attributes:
-      label: "📥 安装方式"
+ 
+   attributes:
+      label: "📥 安装方�
+��"
       options:
-        - "一键启动包（官方 Release）"
-        - "手动安装到已有 NapCat"
+        - "一键启动�
+��（官方 Release）"
+        - "手动安
+装到已有 NapCat"
         - "Docker"
-    validations:
+   
+ validations:
       required: true
 
-  - type: dropdown
+  - ty
+pe: dropdown
     id: stage
-    attributes:
+    attributes:
+
       label: "📍 在哪一步失败？"
-      options:
+ 
+     options:
         - "下载"
-        - "解压"
-        - "启动 launcher-user.bat/sh"
+        - 
+"解压"
+        - "启动 launcher-user.bat
+/sh"
         - "扫码登录"
-        - "打开 Web 界面"
-        - "输入访问令牌"
+        - "�
+�开 Web 界面"
+        - "输入访问令�
+��"
         - "其他"
     validations:
-      required: true
+  
+    required: true
 
   - type: textarea
-    id: error
+   
+ id: error
     attributes:
-      label: "📋 错误信息"
+      label: "�
+�� 错误信息"
       render: shell
-      placeholder: |
-        粘贴终端的错误信息
+      
+placeholder: |
+        粘贴终端的错误
+信息
         
         [ERROR] xxx
-    validations:
+    va
+lidations:
       required: true
 
-  - type: input
+  - type:
+ input
     id: qq-path
     attributes:
-      label: "📂 QQ 安装路径"
-      description: "如果使用自定义路径"
-      placeholder: "D:\\Program Files\\Tencent\\QQNT"
+   
+   label: "📂 QQ 安装路径"
+      descr
+iption: "如果使用自定义路径"
+      
+placeholder: "D:\\Program Files\\Tencent\\QQN
+T"
 
   - type: textarea
     id: tried
-    attributes:
-      label: "🔍 尝试过什么？"
+    
+attributes:
+      label: "🔍 尝试过什�
+��？"
       placeholder: |
-        - 以管理员运行
+        - 以�
+�理员运行
         - 重装 QQ
-        - ...
+        -
+ ...
 
   - type: textarea
-    id: screenshots
+    id: screensho
+ts
     attributes:
-      label: "📸 截图"
-      description: "拖拽图片到这里"
+      label: "📸 截�
+�"
+      description: "拖拽图片到这里
+"
+
+
