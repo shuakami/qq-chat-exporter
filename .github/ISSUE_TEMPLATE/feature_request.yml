@@ -1,0 +1,62 @@
+name: "💡 Feature Request / 功能建议"
+description: "Got an idea? We'd love to hear it! / 有想法？我们很想听！"
+title: "[Feature] "
+labels: ["feature-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🚀 Share your idea! / 分享你的想法！
+        
+        Before submitting, check if it's already requested or a known limitation:
+        提交前，看看是否已有人提过或属于已知限制：
+        
+        - [Known Issues / 已知问题](https://github.com/shuakami/qq-chat-exporter/issues/164)
+        - [Existing Requests / 已有建议](https://github.com/shuakami/qq-chat-exporter/issues?q=label%3Afeature-request)
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "😤 Problem / 遇到的问题"
+      description: "What problem does this solve? / 这个功能解决什么问题？"
+      placeholder: |
+        I often need to... but currently...
+        我经常需要...但目前...
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: "💭 Your idea / 你的想法"
+      description: "Describe the feature you'd like / 描述你想要的功能"
+      placeholder: |
+        It would be great if QCE could...
+        如果 QCE 能够...就太好了
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "🔄 Alternatives / 替代方案"
+      description: "Any workarounds you've tried? / 有没有尝试过其他方法？"
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: "📂 Category / 类别"
+      options:
+        - "Export / 导出功能"
+        - "UI / 界面"
+        - "Performance / 性能"
+        - "New message type / 新消息类型支持"
+        - "Platform support / 平台支持"
+        - "Other / 其他"
+
+  - type: dropdown
+    id: importance
+    attributes:
+      label: "⭐ How important? / 有多重要？"
+      options:
+        - "Nice to have / 有了更好"
+        - "Would use often / 会经常用"
+        - "Critical for my use case / 对我很关键"
