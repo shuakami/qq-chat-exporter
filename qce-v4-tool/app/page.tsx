@@ -257,6 +257,8 @@ export default function QCEDashboard() {
 
   // 打开文件位置
   const openFileLocation = async (filePath?: string) => {
+    console.log('[QCE] openFileLocation called with:', { filePath, hasFilePath: !!filePath })
+    
     if (!filePath) {
       addNotification('error', '打开失败', '文件路径不存在')
       return

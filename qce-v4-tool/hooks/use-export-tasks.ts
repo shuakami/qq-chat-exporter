@@ -235,6 +235,14 @@ export function useExportTasks(props?: UseExportTasksProps) {
     originalFilePath?: string
     filePath?: string
   }) => {
+    console.log('[QCE] handleWebSocketProgress received:', {
+      taskId: data.taskId,
+      status: data.status,
+      filePath: data.filePath,
+      fileName: data.fileName,
+      hasFilePath: !!data.filePath
+    })
+    
     // Update task with all available data including messageCount and message
     setTasks((prev) =>
       prev.map((task) =>

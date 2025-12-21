@@ -1194,12 +1194,16 @@ export class QQChatExporterApiServer {
                     format: task.format,
                     messageCount: task.messageCount,
                     fileName: task.fileName,
+                    filePath: task.filePath,
+                    fileSize: task.fileSize,
                     downloadUrl: task.downloadUrl,
                     createdAt: task.createdAt,
                     completedAt: task.completedAt,
                     error: task.error,
                     startTime: task.filter?.startTime,
-                    endTime: task.filter?.endTime
+                    endTime: task.filter?.endTime,
+                    isZipExport: task.isZipExport,
+                    originalFilePath: task.originalFilePath
                 })).sort((a, b) => {
                     // 按创建时间倒序排列（最新的任务在前面）
                     const aTime = new Date(a.createdAt).getTime();

@@ -223,10 +223,16 @@ export interface WebSocketProgressMessage {
     status: "running" | "completed" | "failed"
     error?: string
     fileName?: string
+    filePath?: string
+    fileSize?: number
     downloadUrl?: string
     completedAt?: string
     isZipExport?: boolean
     originalFilePath?: string
+    streamingMode?: boolean
+    chunkCount?: number
+    message?: string
+    messageCount?: number
   }
 }
 
