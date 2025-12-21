@@ -1,85 +1,101 @@
-name: "📤 Export Issue / 导出问题"
-description: "Problems with exporting chat history / 导出聊天记录时遇到问题"
-title: "[Export] "
+name: "📤 导出问题"
+description: "导出聊天记录时遇到问题"
+title: "[导出] "
 labels: ["bug", "export"]
 body:
   - type: markdown
     attributes:
       value: |
-        ## 📤 Export Problem / 导出问题
+        ## 📤 导出问题反馈
         
-        Having trouble exporting? Let's figure it out!
         导出遇到问题？我们来看看！
         
-        > ⚠️ **Large exports (>50w messages)?** Try v5.0.0 with streaming export!
-        > **大量消息导出（>50万条）？** 试试 v5.0.0 的流式导出！
+        > ⚠️ **大量消息导出（>50万条）？** 请使用流式导出功能！
+        > 📖 [查看用户手册](https://shuakami.me/posts/qce-manual)
 
   - type: input
     id: qce-version
     attributes:
-      label: "📦 QCE Version / 版本"
+      label: "📦 QCE 版本"
       placeholder: "v5.0.0"
     validations:
       required: true
 
   - type: dropdown
-    id: export-type
+    id: export-format
     attributes:
-      label: "📁 Export Format / 导出格式"
+      label: "📁 导出格式"
       options:
         - "HTML"
         - "JSON"
-        - "JSONL (streaming)"
-        - "ZIP"
+        - "TXT"
+        - "Excel"
     validations:
       required: true
 
   - type: dropdown
     id: chat-type
     attributes:
-      label: "💬 Chat Type / 聊天类型"
+      label: "💬 聊天类型"
       options:
-        - "Group / 群聊"
-        - "Private / 私聊"
-        - "Multiple / 批量导出"
+        - "群聊"
+        - "私聊/好友"
+        - "批量导出"
     validations:
       required: true
 
   - type: input
     id: message-count
     attributes:
-      label: "📊 Approx. message count / 大约消息数量"
+      label: "📊 大约消息数量"
       placeholder: "50000"
 
   - type: textarea
     id: problem
     attributes:
-      label: "🤔 What happened? / 发生了什么？"
+      label: "🤔 发生了什么？"
       placeholder: |
-        Describe the export problem / 描述导出问题
+        描述导出问题
         
-        Example / 例如:
-        - Export stuck at 50% / 导出卡在 50%
-        - Memory error / 内存错误
-        - Missing messages / 消息缺失
+        例如:
+        - 导出卡在 50%
+        - 内存溢出 / OOM 错误
+        - 消息缺失
+        - 图片/视频无法显示
     validations:
       required: true
 
   - type: textarea
     id: error
     attributes:
-      label: "📋 Error message / 错误信息"
+      label: "📋 错误信息"
       render: shell
       placeholder: |
-        Paste error from terminal or Web UI
         粘贴终端或 Web 界面的错误信息
+        
+        [ERROR] xxx
 
   - type: checkboxes
-    id: options
+    id: export-options
     attributes:
-      label: "⚙️ Export options used / 使用的导出选项"
+      label: "⚙️ 使用的导出选项"
+      description: "勾选你启用的选项"
       options:
-        - label: "Include media / 包含媒体文件"
-        - label: "Embed avatars as Base64 / 嵌入头像为 Base64"
-        - label: "Filter by user / 按用户筛选"
-        - label: "Date range filter / 日期范围筛选"
+        - label: "流式导出（超大消息量专用）"
+        - label: "导出为 ZIP 压缩包"
+        - label: "快速导出（跳过资源下载）"
+        - label: "设置了时间范围"
+        - label: "设置了关键词过滤"
+        - label: "设置了排除用户"
+
+  - type: dropdown
+    id: resource-status
+    attributes:
+      label: "🖼️ 资源下载情况"
+      description: "图片/视频/语音等媒体文件"
+      options:
+        - "正常下载"
+        - "部分缺失"
+        - "全部缺失"
+        - "跳过了资源下载"
+        - "不确定"
