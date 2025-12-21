@@ -1,132 +1,76 @@
 name: "🔧 安装问题"
-description: "QCE 
-跑不起来？"
+description: "安装或启动 QCE 时遇到问题"
 title: "[安装] "
-labels:
- ["bug", "installation"]
+labels: ["bug", "install"]
 body:
-  - type: ma
-rkdown
+  - type: markdown
     attributes:
       value: |
-    
-    ## 🔧 安装帮助
+        ## 🔧 安装问题反馈
         
-        �
-��装 QCE 遇到问题？我们来帮忙！
-
+        安装遇到问题？告诉我们卡在哪一步！
         
-        > 📖 先看看 [用户手
-册 - 快速开始](https://shuakami.me/posts
-/qce-manual)
+        > 📖 [查看用户手册](https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C)
 
   - type: dropdown
-    id: o
-s
+    id: os
     attributes:
-      label: "💻 操作
-系统"
+      label: "💻 操作系统"
       options:
-        - Windows 11
-
-        - Windows 10
-        - Ubuntu / De
-bian
-        - 其他 Linux
-        - Docke
-r
+        - "Windows 11"
+        - "Windows 10"
+        - "Windows 7/8"
+        - "Linux (Ubuntu/Debian)"
+        - "Linux (其他发行版)"
+        - "macOS"
     validations:
       required: true
 
-
   - type: dropdown
-    id: install-method
- 
-   attributes:
-      label: "📥 安装方�
-��"
+    id: install-stage
+    attributes:
+      label: "📍 卡在哪一步？"
       options:
-        - "一键启动�
-��（官方 Release）"
-        - "手动安
-装到已有 NapCat"
-        - "Docker"
-   
- validations:
-      required: true
-
-  - ty
-pe: dropdown
-    id: stage
-    attributes:
-
-      label: "📍 在哪一步失败？"
- 
-     options:
-        - "下载"
-        - 
-"解压"
-        - "启动 launcher-user.bat
-/sh"
+        - "下载/解压"
+        - "启动 launcher"
         - "扫码登录"
-        - "�
-�开 Web 界面"
-        - "输入访问令�
-��"
+        - "打开 Web 界面"
+        - "输入 Token 验证"
         - "其他"
     validations:
-  
-    required: true
-
-  - type: textarea
-   
- id: error
-    attributes:
-      label: "�
-�� 错误信息"
-      render: shell
-      
-placeholder: |
-        粘贴终端的错误
-信息
-        
-        [ERROR] xxx
-    va
-lidations:
       required: true
 
-  - type:
- input
-    id: qq-path
-    attributes:
-   
-   label: "📂 QQ 安装路径"
-      descr
-iption: "如果使用自定义路径"
-      
-placeholder: "D:\\Program Files\\Tencent\\QQN
-T"
-
   - type: textarea
-    id: tried
-    
-attributes:
-      label: "🔍 尝试过什�
-��？"
+    id: problem
+    attributes:
+      label: "🤔 发生了什么？"
       placeholder: |
-        - 以�
-�理员运行
-        - 重装 QQ
-        -
- ...
+        描述你遇到的问题
+        
+        比如:
+        - 双击 bat 文件闪退
+        - 二维码无法显示
+        - 浏览器打不开页面
+        - Token 验证失败
+    validations:
+      required: true
 
   - type: textarea
-    id: screensho
-ts
+    id: error
     attributes:
-      label: "📸 截�
-�"
-      description: "拖拽图片到这里
-"
+      label: "📋 错误信息"
+      render: shell
+      placeholder: |
+        粘贴控制台或浏览器的错误信息
+        
+        如果是闪退，尝试用 cmd 运行 bat 文件查看输出
 
-
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "✅ 检查清单"
+      description: "请确认以下事项"
+      options:
+        - label: "已完整解压（不是在压缩包内运行）"
+        - label: "路径不含中文或特殊字符"
+        - label: "已查看用户手册的安装说明"
