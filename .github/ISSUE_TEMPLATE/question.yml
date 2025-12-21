@@ -1,49 +1,45 @@
-name: "❓ Question / 提问"
-description: "Need help? Ask here! / 需要帮助？在这里提问！"
-title: "[Question] "
+name: "❓ 提问"
+description: "需要帮助？在这里提问！"
+title: "[提问] "
 labels: ["question"]
 body:
   - type: markdown
     attributes:
       value: |
-        ## 🤔 Got a question? / 有问题？
+        ## 🤔 有问题？
         
-        Before asking, please check:
         提问前，请先查看：
         
-        - 📖 [README](https://github.com/shuakami/qq-chat-exporter#readme)
-        - 📌 [Known Issues / 已知问题](https://github.com/shuakami/qq-chat-exporter/issues/164)
-        - 📖 [Message Types / 消息类型](https://github.com/shuakami/qq-chat-exporter/issues/167)
+        - 📖 [用户手册](https://shuakami.me/posts/qce-manual)
+        - 📌 [已知问题汇总](https://github.com/shuakami/qq-chat-exporter/issues/164)
+        - 📖 [消息类型对照表](https://github.com/shuakami/qq-chat-exporter/issues/167)
         
-        > 💡 Many common questions are answered in these docs!
-        > 很多常见问题在这些文档里都有解答！
+        > 💡 很多常见问题在这些文档里都有解答！
 
   - type: dropdown
     id: topic
     attributes:
-      label: "📂 Topic / 主题"
+      label: "📂 主题"
       options:
-        - "Installation / 安装"
-        - "Login / 登录"
-        - "Export / 导出"
-        - "Viewing exported data / 查看导出数据"
+        - "安装/启动"
+        - "登录/扫码"
+        - "导出"
+        - "查看导出文件"
+        - "定时任务"
+        - "表情包"
         - "Docker"
-        - "Other / 其他"
+        - "其他"
     validations:
       required: true
 
   - type: textarea
     id: question
     attributes:
-      label: "❓ Your question / 你的问题"
+      label: "❓ 你的问题"
       placeholder: |
-        Ask your question here. Be specific!
         在这里提问，尽量具体！
         
-        Good: "How do I export only images from a group chat?"
         好的问题: "如何只导出群聊中的图片？"
-        
-        Not so good: "It doesn't work"
         不太好的问题: "用不了"
     validations:
       required: true
@@ -51,13 +47,12 @@ body:
   - type: textarea
     id: tried
     attributes:
-      label: "🔍 What have you tried? / 你尝试过什么？"
+      label: "🔍 你尝试过什么？"
       placeholder: |
-        What did you try before asking?
         提问前你尝试过什么？
 
   - type: textarea
     id: context
     attributes:
-      label: "📋 Additional context / 补充信息"
-      description: "Screenshots, logs, your setup... / 截图、日志、你的环境..."
+      label: "📋 补充信息"
+      description: "截图、日志、你的环境..."
