@@ -1,38 +1,37 @@
-name: "🐛 Bug Report / 问题反馈"
-description: "Something isn't working? Let's fix it! / 遇到问题了？一起来解决！"
+name: "🐛 问题反馈"
+description: "遇到问题了？一起来解决！"
 title: "[BUG] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        ## 👋 Hey! / 你好！
+        ## 👋 你好！
         
-        Thanks for reporting! Before you start:
         感谢反馈！开始之前：
         
-        - [ ] Check [Known Issues / 已知问题](https://github.com/shuakami/qq-chat-exporter/issues/164)
-        - [ ] Using latest version? / 用的是最新版本吗？
-        - [ ] Searched existing issues? / 搜索过已有 issue 吗？
+        - [ ] 查看 [已知问题汇总](https://github.com/shuakami/qq-chat-exporter/issues/164)
+        - [ ] 确认使用的是最新版本
+        - [ ] 搜索过已有 issue
 
   - type: dropdown
     id: os
     attributes:
-      label: "💻 System / 系统"
+      label: "💻 操作系统"
       options:
         - Windows 11
         - Windows 10
         - Ubuntu / Debian
-        - Other Linux
-        - macOS (not supported / 暂不支持)
+        - 其他 Linux
+        - macOS（暂不支持）
     validations:
       required: true
 
   - type: input
     id: qq-version
     attributes:
-      label: "📱 QQNT Version / QQNT 版本"
-      description: "Settings → About QQ / 设置 → 关于QQ"
+      label: "📱 QQNT 版本"
+      description: "设置 → 关于QQ"
       placeholder: "9.9.25-42941"
     validations:
       required: true
@@ -40,8 +39,8 @@ body:
   - type: input
     id: qce-version
     attributes:
-      label: "📦 QCE Version / QCE 版本"
-      description: "Shown in Web UI or release filename / Web界面或下载文件名"
+      label: "📦 QCE 版本"
+      description: "Web界面或下载文件名"
       placeholder: "v5.0.0"
     validations:
       required: true
@@ -49,23 +48,23 @@ body:
   - type: dropdown
     id: install-method
     attributes:
-      label: "📥 Install Method / 安装方式"
+      label: "📥 安装方式"
       options:
-        - "Official Release (一键启动包)"
-        - "Manual Install (手动安装到 NapCat)"
+        - "一键启动包（官方 Release）"
+        - "手动安装到 NapCat"
         - "Docker"
-        - "Other / 其他"
+        - "其他"
     validations:
       required: true
 
   - type: textarea
     id: what-happened
     attributes:
-      label: "🤔 What happened? / 发生了什么？"
+      label: "🤔 发生了什么？"
       placeholder: |
-        Describe the problem clearly / 清楚描述问题
+        清楚描述问题
         
-        Example / 例如:
+        例如:
         导出群聊消息时，进度到 50% 就报错退出了
     validations:
       required: true
@@ -73,28 +72,28 @@ body:
   - type: textarea
     id: steps
     attributes:
-      label: "🔄 Steps to reproduce / 复现步骤"
+      label: "🔄 复现步骤"
       placeholder: |
-        1. Open QCE / 打开 QCE
-        2. Select a group / 选择一个群
-        3. Click export / 点击导出
-        4. See error / 看到错误
+        1. 打开 QCE
+        2. 选择一个群
+        3. 点击导出
+        4. 看到错误
 
   - type: textarea
     id: expected
     attributes:
-      label: "✨ Expected / 期望结果"
+      label: "✨ 期望结果"
       placeholder: |
-        What should have happened? / 应该发生什么？
+        应该发生什么？
 
   - type: textarea
     id: logs
     attributes:
-      label: "📋 Error Logs / 错误日志"
-      description: "From terminal or Web UI / 来自终端或 Web 界面"
+      label: "📋 错误日志"
+      description: "来自终端或 Web 界面"
       render: shell
       placeholder: |
-        Paste error messages here / 粘贴错误信息
+        粘贴错误信息
         
         [ERROR] xxx
         ...
@@ -102,14 +101,14 @@ body:
   - type: textarea
     id: screenshots
     attributes:
-      label: "📸 Screenshots / 截图"
-      description: "Drag & drop images here / 拖拽图片到这里"
+      label: "📸 截图"
+      description: "拖拽图片到这里"
 
   - type: checkboxes
     id: checklist
     attributes:
-      label: "✅ Checklist / 检查清单"
+      label: "✅ 检查清单"
       options:
-        - label: "QQ is logged in and running / QQ 已登录且运行中"
-        - label: "Web UI is accessible / Web 界面可以访问"
-        - label: "Tried restarting QCE / 尝试过重启 QCE"
+        - label: "QQ 已登录且运行中"
+        - label: "Web 界面可以访问"
+        - label: "尝试过重启 QCE"
