@@ -1,28 +1,26 @@
-name: "🔧 Installation Issue / 安装问题"
-description: "Can't get QCE running? / QCE 跑不起来？"
-title: "[Install] "
+name: "🔧 安装问题"
+description: "QCE 跑不起来？"
+title: "[安装] "
 labels: ["bug", "installation"]
 body:
   - type: markdown
     attributes:
       value: |
-        ## 🔧 Installation Help / 安装帮助
+        ## 🔧 安装帮助
         
-        Having trouble setting up QCE? We'll help!
         安装 QCE 遇到问题？我们来帮忙！
         
-        > 📖 Check the [README](https://github.com/shuakami/qq-chat-exporter#readme) first!
-        > 先看看 README！
+        > 📖 先看看 [用户手册 - 快速开始](https://shuakami.me/posts/qce-manual)
 
   - type: dropdown
     id: os
     attributes:
-      label: "💻 System / 系统"
+      label: "💻 操作系统"
       options:
         - Windows 11
         - Windows 10
         - Ubuntu / Debian
-        - Other Linux
+        - 其他 Linux
         - Docker
     validations:
       required: true
@@ -30,36 +28,35 @@ body:
   - type: dropdown
     id: install-method
     attributes:
-      label: "📥 Install Method / 安装方式"
+      label: "📥 安装方式"
       options:
-        - "Official Release (一键启动包)"
-        - "Manual Install (手动安装)"
+        - "一键启动包（官方 Release）"
+        - "手动安装到已有 NapCat"
         - "Docker"
-        - "Installing to existing NapCat / 安装到已有 NapCat"
     validations:
       required: true
 
   - type: dropdown
     id: stage
     attributes:
-      label: "📍 Where did it fail? / 在哪一步失败？"
+      label: "📍 在哪一步失败？"
       options:
-        - "Download / 下载"
-        - "Extracting / 解压"
-        - "Starting QCE / 启动 QCE"
-        - "QQ Login / QQ 登录"
-        - "Opening Web UI / 打开 Web 界面"
-        - "Other / 其他"
+        - "下载"
+        - "解压"
+        - "启动 launcher-user.bat/sh"
+        - "扫码登录"
+        - "打开 Web 界面"
+        - "输入访问令牌"
+        - "其他"
     validations:
       required: true
 
   - type: textarea
     id: error
     attributes:
-      label: "📋 Error message / 错误信息"
+      label: "📋 错误信息"
       render: shell
       placeholder: |
-        Paste the error from terminal
         粘贴终端的错误信息
         
         [ERROR] xxx
@@ -69,21 +66,21 @@ body:
   - type: input
     id: qq-path
     attributes:
-      label: "📂 QQ Install Path / QQ 安装路径"
-      description: "If using custom path / 如果使用自定义路径"
+      label: "📂 QQ 安装路径"
+      description: "如果使用自定义路径"
       placeholder: "D:\\Program Files\\Tencent\\QQNT"
 
   - type: textarea
     id: tried
     attributes:
-      label: "🔍 What have you tried? / 尝试过什么？"
+      label: "🔍 尝试过什么？"
       placeholder: |
-        - Ran as admin / 以管理员运行
-        - Reinstalled QQ / 重装 QQ
+        - 以管理员运行
+        - 重装 QQ
         - ...
 
   - type: textarea
     id: screenshots
     attributes:
-      label: "📸 Screenshots / 截图"
-      description: "Drag & drop images / 拖拽图片"
+      label: "📸 截图"
+      description: "拖拽图片到这里"
