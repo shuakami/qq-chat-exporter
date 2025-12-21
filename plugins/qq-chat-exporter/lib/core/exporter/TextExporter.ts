@@ -199,7 +199,7 @@ export class TextExporter extends BaseExporter {
         const lines: string[] = [];
         
         // 软件信息
-        lines.push('[QQChatExporter V4 / https://github.com/shuakami/qq-chat-exporter]');
+        lines.push('[QQChatExporter V5 / https://github.com/shuakami/qq-chat-exporter]');
         lines.push('[本软件是免费的开源项目~ 如果您是买来的，请立即退款！如果有帮助到您，欢迎给我点个Star~]');
         lines.push('');
         
