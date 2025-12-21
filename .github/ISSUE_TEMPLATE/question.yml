@@ -1,94 +1,58 @@
-name: "❓ 提问"
-description: "需要帮�
-�？在这里提问！"
-title: "[提问] "
-
+name: "❓ 使用问题"
+description: "关于 QCE 使用的疑问"
+title: "[问题] "
 labels: ["question"]
 body:
-  - type: markdo
-wn
+  - type: markdown
     attributes:
       value: |
+        ## ❓ 使用问题
         
-## 🤔 有问题？
+        有疑问？先看看这些资源：
         
-        提�
-�前，请先查看：
-        
-        - �
-��� [用户手册](https://shuakami.me/posts/
-qce-manual)
-        - 📌 [已知问题汇�
-��](https://github.com/shuakami/qq-chat-expor
-ter/issues/164)
-        - 📖 [消息类型
-对照表](https://github.com/shuakami/qq-cha
-t-exporter/issues/167)
-        
-        > �
-��� 很多常见问题在这些文档里都�
-�解答！
+        - 📖 [用户手册](https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C)
+        - 📌 [已知问题汇总](https://github.com/shuakami/qq-chat-exporter/issues/164)
 
   - type: dropdown
-    id: top
-ic
+    id: topic
     attributes:
-      label: "📂 主�
-�"
+      label: "📂 问题类型"
       options:
-        - "安装/启动"
-
-        - "登录/扫码"
-        - "导�
-�"
-        - "查看导出文件"
-        -
- "定时任务"
+        - "导出相关"
+        - "定时任务"
         - "表情包"
-     
-   - "Docker"
+        - "资源/媒体文件"
+        - "界面/操作"
         - "其他"
-    valida
-tions:
+    validations:
       required: true
 
-  - type: tex
-tarea
+  - type: textarea
     id: question
     attributes:
-   
-   label: "❓ 你的问题"
-      placehold
-er: |
-        在这里提问，尽量具体
-！
+      label: "🤔 你的问题"
+      placeholder: |
+        描述你想了解的内容
         
-        好的问题: "如何�
-��导出群聊中的图片？"
-        不�
-�好的问题: "用不了"
-    validations:
-
+        比如:
+        - 如何导出超大群聊？
+        - 定时任务怎么设置？
+        - 导出的文件在哪里？
+    validations:
       required: true
 
   - type: textarea
-
     id: tried
     attributes:
-      label: 
-"🔍 你尝试过什么？"
-      placehold
-er: |
-        提问前你尝试过什么？
+      label: "📝 已尝试的方法"
+      placeholder: "你已经尝试过什么？（可选）"
 
-
-  - type: textarea
-    id: context
-    
-attributes:
-      label: "📋 补充信息"
-
-      description: "截图、日志、你�
-�环境..."
-
-
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "✅ 确认"
+      options:
+        - label: "我已查看用户手册"
+          required: true
+        - label: "我已搜索过现有 issue"
+          required: true
