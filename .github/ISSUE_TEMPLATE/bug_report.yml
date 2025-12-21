@@ -1,81 +1,115 @@
-name: Bug 反馈
-description: 报告可能的 NapCat 异常行为
-title: '[BUG] '
-labels: bug
+name: "🐛 Bug Report / 问题反馈"
+description: "Something isn't working? Let's fix it! / 遇到问题了？一起来解决！"
+title: "[BUG] "
+labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        欢迎来到 NapCat 的 Issue Tracker！请填写以下表格来提交 Bug。
-        在提交新的 Bug 反馈前，请确保您：
-        * 已经搜索了现有的 issues，并且没有找到可以解决您问题的方法
-        * 不与现有的某一 issue 重复
-  - type: input
-    id: system-version
+        ## 👋 Hey! / 你好！
+        
+        Thanks for reporting! Before you start:
+        感谢反馈！开始之前：
+        
+        - [ ] Check [Known Issues / 已知问题](https://github.com/shuakami/qq-chat-exporter/issues/164)
+        - [ ] Using latest version? / 用的是最新版本吗？
+        - [ ] Searched existing issues? / 搜索过已有 issue 吗？
+
+  - type: dropdown
+    id: os
     attributes:
-      label: 系统版本
-      description: 运行 QQNT 的系统版本
-      placeholder: Windows 11 24H2
+      label: "💻 System / 系统"
+      options:
+        - Windows 11
+        - Windows 10
+        - Ubuntu / Debian
+        - Other Linux
+        - macOS (not supported / 暂不支持)
     validations:
       required: true
+
   - type: input
-    id: qqnt-version
+    id: qq-version
     attributes:
-      label: QQNT 版本
-      description: 可在 QQNT 的「关于」的设置页中找到
-      placeholder: 9.9.16-29927
+      label: "📱 QQNT Version / QQNT 版本"
+      description: "Settings → About QQ / 设置 → 关于QQ"
+      placeholder: "9.9.25-42941"
     validations:
       required: true
+
   - type: input
-    id: napcat-version
+    id: qce-version
     attributes:
-      label: NapCat 版本
-      description: 可在 LiteLoaderQQNT 的设置页或是 QQNT 的设置页侧栏中找到
-      placeholder: 1.0.0
+      label: "📦 QCE Version / QCE 版本"
+      description: "Shown in Web UI or release filename / Web界面或下载文件名"
+      placeholder: "v5.0.0"
     validations:
       required: true
-  - type: input
-    id: onebot-client-version
+
+  - type: dropdown
+    id: install-method
     attributes:
-      label: OneBot 客户端
-      description: 连接至 NapCat 的客户端版本信息
-      placeholder: Karin 1.0.0
+      label: "📥 Install Method / 安装方式"
+      options:
+        - "Official Release (一键启动包)"
+        - "Manual Install (手动安装到 NapCat)"
+        - "Docker"
+        - "Other / 其他"
     validations:
       required: true
+
   - type: textarea
     id: what-happened
     attributes:
-      label: 发生了什么?
-      description: 填写你认为的 NapCat 的异常行为
-    validations:
-      required: true
-  - type: textarea
-    id: how-reproduce
-    attributes:
-      label: 如何复现
-      description: 填写应当如何操作才能触发这个异常行为
+      label: "🤔 What happened? / 发生了什么？"
       placeholder: |
-        1. xxx
-        2. xxx
-        3. xxx
+        Describe the problem clearly / 清楚描述问题
+        
+        Example / 例如:
+        导出群聊消息时，进度到 50% 就报错退出了
     validations:
       required: true
+
   - type: textarea
-    id: what-expected
+    id: steps
     attributes:
-      label: 期望的结果?
-      description: 填写你认为 NapCat 应当执行的正常行为
-    validations:
-      required: true
+      label: "🔄 Steps to reproduce / 复现步骤"
+      placeholder: |
+        1. Open QCE / 打开 QCE
+        2. Select a group / 选择一个群
+        3. Click export / 点击导出
+        4. See error / 看到错误
+
   - type: textarea
-    id: napcat-log
+    id: expected
     attributes:
-      label: NapCat 运行日志
-      description: 粘贴相关日志内容到此处
+      label: "✨ Expected / 期望结果"
+      placeholder: |
+        What should have happened? / 应该发生什么？
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "📋 Error Logs / 错误日志"
+      description: "From terminal or Web UI / 来自终端或 Web 界面"
       render: shell
+      placeholder: |
+        Paste error messages here / 粘贴错误信息
+        
+        [ERROR] xxx
+        ...
+
   - type: textarea
-    id: onebot-client-log
+    id: screenshots
     attributes:
-      label: OneBot 客户端运行日志
-      description: 粘贴 OneBot 客户端的相关日志内容到此处
-      render: shell
+      label: "📸 Screenshots / 截图"
+      description: "Drag & drop images here / 拖拽图片到这里"
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "✅ Checklist / 检查清单"
+      options:
+        - label: "QQ is logged in and running / QQ 已登录且运行中"
+        - label: "Web UI is accessible / Web 界面可以访问"
+        - label: "Tried restarting QCE / 尝试过重启 QCE"
