@@ -1,0 +1,85 @@
+name: "📤 Export Issue / 导出问题"
+description: "Problems with exporting chat history / 导出聊天记录时遇到问题"
+title: "[Export] "
+labels: ["bug", "export"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 📤 Export Problem / 导出问题
+        
+        Having trouble exporting? Let's figure it out!
+        导出遇到问题？我们来看看！
+        
+        > ⚠️ **Large exports (>50w messages)?** Try v5.0.0 with streaming export!
+        > **大量消息导出（>50万条）？** 试试 v5.0.0 的流式导出！
+
+  - type: input
+    id: qce-version
+    attributes:
+      label: "📦 QCE Version / 版本"
+      placeholder: "v5.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: export-type
+    attributes:
+      label: "📁 Export Format / 导出格式"
+      options:
+        - "HTML"
+        - "JSON"
+        - "JSONL (streaming)"
+        - "ZIP"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: chat-type
+    attributes:
+      label: "💬 Chat Type / 聊天类型"
+      options:
+        - "Group / 群聊"
+        - "Private / 私聊"
+        - "Multiple / 批量导出"
+    validations:
+      required: true
+
+  - type: input
+    id: message-count
+    attributes:
+      label: "📊 Approx. message count / 大约消息数量"
+      placeholder: "50000"
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "🤔 What happened? / 发生了什么？"
+      placeholder: |
+        Describe the export problem / 描述导出问题
+        
+        Example / 例如:
+        - Export stuck at 50% / 导出卡在 50%
+        - Memory error / 内存错误
+        - Missing messages / 消息缺失
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: "📋 Error message / 错误信息"
+      render: shell
+      placeholder: |
+        Paste error from terminal or Web UI
+        粘贴终端或 Web 界面的错误信息
+
+  - type: checkboxes
+    id: options
+    attributes:
+      label: "⚙️ Export options used / 使用的导出选项"
+      options:
+        - label: "Include media / 包含媒体文件"
+        - label: "Embed avatars as Base64 / 嵌入头像为 Base64"
+        - label: "Filter by user / 按用户筛选"
+        - label: "Date range filter / 日期范围筛选"
