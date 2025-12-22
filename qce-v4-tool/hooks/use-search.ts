@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import type { Group, Friend, GroupsResponse, FriendsResponse } from "@/types/api"
 
 const API_BASE = "http://localhost:40653"
@@ -37,6 +37,10 @@ export function useSearch() {
     searchTerm: "",
   })
 
+  // 用于存储加载函数引用，支持递归调用
+  const loadGroupsRef = useRef<((page?: number, limit?: number, append?: boolean) => Promise<void>) | null>(null)
+  const loadFriendsRef = useRef<((page?: number, limit?: number, append?: boolean) => Promise<void>) | null>(null)
+
   // 前端搜索过滤函数
   const filterGroups = useCallback((groups: Group[], searchTerm: string) => {
     if (!searchTerm.trim()) return groups
@@ -60,8 +64,8 @@ export function useSearch() {
     )
   }, [])
 
-  // 加载群组数据
-  const loadGroups = useCallback(async (page = 1, limit = 999, append = false) => {
+  // 加载群组数据（自动递归加载所有数据）
+  const loadGroups = useCallback(async (page = 1, limit = 200, append = false) => {
     setGroupSearchState(prev => ({ ...prev, loading: true, error: null }))
 
     try {
@@ -82,12 +86,19 @@ export function useSearch() {
           ...prev,
           allData: newAllData,
           filteredResults: newFilteredResults,
-          loading: false,
+          loading: groupsData.hasNext, // 如果还有更多数据，保持 loading 状态
           hasMore: groupsData.hasNext,
           currentPage: groupsData.currentPage,
           totalCount: groupsData.totalCount,
         }
       })
+      
+      // 自动加载更多数据直到全部加载完成
+      if (groupsData.hasNext && loadGroupsRef.current) {
+        setTimeout(() => {
+          loadGroupsRef.current?.(page + 1, limit, true)
+        }, 50)
+      }
     } catch (error) {
       setGroupSearchState(prev => ({
         ...prev,
@@ -97,8 +108,8 @@ export function useSearch() {
     }
   }, [filterGroups])
 
-  // 加载好友数据
-  const loadFriends = useCallback(async (page = 1, limit = 999, append = false) => {
+  // 加载好友数据（自动递归加载所有数据）
+  const loadFriends = useCallback(async (page = 1, limit = 200, append = false) => {
     setFriendSearchState(prev => ({ ...prev, loading: true, error: null }))
 
     try {
@@ -119,12 +130,19 @@ export function useSearch() {
           ...prev,
           allData: newAllData,
           filteredResults: newFilteredResults,
-          loading: false,
+          loading: friendsData.hasNext, // 如果还有更多数据，保持 loading 状态
           hasMore: friendsData.hasNext,
           currentPage: friendsData.currentPage,
           totalCount: friendsData.totalCount,
         }
       })
+      
+      // 自动加载更多数据直到全部加载完成
+      if (friendsData.hasNext && loadFriendsRef.current) {
+        setTimeout(() => {
+          loadFriendsRef.current?.(page + 1, limit, true)
+        }, 50)
+      }
     } catch (error) {
       setFriendSearchState(prev => ({
         ...prev,
@@ -133,6 +151,12 @@ export function useSearch() {
       }))
     }
   }, [filterFriends])
+
+  // 更新 ref 引用
+  useEffect(() => {
+    loadGroupsRef.current = loadGroups
+    loadFriendsRef.current = loadFriends
+  }, [loadGroups, loadFriends])
 
   // 搜索群组（前端过滤）
   const searchGroups = useCallback((searchTerm: string) => {
@@ -158,17 +182,17 @@ export function useSearch() {
     })
   }, [filterFriends])
 
-  // 加载更多群组
+  // 加载更多群组（手动触发，用于滚动加载）
   const loadMoreGroups = useCallback(() => {
     if (groupSearchState.hasMore && !groupSearchState.loading) {
-      loadGroups(groupSearchState.currentPage + 1, 20, true)
+      loadGroups(groupSearchState.currentPage + 1, 200, true)
     }
   }, [groupSearchState.hasMore, groupSearchState.loading, groupSearchState.currentPage, loadGroups])
 
-  // 加载更多好友
+  // 加载更多好友（手动触发，用于滚动加载）
   const loadMoreFriends = useCallback(() => {
     if (friendSearchState.hasMore && !friendSearchState.loading) {
-      loadFriends(friendSearchState.currentPage + 1, 20, true)
+      loadFriends(friendSearchState.currentPage + 1, 200, true)
     }
   }, [friendSearchState.hasMore, friendSearchState.loading, friendSearchState.currentPage, loadFriends])
 

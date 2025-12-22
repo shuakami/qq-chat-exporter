@@ -170,10 +170,10 @@ export function ScheduledExportWizard({
   // 初始化搜索数据
   useEffect(() => {
     if (isOpen && groups.length > 0 && groupSearchRef.current.allData.length === 0) {
-      groupSearchRef.current.load(1, 999)
+      groupSearchRef.current.load()
     }
     if (isOpen && friends.length > 0 && friendSearchRef.current.allData.length === 0) {
-      friendSearchRef.current.load(1, 999)
+      friendSearchRef.current.load()
     }
   }, [isOpen, groups.length, friends.length])
 
@@ -391,8 +391,8 @@ export function ScheduledExportWizard({
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        if (currentChatTypeRef.current === 2) groupSearchRef.current.load(1, 999)
-                        else friendSearchRef.current.load(1, 999)
+                        if (currentChatTypeRef.current === 2) groupSearchRef.current.load()
+                        else friendSearchRef.current.load()
                       }}
                       disabled={(currentChatType === 2 ? groupSearch : friendSearch).loading}
                       className="rounded-full"
