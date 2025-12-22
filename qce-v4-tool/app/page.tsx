@@ -63,7 +63,7 @@ import { useStickerPacks } from "@/hooks/use-sticker-packs"
 import { useResourceIndex } from "@/hooks/use-resource-index"
 
 import { ThemeToggle } from "@/components/qce-dashboard/theme-toggle"
-// ✨ 动效核心：统一的 Bezier 曲线与时长
+
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
 import { EASE, DUR, makeStagger, hoverLift, fadeSlide, toastAnim, statusPulse } from "@/components/qce-dashboard/animations"
 
