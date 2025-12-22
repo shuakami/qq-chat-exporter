@@ -24,7 +24,7 @@
     "@babel/preset-typescript": "^7.24.7",
     "@babel/traverse": "^7.28.5",
     "@babel/types": "^7.28.2",
-    "@eslint/compat": "^1.4.1",
+    "@eslint/compat": "^2.0.0",
     "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "^9.39.1",
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
