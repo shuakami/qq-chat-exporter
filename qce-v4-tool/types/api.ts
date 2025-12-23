@@ -149,6 +149,8 @@ export interface CreateTaskForm {
   embedAvatarsAsBase64?: boolean
   /** 流式ZIP导出模式（专为超大消息量设计，>50万消息推荐使用） */
   streamingZipMode?: boolean
+  /** 自定义导出路径（Issue #192） */
+  outputDir?: string
 }
 
 export interface CreateTaskRequest {
@@ -172,6 +174,8 @@ export interface CreateTaskRequest {
     filterPureImageMessages: boolean
     prettyFormat: boolean
     exportAsZip?: boolean
+    /** 自定义导出路径（Issue #192） */
+    outputDir?: string
   }
 }
 
