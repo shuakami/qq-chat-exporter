@@ -104,6 +104,7 @@ export function TaskWizard({
         startTime: prefilledData.startTime || "",
         endTime: prefilledData.endTime || "",
         keywords: prefilledData.keywords || "",
+        excludeUserUins: prefilledData.excludeUserUins || "",
         includeRecalled: prefilledData.includeRecalled || false,
         includeSystemMessages:
           prefilledData.includeSystemMessages !== undefined ? prefilledData.includeSystemMessages : true,
@@ -111,7 +112,9 @@ export function TaskWizard({
           ? prefilledData.filterPureImageMessages 
           : defaultFilter,
         exportAsZip: prefilledData.exportAsZip || false,
+        embedAvatarsAsBase64: prefilledData.embedAvatarsAsBase64 || false,
         streamingZipMode: prefilledData.streamingZipMode || false,
+        outputDir: prefilledData.outputDir || "",  // Issue #192
       })
     }
   }, [prefilledData, isOpen])
