@@ -2781,7 +2781,9 @@ export class QQChatExporterApiServer {
             });
 
             // 修复 Issue #30: 使用用户目录，与索引扫描目录保持一致
-            const outputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            // Issue #192: 支持自定义导出路径
+            const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            const outputDir = customOutputDir && customOutputDir.trim() ? customOutputDir.trim() : defaultOutputDir;
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
@@ -3036,8 +3038,9 @@ export class QQChatExporterApiServer {
                 data: { taskId, status: 'running', progress: 0, message: '初始化流式分块导出...' }
             });
 
-            // 准备输出路径
-            const outputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            // 准备输出路径（Issue #192: 支持自定义导出路径）
+            const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            const outputDir = customOutputDir && customOutputDir.trim() ? customOutputDir.trim() : defaultOutputDir;
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
@@ -3307,8 +3310,9 @@ export class QQChatExporterApiServer {
                 data: { taskId, status: 'running', progress: 0, message: '初始化流式JSONL导出...' }
             });
 
-            // 准备输出路径
-            const outputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            // 准备输出路径（Issue #192: 支持自定义导出路径）
+            const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            const outputDir = customOutputDir && customOutputDir.trim() ? customOutputDir.trim() : defaultOutputDir;
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
