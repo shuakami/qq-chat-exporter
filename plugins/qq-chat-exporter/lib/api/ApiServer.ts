@@ -2305,7 +2305,7 @@ export class QQChatExporterApiServer {
         });
 
         // 动态下载API - 支持自定义导出路径的文件下载 (Issue #192)
-        // 安全措施：需要认证 + 限制文件扩展名
+        // 安全措施：需要认证 + 限制文件扩展名 + 路径安全检查
         this.app.get('/api/download-file', (req, res) => {
             try {
                 const filePath = req.query['path'] as string;
@@ -2313,20 +2313,30 @@ export class QQChatExporterApiServer {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, '缺少文件路径参数', 'MISSING_PATH');
                 }
 
-                // 安全检查：规范化路径
+                // 安全检查1：在规范化之前检查原始路径是否包含危险字符
+                // 防止通过编码或特殊字符绕过检查
+                if (filePath.includes('..') || filePath.includes('\0') || filePath.includes('%00')) {
+                    throw new SystemError(ErrorType.PERMISSION_ERROR, '非法的文件路径', 'INVALID_PATH');
+                }
+
+                // 安全检查2：规范化路径
                 const normalizedPath = path.normalize(filePath);
                 
-                // 安全检查：只允许下载特定扩展名的导出文件
+                // 安全检查3：规范化后再次检查（防止编码绕过）
+                if (normalizedPath.includes('..') || normalizedPath.includes('\0')) {
+                    throw new SystemError(ErrorType.PERMISSION_ERROR, '非法的文件路径', 'INVALID_PATH');
+                }
+                
+                // 安全检查4：只允许下载特定扩展名的导出文件
                 const allowedExtensions = ['.json', '.html', '.txt', '.xlsx', '.zip', '.jsonl'];
                 const ext = path.extname(normalizedPath).toLowerCase();
                 if (!allowedExtensions.includes(ext)) {
                     throw new SystemError(ErrorType.PERMISSION_ERROR, '不允许下载此类型的文件', 'FORBIDDEN_FILE_TYPE');
                 }
                 
-                // 安全检查：防止目录遍历攻击
-                // 确保路径不包含 .. 或其他危险字符
-                if (normalizedPath.includes('..') || normalizedPath.includes('\0')) {
-                    throw new SystemError(ErrorType.PERMISSION_ERROR, '非法的文件路径', 'INVALID_PATH');
+                // 安全检查5：确保是绝对路径（防止相对路径攻击）
+                if (!path.isAbsolute(normalizedPath)) {
+                    throw new SystemError(ErrorType.PERMISSION_ERROR, '必须使用绝对路径', 'RELATIVE_PATH_NOT_ALLOWED');
                 }
                 
                 // 检查文件是否存在
