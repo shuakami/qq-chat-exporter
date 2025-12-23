@@ -1356,10 +1356,7 @@ export class QQChatExporterApiServer {
                 const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
                 const outputDir = customOutputDir || defaultOutputDir;
                 const filePath = path.join(outputDir, fileName);
-                // 自定义路径使用动态下载API，默认路径使用静态文件服务
-                const downloadUrl = customOutputDir 
-                    ? `/api/download-file?path=${encodeURIComponent(filePath)}`
-                    : `/downloads/${fileName}`;
+                const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
                 
                 // 确定会话名称：优先使用用户输入的名称，否则自动获取
                 let sessionName: string;
@@ -1470,9 +1467,7 @@ export class QQChatExporterApiServer {
                 const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
                 const outputDir = customOutputDir || defaultOutputDir;
                 const filePath = path.join(outputDir, fileName);
-                const downloadUrl = customOutputDir 
-                    ? `/api/download-file?path=${encodeURIComponent(filePath)}`
-                    : `/downloads/${fileName}`;
+                const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
 
                 // 确定会话名称
                 let sessionName: string;
@@ -2953,9 +2948,12 @@ export class QQChatExporterApiServer {
 
             // 发送完成通知
             // Issue #192: 根据是否使用自定义路径生成正确的下载URL
-            const finalDownloadUrl = customOutputDir && customOutputDir.trim()
-                ? `/api/download-file?path=${encodeURIComponent(finalFilePath)}`
-                : (isZipExport ? `/download?file=${encodeURIComponent(finalFileName)}` : downloadUrl);
+            const finalDownloadUrl = this.generateDownloadUrl(
+                finalFilePath, 
+                finalFileName, 
+                customOutputDir,
+                isZipExport ? '/download?file=' : '/downloads/'
+            );
             
             this.broadcastWebSocketMessage({
                 type: 'export_complete',
@@ -3239,9 +3237,7 @@ export class QQChatExporterApiServer {
             }
 
             // Issue #192: 根据是否使用自定义路径生成正确的下载URL
-            const finalDownloadUrl = customOutputDir && customOutputDir.trim()
-                ? `/api/download-file?path=${encodeURIComponent(zipFilePath)}`
-                : `/download?file=${encodeURIComponent(fileName)}`;
+            const finalDownloadUrl = this.generateDownloadUrl(zipFilePath, fileName, customOutputDir, '/download?file=');
 
             this.broadcastWebSocketMessage({
                 type: 'export_complete',
@@ -3605,6 +3601,28 @@ export class QQChatExporterApiServer {
     private generateRequestId(): string {
         return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
+
+    /**
+     * 生成下载URL (Issue #192: 统一处理自定义路径和默认路径的URL生成)
+     * @param filePath 文件完整路径
+     * @param fileName 文件名
+     * @param customOutputDir 自定义输出目录（可选）
+     * @param urlPrefix 默认路径的URL前缀，默认为 '/downloads/'
+     * @returns 下载URL
+     */
+    private generateDownloadUrl(
+        filePath: string,
+        fileName: string,
+        customOutputDir?: string,
+        urlPrefix: string = '/downloads/'
+    ): string {
+        // 如果使用自定义路径，返回动态下载API的URL
+        if (customOutputDir && customOutputDir.trim()) {
+            return `/api/download-file?path=${encodeURIComponent(filePath)}`;
+        }
+        // 否则返回静态文件服务的URL
+        return `${urlPrefix}${fileName}`;
+    }
     
     /**
      * 获取真实客户端IP地址
@@ -3723,9 +3741,11 @@ export class QQChatExporterApiServer {
                 const isCustomPath = filePath && !filePath.startsWith(defaultOutputDir);
                 
                 // 根据是否使用自定义路径生成正确的下载URL
-                const downloadUrl = isCustomPath && filePath
-                    ? `/api/download-file?path=${encodeURIComponent(filePath)}`
-                    : `/downloads/${fileName}`;
+                const downloadUrl = this.generateDownloadUrl(
+                    filePath || '', 
+                    fileName, 
+                    isCustomPath ? filePath : undefined
+                );
                 
                 // 转换为API格式
                 const apiTask = {
