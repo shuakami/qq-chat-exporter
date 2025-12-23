@@ -3708,6 +3708,15 @@ export class QQChatExporterApiServer {
                 const fileName = (state as any).fileName || `${config.chatName}_${Date.now()}.json`;
                 const filePath = (state as any).filePath;
                 
+                // Issue #192: 检查是否使用了自定义导出路径
+                const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+                const isCustomPath = filePath && !filePath.startsWith(defaultOutputDir);
+                
+                // 根据是否使用自定义路径生成正确的下载URL
+                const downloadUrl = isCustomPath && filePath
+                    ? `/api/download-file?path=${encodeURIComponent(filePath)}`
+                    : `/downloads/${fileName}`;
+                
                 // 转换为API格式
                 const apiTask = {
                     taskId: config.taskId,
@@ -3719,7 +3728,7 @@ export class QQChatExporterApiServer {
                     messageCount: state.processedMessages,
                     fileName: fileName,
                     filePath: filePath,  // 恢复filePath
-                    downloadUrl: `/downloads/${fileName}`,
+                    downloadUrl: downloadUrl,
                     createdAt: typeof config.createdAt === 'string' ? config.createdAt : config.createdAt.toISOString(),
                     completedAt: state.endTime 
                         ? (typeof state.endTime === 'string' ? state.endTime : state.endTime.toISOString())
@@ -3760,7 +3769,8 @@ export class QQChatExporterApiServer {
                     endTime: task.filter?.endTime,
                     includeRecalled: task.filter?.includeRecalled || false
                 },
-                outputDir: path.join(process.env['USERPROFILE'] || process.env['HOME'] || '.', '.qq-chat-exporter', 'exports'),
+                // Issue #192: 保存实际使用的输出目录（可能是自定义路径）
+                outputDir: task.options?.outputDir?.trim() || path.join(process.env['USERPROFILE'] || process.env['HOME'] || '.', '.qq-chat-exporter', 'exports'),
                 includeResourceLinks: task.options?.includeResourceLinks || true,
                 batchSize: task.options?.batchSize || 5000,
                 timeout: 30000,
