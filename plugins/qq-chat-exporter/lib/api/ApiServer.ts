@@ -264,8 +264,8 @@ export class QQChatExporterApiServer {
                req.path.startsWith('/resources/') || // 允许全局资源访问
                req.path.startsWith('/downloads/') || // 允许下载文件访问
                req.path.startsWith('/scheduled-downloads/') || // 允许定时导出文件访问
-               req.path === '/download' || // 允许QQ文件下载API访问（用于图片等资源）
-               req.path === '/api/download-file'; // Issue #192: 允许自定义路径文件下载
+               req.path === '/download'; // 允许QQ文件下载API访问（用于图片等资源）
+               // 注意：/api/download-file 需要认证，不在公开路由列表中 (Issue #192 安全修复)
             
             if (isPublicRoute) {
                 return next();
@@ -2305,6 +2305,7 @@ export class QQChatExporterApiServer {
         });
 
         // 动态下载API - 支持自定义导出路径的文件下载 (Issue #192)
+        // 安全措施：需要认证 + 限制文件扩展名
         this.app.get('/api/download-file', (req, res) => {
             try {
                 const filePath = req.query['path'] as string;
@@ -2312,8 +2313,21 @@ export class QQChatExporterApiServer {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, '缺少文件路径参数', 'MISSING_PATH');
                 }
 
-                // 安全检查：规范化路径并验证
+                // 安全检查：规范化路径
                 const normalizedPath = path.normalize(filePath);
+                
+                // 安全检查：只允许下载特定扩展名的导出文件
+                const allowedExtensions = ['.json', '.html', '.txt', '.xlsx', '.zip', '.jsonl'];
+                const ext = path.extname(normalizedPath).toLowerCase();
+                if (!allowedExtensions.includes(ext)) {
+                    throw new SystemError(ErrorType.PERMISSION_ERROR, '不允许下载此类型的文件', 'FORBIDDEN_FILE_TYPE');
+                }
+                
+                // 安全检查：防止目录遍历攻击
+                // 确保路径不包含 .. 或其他危险字符
+                if (normalizedPath.includes('..') || normalizedPath.includes('\0')) {
+                    throw new SystemError(ErrorType.PERMISSION_ERROR, '非法的文件路径', 'INVALID_PATH');
+                }
                 
                 // 检查文件是否存在
                 if (!fs.existsSync(normalizedPath)) {
@@ -2328,7 +2342,6 @@ export class QQChatExporterApiServer {
 
                 // 获取文件名和MIME类型
                 const fileName = path.basename(normalizedPath);
-                const ext = path.extname(fileName).toLowerCase();
                 const mimeTypes: Record<string, string> = {
                     '.json': 'application/json',
                     '.html': 'text/html',
