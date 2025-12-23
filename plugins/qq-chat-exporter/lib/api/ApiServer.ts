@@ -2942,6 +2942,11 @@ export class QQChatExporterApiServer {
             }
 
             // 发送完成通知
+            // Issue #192: 根据是否使用自定义路径生成正确的下载URL
+            const finalDownloadUrl = customOutputDir && customOutputDir.trim()
+                ? `/api/download-file?path=${encodeURIComponent(finalFilePath)}`
+                : (isZipExport ? `/download?file=${encodeURIComponent(finalFileName)}` : downloadUrl);
+            
             this.broadcastWebSocketMessage({
                 type: 'export_complete',
                 data: {
@@ -2953,7 +2958,7 @@ export class QQChatExporterApiServer {
                     fileName: finalFileName,
                     filePath: finalFilePath,
                     fileSize: stats.size,
-                    downloadUrl: isZipExport ? `/download?file=${encodeURIComponent(finalFileName)}` : downloadUrl,
+                    downloadUrl: finalDownloadUrl,
                     isZipExport,
                     originalFilePath: isZipExport ? filePath : undefined
                 }
@@ -3223,6 +3228,11 @@ export class QQChatExporterApiServer {
                 });
             }
 
+            // Issue #192: 根据是否使用自定义路径生成正确的下载URL
+            const finalDownloadUrl = customOutputDir && customOutputDir.trim()
+                ? `/api/download-file?path=${encodeURIComponent(zipFilePath)}`
+                : `/download?file=${encodeURIComponent(fileName)}`;
+
             this.broadcastWebSocketMessage({
                 type: 'export_complete',
                 data: {
@@ -3234,7 +3244,7 @@ export class QQChatExporterApiServer {
                     fileName,
                     filePath: zipFilePath,
                     fileSize: zipStats.size,
-                    downloadUrl: `/download?file=${encodeURIComponent(fileName)}`,
+                    downloadUrl: finalDownloadUrl,
                     isZipExport: true,
                     streamingMode: true,
                     chunkCount: chunkedResult.chunkCount
@@ -3523,6 +3533,11 @@ export class QQChatExporterApiServer {
                 });
             }
 
+            // Issue #192: JSONL导出是目录，自定义路径时返回目录路径
+            const finalDownloadUrl = customOutputDir && customOutputDir.trim()
+                ? jsonlOutputDir  // 自定义路径返回完整目录路径
+                : `/download?file=${encodeURIComponent(dirName)}`;
+
             this.broadcastWebSocketMessage({
                 type: 'export_complete',
                 data: {
@@ -3534,7 +3549,7 @@ export class QQChatExporterApiServer {
                     fileName: dirName,
                     filePath: jsonlOutputDir,
                     fileSize: result.fileSize,
-                    downloadUrl: `/download?file=${encodeURIComponent(dirName)}`,
+                    downloadUrl: finalDownloadUrl,
                     streamingMode: true,
                     chunkCount: result.chunkCount
                 }
