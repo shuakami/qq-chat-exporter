@@ -265,6 +265,7 @@ export class QQChatExporterApiServer {
                req.path.startsWith('/downloads/') || // 允许下载文件访问
                req.path.startsWith('/scheduled-downloads/') || // 允许定时导出文件访问
                req.path === '/download'; // 允许QQ文件下载API访问（用于图片等资源）
+               // 注意：/api/download-file 需要认证，不在公开路由列表中 (Issue #192 安全修复)
             
             if (isPublicRoute) {
                 return next();
@@ -1349,7 +1350,13 @@ export class QQChatExporterApiServer {
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`; // 20250506
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`; // 221008
                 const fileName = `${chatTypePrefix}_${peer.peerUid}_${dateStr}_${timeStr}.${fileExt}`;
-                const downloadUrl = `/downloads/${fileName}`;
+                
+                // Issue #192: 根据是否使用自定义路径生成不同的下载URL
+                const customOutputDir = options?.outputDir?.trim();
+                const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+                const outputDir = customOutputDir || defaultOutputDir;
+                const filePath = path.join(outputDir, fileName);
+                const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
                 
                 // 确定会话名称：优先使用用户输入的名称，否则自动获取
                 let sessionName: string;
@@ -1418,14 +1425,15 @@ export class QQChatExporterApiServer {
                     sessionName: task.sessionName,
                     fileName: task.fileName,
                     downloadUrl: task.downloadUrl,
+                    filePath: filePath, // Issue #192: 返回完整文件路径
                     messageCount: task.messageCount,
                     status: task.status,
                     startTime: filter?.startTime,
                     endTime: filter?.endTime
                 }, (req as any).requestId);
 
-                // 在后台异步处理导出
-                this.processExportTaskAsync(taskId, peer, format, filter, options, fileName, downloadUrl);
+                // 在后台异步处理导出（传递自定义输出目录）
+                this.processExportTaskAsync(taskId, peer, format, filter, options, fileName, downloadUrl, customOutputDir);
 
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
@@ -1453,7 +1461,13 @@ export class QQChatExporterApiServer {
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
                 const fileName = `${chatTypePrefix}_${peer.peerUid}_${dateStr}_${timeStr}_streaming.zip`;
-                const downloadUrl = `/downloads/${fileName}`;
+                
+                // Issue #192: 根据是否使用自定义路径生成不同的下载URL
+                const customOutputDir = options?.outputDir?.trim();
+                const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+                const outputDir = customOutputDir || defaultOutputDir;
+                const filePath = path.join(outputDir, fileName);
+                const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
 
                 // 确定会话名称
                 let sessionName: string;
@@ -1516,6 +1530,7 @@ export class QQChatExporterApiServer {
                     sessionName: task.sessionName,
                     fileName: task.fileName,
                     downloadUrl: task.downloadUrl,
+                    filePath: filePath, // Issue #192: 返回完整文件路径
                     messageCount: task.messageCount,
                     status: task.status,
                     startTime: filter?.startTime,
@@ -1523,8 +1538,8 @@ export class QQChatExporterApiServer {
                     streamingMode: true
                 }, (req as any).requestId);
 
-                // 在后台异步处理流式ZIP导出
-                this.processStreamingZipExportAsync(taskId, peer, filter, options, fileName);
+                // 在后台异步处理流式ZIP导出（传递自定义输出目录）
+                this.processStreamingZipExportAsync(taskId, peer, filter, options, fileName, customOutputDir);
 
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
@@ -1552,7 +1567,16 @@ export class QQChatExporterApiServer {
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
                 const dirName = `${chatTypePrefix}_${peer.peerUid}_${dateStr}_${timeStr}_chunked_jsonl`;
-                const downloadUrl = `/downloads/${dirName}`;
+                
+                // Issue #192: 根据是否使用自定义路径生成不同的下载URL
+                const customOutputDir = options?.outputDir?.trim();
+                const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+                const outputDir = customOutputDir || defaultOutputDir;
+                const dirPath = path.join(outputDir, dirName);
+                // JSONL导出是目录，不支持直接下载，返回目录路径
+                const downloadUrl = customOutputDir 
+                    ? dirPath  // 自定义路径返回完整目录路径
+                    : `/downloads/${dirName}`;
 
                 // 确定会话名称
                 let sessionName: string;
@@ -1615,6 +1639,7 @@ export class QQChatExporterApiServer {
                     sessionName: task.sessionName,
                     fileName: task.fileName,
                     downloadUrl: task.downloadUrl,
+                    filePath: dirPath, // Issue #192: 返回完整目录路径
                     messageCount: task.messageCount,
                     status: task.status,
                     startTime: filter?.startTime,
@@ -1622,8 +1647,8 @@ export class QQChatExporterApiServer {
                     streamingMode: true
                 }, (req as any).requestId);
 
-                // 在后台异步处理流式JSONL导出
-                this.processStreamingJsonlExportAsync(taskId, peer, filter, options, dirName);
+                // 在后台异步处理流式JSONL导出（传递自定义输出目录）
+                this.processStreamingJsonlExportAsync(taskId, peer, filter, options, dirName, customOutputDir);
 
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
@@ -2274,6 +2299,83 @@ export class QQChatExporterApiServer {
             }
         });
 
+        // 动态下载API - 支持自定义导出路径的文件下载 (Issue #192)
+        // 安全措施：需要认证 + 限制文件扩展名 + 路径安全检查
+        this.app.get('/api/download-file', (req, res) => {
+            try {
+                const filePath = req.query['path'] as string;
+                if (!filePath) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '缺少文件路径参数', 'MISSING_PATH');
+                }
+
+                // 安全检查1：在规范化之前检查原始路径是否包含危险字符
+                // 防止通过编码或特殊字符绕过检查
+                if (filePath.includes('..') || filePath.includes('\0') || filePath.includes('%00')) {
+                    throw new SystemError(ErrorType.PERMISSION_ERROR, '非法的文件路径', 'INVALID_PATH');
+                }
+
+                // 安全检查2：规范化路径
+                const normalizedPath = path.normalize(filePath);
+                
+                // 安全检查3：规范化后再次检查（防止编码绕过）
+                if (normalizedPath.includes('..') || normalizedPath.includes('\0')) {
+                    throw new SystemError(ErrorType.PERMISSION_ERROR, '非法的文件路径', 'INVALID_PATH');
+                }
+                
+                // 安全检查4：只允许下载特定扩展名的导出文件
+                const allowedExtensions = ['.json', '.html', '.txt', '.xlsx', '.zip', '.jsonl'];
+                const ext = path.extname(normalizedPath).toLowerCase();
+                if (!allowedExtensions.includes(ext)) {
+                    throw new SystemError(ErrorType.PERMISSION_ERROR, '不允许下载此类型的文件', 'FORBIDDEN_FILE_TYPE');
+                }
+                
+                // 安全检查5：确保是绝对路径（防止相对路径攻击）
+                if (!path.isAbsolute(normalizedPath)) {
+                    throw new SystemError(ErrorType.PERMISSION_ERROR, '必须使用绝对路径', 'RELATIVE_PATH_NOT_ALLOWED');
+                }
+                
+                // 检查文件是否存在
+                if (!fs.existsSync(normalizedPath)) {
+                    throw new SystemError(ErrorType.FILESYSTEM_ERROR, '文件不存在', 'FILE_NOT_FOUND');
+                }
+
+                // 检查是否为文件（不是目录）
+                const stats = fs.statSync(normalizedPath);
+                if (!stats.isFile()) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '路径不是文件', 'NOT_A_FILE');
+                }
+
+                // 获取文件名和MIME类型
+                const fileName = path.basename(normalizedPath);
+                const mimeTypes: Record<string, string> = {
+                    '.json': 'application/json',
+                    '.html': 'text/html',
+                    '.txt': 'text/plain',
+                    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    '.zip': 'application/zip',
+                    '.jsonl': 'application/x-ndjson'
+                };
+                const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+                // 设置响应头
+                res.setHeader('Content-Type', contentType);
+                res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+                res.setHeader('Content-Length', stats.size);
+
+                // 流式发送文件
+                const fileStream = fs.createReadStream(normalizedPath);
+                fileStream.pipe(res);
+                fileStream.on('error', (error) => {
+                    console.error('[ApiServer] 文件流读取错误:', error);
+                    if (!res.headersSent) {
+                        this.sendErrorResponse(res, error, (req as any).requestId);
+                    }
+                });
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
         // 静态文件服务
         this.app.use('/downloads', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports')));
         this.app.use('/scheduled-downloads', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports')));
@@ -2443,7 +2545,8 @@ export class QQChatExporterApiServer {
         filter: any,
         options: any,
         fileName: string,
-        downloadUrl: string
+        downloadUrl: string,
+        customOutputDir?: string
     ): Promise<void> {
         let task = this.exportTasks.get(taskId);
         
@@ -2683,7 +2786,9 @@ export class QQChatExporterApiServer {
             });
 
             // 修复 Issue #30: 使用用户目录，与索引扫描目录保持一致
-            const outputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            // Issue #192: 支持自定义导出路径
+            const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            const outputDir = customOutputDir && customOutputDir.trim() ? customOutputDir.trim() : defaultOutputDir;
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
@@ -2842,6 +2947,14 @@ export class QQChatExporterApiServer {
             }
 
             // 发送完成通知
+            // Issue #192: 根据是否使用自定义路径生成正确的下载URL
+            const finalDownloadUrl = this.generateDownloadUrl(
+                finalFilePath, 
+                finalFileName, 
+                customOutputDir,
+                isZipExport ? '/download?file=' : '/downloads/'
+            );
+            
             this.broadcastWebSocketMessage({
                 type: 'export_complete',
                 data: {
@@ -2853,7 +2966,7 @@ export class QQChatExporterApiServer {
                     fileName: finalFileName,
                     filePath: finalFilePath,
                     fileSize: stats.size,
-                    downloadUrl: isZipExport ? `/download?file=${encodeURIComponent(finalFileName)}` : downloadUrl,
+                    downloadUrl: finalDownloadUrl,
                     isZipExport,
                     originalFilePath: isZipExport ? filePath : undefined
                 }
@@ -2912,7 +3025,8 @@ export class QQChatExporterApiServer {
         peer: any,
         filter: any,
         options: any,
-        fileName: string
+        fileName: string,
+        customOutputDir?: string
     ): Promise<void> {
         let task = this.exportTasks.get(taskId);
         let tempDir: string | null = null;
@@ -2937,8 +3051,9 @@ export class QQChatExporterApiServer {
                 data: { taskId, status: 'running', progress: 0, message: '初始化流式分块导出...' }
             });
 
-            // 准备输出路径
-            const outputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            // 准备输出路径（Issue #192: 支持自定义导出路径）
+            const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            const outputDir = customOutputDir && customOutputDir.trim() ? customOutputDir.trim() : defaultOutputDir;
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
@@ -3121,6 +3236,9 @@ export class QQChatExporterApiServer {
                 });
             }
 
+            // Issue #192: 根据是否使用自定义路径生成正确的下载URL
+            const finalDownloadUrl = this.generateDownloadUrl(zipFilePath, fileName, customOutputDir, '/download?file=');
+
             this.broadcastWebSocketMessage({
                 type: 'export_complete',
                 data: {
@@ -3132,7 +3250,7 @@ export class QQChatExporterApiServer {
                     fileName,
                     filePath: zipFilePath,
                     fileSize: zipStats.size,
-                    downloadUrl: `/download?file=${encodeURIComponent(fileName)}`,
+                    downloadUrl: finalDownloadUrl,
                     isZipExport: true,
                     streamingMode: true,
                     chunkCount: chunkedResult.chunkCount
@@ -3188,7 +3306,8 @@ export class QQChatExporterApiServer {
         peer: any,
         filter: any,
         options: any,
-        dirName: string
+        dirName: string,
+        customOutputDir?: string
     ): Promise<void> {
         let task = this.exportTasks.get(taskId);
         
@@ -3207,8 +3326,9 @@ export class QQChatExporterApiServer {
                 data: { taskId, status: 'running', progress: 0, message: '初始化流式JSONL导出...' }
             });
 
-            // 准备输出路径
-            const outputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            // 准备输出路径（Issue #192: 支持自定义导出路径）
+            const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            const outputDir = customOutputDir && customOutputDir.trim() ? customOutputDir.trim() : defaultOutputDir;
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
@@ -3419,6 +3539,11 @@ export class QQChatExporterApiServer {
                 });
             }
 
+            // Issue #192: JSONL导出是目录，自定义路径时返回目录路径
+            const finalDownloadUrl = customOutputDir && customOutputDir.trim()
+                ? jsonlOutputDir  // 自定义路径返回完整目录路径
+                : `/download?file=${encodeURIComponent(dirName)}`;
+
             this.broadcastWebSocketMessage({
                 type: 'export_complete',
                 data: {
@@ -3430,7 +3555,7 @@ export class QQChatExporterApiServer {
                     fileName: dirName,
                     filePath: jsonlOutputDir,
                     fileSize: result.fileSize,
-                    downloadUrl: `/download?file=${encodeURIComponent(dirName)}`,
+                    downloadUrl: finalDownloadUrl,
                     streamingMode: true,
                     chunkCount: result.chunkCount
                 }
@@ -3475,6 +3600,28 @@ export class QQChatExporterApiServer {
      */
     private generateRequestId(): string {
         return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+
+    /**
+     * 生成下载URL (Issue #192: 统一处理自定义路径和默认路径的URL生成)
+     * @param filePath 文件完整路径
+     * @param fileName 文件名
+     * @param customOutputDir 自定义输出目录（可选）
+     * @param urlPrefix 默认路径的URL前缀，默认为 '/downloads/'
+     * @returns 下载URL
+     */
+    private generateDownloadUrl(
+        filePath: string,
+        fileName: string,
+        customOutputDir?: string,
+        urlPrefix: string = '/downloads/'
+    ): string {
+        // 如果使用自定义路径，返回动态下载API的URL
+        if (customOutputDir && customOutputDir.trim()) {
+            return `/api/download-file?path=${encodeURIComponent(filePath)}`;
+        }
+        // 否则返回静态文件服务的URL
+        return `${urlPrefix}${fileName}`;
     }
     
     /**
@@ -3589,6 +3736,17 @@ export class QQChatExporterApiServer {
                 const fileName = (state as any).fileName || `${config.chatName}_${Date.now()}.json`;
                 const filePath = (state as any).filePath;
                 
+                // Issue #192: 检查是否使用了自定义导出路径
+                const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+                const isCustomPath = filePath && !filePath.startsWith(defaultOutputDir);
+                
+                // 根据是否使用自定义路径生成正确的下载URL
+                const downloadUrl = this.generateDownloadUrl(
+                    filePath || '', 
+                    fileName, 
+                    isCustomPath ? filePath : undefined
+                );
+                
                 // 转换为API格式
                 const apiTask = {
                     taskId: config.taskId,
@@ -3600,7 +3758,7 @@ export class QQChatExporterApiServer {
                     messageCount: state.processedMessages,
                     fileName: fileName,
                     filePath: filePath,  // 恢复filePath
-                    downloadUrl: `/downloads/${fileName}`,
+                    downloadUrl: downloadUrl,
                     createdAt: typeof config.createdAt === 'string' ? config.createdAt : config.createdAt.toISOString(),
                     completedAt: state.endTime 
                         ? (typeof state.endTime === 'string' ? state.endTime : state.endTime.toISOString())
@@ -3641,7 +3799,8 @@ export class QQChatExporterApiServer {
                     endTime: task.filter?.endTime,
                     includeRecalled: task.filter?.includeRecalled || false
                 },
-                outputDir: path.join(process.env['USERPROFILE'] || process.env['HOME'] || '.', '.qq-chat-exporter', 'exports'),
+                // Issue #192: 保存实际使用的输出目录（可能是自定义路径）
+                outputDir: task.options?.outputDir?.trim() || path.join(process.env['USERPROFILE'] || process.env['HOME'] || '.', '.qq-chat-exporter', 'exports'),
                 includeResourceLinks: task.options?.includeResourceLinks || true,
                 batchSize: task.options?.batchSize || 5000,
                 timeout: 30000,
