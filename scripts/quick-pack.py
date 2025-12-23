@@ -147,6 +147,20 @@ def main():
         # If files are directly in temp dir, rename the temp dir
         os.rename(temp_extract_dir, pack_dir)
     
+    # Fix NapCat bug: loadNapCat.js has wrong path (./napcat/napcat.mjs instead of ./napcat.mjs)
+    load_napcat_path = os.path.join(pack_dir, "loadNapCat.js")
+    if os.path.exists(load_napcat_path):
+        print("[4.1/11] Fixing loadNapCat.js path bug...")
+        fixed_content = '''const path = require('path');
+const CurrentPath = path.dirname(__filename);
+(async () => {
+  await import('file://' + path.join(CurrentPath, './napcat.mjs'));
+})();
+'''
+        with open(load_napcat_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(fixed_content)
+        print("[x] Fixed loadNapCat.js")
+    
     print("[x] Extracted")
     print()
     
