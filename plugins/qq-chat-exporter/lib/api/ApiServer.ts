@@ -157,6 +157,9 @@ export class QQChatExporterApiServer {
         this.setupRoutes();
         this.setupWebSocket();
         this.setupProcessHandlers();
+        
+        // Issue #192: 清理遗留的临时文件
+        this.cleanupTempFiles();
     }
     
     /**
@@ -3600,6 +3603,80 @@ export class QQChatExporterApiServer {
      */
     private generateRequestId(): string {
         return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+
+    /**
+     * 清理遗留的临时文件 (Issue #192)
+     * 在启动时清理超过1小时的临时文件，避免磁盘空间浪费
+     */
+    private cleanupTempFiles(): void {
+        try {
+            // 清理默认导出目录
+            const defaultExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            this.cleanupTempFilesInDirectory(defaultExportDir);
+            
+            console.log('[ApiServer] 临时文件清理完成');
+        } catch (error) {
+            console.error('[ApiServer] 清理临时文件失败:', error);
+        }
+    }
+
+    /**
+     * 清理指定目录中的临时文件
+     * @param directory 要清理的目录
+     */
+    private cleanupTempFilesInDirectory(directory: string): void {
+        try {
+            if (!fs.existsSync(directory)) {
+                return;
+            }
+            
+            const files = fs.readdirSync(directory);
+            let cleanedCount = 0;
+            
+            for (const file of files) {
+                // 清理 .qce_temp_ 开头的临时文件
+                if (file.startsWith('.qce_temp_')) {
+                    const filePath = path.join(directory, file);
+                    try {
+                        const stats = fs.statSync(filePath);
+                        // 只清理超过 1 小时的临时文件（避免误删正在使用的文件）
+                        const fileAge = Date.now() - stats.mtimeMs;
+                        if (fileAge > 3600000) { // 1 小时 = 3600000 毫秒
+                            fs.unlinkSync(filePath);
+                            cleanedCount++;
+                            console.log(`[ApiServer] 已清理临时文件: ${file}`);
+                        }
+                    } catch (error) {
+                        // 静默处理单个文件的错误
+                    }
+                }
+                
+                // 清理 temp_ 开头的临时目录（流式ZIP导出的临时目录）
+                if (file.startsWith('temp_')) {
+                    const dirPath = path.join(directory, file);
+                    try {
+                        const stats = fs.statSync(dirPath);
+                        if (stats.isDirectory()) {
+                            const dirAge = Date.now() - stats.mtimeMs;
+                            if (dirAge > 3600000) { // 1 小时
+                                fs.rmSync(dirPath, { recursive: true, force: true });
+                                cleanedCount++;
+                                console.log(`[ApiServer] 已清理临时目录: ${file}`);
+                            }
+                        }
+                    } catch (error) {
+                        // 静默处理单个目录的错误
+                    }
+                }
+            }
+            
+            if (cleanedCount > 0) {
+                console.log(`[ApiServer] 在 ${directory} 中共清理 ${cleanedCount} 个临时文件/目录`);
+            }
+        } catch (error) {
+            // 静默处理目录级别的错误
+        }
     }
 
     /**

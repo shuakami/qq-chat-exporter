@@ -296,7 +296,9 @@ export class JsonExporter extends BaseExporter {
             console.log(`[JsonExporter] 目标: ${this.options.outputPath}`);
 
             // ========== 阶段1: 批量解析 → 写NDJSON ==========
-            tmpFile = path.join(os.tmpdir(), `qce_${Date.now()}_${Math.random().toString(36).slice(2)}.ndjson`);
+            // Issue #192: 使用输出目录作为临时目录，而不是系统临时目录（避免占用C盘）
+            const outputDir = path.dirname(this.options.outputPath);
+            tmpFile = path.join(outputDir, `.qce_temp_${Date.now()}_${Math.random().toString(36).slice(2)}.ndjson`);
             const writeStream = this.createWriteStream(tmpFile);
             const ndjsonWriter = new BufferedTextWriter(writeStream, 1024 * 1024);
             const ndWrite = async (s: string) => {
