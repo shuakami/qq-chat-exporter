@@ -75,6 +75,7 @@ export function TaskWizard({
     exportAsZip: false,
     embedAvatarsAsBase64: false,
     streamingZipMode: false, // 流式ZIP导出模式
+    outputDir: "", // Issue #192: 自定义导出路径
   })
 
   const { groupSearch, friendSearch } = useSearch()
@@ -181,6 +182,7 @@ export function TaskWizard({
         exportAsZip: false,
         embedAvatarsAsBase64: false,
         streamingZipMode: false,
+        outputDir: "", // Issue #192: 重置自定义导出路径
       })
     }
   }, [isOpen])
@@ -830,6 +832,21 @@ export function TaskWizard({
           <div>
             <Label className="text-base font-medium">高级选项</Label>
             <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">自定义导出内容的详细设置</p>
+          </div>
+
+          {/* Issue #192: 自定义导出路径 */}
+          <div className="space-y-2">
+            <Label htmlFor="outputDir">导出路径（可选）</Label>
+            <Input
+              id="outputDir"
+              placeholder="留空使用默认路径，或输入自定义路径如 D:\exports"
+              value={form.outputDir || ""}
+              onChange={(e) => setForm((p) => ({ ...p, outputDir: e.target.value }))}
+              className="rounded-xl font-mono text-sm"
+            />
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              默认保存到用户目录下的 .qq-chat-exporter/exports 文件夹
+            </p>
           </div>
 
           <div className="space-y-3">

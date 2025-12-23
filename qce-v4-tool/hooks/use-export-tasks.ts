@@ -141,6 +141,8 @@ export function useExportTasks(props?: UseExportTasksProps) {
           prettyFormat: true,
           exportAsZip: form.exportAsZip,
           embedAvatarsAsBase64: form.embedAvatarsAsBase64,
+          // Issue #192: 传递自定义导出路径
+          ...(form.outputDir?.trim() && { outputDir: form.outputDir.trim() }),
         },
       }
 
