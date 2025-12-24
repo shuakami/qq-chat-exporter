@@ -166,6 +166,12 @@ interface JsonExportData {
         participantCount?: number;
         /** 聊天创建时间 */
         createdAt?: string;
+        /** 当前登录用户的UID */
+        selfUid?: string;
+        /** 当前登录用户的QQ号 */
+        selfUin?: string;
+        /** 当前登录用户的昵称 */
+        selfName?: string;
     };
 
     /** 统计信息 */
@@ -1065,11 +1071,22 @@ export class JsonExporter extends BaseExporter {
     /**
      * 格式化聊天信息（异步版本，支持群头像base64转换）
      */
-    private async formatChatInfoAsync(chatInfo: { name: string; type: string; avatar?: string; participantCount?: number }): Promise<JsonExportData['chatInfo']> {
+    private async formatChatInfoAsync(chatInfo: { name: string; type: string; avatar?: string; participantCount?: number; selfUid?: string; selfUin?: string; selfName?: string }): Promise<JsonExportData['chatInfo']> {
         const result: JsonExportData['chatInfo'] = {
             name: chatInfo.name,
             type: chatInfo.type,
         };
+
+        // 添加当前登录用户信息
+        if (chatInfo.selfUid) {
+            result.selfUid = chatInfo.selfUid;
+        }
+        if (chatInfo.selfUin) {
+            result.selfUin = chatInfo.selfUin;
+        }
+        if (chatInfo.selfName) {
+            result.selfName = chatInfo.selfName;
+        }
 
         if (chatInfo.avatar) {
             // 如果启用了头像base64嵌入，下载群头像并转换
