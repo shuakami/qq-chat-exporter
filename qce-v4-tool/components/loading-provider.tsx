@@ -48,10 +48,12 @@ export function LoadingProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <LoadingContext.Provider value={{ isLoading, setLoading }}>
-      {hasShownInitialLoad && (
-        <LoadingScreen isLoading={isLoading} onComplete={handleLoadingComplete} />
-      )}
-      {children}
+      <>
+        {hasShownInitialLoad && (
+          <LoadingScreen isLoading={isLoading} onComplete={handleLoadingComplete} />
+        )}
+        {children}
+      </>
     </LoadingContext.Provider>
   )
 }

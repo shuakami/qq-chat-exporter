@@ -75,10 +75,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       {authState === 'authenticated' && (
         <motion.div
-          key="content"
+          key="authenticated-content"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
+          suppressHydrationWarning
         >
           {children}
         </motion.div>
