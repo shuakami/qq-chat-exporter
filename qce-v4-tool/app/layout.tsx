@@ -18,7 +18,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="zh-CN" translate="no" suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{
@@ -31,6 +31,26 @@ export default function RootLayout({
                   }
                 } catch (e) {}
               })();
+              
+              // 修复浏览器翻译功能(Edge/Chrome等)导致的 React DOM 操作错误
+              // 当翻译功能修改DOM后，React尝试操作已被移除的节点会抛出错误
+              if (typeof Node !== 'undefined') {
+                var originalRemoveChild = Node.prototype.removeChild;
+                Node.prototype.removeChild = function(child) {
+                  if (child.parentNode !== this) {
+                    return child;
+                  }
+                  return originalRemoveChild.apply(this, arguments);
+                };
+                
+                var originalInsertBefore = Node.prototype.insertBefore;
+                Node.prototype.insertBefore = function(newNode, referenceNode) {
+                  if (referenceNode && referenceNode.parentNode !== this) {
+                    return newNode;
+                  }
+                  return originalInsertBefore.apply(this, arguments);
+                };
+              }
             `,
           }}
         />
