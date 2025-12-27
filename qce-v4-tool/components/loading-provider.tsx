@@ -20,9 +20,11 @@ export function useLoading() {
 
 export function LoadingProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
-  const [hasShownInitialLoad, setHasShownInitialLoad] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
 
   useEffect(() => {
+    setIsMounted(true)
+    
     // Check if this is the first visit
     const hasVisited = localStorage.getItem('qce-has-visited')
     
@@ -34,8 +36,6 @@ export function LoadingProvider({ children }: { children: React.ReactNode }) {
       // Not first time - skip loading
       setIsLoading(false)
     }
-    
-    setHasShownInitialLoad(true)
   }, [])
 
   const setLoading = (loading: boolean) => {
@@ -48,12 +48,10 @@ export function LoadingProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <LoadingContext.Provider value={{ isLoading, setLoading }}>
-      <>
-        {hasShownInitialLoad && (
-          <LoadingScreen isLoading={isLoading} onComplete={handleLoadingComplete} />
-        )}
-        {children}
-      </>
+      {isMounted && (
+        <LoadingScreen isLoading={isLoading} onComplete={handleLoadingComplete} />
+      )}
+      {children}
     </LoadingContext.Provider>
   )
 }
