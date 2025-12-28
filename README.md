@@ -22,6 +22,8 @@
 
 也可以试试 [QQChatAnalyzer](https://github.com/CutrelyAlex/QQChatAnalyzer) - 支持个人分析、群聊分析、社交网络可视化和 AI 摘要
 
+还可以试试 [QQ-Chat-AI-Analyzer](https://github.com/JUSTMONIKA2022/QQ-Chat-AI-Analyzer) - 基于 AI 的群聊消息总结分析工具，可生成年度报告
+
 如果需要 Python API 封装，可以使用 [napcat-qce-python](https://github.com/streetartist/napcat-qce-python)
 
 ## 致谢
