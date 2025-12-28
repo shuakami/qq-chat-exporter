@@ -36,9 +36,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    // 已认证，初始化 fetch 拦截器
-    authManager.initialize()
-    setAuthState('authenticated')
+    // 有本地 token，但需要向后端验证其有效性
+    // 这解决了：用户先用独立模式（任意token通过）后用完整模式的问题
+    const validateToken = async () => {
+      try {
+        const response = await fetch('/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: authManager.getToken() })
+        })
+        
+        const data = await response.json()
+        
+        if (data.success) {
+          // token 有效，初始化 fetch 拦截器
+          authManager.initialize()
+          setAuthState('authenticated')
+        } else {
+          // token 无效（可能是独立模式遗留的假token），清除并重定向
+          authManager.clearToken()
+          setAuthState('redirecting')
+          setTimeout(() => {
+            window.location.href = '/qce-v4-tool/auth'
+          }, 300)
+        }
+      } catch {
+        // 网络错误时，假设后端未启动，允许继续（fetch拦截器会处理后续401）
+        authManager.initialize()
+        setAuthState('authenticated')
+      }
+    }
+    
+    validateToken()
   }, [pathname, isMounted])
 
   // 服务端渲染和初始客户端渲染时显示简单的加载状态
