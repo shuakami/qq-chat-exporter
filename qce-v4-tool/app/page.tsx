@@ -701,8 +701,15 @@ export default function QCEDashboard() {
           startTime,
           endTime,
           includeRecalled: false,
-          includeSystemMessages: true,
-          filterPureImageMessages: !config.downloadMedia,
+          includeSystemMessages: config.includeSystemMessages,
+          filterPureImageMessages: config.filterPureImageMessages,
+          // 高级选项
+          streamingZipMode: config.streamingZipMode,
+          exportAsZip: config.exportAsZip,
+          embedAvatarsAsBase64: config.embedAvatarsAsBase64,
+          outputDir: config.outputDir,
+          keywords: config.keywords,
+          excludeUserUins: config.excludeUserUins,
         }
 
         // 调用单个导出 API
@@ -735,16 +742,17 @@ export default function QCEDashboard() {
     // 刷新任务列表
     tasksLoadedRef.current = false
 
-    // 显示通知
+    // 显示通知，带跳转按钮
     const successCount = results.filter(r => r.status === 'success').length
     const failedCount = results.filter(r => r.status === 'failed').length
+    const goToTasksAction = { label: '查看任务', onClick: () => setActiveTab('tasks') }
     
     if (failedCount === 0) {
-      addNotification('success', '批量导出完成', `成功创建 ${successCount} 个导出任务`)
+      addNotification('success', '批量导出完成', `成功创建 ${successCount} 个导出任务`, [goToTasksAction], 8000)
     } else if (successCount === 0) {
-      addNotification('error', '批量导出失败', `所有 ${failedCount} 个任务都失败了`)
+      addNotification('error', '批量导出失败', `所有 ${failedCount} 个任务都失败了`, [goToTasksAction], 8000)
     } else {
-      addNotification('info', '批量导出部分完成', `成功 ${successCount} 个，失败 ${failedCount} 个`)
+      addNotification('info', '批量导出部分完成', `成功 ${successCount} 个，失败 ${failedCount} 个`, [goToTasksAction], 8000)
     }
   }
 
