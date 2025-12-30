@@ -3395,6 +3395,10 @@ export class QQChatExporterApiServer {
             const { SimpleMessageParser } = await import('../core/parser/SimpleMessageParser.js');
             const parser = new SimpleMessageParser(this.core);
 
+            // 头像收集（如果启用了 embedAvatarsAsBase64）
+            const embedAvatars = options?.embedAvatarsAsBase64 === true;
+            const avatarUins = new Set<string>(); // 收集所有发送者的 QQ 号
+
             // 流式 JSONL 写入状态
             const maxMessagesPerChunk = 50000;
             const maxBytesPerChunk = 50 * 1024 * 1024;
@@ -3460,6 +3464,11 @@ export class QQChatExporterApiServer {
                     currentChunkBytes += lineBytes;
                     totalRawMessages++;
 
+                    // 收集发送者 QQ 号用于头像下载
+                    if (embedAvatars && cleanMsg.sender?.uin) {
+                        avatarUins.add(String(cleanMsg.sender.uin));
+                    }
+
                     // 更新时间范围
                     const msgTime = cleanMsg.timestamp;
                     if (msgTime) {
@@ -3490,8 +3499,53 @@ export class QQChatExporterApiServer {
                 }
             }
 
+            // 如果启用了头像嵌入，下载所有头像并写入 avatars.json
+            let avatarsRef: { file: string; count: number } | undefined;
+            if (embedAvatars && avatarUins.size > 0) {
+                broadcastProgress(85, `正在下载 ${avatarUins.size} 个头像...`, totalRawMessages);
+                
+                const avatarMap = new Map<string, string>();
+                const downloadAvatar = async (uin: string): Promise<void> => {
+                    try {
+                        const avatarUrl = `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=640`;
+                        const response = await fetch(avatarUrl);
+                        if (response.ok) {
+                            const buffer = await response.arrayBuffer();
+                            const base64 = Buffer.from(buffer).toString('base64');
+                            const contentType = response.headers.get('content-type') || 'image/jpeg';
+                            avatarMap.set(uin, `data:${contentType};base64,${base64}`);
+                        }
+                    } catch (error) {
+                        // 静默处理单个头像下载失败
+                    }
+                };
+
+                // 并发下载头像（限制并发数为 10）
+                const uinArray = Array.from(avatarUins);
+                const concurrency = 10;
+                for (let i = 0; i < uinArray.length; i += concurrency) {
+                    const batch = uinArray.slice(i, i + concurrency);
+                    await Promise.all(batch.map(uin => downloadAvatar(uin)));
+                }
+
+                // 写入 avatars.json
+                if (avatarMap.size > 0) {
+                    const avatarsPath = path.join(jsonlOutputDir, 'avatars.json');
+                    const avatarsObj: Record<string, string> = {};
+                    for (const [uin, base64] of avatarMap.entries()) {
+                        avatarsObj[uin] = base64;
+                    }
+                    fs.writeFileSync(avatarsPath, JSON.stringify(avatarsObj, null, 2), 'utf-8');
+                    
+                    avatarsRef = {
+                        file: 'avatars.json',
+                        count: avatarMap.size
+                    };
+                }
+            }
+
             // 写入 manifest.json
-            const manifest = {
+            const manifest: any = {
                 metadata: {
                     exportTime: new Date().toISOString(),
                     version: '5.0.0',
@@ -3511,6 +3565,12 @@ export class QQChatExporterApiServer {
                     chunks
                 }
             };
+            
+            // 添加头像引用到 manifest
+            if (avatarsRef) {
+                manifest.avatars = avatarsRef;
+            }
+            
             const manifestPath = path.join(jsonlOutputDir, 'manifest.json');
             fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
 
@@ -3518,6 +3578,12 @@ export class QQChatExporterApiServer {
             let totalSize = fs.statSync(manifestPath).size;
             for (const chunk of chunks) {
                 totalSize += chunk.bytes;
+            }
+            // 加上 avatars.json 大小
+            if (avatarsRef) {
+                try {
+                    totalSize += fs.statSync(path.join(jsonlOutputDir, avatarsRef.file)).size;
+                } catch {}
             }
 
             const result = {
