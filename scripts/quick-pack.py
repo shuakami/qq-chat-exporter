@@ -259,6 +259,37 @@ const CurrentPath = path.dirname(__filename);
     print("[x] Updated")
     print()
     
+    # Pre-compile qq_magic.so for Linux (fixes qq_magic_napi_register symbol issue)
+    if os_name == "Linux":
+        print("[9.3/11] Pre-compiling qq_magic.so for Linux...")
+        
+        # Create the C++ source file
+        qq_magic_cpp = '''#include <node_api.h>
+extern "C" {
+    void qq_magic_napi_register(napi_module *m) {
+        napi_module_register(m);
+    }
+}
+'''
+        cpp_path = f"{pack_dir}/qq_magic.cpp"
+        so_path = f"{pack_dir}/qq_magic.so"
+        
+        with open(cpp_path, "w", encoding="utf-8") as f:
+            f.write(qq_magic_cpp)
+        
+        # Try to compile
+        compile_success = run_command(["g++", "-shared", "-fPIC", "-o", so_path, cpp_path])
+        
+        if compile_success and os.path.exists(so_path):
+            print("[x] qq_magic.so compiled successfully")
+            os.remove(cpp_path)  # Clean up source file
+        else:
+            print("[!] Warning: Could not pre-compile qq_magic.so")
+            print("[!] Users will need to compile it manually or install build-essential")
+            if os.path.exists(cpp_path):
+                os.remove(cpp_path)
+        print()
+    
     # Create standalone mode scripts
     print("[9.5/11] Creating standalone mode scripts...")
     
@@ -427,45 +458,11 @@ if ! command -v node &> /dev/null; then
     exit 1
 fi
 
-# Linux: Handle qq_magic_napi_register symbol issue
-# This is needed because wrapper.node requires this symbol which is not in standard node
+# Linux: Load pre-compiled qq_magic.so for qq_magic_napi_register symbol
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     QQ_MAGIC_SO="$SCRIPT_DIR/qq_magic.so"
     
-    # Build qq_magic.so if it doesn't exist
-    if [ ! -f "$QQ_MAGIC_SO" ]; then
-        echo "[Info] Building qq_magic.so for Linux compatibility..."
-        
-        # Check if g++ is available
-        if command -v g++ &> /dev/null; then
-            # Create the C++ source file
-            cat > "$SCRIPT_DIR/qq_magic.cpp" << 'CPPEOF'
-#include <node_api.h>
-extern "C" {
-    void qq_magic_napi_register(napi_module *m) {
-        napi_module_register(m);
-    }
-}
-CPPEOF
-            # Compile the shared library
-            g++ -shared -fPIC -o "$QQ_MAGIC_SO" "$SCRIPT_DIR/qq_magic.cpp" 2>/dev/null
-            
-            if [ -f "$QQ_MAGIC_SO" ]; then
-                echo "[Info] qq_magic.so built successfully"
-                rm -f "$SCRIPT_DIR/qq_magic.cpp"
-            else
-                echo "[Warning] Failed to build qq_magic.so"
-                echo "You may need to install build tools: sudo apt install build-essential nodejs"
-                echo "Or manually create qq_magic.so - see README for details"
-            fi
-        else
-            echo "[Warning] g++ not found, cannot build qq_magic.so"
-            echo "Install build tools: sudo apt install build-essential"
-            echo "Or manually create qq_magic.so - see README for details"
-        fi
-    fi
-    
-    # Set LD_PRELOAD if qq_magic.so exists
+    # Set LD_PRELOAD if qq_magic.so exists (pre-compiled in package)
     if [ -f "$QQ_MAGIC_SO" ]; then
         export LD_PRELOAD="$QQ_MAGIC_SO${LD_PRELOAD:+:$LD_PRELOAD}"
         echo "[Info] LD_PRELOAD set: $QQ_MAGIC_SO"
@@ -529,15 +526,9 @@ node "$NAPCAT_MAIN_PATH"
 
 默认支持的QQ路径: /opt/QQ/qq, /usr/share/QQ/qq, /opt/linuxqq/qq
 
-Linux 特殊说明 (qq_magic_napi_register):
-- 启动脚本会自动编译 qq_magic.so 来解决符号缺失问题
-- 需要安装编译工具: sudo apt install build-essential
-- 如果自动编译失败，可手动创建:
-  1. 创建 qq_magic.cpp:
-     #include <node_api.h>
-     extern "C" { void qq_magic_napi_register(napi_module *m) { napi_module_register(m); } }
-  2. 编译: g++ -shared -fPIC -o qq_magic.so qq_magic.cpp
-  3. 运行: LD_PRELOAD=./qq_magic.so ./launcher-user.sh"""
+Linux 说明:
+- 已预编译 qq_magic.so 解决 qq_magic_napi_register 符号问题
+- 启动脚本会自动加载，无需额外配置"""
         else:  # macOS
             usage_steps += "\n\nmacOS 用户: 运行 xattr -r -d com.apple.quarantine . 移除系统隔离"
     
