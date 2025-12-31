@@ -259,6 +259,37 @@ const CurrentPath = path.dirname(__filename);
     print("[x] Updated")
     print()
     
+    # Pre-compile qq_magic.so for Linux (fixes qq_magic_napi_register symbol issue)
+    if os_name == "Linux":
+        print("[9.3/11] Pre-compiling qq_magic.so for Linux...")
+        
+        # Create the C++ source file
+        qq_magic_cpp = '''#include <node_api.h>
+extern "C" {
+    void qq_magic_napi_register(napi_module *m) {
+        napi_module_register(m);
+    }
+}
+'''
+        cpp_path = f"{pack_dir}/qq_magic.cpp"
+        so_path = f"{pack_dir}/qq_magic.so"
+        
+        with open(cpp_path, "w", encoding="utf-8") as f:
+            f.write(qq_magic_cpp)
+        
+        # Try to compile
+        compile_success = run_command(["g++", "-shared", "-fPIC", "-o", so_path, cpp_path])
+        
+        if compile_success and os.path.exists(so_path):
+            print("[x] qq_magic.so compiled successfully")
+            os.remove(cpp_path)  # Clean up source file
+        else:
+            print("[!] Warning: Could not pre-compile qq_magic.so")
+            print("[!] Users will need to compile it manually or install build-essential")
+            if os.path.exists(cpp_path):
+                os.remove(cpp_path)
+        print()
+    
     # Create standalone mode scripts
     print("[9.5/11] Creating standalone mode scripts...")
     
@@ -400,11 +431,42 @@ cd "$SCRIPT_DIR"
 # Set environment variables
 export NAPCAT_MAIN_PATH="$SCRIPT_DIR/napcat.mjs"
 
+# Auto-detect QQ path if not set
+if [ -z "$NAPCAT_QQ_PATH" ]; then
+    if [ -f "/opt/QQ/qq" ]; then
+        export NAPCAT_QQ_PATH="/opt/QQ/qq"
+    elif [ -f "/usr/share/QQ/qq" ]; then
+        export NAPCAT_QQ_PATH="/usr/share/QQ/qq"
+    elif [ -f "/opt/linuxqq/qq" ]; then
+        export NAPCAT_QQ_PATH="/opt/linuxqq/qq"
+    elif [ -f "/Applications/QQ.app/Contents/MacOS/QQ" ]; then
+        export NAPCAT_QQ_PATH="/Applications/QQ.app/Contents/MacOS/QQ"
+    else
+        echo "[Warning] QQ not found in default paths."
+        echo "Please set NAPCAT_QQ_PATH environment variable:"
+        echo "  export NAPCAT_QQ_PATH=/path/to/qq"
+        echo ""
+    fi
+fi
+
+echo "[Info] QQ Path: ${NAPCAT_QQ_PATH:-auto-detect}"
+
 # Check if node is installed
 if ! command -v node &> /dev/null; then
     echo "Error: Node.js is not installed"
     echo "Please install Node.js 18+ from https://nodejs.org/"
     exit 1
+fi
+
+# Linux: Load pre-compiled qq_magic.so for qq_magic_napi_register symbol
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    QQ_MAGIC_SO="$SCRIPT_DIR/qq_magic.so"
+    
+    # Set LD_PRELOAD if qq_magic.so exists (pre-compiled in package)
+    if [ -f "$QQ_MAGIC_SO" ]; then
+        export LD_PRELOAD="$QQ_MAGIC_SO${LD_PRELOAD:+:$LD_PRELOAD}"
+        echo "[Info] LD_PRELOAD set: $QQ_MAGIC_SO"
+    fi
 fi
 
 # Run NapCat
@@ -453,9 +515,20 @@ node "$NAPCAT_MAIN_PATH"
 - 无需安装或登录QQ
 - 可浏览已导出的聊天记录
 - 可使用资源画廊（图片/视频/音频）
-- 不支持导出新的聊天记录"""
+- 不支持导出新的聊天记录
+
+自定义QQ路径:
+- 如果QQ安装在非标准位置，可设置环境变量:
+  export NAPCAT_QQ_PATH=/your/custom/path/qq
+  ./launcher-user.sh"""
         if os_name == "Linux":
-            usage_steps += "\n\n完整模式要求: QQ 需安装在 /opt/QQ 或设置 NAPCAT_QQ_PATH 环境变量"
+            usage_steps += """
+
+默认支持的QQ路径: /opt/QQ/qq, /usr/share/QQ/qq, /opt/linuxqq/qq
+
+Linux 说明:
+- 已预编译 qq_magic.so 解决 qq_magic_napi_register 符号问题
+- 启动脚本会自动加载，无需额外配置"""
         else:  # macOS
             usage_steps += "\n\nmacOS 用户: 运行 xattr -r -d com.apple.quarantine . 移除系统隔离"
     
