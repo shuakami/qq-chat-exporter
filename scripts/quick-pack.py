@@ -427,6 +427,51 @@ if ! command -v node &> /dev/null; then
     exit 1
 fi
 
+# Linux: Handle qq_magic_napi_register symbol issue
+# This is needed because wrapper.node requires this symbol which is not in standard node
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    QQ_MAGIC_SO="$SCRIPT_DIR/qq_magic.so"
+    
+    # Build qq_magic.so if it doesn't exist
+    if [ ! -f "$QQ_MAGIC_SO" ]; then
+        echo "[Info] Building qq_magic.so for Linux compatibility..."
+        
+        # Check if g++ is available
+        if command -v g++ &> /dev/null; then
+            # Create the C++ source file
+            cat > "$SCRIPT_DIR/qq_magic.cpp" << 'CPPEOF'
+#include <node_api.h>
+extern "C" {
+    void qq_magic_napi_register(napi_module *m) {
+        napi_module_register(m);
+    }
+}
+CPPEOF
+            # Compile the shared library
+            g++ -shared -fPIC -o "$QQ_MAGIC_SO" "$SCRIPT_DIR/qq_magic.cpp" 2>/dev/null
+            
+            if [ -f "$QQ_MAGIC_SO" ]; then
+                echo "[Info] qq_magic.so built successfully"
+                rm -f "$SCRIPT_DIR/qq_magic.cpp"
+            else
+                echo "[Warning] Failed to build qq_magic.so"
+                echo "You may need to install build tools: sudo apt install build-essential nodejs"
+                echo "Or manually create qq_magic.so - see README for details"
+            fi
+        else
+            echo "[Warning] g++ not found, cannot build qq_magic.so"
+            echo "Install build tools: sudo apt install build-essential"
+            echo "Or manually create qq_magic.so - see README for details"
+        fi
+    fi
+    
+    # Set LD_PRELOAD if qq_magic.so exists
+    if [ -f "$QQ_MAGIC_SO" ]; then
+        export LD_PRELOAD="$QQ_MAGIC_SO${LD_PRELOAD:+:$LD_PRELOAD}"
+        echo "[Info] LD_PRELOAD set: $QQ_MAGIC_SO"
+    fi
+fi
+
 # Run NapCat
 echo "Starting NapCat + QCE..."
 echo "Press Ctrl+C to stop"
@@ -480,7 +525,19 @@ node "$NAPCAT_MAIN_PATH"
   export NAPCAT_QQ_PATH=/your/custom/path/qq
   ./launcher-user.sh"""
         if os_name == "Linux":
-            usage_steps += "\n\n默认支持的QQ路径: /opt/QQ/qq, /usr/share/QQ/qq, /opt/linuxqq/qq"
+            usage_steps += """
+
+默认支持的QQ路径: /opt/QQ/qq, /usr/share/QQ/qq, /opt/linuxqq/qq
+
+Linux 特殊说明 (qq_magic_napi_register):
+- 启动脚本会自动编译 qq_magic.so 来解决符号缺失问题
+- 需要安装编译工具: sudo apt install build-essential
+- 如果自动编译失败，可手动创建:
+  1. 创建 qq_magic.cpp:
+     #include <node_api.h>
+     extern "C" { void qq_magic_napi_register(napi_module *m) { napi_module_register(m); } }
+  2. 编译: g++ -shared -fPIC -o qq_magic.so qq_magic.cpp
+  3. 运行: LD_PRELOAD=./qq_magic.so ./launcher-user.sh"""
         else:  # macOS
             usage_steps += "\n\nmacOS 用户: 运行 xattr -r -d com.apple.quarantine . 移除系统隔离"
     
