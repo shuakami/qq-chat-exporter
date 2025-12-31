@@ -400,6 +400,26 @@ cd "$SCRIPT_DIR"
 # Set environment variables
 export NAPCAT_MAIN_PATH="$SCRIPT_DIR/napcat.mjs"
 
+# Auto-detect QQ path if not set
+if [ -z "$NAPCAT_QQ_PATH" ]; then
+    if [ -f "/opt/QQ/qq" ]; then
+        export NAPCAT_QQ_PATH="/opt/QQ/qq"
+    elif [ -f "/usr/share/QQ/qq" ]; then
+        export NAPCAT_QQ_PATH="/usr/share/QQ/qq"
+    elif [ -f "/opt/linuxqq/qq" ]; then
+        export NAPCAT_QQ_PATH="/opt/linuxqq/qq"
+    elif [ -f "/Applications/QQ.app/Contents/MacOS/QQ" ]; then
+        export NAPCAT_QQ_PATH="/Applications/QQ.app/Contents/MacOS/QQ"
+    else
+        echo "[Warning] QQ not found in default paths."
+        echo "Please set NAPCAT_QQ_PATH environment variable:"
+        echo "  export NAPCAT_QQ_PATH=/path/to/qq"
+        echo ""
+    fi
+fi
+
+echo "[Info] QQ Path: ${NAPCAT_QQ_PATH:-auto-detect}"
+
 # Check if node is installed
 if ! command -v node &> /dev/null; then
     echo "Error: Node.js is not installed"
@@ -453,9 +473,14 @@ node "$NAPCAT_MAIN_PATH"
 - 无需安装或登录QQ
 - 可浏览已导出的聊天记录
 - 可使用资源画廊（图片/视频/音频）
-- 不支持导出新的聊天记录"""
+- 不支持导出新的聊天记录
+
+自定义QQ路径:
+- 如果QQ安装在非标准位置，可设置环境变量:
+  export NAPCAT_QQ_PATH=/your/custom/path/qq
+  ./launcher-user.sh"""
         if os_name == "Linux":
-            usage_steps += "\n\n完整模式要求: QQ 需安装在 /opt/QQ 或设置 NAPCAT_QQ_PATH 环境变量"
+            usage_steps += "\n\n默认支持的QQ路径: /opt/QQ/qq, /usr/share/QQ/qq, /opt/linuxqq/qq"
         else:  # macOS
             usage_steps += "\n\nmacOS 用户: 运行 xattr -r -d com.apple.quarantine . 移除系统隔离"
     
