@@ -570,11 +570,14 @@ export class QCEStandaloneServer {
             res.send(html);
         } else {
             let htmlContent = fs.readFileSync(filePath, 'utf-8');
-            // 修复资源路径：将 ../resources/ 替换为正确的 API 路径
-            // 原始: src="../resources/images/xxx.jpg"
+            // 修复资源路径：将 ./resources/ 或 ../resources/ 替换为正确的 API 路径
+            // 支持新版（./resources/）和旧版（../resources/）导出格式
+            // 原始: src="./resources/images/xxx.jpg" 或 src="../resources/images/xxx.jpg"
             // 目标: src="/api/exports/files/{fileName}/resources/images/xxx.jpg"
             const encodedFileName = encodeURIComponent(fileName);
             htmlContent = htmlContent
+                .replace(/src="\.\/resources\//g, `src="/api/exports/files/${encodedFileName}/resources/`)
+                .replace(/href="\.\/resources\//g, `href="/api/exports/files/${encodedFileName}/resources/`)
                 .replace(/src="\.\.\/resources\//g, `src="/api/exports/files/${encodedFileName}/resources/`)
                 .replace(/href="\.\.\/resources\//g, `href="/api/exports/files/${encodedFileName}/resources/`);
             res.setHeader('Content-Type', 'text/html; charset=utf-8');

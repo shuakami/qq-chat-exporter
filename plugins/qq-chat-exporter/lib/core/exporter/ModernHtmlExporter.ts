@@ -130,10 +130,14 @@ export class ModernHtmlExporter {
 
     /**
      * 资源引用基础路径（URL 相对前缀）
-     * - 为兼容现有单文件方案默认保持 '../resources'
-     * - Chunked 方案会临时切换为 'resources'
+     * - 单文件导出使用 './resources'（资源目录与 HTML 同级，便于独立移动）
+     * - Chunked 方案使用 'resources'（无 ./ 前缀）
+     * 
+     * 修复 Issue #213: 自定义路径导出时图片无法显示的问题
+     * 原因：之前使用 '../resources' 假设 HTML 在 exports 子目录，资源在父目录
+     * 现在：资源目录与 HTML 文件同级，确保导出文件可独立移动
      */
-    private resourceBaseHref: string = '../resources';
+    private resourceBaseHref: string = './resources';
 
     constructor(options: HtmlExportOptions) {
         this.options = {
