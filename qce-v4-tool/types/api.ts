@@ -151,6 +151,8 @@ export interface CreateTaskForm {
   streamingZipMode?: boolean
   /** 自定义导出路径（Issue #192） */
   outputDir?: string
+  /** 在文件名中包含聊天名称（Issue #216） */
+  useNameInFileName?: boolean
 }
 
 export interface CreateTaskRequest {
@@ -174,8 +176,12 @@ export interface CreateTaskRequest {
     filterPureImageMessages: boolean
     prettyFormat: boolean
     exportAsZip?: boolean
+    /** 嵌入头像为Base64 */
+    embedAvatarsAsBase64?: boolean
     /** 自定义导出路径（Issue #192） */
     outputDir?: string
+    /** 在文件名中包含聊天名称（Issue #216） */
+    useNameInFileName?: boolean
   }
 }
 
