@@ -2205,9 +2205,12 @@ export class QQChatExporterApiServer {
                     
                     let htmlContent = fs.readFileSync(path.resolve(filePath), 'utf8');
                     
-                    // 修复资源路径：将 ../resources/ 替换为 {fileName}/resources/
-                    // 这样服务器访问时路径正确，本地打开时仍然使用 ../resources/
+                    // 修复资源路径：将 ./resources/ 或 ../resources/ 替换为 {fileName}/resources/
+                    // 支持新版（./resources/）和旧版（../resources/）导出格式
+                    // 这样服务器访问时路径正确，本地打开时仍然使用相对路径
                     htmlContent = htmlContent
+                        .replace(/src="\.\/resources\//g, `src="${fileName}/resources/`)
+                        .replace(/href="\.\/resources\//g, `href="${fileName}/resources/`)
                         .replace(/src="\.\.\/resources\//g, `src="${fileName}/resources/`)
                         .replace(/href="\.\.\/resources\//g, `href="${fileName}/resources/`);
                     
