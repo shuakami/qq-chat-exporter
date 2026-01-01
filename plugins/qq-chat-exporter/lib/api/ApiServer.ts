@@ -3418,7 +3418,13 @@ export class QQChatExporterApiServer {
 
             // 头像收集（如果启用了 embedAvatarsAsBase64）
             const embedAvatars = options?.embedAvatarsAsBase64 === true;
-            const avatarUins = new Set<string>(); // 收集所有发送者的 QQ 号
+            const avatarUins = new Set<string>();
+
+            // 全局统计信息收集 (Issue #218)
+            let globalStartTime: number | undefined;
+            let globalEndTime: number | undefined;
+            const senderStats = new Map<string, { uid: string; name: string; count: number }>();
+            const messageTypeStats: Record<string, number> = {};
 
             // 流式 JSONL 写入状态
             const maxMessagesPerChunk = 50000;
@@ -3427,19 +3433,30 @@ export class QQChatExporterApiServer {
             let currentChunkMessages = 0;
             let currentChunkBytes = 0;
             let currentWriteStream: ReturnType<typeof fs.createWriteStream> | null = null;
-            const chunks: Array<{ file: string; messages: number; bytes: number; startTime?: number; endTime?: number }> = [];
+            const chunks: Array<{
+                index: number;
+                fileName: string;
+                relativePath: string;
+                start: string;
+                end: string;
+                count: number;
+                bytes: number;
+            }> = [];
             let chunkStartTime: number | undefined;
             let chunkEndTime: number | undefined;
 
             const startNewChunk = () => {
                 if (currentWriteStream) {
                     currentWriteStream.end();
+                    const chunkFileName = `chunk_${String(currentChunkIndex).padStart(4, '0')}.jsonl`;
                     chunks.push({
-                        file: `chunks/chunk_${String(currentChunkIndex).padStart(4, '0')}.jsonl`,
-                        messages: currentChunkMessages,
-                        bytes: currentChunkBytes,
-                        startTime: chunkStartTime,
-                        endTime: chunkEndTime
+                        index: currentChunkIndex,
+                        fileName: chunkFileName,
+                        relativePath: `chunks/${chunkFileName}`,
+                        start: chunkStartTime ? new Date(chunkStartTime).toISOString() : '',
+                        end: chunkEndTime ? new Date(chunkEndTime).toISOString() : '',
+                        count: currentChunkMessages,
+                        bytes: currentChunkBytes
                     });
                 }
                 currentChunkIndex++;
@@ -3490,12 +3507,26 @@ export class QQChatExporterApiServer {
                         avatarUins.add(String(cleanMsg.sender.uin));
                     }
 
-                    // 更新时间范围
+                    // 更新全局时间范围 (Issue #218)
                     const msgTime = cleanMsg.timestamp;
                     if (msgTime) {
+                        if (!globalStartTime || msgTime < globalStartTime) globalStartTime = msgTime;
+                        if (!globalEndTime || msgTime > globalEndTime) globalEndTime = msgTime;
                         if (!chunkStartTime || msgTime < chunkStartTime) chunkStartTime = msgTime;
                         if (!chunkEndTime || msgTime > chunkEndTime) chunkEndTime = msgTime;
                     }
+
+                    // 收集发送者统计 (Issue #218)
+                    const senderUid = cleanMsg.sender?.uid || 'unknown';
+                    const senderName = cleanMsg.sender?.name || senderUid;
+                    if (!senderStats.has(senderUid)) {
+                        senderStats.set(senderUid, { uid: senderUid, name: senderName, count: 0 });
+                    }
+                    senderStats.get(senderUid)!.count++;
+
+                    // 收集消息类型统计 (Issue #218)
+                    const msgType = cleanMsg.type || 'unknown';
+                    messageTypeStats[msgType] = (messageTypeStats[msgType] || 0) + 1;
                 }
 
                 broadcastProgress(currentProgress, `已处理 ${totalRawMessages} 条消息...`, totalRawMessages);
@@ -3510,12 +3541,15 @@ export class QQChatExporterApiServer {
             if (currentWriteStream !== null) {
                 (currentWriteStream as any).end();
                 if (currentChunkMessages > 0) {
+                    const chunkFileName = `chunk_${String(currentChunkIndex).padStart(4, '0')}.jsonl`;
                     chunks.push({
-                        file: `chunks/chunk_${String(currentChunkIndex).padStart(4, '0')}.jsonl`,
-                        messages: currentChunkMessages,
-                        bytes: currentChunkBytes,
-                        startTime: chunkStartTime,
-                        endTime: chunkEndTime
+                        index: currentChunkIndex,
+                        fileName: chunkFileName,
+                        relativePath: `chunks/${chunkFileName}`,
+                        start: chunkStartTime ? new Date(chunkStartTime).toISOString() : '',
+                        end: chunkEndTime ? new Date(chunkEndTime).toISOString() : '',
+                        count: currentChunkMessages,
+                        bytes: currentChunkBytes
                     });
                 }
             }
@@ -3565,17 +3599,40 @@ export class QQChatExporterApiServer {
                 }
             }
 
-            // 写入 manifest.json
+            // 写入 manifest.json (Issue #218: 添加完整的统计信息)
+            const durationMs = (globalStartTime && globalEndTime) ? (globalEndTime - globalStartTime) : 0;
+            const durationDays = Math.max(1, Math.ceil(durationMs / (1000 * 60 * 60 * 24)));
+
+            // 构建发送者统计数组
+            const sendersArray = Array.from(senderStats.values())
+                .map(s => ({
+                    uid: s.uid,
+                    name: s.name,
+                    messageCount: s.count,
+                    percentage: totalRawMessages > 0 
+                        ? Math.round((s.count / totalRawMessages) * 10000) / 100 
+                        : 0
+                }))
+                .sort((a, b) => b.messageCount - a.messageCount);
+
             const manifest: any = {
                 metadata: {
-                    exportTime: new Date().toISOString(),
+                    name: 'QQChatExporter V5 / https://github.com/shuakami/qq-chat-exporter',
+                    copyright: '本软件是免费的开源项目~ 如果您是买来的，请立即退款！如果有帮助到您，欢迎给我点个Star~',
                     version: '5.0.0',
+                    exportTime: new Date().toISOString(),
                     format: 'chunked-jsonl'
                 },
                 chatInfo,
                 statistics: {
                     totalMessages: totalRawMessages,
-                    chunkCount: chunks.length
+                    timeRange: {
+                        start: globalStartTime ? new Date(globalStartTime).toISOString() : '',
+                        end: globalEndTime ? new Date(globalEndTime).toISOString() : '',
+                        durationDays
+                    },
+                    messageTypes: messageTypeStats,
+                    senders: sendersArray
                 },
                 chunked: {
                     format: 'jsonl',
