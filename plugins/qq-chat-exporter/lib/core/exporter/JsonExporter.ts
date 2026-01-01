@@ -354,8 +354,11 @@ export class JsonExporter extends BaseExporter {
                             pm.rawMessage = this.cleanRawMessage(pm.rawMessage);
                         }
 
+                        // 转换为 CleanMessage 格式以保持字段一致性 (Issue #218)
+                        const cleanMsg = this.convertParsedToClean(pm);
+
                         // 写NDJSON：一条消息一行
-                        await ndWrite(JSON.stringify(pm) + '\n');
+                        await ndWrite(JSON.stringify(cleanMsg) + '\n');
 
                         // 可选让出事件循环：避免超大批次时 WebView/UI 卡死
                         if ((i + 1) % 5000 === 0) {
@@ -578,8 +581,10 @@ export class JsonExporter extends BaseExporter {
                             pm.rawMessage = this.cleanRawMessage(pm.rawMessage);
                         }
 
-                        const tsMs = this.extractTimestampMs(pm);
-                        const line = JSON.stringify(pm);
+                        // 转换为 CleanMessage 格式以保持字段一致性 (Issue #218)
+                        const cleanMsg = this.convertParsedToClean(pm);
+                        const tsMs = cleanMsg.timestamp;
+                        const line = JSON.stringify(cleanMsg);
 
                         await writer.writeLine(line, tsMs);
 
