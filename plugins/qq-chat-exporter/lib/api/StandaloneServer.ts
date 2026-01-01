@@ -484,12 +484,31 @@ export class QCEStandaloneServer {
 
     /**
      * 解析文件名
+     * Issue #216: 支持新格式 (friend|group)_聊天名_QQ号_日期_时间.扩展名
+     * 同时保持向后兼容旧格式 (friend|group)_QQ号_日期_时间.扩展名
      */
     private parseFileName(fileName: string): any {
-        const match = fileName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})(?:_\w+)?\.(\w+)$/);
-        if (!match) return { chatType: 'unknown', chatId: '', format: path.extname(fileName).slice(1) };
+        // 首先尝试匹配新格式（包含聊天名称）
+        const newFormatMatch = fileName.match(/^(friend|group)_(.+?)_(\d+)_(\d{8})_(\d{6})(?:_\w+)?\.(\w+)$/);
+        if (newFormatMatch) {
+            const [, type, chatName, id, date, time, ext] = newFormatMatch;
+            if (date && time && id) {
+                return {
+                    chatType: type === 'group' ? 'group' : 'private',
+                    chatId: id,
+                    displayName: chatName.replace(/_/g, ' '),
+                    exportDate: `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`,
+                    exportTime: `${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}`,
+                    format: ext.toUpperCase()
+                };
+            }
+        }
+        
+        // 旧格式匹配
+        const oldFormatMatch = fileName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})(?:_\w+)?\.(\w+)$/);
+        if (!oldFormatMatch) return { chatType: 'unknown', chatId: '', format: path.extname(fileName).slice(1) };
 
-        const [, type, id, date, time, ext] = match;
+        const [, type, id, date, time, ext] = oldFormatMatch;
         return {
             chatType: type === 'group' ? 'group' : 'private',
             chatId: id,

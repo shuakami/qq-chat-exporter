@@ -1347,19 +1347,16 @@ export class QQChatExporterApiServer {
                     case 'JSON': default: fileExt = 'json'; break;
                 }
 
-                // 生成符合索引页面格式的文件名：(friend|group)_QQ号_日期_时间.扩展名
+                // 生成日期时间字符串
                 const chatTypePrefix = peer.chatType === 1 ? 'friend' : 'group';
                 const date = new Date(timestamp);
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`; // 20250506
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`; // 221008
-                const fileName = `${chatTypePrefix}_${peer.peerUid}_${dateStr}_${timeStr}.${fileExt}`;
                 
                 // Issue #192: 根据是否使用自定义路径生成不同的下载URL
                 const customOutputDir = options?.outputDir?.trim();
                 const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
                 const outputDir = customOutputDir || defaultOutputDir;
-                const filePath = path.join(outputDir, fileName);
-                const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
                 
                 // 确定会话名称：优先使用用户输入的名称，否则自动获取
                 let sessionName: string;
@@ -1398,6 +1395,16 @@ export class QQChatExporterApiServer {
                         // 使用默认值，不阻塞任务创建
                     }
                 }
+
+                // Issue #216: 根据用户选项生成文件名（可选包含聊天名称）
+                const useNameInFileName = options?.useNameInFileName === true;
+                const fileName = this.generateExportFileName(
+                    chatTypePrefix, peer.peerUid, sessionName,
+                    dateStr, timeStr, fileExt, useNameInFileName
+                );
+                
+                const filePath = path.join(outputDir, fileName);
+                const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
 
                 // 创建任务记录
                 const task = {
@@ -1463,14 +1470,11 @@ export class QQChatExporterApiServer {
                 const date = new Date(timestamp);
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
-                const fileName = `${chatTypePrefix}_${peer.peerUid}_${dateStr}_${timeStr}_streaming.zip`;
                 
                 // Issue #192: 根据是否使用自定义路径生成不同的下载URL
                 const customOutputDir = options?.outputDir?.trim();
                 const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
                 const outputDir = customOutputDir || defaultOutputDir;
-                const filePath = path.join(outputDir, fileName);
-                const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
 
                 // 确定会话名称
                 let sessionName: string;
@@ -1503,6 +1507,16 @@ export class QQChatExporterApiServer {
                         console.warn(`快速获取会话名称失败，使用默认名称: ${peer.peerUid}`, error);
                     }
                 }
+
+                // Issue #216: 根据用户选项生成文件名（可选包含聊天名称）
+                const useNameInFileName = options?.useNameInFileName === true;
+                const fileName = this.generateExportFileName(
+                    chatTypePrefix, peer.peerUid, sessionName,
+                    dateStr, timeStr, 'zip', useNameInFileName
+                ).replace('.zip', '_streaming.zip');  // 添加 _streaming 后缀
+                
+                const filePath = path.join(outputDir, fileName);
+                const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
 
                 // 创建任务记录
                 const task = {
@@ -1569,17 +1583,11 @@ export class QQChatExporterApiServer {
                 const date = new Date(timestamp);
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
-                const dirName = `${chatTypePrefix}_${peer.peerUid}_${dateStr}_${timeStr}_chunked_jsonl`;
                 
                 // Issue #192: 根据是否使用自定义路径生成不同的下载URL
                 const customOutputDir = options?.outputDir?.trim();
                 const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
                 const outputDir = customOutputDir || defaultOutputDir;
-                const dirPath = path.join(outputDir, dirName);
-                // JSONL导出是目录，不支持直接下载，返回目录路径
-                const downloadUrl = customOutputDir 
-                    ? dirPath  // 自定义路径返回完整目录路径
-                    : `/downloads/${dirName}`;
 
                 // 确定会话名称
                 let sessionName: string;
@@ -1612,6 +1620,19 @@ export class QQChatExporterApiServer {
                         console.warn(`快速获取会话名称失败，使用默认名称: ${peer.peerUid}`, error);
                     }
                 }
+
+                // Issue #216: 根据用户选项生成目录名（可选包含聊天名称）
+                const useNameInFileName = options?.useNameInFileName === true;
+                const dirName = this.generateExportDirName(
+                    chatTypePrefix, peer.peerUid, sessionName,
+                    dateStr, timeStr, '_chunked_jsonl', useNameInFileName
+                );
+                
+                const dirPath = path.join(outputDir, dirName);
+                // JSONL导出是目录，不支持直接下载，返回目录路径
+                const downloadUrl = customOutputDir 
+                    ? dirPath  // 自定义路径返回完整目录路径
+                    : `/downloads/${dirName}`;
 
                 // 创建任务记录
                 const task = {
@@ -3766,6 +3787,96 @@ export class QQChatExporterApiServer {
         // 否则返回静态文件服务的URL
         return `${urlPrefix}${fileName}`;
     }
+
+    /**
+     * Issue #216: 安全处理聊天名称，用于文件名
+     * 移除文件名非法字符，限制长度，确保文件系统兼容性
+     * @param name 原始聊天名称
+     * @param maxLength 最大长度，默认50字符
+     * @returns 安全的文件名部分
+     */
+    private sanitizeChatNameForFileName(name: string, maxLength: number = 50): string {
+        if (!name) return '';
+        // 移除文件名非法字符: < > : " / \ | ? *
+        // 同时移除控制字符和其他可能导致问题的字符
+        let safeName = name
+            .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')  // 替换非法字符为下划线
+            .replace(/\s+/g, '_')                     // 替换空白字符为下划线
+            .replace(/_+/g, '_')                      // 合并连续下划线
+            .replace(/^_|_$/g, '');                   // 移除首尾下划线
+        
+        // 限制长度
+        if (safeName.length > maxLength) {
+            safeName = safeName.slice(0, maxLength);
+            // 确保不以下划线结尾
+            safeName = safeName.replace(/_+$/, '');
+        }
+        
+        return safeName;
+    }
+
+    /**
+     * Issue #216: 生成导出文件名
+     * 根据用户选项决定是否在文件名中包含聊天名称
+     * @param chatTypePrefix 聊天类型前缀 (friend/group)
+     * @param peerUid 对方UID
+     * @param sessionName 会话名称
+     * @param dateStr 日期字符串 (YYYYMMDD)
+     * @param timeStr 时间字符串 (HHMMSS)
+     * @param extension 文件扩展名
+     * @param useNameInFileName 是否在文件名中包含聊天名称
+     * @returns 生成的文件名
+     */
+    private generateExportFileName(
+        chatTypePrefix: string,
+        peerUid: string,
+        sessionName: string,
+        dateStr: string,
+        timeStr: string,
+        extension: string,
+        useNameInFileName: boolean = false
+    ): string {
+        if (useNameInFileName && sessionName && sessionName !== peerUid) {
+            const safeName = this.sanitizeChatNameForFileName(sessionName);
+            if (safeName) {
+                // 格式: group_群名_QQ号_日期_时间.扩展名
+                return `${chatTypePrefix}_${safeName}_${peerUid}_${dateStr}_${timeStr}.${extension}`;
+            }
+        }
+        // 默认格式: group_QQ号_日期_时间.扩展名
+        return `${chatTypePrefix}_${peerUid}_${dateStr}_${timeStr}.${extension}`;
+    }
+
+    /**
+     * Issue #216: 生成导出目录名（用于chunked_jsonl等目录格式）
+     * @param chatTypePrefix 聊天类型前缀 (friend/group)
+     * @param peerUid 对方UID
+     * @param sessionName 会话名称
+     * @param dateStr 日期字符串 (YYYYMMDD)
+     * @param timeStr 时间字符串 (HHMMSS)
+     * @param suffix 目录后缀 (如 _chunked_jsonl)
+     * @param useNameInFileName 是否在目录名中包含聊天名称
+     * @returns 生成的目录名
+     */
+    private generateExportDirName(
+        chatTypePrefix: string,
+        peerUid: string,
+        sessionName: string,
+        dateStr: string,
+        timeStr: string,
+        suffix: string,
+        useNameInFileName: boolean = false
+    ): string {
+        if (useNameInFileName && sessionName && sessionName !== peerUid) {
+            const safeName = this.sanitizeChatNameForFileName(sessionName);
+            if (safeName) {
+                // 格式: group_群名_QQ号_日期_时间_后缀
+                return `${chatTypePrefix}_${safeName}_${peerUid}_${dateStr}_${timeStr}${suffix}`;
+            }
+        }
+        // 默认格式: group_QQ号_日期_时间_后缀
+        return `${chatTypePrefix}_${peerUid}_${dateStr}_${timeStr}${suffix}`;
+    }
     
     /**
      * 获取真实客户端IP地址
@@ -4392,15 +4503,39 @@ export class QQChatExporterApiServer {
 
     /**
      * 解析导出文件名获取基本信息
+     * Issue #216: 支持新格式 (friend|group)_聊天名_QQ号_日期_时间.扩展名
+     * 同时保持向后兼容旧格式 (friend|group)_QQ号_日期_时间.扩展名
      */
     private parseExportFileName(fileName: string): any | null {
-        // 匹配格式：friend_1234567890_20250830_142843.html 或 group_1234567890_20250830_142843.html
+        // 新格式：friend_聊天名_1234567890_20250830_142843.html 或 group_群名_1234567890_20250830_142843.html
+        // 旧格式：friend_1234567890_20250830_142843.html 或 group_1234567890_20250830_142843.html
         // 或 friend_u_xxx_20250830_142843.html (支持带前缀的UID，包含下划线)
-        // 使用非贪婪匹配 (.+?) 匹配 UID，直到遇到 _日期_ 的模式
-        const match = fileName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})(?:_\d{3}_TEMP)?\.(html|json)$/i);
-        if (!match) return null;
         
-        const [, type, id, date, time, extension] = match;
+        // 首先尝试匹配新格式（包含聊天名称）
+        // 新格式特征：在日期前有两个下划线分隔的部分（聊天名和QQ号）
+        const newFormatMatch = fileName.match(/^(friend|group)_(.+?)_(\d+)_(\d{8})_(\d{6})(?:_\d{3}_TEMP)?\.(html|json)$/i);
+        if (newFormatMatch) {
+            const [, type, chatName, id, date, time, extension] = newFormatMatch;
+            if (date && time && id) {
+                const dateTime = `${date.substr(0,4)}-${date.substr(4,2)}-${date.substr(6,2)} ${time.substr(0,2)}:${time.substr(2,2)}:${time.substr(4,2)}`;
+                return {
+                    chatType: type as 'friend' | 'group',
+                    chatId: id,
+                    exportDate: dateTime,
+                    displayName: chatName.replace(/_/g, ' '), // 还原下划线为空格
+                    format: extension?.toUpperCase() === 'JSON' ? 'JSON' : 'HTML',
+                    avatarUrl: type === 'friend' ? 
+                        `https://q1.qlogo.cn/g?b=qq&nk=${id}&s=100` : 
+                        `https://p.qlogo.cn/gh/${id}/${id}/100`
+                };
+            }
+        }
+        
+        // 旧格式匹配
+        const oldFormatMatch = fileName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})(?:_\d{3}_TEMP)?\.(html|json)$/i);
+        if (!oldFormatMatch) return null;
+        
+        const [, type, id, date, time, extension] = oldFormatMatch;
         if (!date || !time) return null;
         const dateTime = `${date.substr(0,4)}-${date.substr(4,2)}-${date.substr(6,2)} ${time.substr(0,2)}:${time.substr(2,2)}:${time.substr(4,2)}`;
         
@@ -4419,16 +4554,37 @@ export class QQChatExporterApiServer {
 
     /**
      * 解析 _chunked_jsonl 目录名获取基本信息
-     * 格式: group_1126320097_20251219_172851_chunked_jsonl
+     * Issue #216: 支持新格式 group_群名_1126320097_20251219_172851_chunked_jsonl
+     * 同时保持向后兼容旧格式 group_1126320097_20251219_172851_chunked_jsonl
      */
     private parseChunkedJsonlDirName(dirName: string): any | null {
         // 移除 _chunked_jsonl 后缀
         const baseName = dirName.replace(/_chunked_jsonl$/i, '');
-        // 匹配格式：friend_xxx_20251219_172851 或 group_xxx_20251219_172851
-        const match = baseName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})$/i);
-        if (!match) return null;
         
-        const [, type, id, date, time] = match;
+        // 首先尝试匹配新格式（包含聊天名称）
+        const newFormatMatch = baseName.match(/^(friend|group)_(.+?)_(\d+)_(\d{8})_(\d{6})$/i);
+        if (newFormatMatch) {
+            const [, type, chatName, id, date, time] = newFormatMatch;
+            if (date && time && id) {
+                const dateTime = `${date.substr(0,4)}-${date.substr(4,2)}-${date.substr(6,2)} ${time.substr(0,2)}:${time.substr(2,2)}:${time.substr(4,2)}`;
+                return {
+                    chatType: type as 'friend' | 'group',
+                    chatId: id,
+                    exportDate: dateTime,
+                    displayName: chatName.replace(/_/g, ' '),
+                    format: 'JSONL',
+                    avatarUrl: type === 'friend' ? 
+                        `https://q1.qlogo.cn/g?b=qq&nk=${id}&s=100` : 
+                        `https://p.qlogo.cn/gh/${id}/${id}/100`
+                };
+            }
+        }
+        
+        // 旧格式匹配
+        const oldFormatMatch = baseName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})$/i);
+        if (!oldFormatMatch) return null;
+        
+        const [, type, id, date, time] = oldFormatMatch;
         if (!date || !time) return null;
         const dateTime = `${date.substr(0,4)}-${date.substr(4,2)}-${date.substr(6,2)} ${time.substr(0,2)}:${time.substr(2,2)}:${time.substr(4,2)}`;
         
@@ -4446,16 +4602,37 @@ export class QQChatExporterApiServer {
 
     /**
      * 解析 _streaming.zip 文件名获取基本信息
-     * 格式: group_1126320097_20251219_170835_streaming.zip
+     * Issue #216: 支持新格式 group_群名_1126320097_20251219_170835_streaming.zip
+     * 同时保持向后兼容旧格式 group_1126320097_20251219_170835_streaming.zip
      */
     private parseStreamingZipFileName(fileName: string): any | null {
         // 移除 _streaming.zip 后缀
         const baseName = fileName.replace(/_streaming\.zip$/i, '');
-        // 匹配格式：friend_xxx_20251219_170835 或 group_xxx_20251219_170835
-        const match = baseName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})$/i);
-        if (!match) return null;
         
-        const [, type, id, date, time] = match;
+        // 首先尝试匹配新格式（包含聊天名称）
+        const newFormatMatch = baseName.match(/^(friend|group)_(.+?)_(\d+)_(\d{8})_(\d{6})$/i);
+        if (newFormatMatch) {
+            const [, type, chatName, id, date, time] = newFormatMatch;
+            if (date && time && id) {
+                const dateTime = `${date.substr(0,4)}-${date.substr(4,2)}-${date.substr(6,2)} ${time.substr(0,2)}:${time.substr(2,2)}:${time.substr(4,2)}`;
+                return {
+                    chatType: type as 'friend' | 'group',
+                    chatId: id,
+                    exportDate: dateTime,
+                    displayName: chatName.replace(/_/g, ' '),
+                    format: 'ZIP',
+                    avatarUrl: type === 'friend' ? 
+                        `https://q1.qlogo.cn/g?b=qq&nk=${id}&s=100` : 
+                        `https://p.qlogo.cn/gh/${id}/${id}/100`
+                };
+            }
+        }
+        
+        // 旧格式匹配
+        const oldFormatMatch = baseName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})$/i);
+        if (!oldFormatMatch) return null;
+        
+        const [, type, id, date, time] = oldFormatMatch;
         if (!date || !time) return null;
         const dateTime = `${date.substr(0,4)}-${date.substr(4,2)}-${date.substr(6,2)} ${time.substr(0,2)}:${time.substr(2,2)}:${time.substr(4,2)}`;
         
