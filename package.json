@@ -34,7 +34,7 @@
     "@rollup/plugin-typescript": "^12.3.0",
     "@sinclair/typebox": "^0.34.38",
     "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.5",
+    "@types/express": "^5.0.6",
     "@types/multer": "^2.0.0",
     "@types/node": "^25.0.2",
     "@types/on-finished": "^2.3.4",
@@ -68,7 +68,7 @@
     "winston": "^3.19.0"
   },
   "dependencies": {
-    "express": "^5.0.0",
+    "express": "^5.2.1",
     "silk-wasm": "^3.6.1",
     "ws": "^8.18.3"
   }
