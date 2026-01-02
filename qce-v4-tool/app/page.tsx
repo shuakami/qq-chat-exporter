@@ -1532,12 +1532,12 @@ export default function QCEDashboard() {
                                 </div>
                               </div>
                               {!batchMode && (
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
                                   <motion.div whileTap={{ scale: 0.98 }}>
                                     <Button
                                       size="sm"
                                       variant="outline"
-                                      className="rounded-full h-8"
+                                      className="rounded-full h-7 px-2.5 text-xs"
                                       onClick={() => handlePreviewChat('group', group.groupCode, group.groupName, { chatType: 2, peerUid: group.groupCode })}
                                     >
                                       预览
@@ -1546,7 +1546,7 @@ export default function QCEDashboard() {
                                   <motion.div whileTap={{ scale: 0.98 }}>
                                     <Button
                                       size="sm"
-                                      className="rounded-full h-8"
+                                      className="rounded-full h-7 px-2.5 text-xs"
                                       onClick={() => handleOpenTaskWizard({
                                         chatType: 2,
                                         peerUid: group.groupCode,
@@ -1560,21 +1560,20 @@ export default function QCEDashboard() {
                                     <Button
                                       size="sm"
                                       variant="outline"
-                                      className="rounded-full h-8"
+                                      className="rounded-full h-7 px-2.5 text-xs"
                                       disabled={avatarExportLoading === group.groupCode}
                                       onClick={() => handleExportGroupAvatars(group.groupCode, group.groupName)}
                                     >
-                                      {avatarExportLoading === group.groupCode ? '导出中...' : '导出头像'}
+                                      {avatarExportLoading === group.groupCode ? '...' : '头像'}
                                     </Button>
                                   </motion.div>
                                   <motion.div whileTap={{ scale: 0.98 }}>
                                     <Button
                                       size="sm"
                                       variant="outline"
-                                      className="rounded-full h-8"
+                                      className="rounded-full h-7 px-2.5 text-xs"
                                       onClick={() => handleOpenEssenceModal(group.groupCode, group.groupName)}
                                     >
-                                      <Star className="w-3 h-3 mr-1" />
                                       精华
                                     </Button>
                                   </motion.div>

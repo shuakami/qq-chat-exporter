@@ -7,11 +7,9 @@ import {
   RefreshCw,
   Download,
   Star,
-  Image as ImageIcon,
-  FileText,
-  User,
   Clock,
-  FolderOpen
+  Copy,
+  CheckCircle
 } from "lucide-react"
 import { useGroupEssence } from "@/hooks/use-group-essence"
 import type { EssenceMessage } from "@/types/api"
@@ -45,14 +43,18 @@ export function GroupEssenceModal({
 
   const [exportFormat, setExportFormat] = useState<'json' | 'html'>('html')
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [lastExportPath, setLastExportPath] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (isOpen && groupCode) {
       loadEssenceMessages(groupCode)
+      setLastExportPath(null)
     }
     return () => {
       if (!isOpen) {
         clearMessages()
+        setLastExportPath(null)
       }
     }
   }, [isOpen, groupCode])
@@ -60,12 +62,18 @@ export function GroupEssenceModal({
   const handleExport = async () => {
     const result = await exportEssenceMessages(groupCode, exportFormat)
     if (result) {
+      setLastExportPath(result.filePath)
       onNotification?.('success', '导出成功', `已导出 ${result.totalCount} 条精华消息`)
-      if (onOpenFileLocation && result.filePath) {
-        onOpenFileLocation(result.filePath)
-      }
     } else if (error) {
       onNotification?.('error', '导出失败', error)
+    }
+  }
+
+  const handleCopyPath = async () => {
+    if (lastExportPath) {
+      await navigator.clipboard.writeText(lastExportPath)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     }
   }
 
@@ -109,14 +117,9 @@ export function GroupEssenceModal({
           >
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-100 dark:border-neutral-800">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-                  <Star className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">群精华消息</h2>
-                  <p className="text-sm text-neutral-500 dark:text-neutral-400">{groupName}</p>
-                </div>
+              <div>
+                <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">群精华消息</h2>
+                <p className="text-sm text-neutral-500 dark:text-neutral-400">{groupName}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -166,6 +169,31 @@ export function GroupEssenceModal({
               )}
             </div>
 
+            {/* Export Path Display */}
+            {lastExportPath && (
+              <div className="px-6 py-3 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-neutral-500 dark:text-neutral-400 flex-shrink-0">导出路径:</span>
+                  <code className="flex-1 text-xs bg-neutral-100 dark:bg-neutral-800 px-2 py-1 rounded font-mono truncate text-neutral-700 dark:text-neutral-300">
+                    {lastExportPath}
+                  </code>
+                  <button
+                    onClick={handleCopyPath}
+                    className="p-1.5 rounded text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors flex-shrink-0"
+                    title="复制路径"
+                  >
+                    {copied ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                  <button
+                    onClick={() => onOpenFileLocation?.(lastExportPath)}
+                    className="text-xs px-2 py-1 rounded bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors flex-shrink-0"
+                  >
+                    打开
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Footer */}
             <div className="px-6 py-4 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-800/50">
               <div className="flex items-center justify-between">
@@ -174,7 +202,7 @@ export function GroupEssenceModal({
                     共 {messages.length} 条精华消息
                   </span>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-neutral-500 dark:text-neutral-400">导出格式:</span>
+                    <span className="text-sm text-neutral-500 dark:text-neutral-400">格式:</span>
                     <select
                       value={exportFormat}
                       onChange={(e) => setExportFormat(e.target.value as 'json' | 'html')}
@@ -195,7 +223,7 @@ export function GroupEssenceModal({
                   <button
                     onClick={handleExport}
                     disabled={exporting || messages.length === 0}
-                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-neutral-900 dark:bg-neutral-100 dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {exporting ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
