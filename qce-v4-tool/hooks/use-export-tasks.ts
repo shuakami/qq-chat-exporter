@@ -143,6 +143,8 @@ export function useExportTasks(props?: UseExportTasksProps) {
           embedAvatarsAsBase64: form.embedAvatarsAsBase64,
           // Issue #192: 传递自定义导出路径
           ...(form.outputDir?.trim() && { outputDir: form.outputDir.trim() }),
+          // Issue #216: 传递是否在文件名中包含聊天名称
+          ...(form.useNameInFileName && { useNameInFileName: true }),
         },
       }
 

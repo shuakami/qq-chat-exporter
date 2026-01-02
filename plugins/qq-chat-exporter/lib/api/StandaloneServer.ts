@@ -484,15 +484,60 @@ export class QCEStandaloneServer {
 
     /**
      * 解析文件名
+     * Issue #216: 支持新格式 (friend|group)_聊天名_ID_日期_时间.扩展名
+     * 同时保持向后兼容旧格式 (friend|group)_ID_日期_时间.扩展名
+     * 注意：ID 可能包含非数字字符（如 u_xxx）
      */
     private parseFileName(fileName: string): any {
-        const match = fileName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})(?:_\w+)?\.(\w+)$/);
-        if (!match) return { chatType: 'unknown', chatId: '', format: path.extname(fileName).slice(1) };
+        // 使用从右向左的匹配策略：先匹配固定的日期时间部分
+        const baseMatch = fileName.match(/^(friend|group)_(.+)_(\d{8})_(\d{6})(?:_\w+)?\.(\w+)$/);
+        if (!baseMatch) return { chatType: 'unknown', chatId: '', format: path.extname(fileName).slice(1) };
 
-        const [, type, id, date, time, ext] = match;
+        const [, type, middlePart, date, time, ext] = baseMatch;
+        if (!middlePart) return { chatType: 'unknown', chatId: '', format: ext.toUpperCase() };
+        
+        // 尝试从 middlePart 中分离聊天名和ID
+        const lastUnderscoreIdx = middlePart.lastIndexOf('_');
+        
+        if (lastUnderscoreIdx > 0) {
+            const possibleId = middlePart.substring(lastUnderscoreIdx + 1);
+            const possibleChatName = middlePart.substring(0, lastUnderscoreIdx);
+            
+            // 如果最后一部分是纯数字，认为是新格式
+            if (/^\d+$/.test(possibleId) && possibleChatName) {
+                return {
+                    chatType: type === 'group' ? 'group' : 'private',
+                    chatId: possibleId,
+                    displayName: possibleChatName.replace(/_/g, ' '),
+                    exportDate: `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`,
+                    exportTime: `${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}`,
+                    format: ext.toUpperCase()
+                };
+            }
+            
+            // 检查是否是 chatName_u_xxx 格式
+            const secondLastIdx = possibleChatName.lastIndexOf('_');
+            if (secondLastIdx > 0) {
+                const possibleUPrefix = possibleChatName.substring(secondLastIdx + 1);
+                if (possibleUPrefix === 'u') {
+                    const chatName = possibleChatName.substring(0, secondLastIdx);
+                    const id = `u_${possibleId}`;
+                    return {
+                        chatType: type === 'group' ? 'group' : 'private',
+                        chatId: id,
+                        displayName: chatName.replace(/_/g, ' '),
+                        exportDate: `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`,
+                        exportTime: `${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}`,
+                        format: ext.toUpperCase()
+                    };
+                }
+            }
+        }
+        
+        // 旧格式：整个 middlePart 就是 ID
         return {
             chatType: type === 'group' ? 'group' : 'private',
-            chatId: id,
+            chatId: middlePart,
             exportDate: `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`,
             exportTime: `${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}`,
             format: ext.toUpperCase()

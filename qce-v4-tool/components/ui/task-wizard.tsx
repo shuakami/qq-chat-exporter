@@ -76,6 +76,7 @@ export function TaskWizard({
     embedAvatarsAsBase64: false,
     streamingZipMode: false, // 流式ZIP导出模式
     outputDir: "", // Issue #192: 自定义导出路径
+    useNameInFileName: false, // Issue #216: 文件名包含聊天名称
   })
 
   const { groupSearch, friendSearch } = useSearch()
@@ -115,6 +116,7 @@ export function TaskWizard({
         embedAvatarsAsBase64: prefilledData.embedAvatarsAsBase64 || false,
         streamingZipMode: prefilledData.streamingZipMode || false,
         outputDir: prefilledData.outputDir || "",  // Issue #192
+        useNameInFileName: prefilledData.useNameInFileName || false,  // Issue #216
       })
     }
   }, [prefilledData, isOpen])
@@ -186,6 +188,7 @@ export function TaskWizard({
         embedAvatarsAsBase64: false,
         streamingZipMode: false,
         outputDir: "", // Issue #192: 重置自定义导出路径
+        useNameInFileName: false, // Issue #216: 重置文件名包含聊天名称
       })
     }
   }, [isOpen])
@@ -888,6 +891,14 @@ export function TaskWizard({
                 title: "导出为ZIP压缩包",
                 desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）",
                 visible: form.format === "HTML" && !form.streamingZipMode
+              },
+              {
+                id: "useNameInFileName",
+                checked: form.useNameInFileName || false,
+                set: (v: boolean) => setForm((p) => ({ ...p, useNameInFileName: v })),
+                title: "文件名包含聊天名称",
+                desc: "在导出文件名中包含群名或好友昵称，方便批量导出后识别文件",
+                visible: true
               },
               {
                 id: "embedAvatarsAsBase64",
