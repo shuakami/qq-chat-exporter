@@ -467,30 +467,28 @@ export class QQChatExporterApiServer {
         const messagesHtml = messages.map(msg => {
             const contentHtml = msg.content.map((c: any) => {
                 if (c.type === 'text') {
-                    return `<span class="text">${this.escapeHtml(c.text || '')}</span>`;
+                    return `<p class="text">${this.escapeHtml(c.text || '')}</p>`;
                 } else if (c.type === 'image') {
-                    return `<img src="${this.escapeHtml(c.url || '')}" alt="图片" class="essence-image" loading="lazy" />`;
+                    return `<img src="${this.escapeHtml(c.url || '')}" alt="图片" class="essence-image" loading="lazy" onclick="window.open(this.src)" />`;
                 }
                 return '';
             }).join('');
 
             return `
-            <div class="essence-item">
-                <div class="essence-header">
-                    <img src="https://q1.qlogo.cn/g?b=qq&nk=${msg.senderUin}&s=40" alt="头像" class="avatar" />
-                    <div class="sender-info">
-                        <span class="sender-nick">${this.escapeHtml(msg.senderNick || '')}</span>
-                        <span class="sender-uin">(${msg.senderUin})</span>
+                <div class="message">
+                    <img src="https://q1.qlogo.cn/g?b=qq&nk=${msg.senderUin}&s=40" alt="" class="avatar" />
+                    <div class="message-content">
+                        <div class="message-header">
+                            <span class="sender-name">${this.escapeHtml(msg.senderNick || '')}</span>
+                            <span class="message-time">${msg.senderTimeFormatted}</span>
+                        </div>
+                        <div class="bubble">${contentHtml}</div>
+                        <div class="essence-meta">由 ${this.escapeHtml(msg.addDigestNick || '')} 于 ${msg.addDigestTimeFormatted} 设为精华</div>
                     </div>
-                    <span class="send-time">${msg.senderTimeFormatted}</span>
-                </div>
-                <div class="essence-content">${contentHtml}</div>
-                <div class="essence-footer">
-                    <span class="digest-info">由 ${this.escapeHtml(msg.addDigestNick || '')} 设为精华</span>
-                    <span class="digest-time">${msg.addDigestTimeFormatted}</span>
-                </div>
-            </div>`;
+                </div>`;
         }).join('\n');
+
+        const exportTime = new Date().toLocaleString('zh-CN');
 
         return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -500,115 +498,138 @@ export class QQChatExporterApiServer {
     <title>${this.escapeHtml(groupName)} - 群精华消息</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f5f5f7;
+            --text-primary: #1d1d1f;
+            --text-secondary: #86868b;
+            --border-color: rgba(0, 0, 0, 0.08);
+            --bubble-bg: #f2f2f7;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-primary: #000000;
+                --bg-secondary: #1c1c1e;
+                --text-primary: #f5f5f7;
+                --text-secondary: #98989f;
+                --border-color: rgba(255, 255, 255, 0.12);
+                --bubble-bg: #1c1c1e;
+            }
+        }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
         }
         .container {
-            max-width: 800px;
+            max-width: 680px;
             margin: 0 auto;
+            padding: 24px 16px;
         }
         .header {
-            background: rgba(255, 255, 255, 0.95);
+            text-align: center;
+            padding: 32px 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 24px;
+        }
+        .header-avatar {
+            width: 72px;
+            height: 72px;
             border-radius: 16px;
-            padding: 24px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            margin-bottom: 12px;
         }
         .header h1 {
-            font-size: 24px;
-            color: #1a1a2e;
-            margin-bottom: 8px;
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 4px;
         }
         .header .meta {
-            color: #666;
-            font-size: 14px;
+            font-size: 13px;
+            color: var(--text-secondary);
         }
-        .essence-item {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 12px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-            transition: transform 0.2s;
-        }
-        .essence-item:hover {
-            transform: translateY(-2px);
-        }
-        .essence-header {
+        .messages {
             display: flex;
-            align-items: center;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .message {
+            display: flex;
             gap: 12px;
-            margin-bottom: 12px;
         }
         .avatar {
-            width: 40px;
-            height: 40px;
+            width: 36px;
+            height: 36px;
             border-radius: 50%;
-            object-fit: cover;
+            flex-shrink: 0;
         }
-        .sender-info {
+        .message-content {
             flex: 1;
+            min-width: 0;
         }
-        .sender-nick {
-            font-weight: 600;
-            color: #1a1a2e;
+        .message-header {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 4px;
         }
-        .sender-uin {
-            color: #999;
+        .sender-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        .message-time {
             font-size: 12px;
-            margin-left: 4px;
+            color: var(--text-secondary);
         }
-        .send-time {
-            color: #999;
-            font-size: 12px;
+        .bubble {
+            background: var(--bubble-bg);
+            border-radius: 12px;
+            padding: 10px 14px;
+            display: inline-block;
+            max-width: 100%;
         }
-        .essence-content {
-            padding: 12px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            line-height: 1.6;
-            color: #333;
-        }
-        .essence-content .text {
+        .bubble .text {
+            font-size: 15px;
             white-space: pre-wrap;
             word-break: break-word;
         }
         .essence-image {
             max-width: 100%;
-            max-height: 300px;
+            max-height: 280px;
             border-radius: 8px;
-            margin: 8px 0;
+            margin-top: 8px;
             cursor: pointer;
         }
-        .essence-footer {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 12px;
-            padding-top: 12px;
-            border-top: 1px solid #eee;
+        .essence-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 6px;
+        }
+        .footer {
+            text-align: center;
+            padding: 32px 0;
+            margin-top: 24px;
+            border-top: 1px solid var(--border-color);
             font-size: 12px;
-            color: #999;
-        }
-        .digest-info {
-            color: #667eea;
-        }
-        @media (max-width: 600px) {
-            body { padding: 10px; }
-            .header { padding: 16px; }
-            .essence-item { padding: 12px; }
+            color: var(--text-secondary);
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>📌 ${this.escapeHtml(groupName)}</h1>
-            <div class="meta">群号: ${groupCode} | 共 ${messages.length} 条精华消息 | 导出时间: ${new Date().toLocaleString('zh-CN')}</div>
+            <img src="https://p.qlogo.cn/gh/${groupCode}/${groupCode}/640/" alt="" class="header-avatar" />
+            <h1>${this.escapeHtml(groupName)}</h1>
+            <div class="meta">${messages.length} 条精华消息 · 导出于 ${exportTime}</div>
         </div>
-        ${messagesHtml}
+        <div class="messages">
+            ${messagesHtml}
+        </div>
+        <div class="footer">
+            QQ Chat Exporter · github.com/shuakami/qq-chat-exporter
+        </div>
     </div>
 </body>
 </html>`;
