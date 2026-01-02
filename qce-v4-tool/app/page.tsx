@@ -12,6 +12,7 @@ import { ExecutionHistoryModal } from "@/components/ui/execution-history-modal"
 import { MessagePreviewModal } from "@/components/ui/message-preview-modal"
 import { BatchExportDialog, type BatchExportItem, type BatchExportConfig } from "@/components/ui/batch-export-dialog"
 import { ScheduledBackupMergeDialog } from "@/components/ui/scheduled-backup-merge-dialog"
+import { GroupEssenceModal } from "@/components/ui/group-essence-modal"
 import {
   Dialog,
   DialogContent,
@@ -97,6 +98,10 @@ export default function QCEDashboard() {
     }>
   }>>([])
   
+  // 群精华消息模态框状态
+  const [isEssenceModalOpen, setIsEssenceModalOpen] = useState(false)
+  const [essenceGroup, setEssenceGroup] = useState<{ groupCode: string; groupName: string } | null>(null)
+  
   // 批量导出模式状态
   const [batchMode, setBatchMode] = useState(false)
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set())
@@ -138,7 +143,7 @@ export default function QCEDashboard() {
   const scheduledExportsLoadedRef = useRef(false)
   const chatHistoryLoadedRef = useRef(false)
   const stickerPacksLoadedRef = useRef(false)
-  const previousTasksRef = useRef<typeof tasks>([])  // 跟踪任务状态变化
+  const previousTasksRef = useRef<typeof tasks>([])
 
   // 是否偏好降级动画
   const reduceMotion = useReducedMotion() ?? false
@@ -253,6 +258,18 @@ export default function QCEDashboard() {
       removeNotification(loadingId)
       addNotification('error', '导出失败', error instanceof Error ? error.message : '未知错误')
     }
+  }
+
+  // 打开群精华消息模态框
+  const handleOpenEssenceModal = (groupCode: string, groupName: string) => {
+    setEssenceGroup({ groupCode, groupName })
+    setIsEssenceModalOpen(true)
+  }
+
+  // 关闭群精华消息模态框
+  const handleCloseEssenceModal = () => {
+    setIsEssenceModalOpen(false)
+    setEssenceGroup(null)
   }
 
   // 打开文件位置
@@ -842,7 +859,7 @@ export default function QCEDashboard() {
     }
   }, [activeTab, groups.length, friends.length, loadChatData])
 
-  // 监听任务完成，显示 Star toast
+  // 监听任务完成，显示 Star toast（每次程序启动仅显示一次，存储在 sessionStorage）
   useEffect(() => {
     const previousTasks = previousTasksRef.current
     const currentTasks = tasks
@@ -852,7 +869,12 @@ export default function QCEDashboard() {
       return currentTask.status === "completed" && previousTask && previousTask.status !== "completed"
     })
 
-    if (newlyCompletedTasks.length > 0) {
+    const hasShownThisSession = typeof window !== "undefined" && sessionStorage.getItem("qce-star-toast-shown") === "true"
+
+    if (newlyCompletedTasks.length > 0 && !hasShownThisSession) {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("qce-star-toast-shown", "true")
+      }
       setShowStarToast(true)
       setTimeout(() => setShowStarToast(false), 10000)
     }
@@ -1052,7 +1074,7 @@ export default function QCEDashboard() {
                 <Star className="w-5 h-5 text-yellow-600 fill-current" />
               </div>
               <div className="flex-1 pt-0.5">
-                <h3 className="text-base font-semibold text-foreground">兄弟....</h3>
+                <h3 className="text-base font-semibold text-foreground">兄弟兄弟...</h3>
                 <p className="mt-1 text-sm text-muted-foreground">如果有帮助到你，给我点个 Star 吧喵</p>
                 <motion.button
                   onClick={() => window.open('https://github.com/shuakami/qq-chat-exporter', '_blank')}
@@ -1510,12 +1532,12 @@ export default function QCEDashboard() {
                                 </div>
                               </div>
                               {!batchMode && (
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
                                   <motion.div whileTap={{ scale: 0.98 }}>
                                     <Button
                                       size="sm"
                                       variant="outline"
-                                      className="rounded-full h-8"
+                                      className="rounded-full h-7 px-2.5 text-xs"
                                       onClick={() => handlePreviewChat('group', group.groupCode, group.groupName, { chatType: 2, peerUid: group.groupCode })}
                                     >
                                       预览
@@ -1524,7 +1546,7 @@ export default function QCEDashboard() {
                                   <motion.div whileTap={{ scale: 0.98 }}>
                                     <Button
                                       size="sm"
-                                      className="rounded-full h-8"
+                                      className="rounded-full h-7 px-2.5 text-xs"
                                       onClick={() => handleOpenTaskWizard({
                                         chatType: 2,
                                         peerUid: group.groupCode,
@@ -1538,11 +1560,21 @@ export default function QCEDashboard() {
                                     <Button
                                       size="sm"
                                       variant="outline"
-                                      className="rounded-full h-8"
+                                      className="rounded-full h-7 px-2.5 text-xs"
                                       disabled={avatarExportLoading === group.groupCode}
                                       onClick={() => handleExportGroupAvatars(group.groupCode, group.groupName)}
                                     >
-                                      {avatarExportLoading === group.groupCode ? '导出中...' : '导出头像'}
+                                      {avatarExportLoading === group.groupCode ? '...' : '头像'}
+                                    </Button>
+                                  </motion.div>
+                                  <motion.div whileTap={{ scale: 0.98 }}>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="rounded-full h-7 px-2.5 text-xs"
+                                      onClick={() => handleOpenEssenceModal(group.groupCode, group.groupName)}
+                                    >
+                                      精华
                                     </Button>
                                   </motion.div>
                                 </div>
@@ -2886,6 +2918,18 @@ export default function QCEDashboard() {
         scheduledTasks={scheduledTasks}
         onMerge={handleScheduledMerge}
       />
+
+      {/* 群精华消息模态框 */}
+      {essenceGroup && (
+        <GroupEssenceModal
+          isOpen={isEssenceModalOpen}
+          onClose={handleCloseEssenceModal}
+          groupCode={essenceGroup.groupCode}
+          groupName={essenceGroup.groupName}
+          onOpenFileLocation={openFileLocation}
+          onNotification={addNotification}
+        />
+      )}
 
       {/* 聊天记录预览模态框 */}
       <AnimatePresence>

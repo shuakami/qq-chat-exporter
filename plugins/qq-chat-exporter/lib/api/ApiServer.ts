@@ -461,6 +461,160 @@ export class QQChatExporterApiServer {
     }
 
     /**
+     * 生成群精华消息 HTML
+     */
+    private generateEssenceHtml(groupName: string, groupCode: string, messages: any[]): string {
+        const messagesHtml = messages.map(msg => {
+            const contentHtml = msg.content.map((c: any) => {
+                if (c.type === 'text') {
+                    return `<span class="text">${this.escapeHtml(c.text || '')}</span>`;
+                } else if (c.type === 'image') {
+                    return `<img src="${this.escapeHtml(c.url || '')}" alt="图片" class="essence-image" loading="lazy" />`;
+                }
+                return '';
+            }).join('');
+
+            return `
+            <div class="essence-item">
+                <div class="essence-header">
+                    <img src="https://q1.qlogo.cn/g?b=qq&nk=${msg.senderUin}&s=40" alt="头像" class="avatar" />
+                    <div class="sender-info">
+                        <span class="sender-nick">${this.escapeHtml(msg.senderNick || '')}</span>
+                        <span class="sender-uin">(${msg.senderUin})</span>
+                    </div>
+                    <span class="send-time">${msg.senderTimeFormatted}</span>
+                </div>
+                <div class="essence-content">${contentHtml}</div>
+                <div class="essence-footer">
+                    <span class="digest-info">由 ${this.escapeHtml(msg.addDigestNick || '')} 设为精华</span>
+                    <span class="digest-time">${msg.addDigestTimeFormatted}</span>
+                </div>
+            </div>`;
+        }).join('\n');
+
+        return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${this.escapeHtml(groupName)} - 群精华消息</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+        .header h1 {
+            font-size: 24px;
+            color: #1a1a2e;
+            margin-bottom: 8px;
+        }
+        .header .meta {
+            color: #666;
+            font-size: 14px;
+        }
+        .essence-item {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+            transition: transform 0.2s;
+        }
+        .essence-item:hover {
+            transform: translateY(-2px);
+        }
+        .essence-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+        .sender-info {
+            flex: 1;
+        }
+        .sender-nick {
+            font-weight: 600;
+            color: #1a1a2e;
+        }
+        .sender-uin {
+            color: #999;
+            font-size: 12px;
+            margin-left: 4px;
+        }
+        .send-time {
+            color: #999;
+            font-size: 12px;
+        }
+        .essence-content {
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            line-height: 1.6;
+            color: #333;
+        }
+        .essence-content .text {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .essence-image {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 8px;
+            margin: 8px 0;
+            cursor: pointer;
+        }
+        .essence-footer {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #eee;
+            font-size: 12px;
+            color: #999;
+        }
+        .digest-info {
+            color: #667eea;
+        }
+        @media (max-width: 600px) {
+            body { padding: 10px; }
+            .header { padding: 16px; }
+            .essence-item { padding: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📌 ${this.escapeHtml(groupName)}</h1>
+            <div class="meta">群号: ${groupCode} | 共 ${messages.length} 条精华消息 | 导出时间: ${new Date().toLocaleString('zh-CN')}</div>
+        </div>
+        ${messagesHtml}
+    </div>
+</body>
+</html>`;
+    }
+
+    /**
      * 配置路由
      */
     private setupRoutes(): void {
@@ -479,7 +633,9 @@ export class QQChatExporterApiServer {
                     '群组管理': [
                         'GET /api/groups?page=1&limit=999&forceRefresh=false - 获取所有群组（支持分页）',
                         'GET /api/groups/:groupCode?forceRefresh=false - 获取群组详情',
-                        'GET /api/groups/:groupCode/members?forceRefresh=false - 获取群成员'
+                        'GET /api/groups/:groupCode/members?forceRefresh=false - 获取群成员',
+                        'GET /api/groups/:groupCode/essence - 获取群精华消息列表',
+                        'POST /api/groups/:groupCode/essence/export - 导出群精华消息'
                     ],
                     '好友管理': [
                         'GET /api/friends?page=1&limit=999 - 获取所有好友（支持分页）',
@@ -807,6 +963,160 @@ export class QQChatExporterApiServer {
                 
                 this.sendSuccessResponse(res, members, (req as any).requestId);
             } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // 获取群精华消息列表
+        this.app.get('/api/groups/:groupCode/essence', async (req, res) => {
+            try {
+                const { groupCode } = req.params;
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群组代码不能为空', 'INVALID_GROUP_CODE');
+                }
+
+                const essenceList = await this.core.apis.WebApi.getGroupEssenceMsgAll(groupCode);
+                
+                if (!essenceList || essenceList.length === 0) {
+                    this.sendSuccessResponse(res, {
+                        messages: [],
+                        totalCount: 0,
+                        groupCode
+                    }, (req as any).requestId);
+                    return;
+                }
+
+                const messages = essenceList
+                    .flatMap(e => e?.data?.msg_list || [])
+                    .filter(Boolean)
+                    .map(msg => ({
+                        msgSeq: msg.msg_seq,
+                        msgRandom: msg.msg_random,
+                        senderUin: msg.sender_uin,
+                        senderNick: msg.sender_nick,
+                        senderTime: msg.sender_time,
+                        addDigestUin: msg.add_digest_uin,
+                        addDigestNick: msg.add_digest_nick,
+                        addDigestTime: msg.add_digest_time,
+                        content: msg.msg_content?.map((c: any) => {
+                            if (c.msg_type === 1) {
+                                return { type: 'text', text: c.text };
+                            } else if (c.msg_type === 3) {
+                                return { type: 'image', url: c.image_url };
+                            }
+                            return { type: 'unknown', data: c };
+                        }) || [],
+                        canBeRemoved: msg.can_be_removed
+                    }));
+
+                this.sendSuccessResponse(res, {
+                    messages,
+                    totalCount: messages.length,
+                    groupCode
+                }, (req as any).requestId);
+            } catch (error) {
+                this.core.context.logger.logError('[ApiServer] 获取群精华消息失败:', error);
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // 导出群精华消息
+        this.app.post('/api/groups/:groupCode/essence/export', async (req, res) => {
+            try {
+                const { groupCode } = req.params;
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群组代码不能为空', 'INVALID_GROUP_CODE');
+                }
+
+                const { format = 'json' } = req.body;
+                
+                const groups = await this.core.apis.GroupApi.getGroups(false);
+                const groupInfo = groups.find(g => g.groupCode === groupCode);
+                const groupName = groupInfo?.groupName || `群${groupCode}`;
+
+                const essenceList = await this.core.apis.WebApi.getGroupEssenceMsgAll(groupCode);
+                
+                if (!essenceList || essenceList.length === 0) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '该群没有精华消息', 'NO_ESSENCE_MESSAGES');
+                }
+
+                const messages = essenceList
+                    .flatMap(e => e?.data?.msg_list || [])
+                    .filter(Boolean)
+                    .map(msg => ({
+                        msgSeq: msg.msg_seq,
+                        msgRandom: msg.msg_random,
+                        senderUin: msg.sender_uin,
+                        senderNick: msg.sender_nick,
+                        senderTime: msg.sender_time,
+                        senderTimeFormatted: new Date(msg.sender_time * 1000).toLocaleString('zh-CN'),
+                        addDigestUin: msg.add_digest_uin,
+                        addDigestNick: msg.add_digest_nick,
+                        addDigestTime: msg.add_digest_time,
+                        addDigestTimeFormatted: new Date(msg.add_digest_time * 1000).toLocaleString('zh-CN'),
+                        content: msg.msg_content?.map((c: any) => {
+                            if (c.msg_type === 1) {
+                                return { type: 'text', text: c.text };
+                            } else if (c.msg_type === 3) {
+                                return { type: 'image', url: c.image_url };
+                            }
+                            return { type: 'unknown', data: c };
+                        }) || [],
+                        canBeRemoved: msg.can_be_removed
+                    }));
+
+                const exportDir = path.join(
+                    process.env['USERPROFILE'] || process.cwd(),
+                    '.qq-chat-exporter',
+                    'exports',
+                    'essence'
+                );
+                if (!fs.existsSync(exportDir)) {
+                    fs.mkdirSync(exportDir, { recursive: true });
+                }
+
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                const safeGroupName = groupName.replace(/[<>:"/\\|?*]/g, '_').slice(0, 50);
+                
+                let filePath: string;
+                let fileName: string;
+                let fileContent: string;
+
+                if (format === 'html') {
+                    fileName = `${safeGroupName}_${groupCode}_essence_${timestamp}.html`;
+                    filePath = path.join(exportDir, fileName);
+                    
+                    const htmlContent = this.generateEssenceHtml(groupName, groupCode, messages);
+                    fileContent = htmlContent;
+                } else {
+                    fileName = `${safeGroupName}_${groupCode}_essence_${timestamp}.json`;
+                    filePath = path.join(exportDir, fileName);
+                    
+                    fileContent = JSON.stringify({
+                        groupCode,
+                        groupName,
+                        exportTime: new Date().toISOString(),
+                        totalCount: messages.length,
+                        messages
+                    }, null, 2);
+                }
+
+                fs.writeFileSync(filePath, fileContent, 'utf-8');
+                const stats = fs.statSync(filePath);
+
+                this.sendSuccessResponse(res, {
+                    success: true,
+                    groupCode,
+                    groupName,
+                    totalCount: messages.length,
+                    format,
+                    fileName,
+                    filePath,
+                    fileSize: stats.size,
+                    downloadUrl: `/downloads/essence/${fileName}`
+                }, (req as any).requestId);
+            } catch (error) {
+                this.core.context.logger.logError('[ApiServer] 导出群精华消息失败:', error);
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }
         });
@@ -1347,19 +1657,16 @@ export class QQChatExporterApiServer {
                     case 'JSON': default: fileExt = 'json'; break;
                 }
 
-                // 生成符合索引页面格式的文件名：(friend|group)_QQ号_日期_时间.扩展名
+                // 生成日期时间字符串
                 const chatTypePrefix = peer.chatType === 1 ? 'friend' : 'group';
                 const date = new Date(timestamp);
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`; // 20250506
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`; // 221008
-                const fileName = `${chatTypePrefix}_${peer.peerUid}_${dateStr}_${timeStr}.${fileExt}`;
                 
                 // Issue #192: 根据是否使用自定义路径生成不同的下载URL
                 const customOutputDir = options?.outputDir?.trim();
                 const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
                 const outputDir = customOutputDir || defaultOutputDir;
-                const filePath = path.join(outputDir, fileName);
-                const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
                 
                 // 确定会话名称：优先使用用户输入的名称，否则自动获取
                 let sessionName: string;
@@ -1398,6 +1705,16 @@ export class QQChatExporterApiServer {
                         // 使用默认值，不阻塞任务创建
                     }
                 }
+
+                // Issue #216: 根据用户选项生成文件名（可选包含聊天名称）
+                const useNameInFileName = options?.useNameInFileName === true;
+                const fileName = this.generateExportFileName(
+                    chatTypePrefix, peer.peerUid, sessionName,
+                    dateStr, timeStr, fileExt, useNameInFileName
+                );
+                
+                const filePath = path.join(outputDir, fileName);
+                const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
 
                 // 创建任务记录
                 const task = {
@@ -1463,14 +1780,11 @@ export class QQChatExporterApiServer {
                 const date = new Date(timestamp);
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
-                const fileName = `${chatTypePrefix}_${peer.peerUid}_${dateStr}_${timeStr}_streaming.zip`;
                 
                 // Issue #192: 根据是否使用自定义路径生成不同的下载URL
                 const customOutputDir = options?.outputDir?.trim();
                 const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
                 const outputDir = customOutputDir || defaultOutputDir;
-                const filePath = path.join(outputDir, fileName);
-                const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
 
                 // 确定会话名称
                 let sessionName: string;
@@ -1503,6 +1817,16 @@ export class QQChatExporterApiServer {
                         console.warn(`快速获取会话名称失败，使用默认名称: ${peer.peerUid}`, error);
                     }
                 }
+
+                // Issue #216: 根据用户选项生成文件名（可选包含聊天名称）
+                const useNameInFileName = options?.useNameInFileName === true;
+                const fileName = this.generateExportFileName(
+                    chatTypePrefix, peer.peerUid, sessionName,
+                    dateStr, timeStr, 'zip', useNameInFileName
+                ).replace(/\.zip$/, '_streaming.zip');  // 添加 _streaming 后缀（只替换末尾）
+                
+                const filePath = path.join(outputDir, fileName);
+                const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
 
                 // 创建任务记录
                 const task = {
@@ -1569,17 +1893,11 @@ export class QQChatExporterApiServer {
                 const date = new Date(timestamp);
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
-                const dirName = `${chatTypePrefix}_${peer.peerUid}_${dateStr}_${timeStr}_chunked_jsonl`;
                 
                 // Issue #192: 根据是否使用自定义路径生成不同的下载URL
                 const customOutputDir = options?.outputDir?.trim();
                 const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
                 const outputDir = customOutputDir || defaultOutputDir;
-                const dirPath = path.join(outputDir, dirName);
-                // JSONL导出是目录，不支持直接下载，返回目录路径
-                const downloadUrl = customOutputDir 
-                    ? dirPath  // 自定义路径返回完整目录路径
-                    : `/downloads/${dirName}`;
 
                 // 确定会话名称
                 let sessionName: string;
@@ -1612,6 +1930,19 @@ export class QQChatExporterApiServer {
                         console.warn(`快速获取会话名称失败，使用默认名称: ${peer.peerUid}`, error);
                     }
                 }
+
+                // Issue #216: 根据用户选项生成目录名（可选包含聊天名称）
+                const useNameInFileName = options?.useNameInFileName === true;
+                const dirName = this.generateExportDirName(
+                    chatTypePrefix, peer.peerUid, sessionName,
+                    dateStr, timeStr, '_chunked_jsonl', useNameInFileName
+                );
+                
+                const dirPath = path.join(outputDir, dirName);
+                // JSONL导出是目录，不支持直接下载，返回目录路径
+                const downloadUrl = customOutputDir 
+                    ? dirPath  // 自定义路径返回完整目录路径
+                    : `/downloads/${dirName}`;
 
                 // 创建任务记录
                 const task = {
@@ -3770,6 +4101,96 @@ export class QQChatExporterApiServer {
         // 否则返回静态文件服务的URL
         return `${urlPrefix}${fileName}`;
     }
+
+    /**
+     * Issue #216: 安全处理聊天名称，用于文件名
+     * 移除文件名非法字符，限制长度，确保文件系统兼容性
+     * @param name 原始聊天名称
+     * @param maxLength 最大长度，默认50字符
+     * @returns 安全的文件名部分
+     */
+    private sanitizeChatNameForFileName(name: string, maxLength: number = 50): string {
+        if (!name) return '';
+        // 移除文件名非法字符: < > : " / \ | ? *
+        // 同时移除控制字符和其他可能导致问题的字符
+        let safeName = name
+            .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')  // 替换非法字符为下划线
+            .replace(/\s+/g, '_')                     // 替换空白字符为下划线
+            .replace(/_+/g, '_')                      // 合并连续下划线
+            .replace(/^_|_$/g, '');                   // 移除首尾下划线
+        
+        // 限制长度
+        if (safeName.length > maxLength) {
+            safeName = safeName.slice(0, maxLength);
+            // 确保不以下划线结尾
+            safeName = safeName.replace(/_+$/, '');
+        }
+        
+        return safeName;
+    }
+
+    /**
+     * Issue #216: 生成导出文件名
+     * 根据用户选项决定是否在文件名中包含聊天名称
+     * @param chatTypePrefix 聊天类型前缀 (friend/group)
+     * @param peerUid 对方UID
+     * @param sessionName 会话名称
+     * @param dateStr 日期字符串 (YYYYMMDD)
+     * @param timeStr 时间字符串 (HHMMSS)
+     * @param extension 文件扩展名
+     * @param useNameInFileName 是否在文件名中包含聊天名称
+     * @returns 生成的文件名
+     */
+    private generateExportFileName(
+        chatTypePrefix: string,
+        peerUid: string,
+        sessionName: string,
+        dateStr: string,
+        timeStr: string,
+        extension: string,
+        useNameInFileName: boolean = false
+    ): string {
+        if (useNameInFileName && sessionName && sessionName !== peerUid) {
+            const safeName = this.sanitizeChatNameForFileName(sessionName);
+            if (safeName) {
+                // 格式: group_群名_QQ号_日期_时间.扩展名
+                return `${chatTypePrefix}_${safeName}_${peerUid}_${dateStr}_${timeStr}.${extension}`;
+            }
+        }
+        // 默认格式: group_QQ号_日期_时间.扩展名
+        return `${chatTypePrefix}_${peerUid}_${dateStr}_${timeStr}.${extension}`;
+    }
+
+    /**
+     * Issue #216: 生成导出目录名（用于chunked_jsonl等目录格式）
+     * @param chatTypePrefix 聊天类型前缀 (friend/group)
+     * @param peerUid 对方UID
+     * @param sessionName 会话名称
+     * @param dateStr 日期字符串 (YYYYMMDD)
+     * @param timeStr 时间字符串 (HHMMSS)
+     * @param suffix 目录后缀 (如 _chunked_jsonl)
+     * @param useNameInFileName 是否在目录名中包含聊天名称
+     * @returns 生成的目录名
+     */
+    private generateExportDirName(
+        chatTypePrefix: string,
+        peerUid: string,
+        sessionName: string,
+        dateStr: string,
+        timeStr: string,
+        suffix: string,
+        useNameInFileName: boolean = false
+    ): string {
+        if (useNameInFileName && sessionName && sessionName !== peerUid) {
+            const safeName = this.sanitizeChatNameForFileName(sessionName);
+            if (safeName) {
+                // 格式: group_群名_QQ号_日期_时间_后缀
+                return `${chatTypePrefix}_${safeName}_${peerUid}_${dateStr}_${timeStr}${suffix}`;
+            }
+        }
+        // 默认格式: group_QQ号_日期_时间_后缀
+        return `${chatTypePrefix}_${peerUid}_${dateStr}_${timeStr}${suffix}`;
+    }
     
     /**
      * 获取真实客户端IP地址
@@ -4396,82 +4817,220 @@ export class QQChatExporterApiServer {
 
     /**
      * 解析导出文件名获取基本信息
+     * Issue #216: 支持新格式 (friend|group)_聊天名_ID_日期_时间.扩展名
+     * 同时保持向后兼容旧格式 (friend|group)_ID_日期_时间.扩展名
+     * 注意：ID 可能包含非数字字符（如 u_xxx）
      */
     private parseExportFileName(fileName: string): any | null {
-        // 匹配格式：friend_1234567890_20250830_142843.html 或 group_1234567890_20250830_142843.html
-        // 或 friend_u_xxx_20250830_142843.html (支持带前缀的UID，包含下划线)
-        // 使用非贪婪匹配 (.+?) 匹配 UID，直到遇到 _日期_ 的模式
-        const match = fileName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})(?:_\d{3}_TEMP)?\.(html|json)$/i);
-        if (!match) return null;
+        // 新格式：friend_聊天名_1234567890_20250830_142843.html 或 group_群名_u_123_20250830_142843.html
+        // 旧格式：friend_1234567890_20250830_142843.html 或 group_u_xxx_20250830_142843.html
         
-        const [, type, id, date, time, extension] = match;
-        if (!date || !time) return null;
+        // 使用从右向左的匹配策略：先匹配固定的日期时间部分，再处理前面的部分
+        // 基础模式：匹配 _日期_时间.扩展名 部分
+        const baseMatch = fileName.match(/^(friend|group)_(.+)_(\d{8})_(\d{6})(?:_\d{3}_TEMP)?\.(html|json)$/i);
+        if (!baseMatch) return null;
+        
+        const [, type, middlePart, date, time, extension] = baseMatch;
+        if (!date || !time || !middlePart) return null;
+        
         const dateTime = `${date.substr(0,4)}-${date.substr(4,2)}-${date.substr(6,2)} ${time.substr(0,2)}:${time.substr(2,2)}:${time.substr(4,2)}`;
         
-        // 不设置默认 displayName，留给后续从数据库或API获取
+        // 尝试从 middlePart 中分离聊天名和ID
+        // 新格式：middlePart = "聊天名_ID" 或 "聊天名_u_xxx"
+        // 旧格式：middlePart = "ID" 或 "u_xxx"
+        
+        // 策略：从右向左找最后一个看起来像ID的部分
+        // ID特征：纯数字，或者以 u_ 开头的字符串
+        const lastUnderscoreIdx = middlePart.lastIndexOf('_');
+        
+        if (lastUnderscoreIdx > 0) {
+            const possibleId = middlePart.substring(lastUnderscoreIdx + 1);
+            const possibleChatName = middlePart.substring(0, lastUnderscoreIdx);
+            
+            // 如果最后一部分是纯数字，认为是新格式
+            if (/^\d+$/.test(possibleId) && possibleChatName) {
+                return {
+                    chatType: type as 'friend' | 'group',
+                    chatId: possibleId,
+                    exportDate: dateTime,
+                    displayName: possibleChatName.replace(/_/g, ' '),
+                    format: extension?.toUpperCase() === 'JSON' ? 'JSON' : 'HTML',
+                    avatarUrl: type === 'friend' ? 
+                        `https://q1.qlogo.cn/g?b=qq&nk=${possibleId}&s=100` : 
+                        `https://p.qlogo.cn/gh/${possibleId}/${possibleId}/100`
+                };
+            }
+            
+            // 检查是否是 chatName_u_xxx 格式（ID以u_开头）
+            const secondLastIdx = possibleChatName.lastIndexOf('_');
+            if (secondLastIdx > 0) {
+                const possibleUPrefix = possibleChatName.substring(secondLastIdx + 1);
+                if (possibleUPrefix === 'u') {
+                    // 格式是 chatName_u_xxx，ID = u_xxx
+                    const chatName = possibleChatName.substring(0, secondLastIdx);
+                    const id = `u_${possibleId}`;
+                    return {
+                        chatType: type as 'friend' | 'group',
+                        chatId: id,
+                        exportDate: dateTime,
+                        displayName: chatName.replace(/_/g, ' '),
+                        format: extension?.toUpperCase() === 'JSON' ? 'JSON' : 'HTML',
+                        avatarUrl: type === 'friend' ? 
+                            `https://q1.qlogo.cn/g?b=qq&nk=${id}&s=100` : 
+                            `https://p.qlogo.cn/gh/${id}/${id}/100`
+                    };
+                }
+            }
+        }
+        
+        // 旧格式：整个 middlePart 就是 ID
         return {
             chatType: type as 'friend' | 'group',
-            chatId: id,
+            chatId: middlePart,
             exportDate: dateTime,
-            displayName: undefined, // 稍后从数据库或API获取
+            displayName: undefined,
             format: extension?.toUpperCase() === 'JSON' ? 'JSON' : 'HTML',
             avatarUrl: type === 'friend' ? 
-                `https://q1.qlogo.cn/g?b=qq&nk=${id}&s=100` : 
-                `https://p.qlogo.cn/gh/${id}/${id}/100`
+                `https://q1.qlogo.cn/g?b=qq&nk=${middlePart}&s=100` : 
+                `https://p.qlogo.cn/gh/${middlePart}/${middlePart}/100`
         };
     }
 
     /**
      * 解析 _chunked_jsonl 目录名获取基本信息
-     * 格式: group_1126320097_20251219_172851_chunked_jsonl
+     * Issue #216: 支持新格式 group_群名_ID_日期_时间_chunked_jsonl
+     * 同时保持向后兼容旧格式 group_ID_日期_时间_chunked_jsonl
      */
     private parseChunkedJsonlDirName(dirName: string): any | null {
         // 移除 _chunked_jsonl 后缀
         const baseName = dirName.replace(/_chunked_jsonl$/i, '');
-        // 匹配格式：friend_xxx_20251219_172851 或 group_xxx_20251219_172851
-        const match = baseName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})$/i);
-        if (!match) return null;
         
-        const [, type, id, date, time] = match;
-        if (!date || !time) return null;
+        // 使用与 parseExportFileName 相同的策略
+        const baseMatch = baseName.match(/^(friend|group)_(.+)_(\d{8})_(\d{6})$/i);
+        if (!baseMatch) return null;
+        
+        const [, type, middlePart, date, time] = baseMatch;
+        if (!date || !time || !middlePart) return null;
+        
         const dateTime = `${date.substr(0,4)}-${date.substr(4,2)}-${date.substr(6,2)} ${time.substr(0,2)}:${time.substr(2,2)}:${time.substr(4,2)}`;
+        
+        const lastUnderscoreIdx = middlePart.lastIndexOf('_');
+        
+        if (lastUnderscoreIdx > 0) {
+            const possibleId = middlePart.substring(lastUnderscoreIdx + 1);
+            const possibleChatName = middlePart.substring(0, lastUnderscoreIdx);
+            
+            if (/^\d+$/.test(possibleId) && possibleChatName) {
+                return {
+                    chatType: type as 'friend' | 'group',
+                    chatId: possibleId,
+                    exportDate: dateTime,
+                    displayName: possibleChatName.replace(/_/g, ' '),
+                    format: 'JSONL',
+                    avatarUrl: type === 'friend' ? 
+                        `https://q1.qlogo.cn/g?b=qq&nk=${possibleId}&s=100` : 
+                        `https://p.qlogo.cn/gh/${possibleId}/${possibleId}/100`
+                };
+            }
+            
+            const secondLastIdx = possibleChatName.lastIndexOf('_');
+            if (secondLastIdx > 0) {
+                const possibleUPrefix = possibleChatName.substring(secondLastIdx + 1);
+                if (possibleUPrefix === 'u') {
+                    const chatName = possibleChatName.substring(0, secondLastIdx);
+                    const id = `u_${possibleId}`;
+                    return {
+                        chatType: type as 'friend' | 'group',
+                        chatId: id,
+                        exportDate: dateTime,
+                        displayName: chatName.replace(/_/g, ' '),
+                        format: 'JSONL',
+                        avatarUrl: type === 'friend' ? 
+                            `https://q1.qlogo.cn/g?b=qq&nk=${id}&s=100` : 
+                            `https://p.qlogo.cn/gh/${id}/${id}/100`
+                    };
+                }
+            }
+        }
         
         return {
             chatType: type as 'friend' | 'group',
-            chatId: id,
+            chatId: middlePart,
             exportDate: dateTime,
             displayName: undefined,
             format: 'JSONL',
             avatarUrl: type === 'friend' ? 
-                `https://q1.qlogo.cn/g?b=qq&nk=${id}&s=100` : 
-                `https://p.qlogo.cn/gh/${id}/${id}/100`
+                `https://q1.qlogo.cn/g?b=qq&nk=${middlePart}&s=100` : 
+                `https://p.qlogo.cn/gh/${middlePart}/${middlePart}/100`
         };
     }
 
     /**
      * 解析 _streaming.zip 文件名获取基本信息
-     * 格式: group_1126320097_20251219_170835_streaming.zip
+     * Issue #216: 支持新格式 group_群名_ID_日期_时间_streaming.zip
+     * 同时保持向后兼容旧格式 group_ID_日期_时间_streaming.zip
      */
     private parseStreamingZipFileName(fileName: string): any | null {
         // 移除 _streaming.zip 后缀
         const baseName = fileName.replace(/_streaming\.zip$/i, '');
-        // 匹配格式：friend_xxx_20251219_170835 或 group_xxx_20251219_170835
-        const match = baseName.match(/^(friend|group)_(.+?)_(\d{8})_(\d{6})$/i);
-        if (!match) return null;
         
-        const [, type, id, date, time] = match;
-        if (!date || !time) return null;
+        // 使用与 parseExportFileName 相同的策略
+        const baseMatch = baseName.match(/^(friend|group)_(.+)_(\d{8})_(\d{6})$/i);
+        if (!baseMatch) return null;
+        
+        const [, type, middlePart, date, time] = baseMatch;
+        if (!date || !time || !middlePart) return null;
+        
         const dateTime = `${date.substr(0,4)}-${date.substr(4,2)}-${date.substr(6,2)} ${time.substr(0,2)}:${time.substr(2,2)}:${time.substr(4,2)}`;
+        
+        const lastUnderscoreIdx = middlePart.lastIndexOf('_');
+        
+        if (lastUnderscoreIdx > 0) {
+            const possibleId = middlePart.substring(lastUnderscoreIdx + 1);
+            const possibleChatName = middlePart.substring(0, lastUnderscoreIdx);
+            
+            if (/^\d+$/.test(possibleId) && possibleChatName) {
+                return {
+                    chatType: type as 'friend' | 'group',
+                    chatId: possibleId,
+                    exportDate: dateTime,
+                    displayName: possibleChatName.replace(/_/g, ' '),
+                    format: 'ZIP',
+                    avatarUrl: type === 'friend' ? 
+                        `https://q1.qlogo.cn/g?b=qq&nk=${possibleId}&s=100` : 
+                        `https://p.qlogo.cn/gh/${possibleId}/${possibleId}/100`
+                };
+            }
+            
+            const secondLastIdx = possibleChatName.lastIndexOf('_');
+            if (secondLastIdx > 0) {
+                const possibleUPrefix = possibleChatName.substring(secondLastIdx + 1);
+                if (possibleUPrefix === 'u') {
+                    const chatName = possibleChatName.substring(0, secondLastIdx);
+                    const id = `u_${possibleId}`;
+                    return {
+                        chatType: type as 'friend' | 'group',
+                        chatId: id,
+                        exportDate: dateTime,
+                        displayName: chatName.replace(/_/g, ' '),
+                        format: 'ZIP',
+                        avatarUrl: type === 'friend' ? 
+                            `https://q1.qlogo.cn/g?b=qq&nk=${id}&s=100` : 
+                            `https://p.qlogo.cn/gh/${id}/${id}/100`
+                    };
+                }
+            }
+        }
         
         return {
             chatType: type as 'friend' | 'group',
-            chatId: id,
+            chatId: middlePart,
             exportDate: dateTime,
             displayName: undefined,
             format: 'ZIP',
             avatarUrl: type === 'friend' ? 
-                `https://q1.qlogo.cn/g?b=qq&nk=${id}&s=100` : 
-                `https://p.qlogo.cn/gh/${id}/${id}/100`
+                `https://q1.qlogo.cn/g?b=qq&nk=${middlePart}&s=100` : 
+                `https://p.qlogo.cn/gh/${middlePart}/${middlePart}/100`
         };
     }
 
