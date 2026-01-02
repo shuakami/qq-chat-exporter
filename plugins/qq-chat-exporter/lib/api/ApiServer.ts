@@ -461,6 +461,160 @@ export class QQChatExporterApiServer {
     }
 
     /**
+     * 生成群精华消息 HTML
+     */
+    private generateEssenceHtml(groupName: string, groupCode: string, messages: any[]): string {
+        const messagesHtml = messages.map(msg => {
+            const contentHtml = msg.content.map((c: any) => {
+                if (c.type === 'text') {
+                    return `<span class="text">${this.escapeHtml(c.text || '')}</span>`;
+                } else if (c.type === 'image') {
+                    return `<img src="${this.escapeHtml(c.url || '')}" alt="图片" class="essence-image" loading="lazy" />`;
+                }
+                return '';
+            }).join('');
+
+            return `
+            <div class="essence-item">
+                <div class="essence-header">
+                    <img src="https://q1.qlogo.cn/g?b=qq&nk=${msg.senderUin}&s=40" alt="头像" class="avatar" />
+                    <div class="sender-info">
+                        <span class="sender-nick">${this.escapeHtml(msg.senderNick || '')}</span>
+                        <span class="sender-uin">(${msg.senderUin})</span>
+                    </div>
+                    <span class="send-time">${msg.senderTimeFormatted}</span>
+                </div>
+                <div class="essence-content">${contentHtml}</div>
+                <div class="essence-footer">
+                    <span class="digest-info">由 ${this.escapeHtml(msg.addDigestNick || '')} 设为精华</span>
+                    <span class="digest-time">${msg.addDigestTimeFormatted}</span>
+                </div>
+            </div>`;
+        }).join('\n');
+
+        return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${this.escapeHtml(groupName)} - 群精华消息</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+        .header h1 {
+            font-size: 24px;
+            color: #1a1a2e;
+            margin-bottom: 8px;
+        }
+        .header .meta {
+            color: #666;
+            font-size: 14px;
+        }
+        .essence-item {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+            transition: transform 0.2s;
+        }
+        .essence-item:hover {
+            transform: translateY(-2px);
+        }
+        .essence-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+        .sender-info {
+            flex: 1;
+        }
+        .sender-nick {
+            font-weight: 600;
+            color: #1a1a2e;
+        }
+        .sender-uin {
+            color: #999;
+            font-size: 12px;
+            margin-left: 4px;
+        }
+        .send-time {
+            color: #999;
+            font-size: 12px;
+        }
+        .essence-content {
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            line-height: 1.6;
+            color: #333;
+        }
+        .essence-content .text {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .essence-image {
+            max-width: 100%;
+            max-height: 300px;
+            border-radius: 8px;
+            margin: 8px 0;
+            cursor: pointer;
+        }
+        .essence-footer {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #eee;
+            font-size: 12px;
+            color: #999;
+        }
+        .digest-info {
+            color: #667eea;
+        }
+        @media (max-width: 600px) {
+            body { padding: 10px; }
+            .header { padding: 16px; }
+            .essence-item { padding: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📌 ${this.escapeHtml(groupName)}</h1>
+            <div class="meta">群号: ${groupCode} | 共 ${messages.length} 条精华消息 | 导出时间: ${new Date().toLocaleString('zh-CN')}</div>
+        </div>
+        ${messagesHtml}
+    </div>
+</body>
+</html>`;
+    }
+
+    /**
      * 配置路由
      */
     private setupRoutes(): void {
@@ -479,7 +633,9 @@ export class QQChatExporterApiServer {
                     '群组管理': [
                         'GET /api/groups?page=1&limit=999&forceRefresh=false - 获取所有群组（支持分页）',
                         'GET /api/groups/:groupCode?forceRefresh=false - 获取群组详情',
-                        'GET /api/groups/:groupCode/members?forceRefresh=false - 获取群成员'
+                        'GET /api/groups/:groupCode/members?forceRefresh=false - 获取群成员',
+                        'GET /api/groups/:groupCode/essence - 获取群精华消息列表',
+                        'POST /api/groups/:groupCode/essence/export - 导出群精华消息'
                     ],
                     '好友管理': [
                         'GET /api/friends?page=1&limit=999 - 获取所有好友（支持分页）',
@@ -807,6 +963,160 @@ export class QQChatExporterApiServer {
                 
                 this.sendSuccessResponse(res, members, (req as any).requestId);
             } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // 获取群精华消息列表
+        this.app.get('/api/groups/:groupCode/essence', async (req, res) => {
+            try {
+                const { groupCode } = req.params;
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群组代码不能为空', 'INVALID_GROUP_CODE');
+                }
+
+                const essenceList = await this.core.apis.WebApi.getGroupEssenceMsgAll(groupCode);
+                
+                if (!essenceList || essenceList.length === 0) {
+                    this.sendSuccessResponse(res, {
+                        messages: [],
+                        totalCount: 0,
+                        groupCode
+                    }, (req as any).requestId);
+                    return;
+                }
+
+                const messages = essenceList
+                    .flatMap(e => e?.data?.msg_list || [])
+                    .filter(Boolean)
+                    .map(msg => ({
+                        msgSeq: msg.msg_seq,
+                        msgRandom: msg.msg_random,
+                        senderUin: msg.sender_uin,
+                        senderNick: msg.sender_nick,
+                        senderTime: msg.sender_time,
+                        addDigestUin: msg.add_digest_uin,
+                        addDigestNick: msg.add_digest_nick,
+                        addDigestTime: msg.add_digest_time,
+                        content: msg.msg_content?.map((c: any) => {
+                            if (c.msg_type === 1) {
+                                return { type: 'text', text: c.text };
+                            } else if (c.msg_type === 3) {
+                                return { type: 'image', url: c.image_url };
+                            }
+                            return { type: 'unknown', data: c };
+                        }) || [],
+                        canBeRemoved: msg.can_be_removed
+                    }));
+
+                this.sendSuccessResponse(res, {
+                    messages,
+                    totalCount: messages.length,
+                    groupCode
+                }, (req as any).requestId);
+            } catch (error) {
+                this.core.context.logger.logError('[ApiServer] 获取群精华消息失败:', error);
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // 导出群精华消息
+        this.app.post('/api/groups/:groupCode/essence/export', async (req, res) => {
+            try {
+                const { groupCode } = req.params;
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群组代码不能为空', 'INVALID_GROUP_CODE');
+                }
+
+                const { format = 'json' } = req.body;
+                
+                const groups = await this.core.apis.GroupApi.getGroups(false);
+                const groupInfo = groups.find(g => g.groupCode === groupCode);
+                const groupName = groupInfo?.groupName || `群${groupCode}`;
+
+                const essenceList = await this.core.apis.WebApi.getGroupEssenceMsgAll(groupCode);
+                
+                if (!essenceList || essenceList.length === 0) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '该群没有精华消息', 'NO_ESSENCE_MESSAGES');
+                }
+
+                const messages = essenceList
+                    .flatMap(e => e?.data?.msg_list || [])
+                    .filter(Boolean)
+                    .map(msg => ({
+                        msgSeq: msg.msg_seq,
+                        msgRandom: msg.msg_random,
+                        senderUin: msg.sender_uin,
+                        senderNick: msg.sender_nick,
+                        senderTime: msg.sender_time,
+                        senderTimeFormatted: new Date(msg.sender_time * 1000).toLocaleString('zh-CN'),
+                        addDigestUin: msg.add_digest_uin,
+                        addDigestNick: msg.add_digest_nick,
+                        addDigestTime: msg.add_digest_time,
+                        addDigestTimeFormatted: new Date(msg.add_digest_time * 1000).toLocaleString('zh-CN'),
+                        content: msg.msg_content?.map((c: any) => {
+                            if (c.msg_type === 1) {
+                                return { type: 'text', text: c.text };
+                            } else if (c.msg_type === 3) {
+                                return { type: 'image', url: c.image_url };
+                            }
+                            return { type: 'unknown', data: c };
+                        }) || [],
+                        canBeRemoved: msg.can_be_removed
+                    }));
+
+                const exportDir = path.join(
+                    process.env['USERPROFILE'] || process.cwd(),
+                    '.qq-chat-exporter',
+                    'exports',
+                    'essence'
+                );
+                if (!fs.existsSync(exportDir)) {
+                    fs.mkdirSync(exportDir, { recursive: true });
+                }
+
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                const safeGroupName = groupName.replace(/[<>:"/\\|?*]/g, '_').slice(0, 50);
+                
+                let filePath: string;
+                let fileName: string;
+                let fileContent: string;
+
+                if (format === 'html') {
+                    fileName = `${safeGroupName}_${groupCode}_essence_${timestamp}.html`;
+                    filePath = path.join(exportDir, fileName);
+                    
+                    const htmlContent = this.generateEssenceHtml(groupName, groupCode, messages);
+                    fileContent = htmlContent;
+                } else {
+                    fileName = `${safeGroupName}_${groupCode}_essence_${timestamp}.json`;
+                    filePath = path.join(exportDir, fileName);
+                    
+                    fileContent = JSON.stringify({
+                        groupCode,
+                        groupName,
+                        exportTime: new Date().toISOString(),
+                        totalCount: messages.length,
+                        messages
+                    }, null, 2);
+                }
+
+                fs.writeFileSync(filePath, fileContent, 'utf-8');
+                const stats = fs.statSync(filePath);
+
+                this.sendSuccessResponse(res, {
+                    success: true,
+                    groupCode,
+                    groupName,
+                    totalCount: messages.length,
+                    format,
+                    fileName,
+                    filePath,
+                    fileSize: stats.size,
+                    downloadUrl: `/downloads/essence/${fileName}`
+                }, (req as any).requestId);
+            } catch (error) {
+                this.core.context.logger.logError('[ApiServer] 导出群精华消息失败:', error);
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }
         });

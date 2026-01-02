@@ -12,6 +12,7 @@ import { ExecutionHistoryModal } from "@/components/ui/execution-history-modal"
 import { MessagePreviewModal } from "@/components/ui/message-preview-modal"
 import { BatchExportDialog, type BatchExportItem, type BatchExportConfig } from "@/components/ui/batch-export-dialog"
 import { ScheduledBackupMergeDialog } from "@/components/ui/scheduled-backup-merge-dialog"
+import { GroupEssenceModal } from "@/components/ui/group-essence-modal"
 import {
   Dialog,
   DialogContent,
@@ -96,6 +97,10 @@ export default function QCEDashboard() {
       variant?: 'default' | 'destructive'
     }>
   }>>([])
+  
+  // 群精华消息模态框状态
+  const [isEssenceModalOpen, setIsEssenceModalOpen] = useState(false)
+  const [essenceGroup, setEssenceGroup] = useState<{ groupCode: string; groupName: string } | null>(null)
   
   // 批量导出模式状态
   const [batchMode, setBatchMode] = useState(false)
@@ -253,6 +258,18 @@ export default function QCEDashboard() {
       removeNotification(loadingId)
       addNotification('error', '导出失败', error instanceof Error ? error.message : '未知错误')
     }
+  }
+
+  // 打开群精华消息模态框
+  const handleOpenEssenceModal = (groupCode: string, groupName: string) => {
+    setEssenceGroup({ groupCode, groupName })
+    setIsEssenceModalOpen(true)
+  }
+
+  // 关闭群精华消息模态框
+  const handleCloseEssenceModal = () => {
+    setIsEssenceModalOpen(false)
+    setEssenceGroup(null)
   }
 
   // 打开文件位置
@@ -1548,6 +1565,17 @@ export default function QCEDashboard() {
                                       onClick={() => handleExportGroupAvatars(group.groupCode, group.groupName)}
                                     >
                                       {avatarExportLoading === group.groupCode ? '导出中...' : '导出头像'}
+                                    </Button>
+                                  </motion.div>
+                                  <motion.div whileTap={{ scale: 0.98 }}>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="rounded-full h-8"
+                                      onClick={() => handleOpenEssenceModal(group.groupCode, group.groupName)}
+                                    >
+                                      <Star className="w-3 h-3 mr-1" />
+                                      精华
                                     </Button>
                                   </motion.div>
                                 </div>
@@ -2891,6 +2919,18 @@ export default function QCEDashboard() {
         scheduledTasks={scheduledTasks}
         onMerge={handleScheduledMerge}
       />
+
+      {/* 群精华消息模态框 */}
+      {essenceGroup && (
+        <GroupEssenceModal
+          isOpen={isEssenceModalOpen}
+          onClose={handleCloseEssenceModal}
+          groupCode={essenceGroup.groupCode}
+          groupName={essenceGroup.groupName}
+          onOpenFileLocation={openFileLocation}
+          onNotification={addNotification}
+        />
+      )}
 
       {/* 聊天记录预览模态框 */}
       <AnimatePresence>

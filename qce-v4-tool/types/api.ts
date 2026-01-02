@@ -343,3 +343,44 @@ export interface ChatFilesResponse {
 export interface ChatFileInfoResponse extends ChatFile {
   // 可能包含额外的详细信息
 }
+
+// Group Essence Message Types
+export interface EssenceMessageContent {
+  type: 'text' | 'image' | 'unknown'
+  text?: string
+  url?: string
+  data?: any
+}
+
+export interface EssenceMessage {
+  msgSeq: number
+  msgRandom: number
+  senderUin: string
+  senderNick: string
+  senderTime: number
+  senderTimeFormatted?: string
+  addDigestUin: string
+  addDigestNick: string
+  addDigestTime: number
+  addDigestTimeFormatted?: string
+  content: EssenceMessageContent[]
+  canBeRemoved: boolean
+}
+
+export interface EssenceMessagesResponse {
+  messages: EssenceMessage[]
+  totalCount: number
+  groupCode: string
+}
+
+export interface EssenceExportResponse {
+  success: boolean
+  groupCode: string
+  groupName: string
+  totalCount: number
+  format: string
+  fileName: string
+  filePath: string
+  fileSize: number
+  downloadUrl: string
+}
