@@ -54,7 +54,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}
-          path: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}.*
+          path: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}*
           retention-days: 7
       
       - name: "Build complete"
