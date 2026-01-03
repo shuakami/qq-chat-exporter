@@ -7,6 +7,19 @@ import { ChildProcess, spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import express from 'express';
+import { fileURLToPath } from 'url';
+
+/**
+ * 获取 NapCat Release 包的根目录
+ * 使用 import.meta.url 基于当前模块位置推算，避免依赖 process.cwd()
+ */
+function getNapCatRoot(): string {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    // 当前文件位置: plugins/qq-chat-exporter/lib/webui/FrontendBuilder.ts
+    // 向上 4 级到达 NapCat 根目录
+    return path.resolve(__dirname, '..', '..', '..', '..');
+}
 
 /**
  * 前端服务管理器
@@ -19,29 +32,29 @@ export class FrontendBuilder {
     private nextjsProjectPath: string;
 
     constructor() {
-        // 智能检测静态资源路径
         const cwd = process.cwd();
+        const napCatRoot = getNapCatRoot();
         
-        // 检测可能的静态资源路径
+        // 检测可能的静态资源路径（优先使用基于模块位置的路径）
         const possiblePaths = [
-            path.join(cwd, 'static', 'qce-v4-tool'),           // Release包直接运行
-            path.join(cwd, 'dist', 'static', 'qce-v4-tool'),   // 开发环境从项目根目录运行
-            path.join(cwd, '..', 'static', 'qce-v4-tool'),     // 其他可能的情况
+            path.join(napCatRoot, 'static', 'qce-v4-tool'),
+            path.join(cwd, 'static', 'qce-v4-tool'),
+            path.join(cwd, 'dist', 'static', 'qce-v4-tool'),
+            path.join(cwd, '..', 'static', 'qce-v4-tool'),
         ];
         
-        // 找到第一个存在的路径
         this.staticPath = possiblePaths.find(p => fs.existsSync(p)) || possiblePaths[0]!;
         
-        // NextJS项目路径智能检测
+        // NextJS 项目路径检测
         const possibleNextjsPaths = [
-            path.join(cwd, '..', '..', 'qce-v4-tool'),   // 从dist目录运行
-            path.join(cwd, '..', 'qce-v4-tool'),         // 从项目根目录运行
-            path.join(cwd, 'qce-v4-tool'),               // 特殊情况
+            path.join(napCatRoot, 'qce-v4-tool'),
+            path.join(cwd, '..', '..', 'qce-v4-tool'),
+            path.join(cwd, '..', 'qce-v4-tool'),
+            path.join(cwd, 'qce-v4-tool'),
         ];
         
-        this.nextjsProjectPath = possibleNextjsPaths.find(p => fs.existsSync(p)) || possibleNextjsPaths[1]!;
+        this.nextjsProjectPath = possibleNextjsPaths.find(p => fs.existsSync(p)) || possibleNextjsPaths[0]!;
         
-        // 检查是否在开发环境
         this.isDevMode = process.env['NODE_ENV'] !== 'production' && process.env['QCE_DEV_MODE'] === 'true';
     }
 
