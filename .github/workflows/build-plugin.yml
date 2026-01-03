@@ -20,63 +20,60 @@ jobs:
           - os: ubuntu-latest
             platform: Linux
             arch: x64
-          # macOS 因兼容性问题暂时不构建
-          # - os: macos-13
-          #   platform: macOS
-          #   arch: x64
-          # - os: macos-latest
-          #   platform: macOS
-          #   arch: arm64
-    
+
     runs-on: ${{ matrix.os }}
-    
+
     steps:
-      - name: "[1/5] Checkout repository"
+      - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name: "[2/5] Setup Node.js & pnpm"
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20.x
-      
-      - name: "[3/5] Setup pnpm"
+
+      - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 8
-      
-      - name: "[4/5] Generate build version"
+
+      - name: Generate build version
         id: version
+        shell: bash
         run: |
-          # 从 package.json 读取基础版本
           BASE_VERSION=$(node -p "require('./plugins/qq-chat-exporter/package.json').version")
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          
           if [ "${{ github.event_name }}" == "pull_request" ]; then
-            # PR 构建: v5.0.12-pr123-abc1234
             VERSION="${BASE_VERSION}-pr${{ github.event.pull_request.number }}-${SHORT_SHA}"
           else
-            # Push 构建: v5.0.12-dev-abc1234
             VERSION="${BASE_VERSION}-dev-${SHORT_SHA}"
           fi
-          
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Generated version: ${VERSION}"
-        shell: bash
-      
-      - name: "[5/5] Build complete package"
-        run: python${{ matrix.platform == 'Windows' && '' || '3' }} scripts/quick-pack.py
+
+      - name: Build complete package (Windows)
+        if: matrix.platform == 'Windows'
+        run: python scripts/quick-pack.py
         env:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=4096
           QCE_VERSION: ${{ steps.version.outputs.version }}
-      
-      - name: "Upload build artifact"
+
+      - name: Build complete package (Linux)
+        if: matrix.platform == 'Linux'
+        run: python3 scripts/quick-pack.py
+        env:
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=4096
+          QCE_VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}-${{ steps.version.outputs.version }}
           path: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}*
           retention-days: 7
-      
-      - name: "Build complete"
-        run: echo "${{ matrix.platform }}-${{ matrix.arch }} build completed (version: ${{ steps.version.outputs.version }})"
+
+      - name: Build complete
+        run: echo "${{ matrix.platform }}-${{ matrix.arch }} build completed (version ${{ steps.version.outputs.version }})"
 
