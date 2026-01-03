@@ -19,6 +19,7 @@ import os from 'os';
 
 // 导入前端服务管理器
 import { FrontendBuilder } from '../webui/FrontendBuilder.js';
+import { VERSION, APP_INFO } from '../version.js';
 
 /**
  * API响应接口
@@ -140,7 +141,7 @@ export class QCEStandaloneServer {
         this.app.get('/', (req, res) => {
             this.sendSuccessResponse(res, {
                 name: 'QCE 独立模式',
-                version: '1.0.0',
+                version: VERSION,
                 description: '无需登录即可浏览已导出的聊天记录和资源',
                 mode: 'standalone',
                 features: [
@@ -190,7 +191,7 @@ export class QCEStandaloneServer {
         this.app.get('/api/system/info', (req, res) => {
             this.sendSuccessResponse(res, {
                 name: 'QCE 独立模式',
-                version: '1.0.0',
+                version: VERSION,
                 mode: 'standalone',
                 napcat: {
                     version: 'N/A',

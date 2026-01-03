@@ -1,4 +1,18 @@
 import path from 'path'
+import fs from 'fs'
+import { fileURLToPath } from 'url'
+
+// 从后端 package.json 读取版本
+function getVersionFromPlugin() {
+  try {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url))
+    const pluginPkgPath = path.join(__dirname, '../plugins/qq-chat-exporter/package.json')
+    const pkg = JSON.parse(fs.readFileSync(pluginPkgPath, 'utf-8'))
+    return pkg.version || 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -17,6 +31,10 @@ const nextConfig = {
   distDir: '.next',
   // Turbopack 配置
   turbopack: {},
+  // 环境变量注入
+  env: {
+    QCE_VERSION: process.env.QCE_VERSION || getVersionFromPlugin(),
+  },
 }
 
 export default nextConfig

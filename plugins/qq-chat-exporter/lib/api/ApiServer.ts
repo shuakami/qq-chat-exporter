@@ -30,6 +30,7 @@ import { StickerPackExporter } from '../core/sticker/StickerPackExporter.js';
 import { streamSearchService } from '../services/StreamSearchService.js';
 import { ZipExporter } from '../utils/ZipExporter.js';
 import { StreamingZipExporter } from '../utils/StreamingZipExporter.js';
+import { VERSION, APP_INFO } from '../version.js';
 
 // 导入类型定义
 import type { RawMessage } from 'NapCatQQ/src/core/types.js';
@@ -644,7 +645,7 @@ export class QQChatExporterApiServer {
             const frontendStatus = this.frontendBuilder.getStatus();
             this.sendSuccessResponse(res, {
                 name: 'QQ聊天记录导出工具API',
-                version: '5.0.0',
+                version: VERSION,
                 description: '提供完整的QQ聊天记录导出功能API',
                 endpoints: {
                     '基础信息': [
@@ -872,9 +873,9 @@ export class QQChatExporterApiServer {
             const avatarUrl = selfInfo?.avatarUrl || (selfInfo?.uin ? `https://q1.qlogo.cn/g?b=qq&nk=${selfInfo.uin}&s=640` : null);
             
             this.sendSuccessResponse(res, {
-                name: 'QQChatExporter V5 / https://github.com/shuakami/qq-chat-exporter',
-                copyright: '本软件是免费的开源项目~ 如果您是买来的，请立即退款！如果有帮助到您，欢迎给我点个Star~',
-                version: '5.0.0',
+                name: APP_INFO.name,
+                copyright: APP_INFO.copyright,
+                version: VERSION,
                 napcat: {
                     version: 'unknown',
                     online: selfInfo?.online || false,
@@ -3988,9 +3989,9 @@ export class QQChatExporterApiServer {
 
             const manifest: any = {
                 metadata: {
-                    name: 'QQChatExporter V5 / https://github.com/shuakami/qq-chat-exporter',
-                    copyright: '本软件是免费的开源项目~ 如果您是买来的，请立即退款！如果有帮助到您，欢迎给我点个Star~',
-                    version: '5.0.0',
+                    name: APP_INFO.name,
+                    copyright: APP_INFO.copyright,
+                    version: VERSION,
                     exportTime: new Date().toISOString(),
                     format: 'chunked-jsonl'
                 },
@@ -4589,7 +4590,7 @@ export class QQChatExporterApiServer {
                     type: 'notification',
                     data: { 
                         message: 'QQ聊天记录导出工具API服务器已启动',
-                        version: '5.0.0',
+                        version: VERSION,
                         frontend: frontendStatus
                     },
                     timestamp: new Date().toISOString()

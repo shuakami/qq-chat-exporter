@@ -1,7 +1,7 @@
 {
   "name": "qq-chat-exporter-v4-ui",
   "description": "The web interface for QQ Chat Exporter V4.",
-  "version": "4.9.4",
+  "version": "5.0.12",
   "private": true,
   "scripts": {
     "build": "next build",
