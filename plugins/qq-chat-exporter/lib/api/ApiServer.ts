@@ -4562,7 +4562,7 @@ export class QQChatExporterApiServer {
                 const reset = supportsColor ? '\x1b[0m' : '';
                 
                 console.log('');
-                console.log(`${green}[QCE]${reset} QQChatExporter v5.0.0`);
+                console.log(`${green}[QCE]${reset} QQChatExporter v${VERSION}`);
                 
                 // 显示服务地址（只显示外部地址，如果有的话）
                 if (serverAddresses.external) {

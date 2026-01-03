@@ -209,7 +209,7 @@ export default function AuthPage() {
 
                 {/* Console Example */}
                 <div className="rounded-xl bg-neutral-900 dark:bg-neutral-950 p-4 font-mono text-xs overflow-x-auto">
-                  <div className="text-neutral-400">[QCE] QQChatExporter v5.0.0</div>
+                  <div className="text-neutral-400">[QCE] QQChatExporter v5.x.x</div>
                   <div className="text-green-400">[QCE] Token: WgZt3v*UMTqT#i!qleEO!76n02Y^ns$X</div>
                   <div className="text-neutral-500">[QCE] Web界面: http://127.0.0.1:40653/qce-v4-tool</div>
                 </div>
