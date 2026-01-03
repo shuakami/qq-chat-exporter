@@ -86,12 +86,13 @@ jobs:
         env:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=4096
+          QCE_VERSION: ${{ github.ref_name }}
       
       - name: "[x] 上传主包构建产物"
         uses: actions/upload-artifact@v4
         with:
           name: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}
-          path: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}.${{ matrix.artifact_ext }}
+          path: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.${{ matrix.artifact_ext }}
           retention-days: 7
       
 
@@ -172,8 +173,8 @@ jobs:
 
           | 平台 | 状态 | 文件 |
           |------|------|------|
-          | Windows 10/11 x64 | ✅ 完全支持 | \`NapCat-QCE-Windows-x64.zip\` |
-          | Linux x64 | ✅ 应该支持 | \`NapCat-QCE-Linux-x64.tar.gz\` |
+          | Windows 10/11 x64 | ✅ 完全支持 | \`NapCat-QCE-Windows-x64-${VERSION}.zip\` |
+          | Linux x64 | ✅ 应该支持 | \`NapCat-QCE-Linux-x64-${VERSION}.tar.gz\` |
           | macOS | ⚠️ 暂不支持 | 因兼容性问题暂不提供 |
 
           <details>
@@ -240,8 +241,8 @@ jobs:
           echo "包含 NapCat ${{ needs.get-napcat-version.outputs.version }}"
           echo "========================================="
           echo "发布的文件："
-          echo "- ✅ NapCat-QCE-Windows-x64.zip"
-          echo "- ✅ NapCat-QCE-Linux-x64.tar.gz"
+          echo "- ✅ NapCat-QCE-Windows-x64-${{ github.ref_name }}.zip"
+          echo "- ✅ NapCat-QCE-Linux-x64-${{ github.ref_name }}.tar.gz"
           echo "- ⚠️  macOS 因兼容性问题暂不发布"
           echo "========================================="
 
