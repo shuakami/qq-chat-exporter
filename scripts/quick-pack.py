@@ -13,7 +13,20 @@ from pathlib import Path
 from urllib.request import urlretrieve, urlopen
 from datetime import datetime
 
-VERSION = "4.0.0-test"
+def get_qce_version():
+    """Get QCE version from package.json or environment variable"""
+    # Priority: QCE_VERSION env > package.json
+    if os.environ.get('QCE_VERSION'):
+        return os.environ['QCE_VERSION'].lstrip('v')
+    
+    try:
+        with open('plugins/qq-chat-exporter/package.json', 'r', encoding='utf-8') as f:
+            pkg = json.load(f)
+            return pkg.get('version', 'unknown')
+    except:
+        return 'unknown'
+
+VERSION = get_qce_version()
 
 def get_platform_info():
     """Detect current platform"""
@@ -99,9 +112,18 @@ def main():
     
     # Detect platform
     os_name, arch, archive_ext = get_platform_info()
+    
+    # Get QCE version for output filename
+    qce_version = VERSION
+    print(f"[*] QCE Version: {qce_version}")
+    
+    # Directory name (without version for internal use)
     pack_dir = f"NapCat-QCE-{os_name}-{arch}"
+    # Output filename (with version)
+    output_basename = f"NapCat-QCE-{os_name}-{arch}-v{qce_version}"
+    
     print(f"[*] Platform: {os_name} {arch}")
-    print(f"[*] Package: {pack_dir}")
+    print(f"[*] Package: {output_basename}")
     print()
     
     # Get NapCat version
@@ -566,9 +588,9 @@ QCE 版本: {VERSION}
     print("[x] Created")
     print()
     
-    # Create main archive
+    # Create main archive (with version in filename)
     print("[11/11] Creating main archive...")
-    output_file = f"{pack_dir}{archive_ext}"
+    output_file = f"{output_basename}{archive_ext}"
     create_archive(pack_dir, output_file, archive_ext)
     print()
     
