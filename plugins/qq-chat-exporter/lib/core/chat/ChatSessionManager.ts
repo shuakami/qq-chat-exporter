@@ -191,14 +191,15 @@ export class ChatSessionManager {
     }
 
     /**
-     * 获取好友会话
-     * 使用getBuddy API
+     * 获取好友会话（Issue #226: 使用分类API获取完整列表）
      */
     private async getFriendSessions(): Promise<ChatSession[]> {
         try {
             this.core.context.logger.logDebug('[ChatSessionManager] 获取好友列表...');
             
-            const friends = await this.core.apis.FriendApi.getBuddy();
+            // 使用分类API获取完整好友列表
+            const categories = await this.core.apis.FriendApi.getBuddyV2ExWithCate();
+            const friends = categories.flatMap((cat: any) => cat.buddyList);
             
             if (!friends || friends.length === 0) {
                 this.core.context.logger.logDebug('[ChatSessionManager] 没有好友');
@@ -221,7 +222,7 @@ export class ChatSessionManager {
                         available: true,
                         estimatedMessageCount: 0,
                         avatar: (friend as any).avatarUrl || undefined,
-                        isOnline: (friend as any).status === 1 // 根据状态判断在线
+                        isOnline: (friend as any).status === 1
                     };
                     
                     sessions.push(session);

@@ -1273,16 +1273,18 @@ export class QQChatExporterApiServer {
             }
         });
 
-        // 获取所有好友
+        // 获取所有好友（Issue #226: 使用分类API获取完整列表，突破1000人限制）
         this.app.get('/api/friends', async (req, res) => {
             try {
                 const page = parseInt(req.query['page'] as string) || 1;
                 const limit = parseInt(req.query['limit'] as string) || 999;
                 
-                const friends = await this.core.apis.FriendApi.getBuddy();
+                // 使用分类API获取完整好友列表
+                const categories = await this.core.apis.FriendApi.getBuddyV2ExWithCate();
+                const allFriends = categories.flatMap((cat: any) => cat.buddyList);
                 
-                // 添加头像信息并分页
-                const friendsWithAvatars = friends.map(friend => ({
+                // 添加头像信息
+                const friendsWithAvatars = allFriends.map((friend: any) => ({
                     uid: friend.uid || friend.coreInfo?.uid,
                     uin: friend.uin || friend.coreInfo?.uin,
                     nick: friend.coreInfo?.nick || friend.coreInfo?.uin || friend.uin || 'unknown',
@@ -1666,6 +1668,18 @@ export class QQChatExporterApiServer {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, 'peer参数不完整', 'INVALID_PEER');
                 }
 
+                // Issue #226: 支持通过QQ号导出，自动转换为uid
+                let actualPeerUid = peer.peerUid;
+                if (peer.chatType === 1 && /^\d+$/.test(peer.peerUid)) {
+                    // 私聊且peerUid是纯数字（QQ号），尝试转换为uid
+                    const uid = await this.core.apis.UserApi.getUidByUinV2(peer.peerUid);
+                    if (uid) {
+                        actualPeerUid = uid;
+                        this.core.context.logger.log(`[QCE] QQ号 ${peer.peerUid} 转换为 uid: ${uid}`);
+                    }
+                }
+                const actualPeer = { ...peer, peerUid: actualPeerUid };
+
                 // 生成任务ID
                 const taskId = `export_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                 const timestamp = Date.now();
@@ -1679,7 +1693,7 @@ export class QQChatExporterApiServer {
                 }
 
                 // 生成日期时间字符串
-                const chatTypePrefix = peer.chatType === 1 ? 'friend' : 'group';
+                const chatTypePrefix = actualPeer.chatType === 1 ? 'friend' : 'group';
                 const date = new Date(timestamp);
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`; // 20250506
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`; // 221008
@@ -1696,7 +1710,7 @@ export class QQChatExporterApiServer {
                     sessionName = userSessionName.trim();
                 } else {
                     // 如果用户没有输入，则尝试自动获取会话名称
-                    sessionName = peer.peerUid;
+                    sessionName = actualPeer.peerUid;
                     try {
                         // 设置较短的超时时间，避免阻塞
                         const timeoutPromise = new Promise((_, reject) => {
@@ -1704,25 +1718,25 @@ export class QQChatExporterApiServer {
                         });
                         
                         let namePromise;
-                        if (peer.chatType === 1) {
+                        if (actualPeer.chatType === 1) {
                             // 私聊 - 仅尝试从已缓存的好友列表获取
                             namePromise = this.core.apis.FriendApi.getBuddy().then(friends => {
-                                const friend = friends.find((f: any) => f.coreInfo?.uid === peer.peerUid);
-                                return friend?.coreInfo?.remark || friend?.coreInfo?.nick || peer.peerUid;
+                                const friend = friends.find((f: any) => f.coreInfo?.uid === actualPeer.peerUid);
+                                return friend?.coreInfo?.remark || friend?.coreInfo?.nick || actualPeer.peerUid;
                             });
-                        } else if (peer.chatType === 2) {
+                        } else if (actualPeer.chatType === 2) {
                             // 群聊 - 仅尝试从已缓存的群列表获取
                             namePromise = this.core.apis.GroupApi.getGroups().then(groups => {
-                                const group = groups.find(g => g.groupCode === peer.peerUid || g.groupCode === peer.peerUid.toString());
-                                return group?.groupName || `群聊 ${peer.peerUid}`;
+                                const group = groups.find(g => g.groupCode === actualPeer.peerUid || g.groupCode === actualPeer.peerUid.toString());
+                                return group?.groupName || `群聊 ${actualPeer.peerUid}`;
                             });
                         } else {
-                            namePromise = Promise.resolve(peer.peerUid);
+                            namePromise = Promise.resolve(actualPeer.peerUid);
                         }
                         
                         sessionName = await Promise.race([namePromise, timeoutPromise]) as string;
                     } catch (error) {
-                        console.warn(`快速获取会话名称失败，使用默认名称: ${peer.peerUid}`, error);
+                        console.warn(`快速获取会话名称失败，使用默认名称: ${actualPeer.peerUid}`, error);
                         // 使用默认值，不阻塞任务创建
                     }
                 }
@@ -1730,7 +1744,7 @@ export class QQChatExporterApiServer {
                 // Issue #216: 根据用户选项生成文件名（可选包含聊天名称）
                 const useNameInFileName = options?.useNameInFileName === true;
                 const fileName = this.generateExportFileName(
-                    chatTypePrefix, peer.peerUid, sessionName,
+                    chatTypePrefix, actualPeer.peerUid, sessionName,
                     dateStr, timeStr, fileExt, useNameInFileName
                 );
                 
@@ -1740,7 +1754,7 @@ export class QQChatExporterApiServer {
                 // 创建任务记录
                 const task = {
                     taskId,
-                    peer,
+                    peer: actualPeer,
                     sessionName,
                     fileName,
                     downloadUrl,
@@ -1774,7 +1788,7 @@ export class QQChatExporterApiServer {
                 }, (req as any).requestId);
 
                 // 在后台异步处理导出（传递自定义输出目录）
-                this.processExportTaskAsync(taskId, peer, format, filter, options, fileName, downloadUrl, customOutputDir);
+                this.processExportTaskAsync(taskId, actualPeer, format, filter, options, fileName, downloadUrl, customOutputDir);
 
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
@@ -1792,12 +1806,23 @@ export class QQChatExporterApiServer {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, 'peer参数不完整', 'INVALID_PEER');
                 }
 
+                // Issue #226: 支持通过QQ号导出，自动转换为uid
+                let actualPeerUid = peer.peerUid;
+                if (peer.chatType === 1 && /^\d+$/.test(peer.peerUid)) {
+                    const uid = await this.core.apis.UserApi.getUidByUinV2(peer.peerUid);
+                    if (uid) {
+                        actualPeerUid = uid;
+                        this.core.context.logger.log(`[QCE] QQ号 ${peer.peerUid} 转换为 uid: ${uid}`);
+                    }
+                }
+                const actualPeer = { ...peer, peerUid: actualPeerUid };
+
                 // 生成任务ID
                 const taskId = `streaming_zip_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                 const timestamp = Date.now();
 
                 // 流式ZIP导出强制使用ZIP格式
-                const chatTypePrefix = peer.chatType === 1 ? 'friend' : 'group';
+                const chatTypePrefix = actualPeer.chatType === 1 ? 'friend' : 'group';
                 const date = new Date(timestamp);
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
@@ -1812,37 +1837,37 @@ export class QQChatExporterApiServer {
                 if (userSessionName && userSessionName.trim()) {
                     sessionName = userSessionName.trim();
                 } else {
-                    sessionName = peer.peerUid;
+                    sessionName = actualPeer.peerUid;
                     try {
                         const timeoutPromise = new Promise((_, reject) => {
                             setTimeout(() => reject(new Error('获取会话名称超时')), 2000);
                         });
                         
                         let namePromise;
-                        if (peer.chatType === 1) {
+                        if (actualPeer.chatType === 1) {
                             namePromise = this.core.apis.FriendApi.getBuddy().then(friends => {
-                                const friend = friends.find((f: any) => f.coreInfo?.uid === peer.peerUid);
-                                return friend?.coreInfo?.remark || friend?.coreInfo?.nick || peer.peerUid;
+                                const friend = friends.find((f: any) => f.coreInfo?.uid === actualPeer.peerUid);
+                                return friend?.coreInfo?.remark || friend?.coreInfo?.nick || actualPeer.peerUid;
                             });
-                        } else if (peer.chatType === 2) {
+                        } else if (actualPeer.chatType === 2) {
                             namePromise = this.core.apis.GroupApi.getGroups().then(groups => {
-                                const group = groups.find(g => g.groupCode === peer.peerUid || g.groupCode === peer.peerUid.toString());
-                                return group?.groupName || `群聊 ${peer.peerUid}`;
+                                const group = groups.find(g => g.groupCode === actualPeer.peerUid || g.groupCode === actualPeer.peerUid.toString());
+                                return group?.groupName || `群聊 ${actualPeer.peerUid}`;
                             });
                         } else {
-                            namePromise = Promise.resolve(peer.peerUid);
+                            namePromise = Promise.resolve(actualPeer.peerUid);
                         }
                         
                         sessionName = await Promise.race([namePromise, timeoutPromise]) as string;
                     } catch (error) {
-                        console.warn(`快速获取会话名称失败，使用默认名称: ${peer.peerUid}`, error);
+                        console.warn(`快速获取会话名称失败，使用默认名称: ${actualPeer.peerUid}`, error);
                     }
                 }
 
                 // Issue #216: 根据用户选项生成文件名（可选包含聊天名称）
                 const useNameInFileName = options?.useNameInFileName === true;
                 const fileName = this.generateExportFileName(
-                    chatTypePrefix, peer.peerUid, sessionName,
+                    chatTypePrefix, actualPeer.peerUid, sessionName,
                     dateStr, timeStr, 'zip', useNameInFileName
                 ).replace(/\.zip$/, '_streaming.zip');  // 添加 _streaming 后缀（只替换末尾）
                 
@@ -1852,7 +1877,7 @@ export class QQChatExporterApiServer {
                 // 创建任务记录
                 const task = {
                     taskId,
-                    peer,
+                    peer: actualPeer,
                     sessionName,
                     fileName,
                     downloadUrl,
@@ -1887,7 +1912,7 @@ export class QQChatExporterApiServer {
                 }, (req as any).requestId);
 
                 // 在后台异步处理流式ZIP导出（传递自定义输出目录）
-                this.processStreamingZipExportAsync(taskId, peer, filter, options, fileName, customOutputDir);
+                this.processStreamingZipExportAsync(taskId, actualPeer, filter, options, fileName, customOutputDir);
 
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
@@ -1905,12 +1930,23 @@ export class QQChatExporterApiServer {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, 'peer参数不完整', 'INVALID_PEER');
                 }
 
+                // Issue #226: 支持通过QQ号导出，自动转换为uid
+                let actualPeerUid = peer.peerUid;
+                if (peer.chatType === 1 && /^\d+$/.test(peer.peerUid)) {
+                    const uid = await this.core.apis.UserApi.getUidByUinV2(peer.peerUid);
+                    if (uid) {
+                        actualPeerUid = uid;
+                        this.core.context.logger.log(`[QCE] QQ号 ${peer.peerUid} 转换为 uid: ${uid}`);
+                    }
+                }
+                const actualPeer = { ...peer, peerUid: actualPeerUid };
+
                 // 生成任务ID
                 const taskId = `streaming_jsonl_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                 const timestamp = Date.now();
 
                 // 流式JSONL导出使用目录格式
-                const chatTypePrefix = peer.chatType === 1 ? 'friend' : 'group';
+                const chatTypePrefix = actualPeer.chatType === 1 ? 'friend' : 'group';
                 const date = new Date(timestamp);
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
@@ -1925,37 +1961,37 @@ export class QQChatExporterApiServer {
                 if (userSessionName && userSessionName.trim()) {
                     sessionName = userSessionName.trim();
                 } else {
-                    sessionName = peer.peerUid;
+                    sessionName = actualPeer.peerUid;
                     try {
                         const timeoutPromise = new Promise((_, reject) => {
                             setTimeout(() => reject(new Error('获取会话名称超时')), 2000);
                         });
                         
                         let namePromise;
-                        if (peer.chatType === 1) {
+                        if (actualPeer.chatType === 1) {
                             namePromise = this.core.apis.FriendApi.getBuddy().then(friends => {
-                                const friend = friends.find((f: any) => f.coreInfo?.uid === peer.peerUid);
-                                return friend?.coreInfo?.remark || friend?.coreInfo?.nick || peer.peerUid;
+                                const friend = friends.find((f: any) => f.coreInfo?.uid === actualPeer.peerUid);
+                                return friend?.coreInfo?.remark || friend?.coreInfo?.nick || actualPeer.peerUid;
                             });
-                        } else if (peer.chatType === 2) {
+                        } else if (actualPeer.chatType === 2) {
                             namePromise = this.core.apis.GroupApi.getGroups().then(groups => {
-                                const group = groups.find(g => g.groupCode === peer.peerUid || g.groupCode === peer.peerUid.toString());
-                                return group?.groupName || `群聊 ${peer.peerUid}`;
+                                const group = groups.find(g => g.groupCode === actualPeer.peerUid || g.groupCode === actualPeer.peerUid.toString());
+                                return group?.groupName || `群聊 ${actualPeer.peerUid}`;
                             });
                         } else {
-                            namePromise = Promise.resolve(peer.peerUid);
+                            namePromise = Promise.resolve(actualPeer.peerUid);
                         }
                         
                         sessionName = await Promise.race([namePromise, timeoutPromise]) as string;
                     } catch (error) {
-                        console.warn(`快速获取会话名称失败，使用默认名称: ${peer.peerUid}`, error);
+                        console.warn(`快速获取会话名称失败，使用默认名称: ${actualPeer.peerUid}`, error);
                     }
                 }
 
                 // Issue #216: 根据用户选项生成目录名（可选包含聊天名称）
                 const useNameInFileName = options?.useNameInFileName === true;
                 const dirName = this.generateExportDirName(
-                    chatTypePrefix, peer.peerUid, sessionName,
+                    chatTypePrefix, actualPeer.peerUid, sessionName,
                     dateStr, timeStr, '_chunked_jsonl', useNameInFileName
                 );
                 
@@ -1968,7 +2004,7 @@ export class QQChatExporterApiServer {
                 // 创建任务记录
                 const task = {
                     taskId,
-                    peer,
+                    peer: actualPeer,
                     sessionName,
                     fileName: dirName,
                     downloadUrl,
@@ -2003,7 +2039,7 @@ export class QQChatExporterApiServer {
                 }, (req as any).requestId);
 
                 // 在后台异步处理流式JSONL导出（传递自定义输出目录）
-                this.processStreamingJsonlExportAsync(taskId, peer, filter, options, dirName, customOutputDir);
+                this.processStreamingJsonlExportAsync(taskId, actualPeer, filter, options, dirName, customOutputDir);
 
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);

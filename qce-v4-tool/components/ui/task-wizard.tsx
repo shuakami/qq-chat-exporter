@@ -53,6 +53,11 @@ export function TaskWizard({
   const [showTargetSelector, setShowTargetSelector] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   
+  // 手动输入QQ号模式（Issue #226）
+  const [manualInputMode, setManualInputMode] = useState(false)
+  const [manualQQNumber, setManualQQNumber] = useState("")
+  const [manualSessionName, setManualSessionName] = useState("")
+  
   // 群成员选择器状态
   const [showMemberSelector, setShowMemberSelector] = useState(false)
   const [groupMembers, setGroupMembers] = useState<GroupMember[]>([])
@@ -169,6 +174,9 @@ export function TaskWizard({
       setSelectedTarget(null)
       setSearchTerm("")
       setShowTargetSelector(true)
+      setManualInputMode(false)
+      setManualQQNumber("")
+      setManualSessionName("")
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
       groupSearchRef.current.clear()
       friendSearchRef.current.clear()
@@ -316,10 +324,43 @@ export function TaskWizard({
     setShowTargetSelector(true)
     setSelectedTarget(null)
     setSearchTerm("")
+    setManualInputMode(false)
+    setManualQQNumber("")
+    setManualSessionName("")
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     groupSearchRef.current.clear()
     friendSearchRef.current.clear()
   }, [])
+
+  // 手动输入QQ号确认（Issue #226）
+  const handleManualInputConfirm = useCallback(() => {
+    const qqNumber = manualQQNumber.trim()
+    if (!qqNumber) return
+    
+    // 设置表单数据
+    setForm((p) => ({
+      ...p,
+      chatType: 1, // 私聊
+      peerUid: qqNumber,
+      sessionName: manualSessionName.trim() || `好友 ${qqNumber}`
+    }))
+    
+    // 创建一个虚拟的 Friend 对象用于显示
+    const virtualFriend: Friend = {
+      uid: qqNumber,
+      uin: qqNumber,
+      nick: manualSessionName.trim() || `好友 ${qqNumber}`,
+      remark: manualSessionName.trim() || null,
+      avatarUrl: `https://q1.qlogo.cn/g?b=qq&nk=${qqNumber}&s=640`,
+      isOnline: false,
+      status: 0,
+      categoryId: 1
+    }
+    
+    setSelectedTarget(virtualFriend)
+    setShowTargetSelector(false)
+    setManualInputMode(false)
+  }, [manualQQNumber, manualSessionName])
 
   const canSubmit = () => selectedTarget !== null && form.sessionName.trim() !== ""
 
@@ -335,11 +376,12 @@ export function TaskWizard({
           <Label className="text-sm font-medium mb-2 block">选择聊天类型</Label>
           <div className="grid grid-cols-2 gap-2">
             <Button
-              variant={form.chatType === 1 ? "default" : "outline"}
+              variant={form.chatType === 1 && !manualInputMode ? "default" : "outline"}
               size="sm"
               onClick={() => {
                 setForm((p) => ({ ...p, chatType: 1 }))
                 setSearchTerm("")
+                setManualInputMode(false)
                 if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
                 friendSearchRef.current.search("")
               }}
@@ -349,11 +391,12 @@ export function TaskWizard({
               好友聊天
             </Button>
             <Button
-              variant={form.chatType === 2 ? "default" : "outline"}
+              variant={form.chatType === 2 && !manualInputMode ? "default" : "outline"}
               size="sm"
               onClick={() => {
                 setForm((p) => ({ ...p, chatType: 2 }))
                 setSearchTerm("")
+                setManualInputMode(false)
                 if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
                 groupSearchRef.current.search("")
               }}
@@ -363,8 +406,56 @@ export function TaskWizard({
               群组聊天
             </Button>
           </div>
+          {/* 手动输入QQ号选项（Issue #226） */}
+          <Button
+            variant={manualInputMode ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setManualInputMode(!manualInputMode)}
+            className="w-full mt-2 justify-center rounded-full text-xs"
+          >
+            {manualInputMode ? <X className="w-3 h-3 mr-1" /> : <User className="w-3 h-3 mr-1" />}
+            {manualInputMode ? "取消手动输入" : "手动输入QQ号"}
+          </Button>
         </div>
 
+        {/* 手动输入QQ号面板（Issue #226） */}
+        {manualInputMode ? (
+          <div className="space-y-3 p-4 border border-blue-200 dark:border-blue-800 rounded-2xl bg-blue-50/50 dark:bg-blue-950/30">
+            <div className="space-y-2">
+              <Label htmlFor="manualQQ" className="text-sm">QQ号码</Label>
+              <Input
+                id="manualQQ"
+                placeholder="输入要导出的QQ号"
+                value={manualQQNumber}
+                onChange={(e) => setManualQQNumber(e.target.value.replace(/\D/g, ''))}
+                className="rounded-xl font-mono"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="manualName" className="text-sm">备注名称（可选）</Label>
+              <Input
+                id="manualName"
+                placeholder="给这个聊天起个名字"
+                value={manualSessionName}
+                onChange={(e) => setManualSessionName(e.target.value)}
+                className="rounded-xl"
+              />
+            </div>
+            <Button
+              onClick={handleManualInputConfirm}
+              disabled={!manualQQNumber.trim()}
+              className="w-full rounded-full bg-blue-600 hover:bg-blue-700"
+              size="sm"
+            >
+              <CheckCircle className="w-4 h-4 mr-2" />
+              确认
+            </Button>
+            <p className="text-xs text-blue-600 dark:text-blue-400">
+              适用于好友列表中未显示的用户，如超过1000人限制的好友
+            </p>
+          </div>
+        ) : (
+          <>
         {/* 加载 & 搜索 */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
@@ -516,6 +607,8 @@ export function TaskWizard({
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
     )
   }
