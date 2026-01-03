@@ -1273,16 +1273,18 @@ export class QQChatExporterApiServer {
             }
         });
 
-        // 获取所有好友
+        // 获取所有好友（Issue #226: 使用分类API获取完整列表，突破1000人限制）
         this.app.get('/api/friends', async (req, res) => {
             try {
                 const page = parseInt(req.query['page'] as string) || 1;
                 const limit = parseInt(req.query['limit'] as string) || 999;
                 
-                const friends = await this.core.apis.FriendApi.getBuddy();
+                // 使用分类API获取完整好友列表
+                const categories = await this.core.apis.FriendApi.getBuddyV2ExWithCate();
+                const allFriends = categories.flatMap((cat: any) => cat.buddyList);
                 
-                // 添加头像信息并分页
-                const friendsWithAvatars = friends.map(friend => ({
+                // 添加头像信息
+                const friendsWithAvatars = allFriends.map((friend: any) => ({
                     uid: friend.uid || friend.coreInfo?.uid,
                     uin: friend.uin || friend.coreInfo?.uin,
                     nick: friend.coreInfo?.nick || friend.coreInfo?.uin || friend.uin || 'unknown',

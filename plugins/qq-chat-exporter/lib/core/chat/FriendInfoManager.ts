@@ -258,8 +258,9 @@ export class FriendInfoManager {
      */
     async searchFriends(keyword: string): Promise<FriendDetailInfo[]> {
         try {
-            // 首先获取所有好友基础信息
-            const buddies = await this.core.apis.FriendApi.getBuddy();
+            // 使用分类API获取完整好友列表（Issue #226）
+            const categories = await this.core.apis.FriendApi.getBuddyV2ExWithCate();
+            const buddies = categories.flatMap(cat => cat.buddyList);
             const lowercaseKeyword = keyword.toLowerCase();
 
             // 过滤匹配的好友
@@ -313,8 +314,9 @@ export class FriendInfoManager {
                 }
             ];
 
-            // 统计每个分组的好友数量
-            const buddies = await this.core.apis.FriendApi.getBuddy();
+            // 使用分类API获取完整好友列表（Issue #226）
+            const categories = await this.core.apis.FriendApi.getBuddyV2ExWithCate();
+            const buddies = categories.flatMap(cat => cat.buddyList);
             if (buddies && Array.isArray(buddies)) {
                 defaultGroups[0]!.friendCount = buddies.length;
             } else {
@@ -342,8 +344,10 @@ export class FriendInfoManager {
         try {
             this.core.context.logger.log('[FriendInfoManager] 获取在线好友列表...');
             
-            const buddies = await this.core.apis.FriendApi.getBuddy();
-            const onlineBuddies = buddies ? buddies.filter(buddy => buddy.status && buddy.status.status === 1) : []; // 1表示在线
+            // 使用分类API获取完整好友列表（Issue #226）
+            const categories = await this.core.apis.FriendApi.getBuddyV2ExWithCate();
+            const buddies = categories.flatMap(cat => cat.buddyList);
+            const onlineBuddies = buddies ? buddies.filter(buddy => buddy.status && buddy.status.status === 1) : [];
             
             // 获取在线好友的详细信息
             const detailPromises = onlineBuddies.map(buddy => 
