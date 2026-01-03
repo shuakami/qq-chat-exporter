@@ -11,6 +11,7 @@ import { CleanMessage, SimpleMessageParser } from '../parser/SimpleMessageParser
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 import { RawMessage } from 'NapCatQQ/src/core/index.js';
 import { ParsedMessage } from '../parser/MessageParser.js';
+import { VERSION, APP_INFO } from '../../version.js';
 
 import { ChunkedJsonlWriter } from './ChunkedJsonlWriter.js';
 import type { ChunkedJsonlChunkInfo } from './ChunkedJsonlWriter.js';
@@ -1067,9 +1068,9 @@ export class JsonExporter extends BaseExporter {
      */
     private generateMetadata(): JsonExportData['metadata'] {
         return {
-            name: 'QQChatExporter V5 / https://github.com/shuakami/qq-chat-exporter',
-            copyright: '本软件是免费的开源项目~ 如果您是买来的，请立即退款！如果有帮助到您，欢迎给我点个Star~',
-            version: '5.0.0'
+            name: APP_INFO.name,
+            copyright: APP_INFO.copyright,
+            version: VERSION
         };
     }
 
