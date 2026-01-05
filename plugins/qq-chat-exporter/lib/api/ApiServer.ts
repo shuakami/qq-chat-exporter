@@ -157,8 +157,11 @@ export class QQChatExporterApiServer {
         this.stickerPackExporter = new StickerPackExporter(core);
         
         this.pathManager = PathManager.getInstance();
-        this.loadUserConfig();
-        this.pathManager.ensureAllDirectoriesExist();
+        this.loadUserConfig().then(() => {
+            this.pathManager.ensureAllDirectoriesExist().catch(err => {
+                console.error('[QCE] 创建目录失败:', err);
+            });
+        });
         
         this.setupMiddleware();
         this.setupRoutes();
@@ -215,31 +218,57 @@ export class QQChatExporterApiServer {
         });
     }
 
-    private loadUserConfig(): void {
+    private async loadUserConfig(): Promise<void> {
         try {
             const configPath = path.join(
-                process.env['USERPROFILE'] || process.env['HOME'] || '.',
-                '.qq-chat-exporter',
+                this.pathManager.getDefaultBaseDir(),
                 'user-config.json'
             );
 
-            if (fs.existsSync(configPath)) {
-                const configData = fs.readFileSync(configPath, 'utf-8');
-                const config = JSON.parse(configData);
+            const { promises: fsp } = await import('fs');
+            
+            try {
+                await fsp.access(configPath);
+            } catch {
+                return;
+            }
 
-                if (config.customOutputDir) {
-                    this.pathManager.setCustomOutputDir(config.customOutputDir);
-                    console.log(`[QCE] 使用自定义导出路径: ${config.customOutputDir}`);
-                }
+            const configData = await fsp.readFile(configPath, 'utf-8');
+            const config = JSON.parse(configData);
 
-                if (config.customScheduledExportDir) {
-                    this.pathManager.setCustomScheduledExportDir(config.customScheduledExportDir);
-                    console.log(`[QCE] 使用自定义定时导出路径: ${config.customScheduledExportDir}`);
-                }
+            if (!this.isValidConfig(config)) {
+                console.warn('[QCE] 配置文件格式无效，使用默认配置');
+                return;
+            }
+
+            if (config.customOutputDir) {
+                this.pathManager.setCustomOutputDir(config.customOutputDir);
+                console.log(`[QCE] 使用自定义导出路径: ${config.customOutputDir}`);
+            }
+
+            if (config.customScheduledExportDir) {
+                this.pathManager.setCustomScheduledExportDir(config.customScheduledExportDir);
+                console.log(`[QCE] 使用自定义定时导出路径: ${config.customScheduledExportDir}`);
             }
         } catch (error) {
             console.warn('[QCE] 加载用户配置失败，使用默认路径:', error);
         }
+    }
+
+    private isValidConfig(config: any): boolean {
+        if (typeof config !== 'object' || config === null) {
+            return false;
+        }
+
+        if (config.customOutputDir !== undefined && typeof config.customOutputDir !== 'string') {
+            return false;
+        }
+
+        if (config.customScheduledExportDir !== undefined && typeof config.customScheduledExportDir !== 'string') {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -946,18 +975,22 @@ export class QQChatExporterApiServer {
             }, (req as any).requestId);
         });
 
-        this.app.get('/api/config', (req, res) => {
+        this.app.get('/api/config', async (req, res) => {
             try {
                 const configPath = path.join(
-                    process.env['USERPROFILE'] || process.env['HOME'] || '.',
-                    '.qq-chat-exporter',
+                    this.pathManager.getDefaultBaseDir(),
                     'user-config.json'
                 );
 
+                const { promises: fsp } = await import('fs');
                 let config: any = {};
-                if (fs.existsSync(configPath)) {
-                    const configData = fs.readFileSync(configPath, 'utf-8');
+                
+                try {
+                    await fsp.access(configPath);
+                    const configData = await fsp.readFile(configPath, 'utf-8');
                     config = JSON.parse(configData);
+                } catch {
+                    // 配置文件不存在或读取失败，使用空配置
                 }
 
                 this.sendSuccessResponse(res, {
@@ -976,35 +1009,61 @@ export class QQChatExporterApiServer {
                 const { customOutputDir, customScheduledExportDir } = req.body;
 
                 const configPath = path.join(
-                    process.env['USERPROFILE'] || process.env['HOME'] || '.',
-                    '.qq-chat-exporter',
+                    this.pathManager.getDefaultBaseDir(),
                     'user-config.json'
                 );
 
+                const { promises: fsp } = await import('fs');
                 const configDir = path.dirname(configPath);
-                if (!fs.existsSync(configDir)) {
-                    fs.mkdirSync(configDir, { recursive: true });
+                
+                try {
+                    await fsp.access(configDir);
+                } catch {
+                    await fsp.mkdir(configDir, { recursive: true });
                 }
 
                 let config: any = {};
-                if (fs.existsSync(configPath)) {
-                    const configData = fs.readFileSync(configPath, 'utf-8');
+                try {
+                    await fsp.access(configPath);
+                    const configData = await fsp.readFile(configPath, 'utf-8');
                     config = JSON.parse(configData);
+                } catch {
+                    // 配置文件不存在，使用空配置
                 }
 
                 if (customOutputDir !== undefined) {
-                    config.customOutputDir = customOutputDir;
-                    this.pathManager.setCustomOutputDir(customOutputDir);
+                    if (customOutputDir === null || customOutputDir.trim() === '') {
+                        config.customOutputDir = null;
+                        this.pathManager.setCustomOutputDir(null);
+                    } else {
+                        try {
+                            this.pathManager.setCustomOutputDir(customOutputDir.trim());
+                            config.customOutputDir = customOutputDir.trim();
+                        } catch (error) {
+                            const errorMsg = error instanceof Error ? error.message : '路径验证失败';
+                            return this.sendErrorResponse(res, new SystemError(ErrorType.VALIDATION_ERROR, errorMsg, 'INVALID_PATH'), (req as any).requestId, 400);
+                        }
+                    }
                 }
 
                 if (customScheduledExportDir !== undefined) {
-                    config.customScheduledExportDir = customScheduledExportDir;
-                    this.pathManager.setCustomScheduledExportDir(customScheduledExportDir);
+                    if (customScheduledExportDir === null || customScheduledExportDir.trim() === '') {
+                        config.customScheduledExportDir = null;
+                        this.pathManager.setCustomScheduledExportDir(null);
+                    } else {
+                        try {
+                            this.pathManager.setCustomScheduledExportDir(customScheduledExportDir.trim());
+                            config.customScheduledExportDir = customScheduledExportDir.trim();
+                        } catch (error) {
+                            const errorMsg = error instanceof Error ? error.message : '路径验证失败';
+                            return this.sendErrorResponse(res, new SystemError(ErrorType.VALIDATION_ERROR, errorMsg, 'INVALID_PATH'), (req as any).requestId, 400);
+                        }
+                    }
                 }
 
-                fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+                await fsp.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
 
-                this.pathManager.ensureAllDirectoriesExist();
+                await this.pathManager.ensureAllDirectoriesExist();
 
                 this.sendSuccessResponse(res, {
                     message: '配置更新成功',

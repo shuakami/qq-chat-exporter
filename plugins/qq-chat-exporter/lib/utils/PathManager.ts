@@ -1,5 +1,6 @@
 import path from 'path';
 import fs from 'fs';
+import { promises as fsp } from 'fs';
 import os from 'os';
 
 export class PathManager {
@@ -16,16 +17,56 @@ export class PathManager {
         return PathManager.instance;
     }
 
+    private getUserHome(): string {
+        return os.homedir();
+    }
+
+    private validatePath(inputPath: string): string {
+        const home = this.getUserHome();
+        const resolved = path.resolve(inputPath);
+
+        if (!resolved.startsWith(home)) {
+            throw new Error('路径必须在用户目录内');
+        }
+
+        const dangerousPatterns = [
+            /System32/i,
+            /\/etc\//,
+            /\/bin\//,
+            /\/usr\/bin/,
+            /\/sbin\//,
+            /Windows[\/\\]System/i,
+            /Program Files/i,
+            /AppData[\/\\]Local[\/\\]Temp/i
+        ];
+
+        for (const pattern of dangerousPatterns) {
+            if (pattern.test(resolved)) {
+                throw new Error('禁止访问系统路径');
+            }
+        }
+
+        return resolved;
+    }
+
     setCustomOutputDir(dir: string | null): void {
-        this.customOutputDir = dir;
+        if (dir) {
+            this.customOutputDir = this.validatePath(dir);
+        } else {
+            this.customOutputDir = null;
+        }
     }
 
     setCustomScheduledExportDir(dir: string | null): void {
-        this.customScheduledExportDir = dir;
+        if (dir) {
+            this.customScheduledExportDir = this.validatePath(dir);
+        } else {
+            this.customScheduledExportDir = null;
+        }
     }
 
     getDefaultBaseDir(): string {
-        return path.join(process.env['USERPROFILE'] || process.env['HOME'] || process.cwd(), '.qq-chat-exporter');
+        return path.join(this.getUserHome(), '.qq-chat-exporter');
     }
 
     getExportsDir(): string {
@@ -54,16 +95,20 @@ export class PathManager {
         return path.join(this.getExportsDir(), 'avatars');
     }
 
-    ensureDirectoryExists(dir: string): void {
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
+    async ensureDirectoryExists(dir: string): Promise<void> {
+        try {
+            await fsp.access(dir);
+        } catch {
+            await fsp.mkdir(dir, { recursive: true });
         }
     }
 
-    ensureAllDirectoriesExist(): void {
-        this.ensureDirectoryExists(this.getExportsDir());
-        this.ensureDirectoryExists(this.getScheduledExportsDir());
-        this.ensureDirectoryExists(this.getResourcesDir());
-        this.ensureDirectoryExists(this.getDatabaseDir());
+    async ensureAllDirectoriesExist(): Promise<void> {
+        await Promise.all([
+            this.ensureDirectoryExists(this.getExportsDir()),
+            this.ensureDirectoryExists(this.getScheduledExportsDir()),
+            this.ensureDirectoryExists(this.getResourcesDir()),
+            this.ensureDirectoryExists(this.getDatabaseDir())
+        ]);
     }
 }
