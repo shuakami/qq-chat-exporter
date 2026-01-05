@@ -161,7 +161,7 @@ export function SettingsPanel() {
           {/* 说明 */}
           <div className="text-sm text-muted-foreground space-y-1 pt-2">
             <p>留空则使用默认路径（用户目录下的 .qq-chat-exporter）</p>
-            <p>路径必须在用户目录内，禁止访问系统关键目录</p>
+            <p>支持任意磁盘和文件夹，但禁止访问系统关键目录</p>
           </div>
         </div>
       )}

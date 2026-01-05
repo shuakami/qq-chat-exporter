@@ -1,5 +1,4 @@
 import path from 'path';
-import fs from 'fs';
 import { promises as fsp } from 'fs';
 import os from 'os';
 
@@ -22,34 +21,26 @@ export class PathManager {
     }
 
     private validatePath(inputPath: string): string {
-        const home = this.getUserHome();
         const resolved = path.resolve(inputPath);
 
-        if (!resolved.startsWith(home)) {
-            throw new Error('路径必须在用户目录内');
-        }
-
+        // 只禁止系统关键目录，允许任意其他位置
         const dangerousPatterns = [
-            /System32/i,
-            /\/etc\//,
-            /\/bin\//,
-            /\/usr\/bin/,
-            /\/sbin\//,
-            /Windows[\/\\]System/i,
-            /Program Files/i,
-            /AppData[\/\\]Local[\/\\]Temp/i
+            /[\/\\]Windows[\/\\]System32/i,
+            /[\/\\]Windows[\/\\]SysWOW64/i,
+            /^[\/\\]etc[\/\\]/,
+            /^[\/\\]bin[\/\\]/,
+            /^[\/\\]usr[\/\\]bin/,
+            /^[\/\\]sbin[\/\\]/,
         ];
 
         for (const pattern of dangerousPatterns) {
             if (pattern.test(resolved)) {
-                throw new Error('禁止访问系统路径');
+                throw new Error('禁止访问系统关键目录');
             }
         }
 
         return resolved;
-    }
-
-    setCustomOutputDir(dir: string | null): void {
+    }etCustomOutputDir(dir: string | null): void {
         if (dir) {
             this.customOutputDir = this.validatePath(dir);
         } else {
