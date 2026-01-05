@@ -2759,9 +2759,7 @@ export default function QCEDashboard() {
             )}
 
             {activeTab === "settings" && (
-              <motion.div key="tab-settings" {...fadeSlide} className="space-y-6">
-                <SettingsPanel />
-              </motion.div>
+              <SettingsPanel />
             )}
 
             {activeTab === "about" && (
