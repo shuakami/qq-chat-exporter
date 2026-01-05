@@ -31,6 +31,7 @@ import { streamSearchService } from '../services/StreamSearchService.js';
 import { ZipExporter } from '../utils/ZipExporter.js';
 import { StreamingZipExporter } from '../utils/StreamingZipExporter.js';
 import { VERSION, APP_INFO } from '../version.js';
+import { PathManager } from '../utils/PathManager.js';
 
 // 导入类型定义
 import type { RawMessage } from 'NapCatQQ/src/core/types.js';
@@ -105,7 +106,8 @@ export class QQChatExporterApiServer {
     // 表情包导出管理器
     private stickerPackExporter: StickerPackExporter;
     
-    // 任务管理
+    private pathManager: PathManager;
+    
     private exportTasks: Map<string, any> = new Map();
     
     // 任务资源处理器管理（每个任务使用独立的 ResourceHandler）
@@ -153,6 +155,10 @@ export class QQChatExporterApiServer {
         
         // 初始化表情包导出管理器
         this.stickerPackExporter = new StickerPackExporter(core);
+        
+        this.pathManager = PathManager.getInstance();
+        this.loadUserConfig();
+        this.pathManager.ensureAllDirectoriesExist();
         
         this.setupMiddleware();
         this.setupRoutes();
@@ -207,6 +213,33 @@ export class QQChatExporterApiServer {
                 // 静默处理
             }
         });
+    }
+
+    private loadUserConfig(): void {
+        try {
+            const configPath = path.join(
+                process.env['USERPROFILE'] || process.env['HOME'] || '.',
+                '.qq-chat-exporter',
+                'user-config.json'
+            );
+
+            if (fs.existsSync(configPath)) {
+                const configData = fs.readFileSync(configPath, 'utf-8');
+                const config = JSON.parse(configData);
+
+                if (config.customOutputDir) {
+                    this.pathManager.setCustomOutputDir(config.customOutputDir);
+                    console.log(`[QCE] 使用自定义导出路径: ${config.customOutputDir}`);
+                }
+
+                if (config.customScheduledExportDir) {
+                    this.pathManager.setCustomScheduledExportDir(config.customScheduledExportDir);
+                    console.log(`[QCE] 使用自定义定时导出路径: ${config.customScheduledExportDir}`);
+                }
+            }
+        } catch (error) {
+            console.warn('[QCE] 加载用户配置失败，使用默认路径:', error);
+        }
     }
 
     /**
@@ -332,7 +365,7 @@ export class QQChatExporterApiServer {
         }
 
         const cache = new Map<string, string>();
-        const resourcesRoot = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'resources');
+        const resourcesRoot = this.pathManager.getResourcesDir();
         const fullDirPath = path.join(resourcesRoot, dirPath);
 
         // 检查目录是否存在
@@ -381,7 +414,7 @@ export class QQChatExporterApiServer {
      * @returns 实际文件的完整路径，不存在则返回null
      */
     private findResourceFile(resourcePath: string): string | null {
-        const resourcesRoot = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'resources');
+        const resourcesRoot = this.pathManager.getResourcesDir();
         const dirPath = path.dirname(resourcePath);
         const shortFileName = path.basename(resourcePath);
 
@@ -913,7 +946,78 @@ export class QQChatExporterApiServer {
             }, (req as any).requestId);
         });
 
-        // 获取所有群组
+        this.app.get('/api/config', (req, res) => {
+            try {
+                const configPath = path.join(
+                    process.env['USERPROFILE'] || process.env['HOME'] || '.',
+                    '.qq-chat-exporter',
+                    'user-config.json'
+                );
+
+                let config: any = {};
+                if (fs.existsSync(configPath)) {
+                    const configData = fs.readFileSync(configPath, 'utf-8');
+                    config = JSON.parse(configData);
+                }
+
+                this.sendSuccessResponse(res, {
+                    customOutputDir: config.customOutputDir || null,
+                    customScheduledExportDir: config.customScheduledExportDir || null,
+                    currentExportsDir: this.pathManager.getExportsDir(),
+                    currentScheduledExportsDir: this.pathManager.getScheduledExportsDir()
+                }, (req as any).requestId);
+            } catch (error) {
+                return this.sendErrorResponse(res, new SystemError(ErrorType.CONFIG_ERROR, '获取配置失败', 'GET_CONFIG_FAILED'), (req as any).requestId);
+            }
+        });
+
+        this.app.put('/api/config', async (req, res) => {
+            try {
+                const { customOutputDir, customScheduledExportDir } = req.body;
+
+                const configPath = path.join(
+                    process.env['USERPROFILE'] || process.env['HOME'] || '.',
+                    '.qq-chat-exporter',
+                    'user-config.json'
+                );
+
+                const configDir = path.dirname(configPath);
+                if (!fs.existsSync(configDir)) {
+                    fs.mkdirSync(configDir, { recursive: true });
+                }
+
+                let config: any = {};
+                if (fs.existsSync(configPath)) {
+                    const configData = fs.readFileSync(configPath, 'utf-8');
+                    config = JSON.parse(configData);
+                }
+
+                if (customOutputDir !== undefined) {
+                    config.customOutputDir = customOutputDir;
+                    this.pathManager.setCustomOutputDir(customOutputDir);
+                }
+
+                if (customScheduledExportDir !== undefined) {
+                    config.customScheduledExportDir = customScheduledExportDir;
+                    this.pathManager.setCustomScheduledExportDir(customScheduledExportDir);
+                }
+
+                fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+
+                this.pathManager.ensureAllDirectoriesExist();
+
+                this.sendSuccessResponse(res, {
+                    message: '配置更新成功',
+                    customOutputDir: config.customOutputDir || null,
+                    customScheduledExportDir: config.customScheduledExportDir || null,
+                    currentExportsDir: this.pathManager.getExportsDir(),
+                    currentScheduledExportsDir: this.pathManager.getScheduledExportsDir()
+                }, (req as any).requestId);
+            } catch (error) {
+                return this.sendErrorResponse(res, new SystemError(ErrorType.CONFIG_ERROR, '更新配置失败', 'UPDATE_CONFIG_FAILED'), (req as any).requestId);
+            }
+        });
+
         this.app.get('/api/groups', async (req, res) => {
             try {
                 const forceRefresh = req.query['forceRefresh'] === 'true';
@@ -1166,7 +1270,7 @@ export class QQChatExporterApiServer {
                 const groupName = groupInfo?.groupName || groupCode;
 
                 // 创建导出目录
-                const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports', 'avatars');
+                const exportDir = this.pathManager.getAvatarsDir();
                 if (!fs.existsSync(exportDir)) {
                     fs.mkdirSync(exportDir, { recursive: true });
                 }
@@ -1701,7 +1805,7 @@ export class QQChatExporterApiServer {
                 
                 // Issue #192: 根据是否使用自定义路径生成不同的下载URL
                 const customOutputDir = options?.outputDir?.trim();
-                const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+                const defaultOutputDir = this.pathManager.getExportsDir();
                 const outputDir = customOutputDir || defaultOutputDir;
                 
                 // 确定会话名称：优先使用用户输入的名称，否则自动获取
@@ -1830,7 +1934,7 @@ export class QQChatExporterApiServer {
                 
                 // Issue #192: 根据是否使用自定义路径生成不同的下载URL
                 const customOutputDir = options?.outputDir?.trim();
-                const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+                const defaultOutputDir = this.pathManager.getExportsDir();
                 const outputDir = customOutputDir || defaultOutputDir;
 
                 // 确定会话名称
@@ -1954,7 +2058,7 @@ export class QQChatExporterApiServer {
                 
                 // Issue #192: 根据是否使用自定义路径生成不同的下载URL
                 const customOutputDir = options?.outputDir?.trim();
-                const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+                const defaultOutputDir = this.pathManager.getExportsDir();
                 const outputDir = customOutputDir || defaultOutputDir;
 
                 // 确定会话名称
@@ -2299,7 +2403,7 @@ export class QQChatExporterApiServer {
         this.app.get('/api/merge-resources/available-tasks', async (req, res) => {
             try {
                 // 扫描 scheduled-exports 目录下的定时备份文件
-                const scheduledDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
+                const scheduledDir = this.pathManager.getScheduledExportsDir();
                 const scheduledBackups: Array<{
                     fileName: string;
                     taskName: string;
@@ -2392,8 +2496,8 @@ export class QQChatExporterApiServer {
                 const { fileName } = req.params;
                 
                 // 构建文件路径（尝试两个目录）
-                const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
-                const scheduledExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
+                const exportDir = this.pathManager.getExportsDir();
+                const scheduledExportDir = this.pathManager.getScheduledExportsDir();
                 
                 let filePathToDelete = path.join(exportDir, fileName);
                 let isScheduled = false;
@@ -2485,7 +2589,7 @@ export class QQChatExporterApiServer {
         // 打开导出目录
         this.app.post('/api/open-export-directory', async (req, res) => {
             try {
-                const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+                const exportDir = this.pathManager.getExportsDir();
                 
                 // 确保目录存在
                 if (!fs.existsSync(exportDir)) {
@@ -2520,8 +2624,8 @@ export class QQChatExporterApiServer {
                 const { fileName } = req.params;
                 
                 // 直接构建文件路径，不依赖getExportFiles()方法
-                const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
-                const scheduledExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
+                const exportDir = this.pathManager.getExportsDir();
+                const scheduledExportDir = this.pathManager.getScheduledExportsDir();
                 
                 let filePath = path.join(exportDir, fileName);
                 let found = fs.existsSync(filePath);
@@ -2773,10 +2877,10 @@ export class QQChatExporterApiServer {
         });
 
         // 静态文件服务
-        this.app.use('/downloads', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports')));
-        this.app.use('/scheduled-downloads', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports')));
+        this.app.use('/downloads', express.static(this.pathManager.getExportsDir()));
+        this.app.use('/scheduled-downloads', express.static(this.pathManager.getScheduledExportsDir()));
         // 资源文件服务（图片、音频、视频等）
-        this.app.use('/resources', express.static(path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'resources')));
+        this.app.use('/resources', express.static(this.pathManager.getResourcesDir()));
         
         // 前端应用路由
         this.frontendBuilder.setupStaticRoutes(this.app);
@@ -3183,7 +3287,7 @@ export class QQChatExporterApiServer {
 
             // 修复 Issue #30: 使用用户目录，与索引扫描目录保持一致
             // Issue #192: 支持自定义导出路径
-            const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            const defaultOutputDir = this.pathManager.getExportsDir();
             const outputDir = customOutputDir && customOutputDir.trim() ? customOutputDir.trim() : defaultOutputDir;
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
@@ -3448,7 +3552,7 @@ export class QQChatExporterApiServer {
             });
 
             // 准备输出路径（Issue #192: 支持自定义导出路径）
-            const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            const defaultOutputDir = this.pathManager.getExportsDir();
             const outputDir = customOutputDir && customOutputDir.trim() ? customOutputDir.trim() : defaultOutputDir;
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
@@ -3723,7 +3827,7 @@ export class QQChatExporterApiServer {
             });
 
             // 准备输出路径（Issue #192: 支持自定义导出路径）
-            const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            const defaultOutputDir = this.pathManager.getExportsDir();
             const outputDir = customOutputDir && customOutputDir.trim() ? customOutputDir.trim() : defaultOutputDir;
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
@@ -4128,7 +4232,7 @@ export class QQChatExporterApiServer {
     private cleanupTempFiles(): void {
         try {
             // 清理默认导出目录
-            const defaultExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+            const defaultExportDir = this.pathManager.getExportsDir();
             this.cleanupTempFilesInDirectory(defaultExportDir);
             
             console.log('[ApiServer] 临时文件清理完成');
@@ -4420,7 +4524,7 @@ export class QQChatExporterApiServer {
                 const filePath = (state as any).filePath;
                 
                 // Issue #192: 检查是否使用了自定义导出路径
-                const defaultOutputDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
+                const defaultOutputDir = this.pathManager.getExportsDir();
                 const isCustomPath = filePath && !filePath.startsWith(defaultOutputDir);
                 
                 // 根据是否使用自定义路径生成正确的下载URL
@@ -4483,7 +4587,7 @@ export class QQChatExporterApiServer {
                     includeRecalled: task.filter?.includeRecalled || false
                 },
                 // Issue #192: 保存实际使用的输出目录（可能是自定义路径）
-                outputDir: task.options?.outputDir?.trim() || path.join(process.env['USERPROFILE'] || process.env['HOME'] || '.', '.qq-chat-exporter', 'exports'),
+                outputDir: task.options?.outputDir?.trim() || this.pathManager.getExportsDir(),
                 includeResourceLinks: task.options?.includeResourceLinks || true,
                 batchSize: task.options?.batchSize || 5000,
                 timeout: 30000,
@@ -4691,8 +4795,8 @@ export class QQChatExporterApiServer {
      * 获取导出文件列表
      */
     private async getExportFiles(): Promise<any[]> {
-        const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
-        const scheduledExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
+        const exportDir = this.pathManager.getExportsDir();
+        const scheduledExportDir = this.pathManager.getScheduledExportsDir();
         
         const files: any[] = [];
         
@@ -5173,8 +5277,8 @@ export class QQChatExporterApiServer {
      * 获取特定导出文件的详细信息
      */
     private getExportFileInfo(fileName: string): any {
-        const exportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'exports');
-        const scheduledExportDir = path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
+        const exportDir = this.pathManager.getExportsDir();
+        const scheduledExportDir = this.pathManager.getScheduledExportsDir();
         
         let filePath = path.join(exportDir, fileName);
         let isScheduled = false;
@@ -5855,3 +5959,7 @@ export class QQChatExporterApiServer {
     }
 
 }
+
+
+
+

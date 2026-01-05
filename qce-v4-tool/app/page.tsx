@@ -13,6 +13,7 @@ import { MessagePreviewModal } from "@/components/ui/message-preview-modal"
 import { BatchExportDialog, type BatchExportItem, type BatchExportConfig } from "@/components/ui/batch-export-dialog"
 import { ScheduledBackupMergeDialog } from "@/components/ui/scheduled-backup-merge-dialog"
 import { GroupEssenceModal } from "@/components/ui/group-essence-modal"
+import { SettingsPanel } from "@/components/ui/settings-panel"
 import {
   Dialog,
   DialogContent,
@@ -914,6 +915,7 @@ export default function QCEDashboard() {
               ["scheduled", "定时"],
               ["history", "聊天记录"],
               ["stickers", "表情包"],
+              ["settings", "设置"],
               ["about", "关于"]
             ].map(([id, label]) => (
               <motion.button
@@ -2753,6 +2755,12 @@ export default function QCEDashboard() {
                     </div>
                   </motion.section>
                 )}
+              </motion.div>
+            )}
+
+            {activeTab === "settings" && (
+              <motion.div key="tab-settings" {...fadeSlide} className="space-y-6">
+                <SettingsPanel />
               </motion.div>
             )}
 
