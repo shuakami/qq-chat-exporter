@@ -40,7 +40,9 @@ export class PathManager {
         }
 
         return resolved;
-    }etCustomOutputDir(dir: string | null): void {
+    }
+
+    setCustomOutputDir(dir: string | null): void {
         if (dir) {
             this.customOutputDir = this.validatePath(dir);
         } else {
