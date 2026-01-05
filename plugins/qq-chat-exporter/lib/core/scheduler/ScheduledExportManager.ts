@@ -85,6 +85,7 @@ import { RawMessage } from 'NapCatQQ/src/core/types.js';
 // import { ChatType } from 'NapCatQQ/src/core/types.js';
 import path from 'path';
 import fs from 'fs';
+import { PathManager } from '../../utils/PathManager.js';
 
 /**
  * 定时规则类型
@@ -534,7 +535,7 @@ export class ScheduledExportManager {
             const sessionName = task.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
             const fileName = `${sessionName}_${timestamp}.${task.format.toLowerCase()}`;
             
-            const outputDir = task.outputDir || path.join(process.env['USERPROFILE'] || process.cwd(), '.qq-chat-exporter', 'scheduled-exports');
+            const outputDir = task.outputDir || PathManager.getInstance().getScheduledExportsDir();
             if (!fs.existsSync(outputDir)) {
                 fs.mkdirSync(outputDir, { recursive: true });
             }
