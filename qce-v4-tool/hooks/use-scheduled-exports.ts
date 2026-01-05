@@ -83,7 +83,6 @@ export function useScheduledExports() {
         try {
             setLoading(true);
             
-            // 将表单数据转换为API配置格式
             const config: ScheduledExportConfig = {
                 name: formData.name,
                 peer: {
@@ -103,6 +102,7 @@ export function useScheduledExports() {
                     filterPureImageMessages: formData.filterPureImageMessages ?? false,
                     prettyFormat: true,
                 },
+                ...(formData.outputDir?.trim() && { outputDir: formData.outputDir.trim() }),
                 enabled: formData.enabled,
             };
             
