@@ -27,6 +27,8 @@ import { ScheduledExportManager } from '../core/scheduler/ScheduledExportManager
 import { FrontendBuilder } from '../webui/FrontendBuilder.js';
 import { SecurityManager } from '../security/SecurityManager.js';
 import { StickerPackExporter } from '../core/sticker/StickerPackExporter.js';
+import { GroupAlbumExporter } from '../core/group/GroupAlbumExporter.js';
+import { GroupFilesExporter } from '../core/group/GroupFilesExporter.js';
 import { streamSearchService } from '../services/StreamSearchService.js';
 import { ZipExporter } from '../utils/ZipExporter.js';
 import { StreamingZipExporter } from '../utils/StreamingZipExporter.js';
@@ -106,6 +108,12 @@ export class QQChatExporterApiServer {
     // 表情包导出管理器
     private stickerPackExporter: StickerPackExporter;
     
+    // 群相册导出管理器
+    private groupAlbumExporter: GroupAlbumExporter;
+    
+    // 群文件导出管理器
+    private groupFilesExporter: GroupFilesExporter;
+    
     private pathManager: PathManager;
     
     private exportTasks: Map<string, any> = new Map();
@@ -155,6 +163,12 @@ export class QQChatExporterApiServer {
         
         // 初始化表情包导出管理器
         this.stickerPackExporter = new StickerPackExporter(core);
+        
+        // 初始化群相册导出管理器
+        this.groupAlbumExporter = new GroupAlbumExporter(core);
+        
+        // 初始化群文件导出管理器
+        this.groupFilesExporter = new GroupFilesExporter(core);
         
         this.pathManager = PathManager.getInstance();
         this.loadUserConfig().then(() => {
@@ -750,6 +764,19 @@ export class QQChatExporterApiServer {
                         'POST /api/sticker-packs/export - 导出指定表情包',
                         'POST /api/sticker-packs/export-all - 导出所有表情包',
                         'GET /api/sticker-packs/export-records?limit=50 - 获取导出记录'
+                    ],
+                    '群相册管理': [
+                        'GET /api/groups/:groupCode/albums - 获取群相册列表',
+                        'GET /api/groups/:groupCode/albums/:albumId/media - 获取相册媒体列表',
+                        'POST /api/groups/:groupCode/albums/export - 导出群相册',
+                        'GET /api/group-albums/export-records?limit=50 - 获取群相册导出记录'
+                    ],
+                    '群文件管理': [
+                        'GET /api/groups/:groupCode/files - 获取群文件列表',
+                        'GET /api/groups/:groupCode/files/count - 获取群文件数量',
+                        'POST /api/groups/:groupCode/files/export - 导出群文件列表',
+                        'POST /api/groups/:groupCode/files/export-with-download - 导出群文件（含下载）',
+                        'GET /api/group-files/export-records?limit=50 - 获取群文件导出记录'
                     ]
                 },
                 websocket: 'ws://localhost:40653',
@@ -2293,6 +2320,241 @@ export class QQChatExporterApiServer {
             try {
                 const limit = req.query['limit'] ? parseInt(req.query['limit'] as string) : 50;
                 const records = this.stickerPackExporter.getExportRecords(limit);
+
+                this.sendSuccessResponse(res, {
+                    records,
+                    totalCount: records.length
+                }, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // ===================
+        // 群相册管理API
+        // ===================
+
+        // 获取群相册列表
+        this.app.get('/api/groups/:groupCode/albums', async (req, res) => {
+            const requestId = (req as any).requestId;
+            try {
+                const { groupCode } = req.params;
+                
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群号不能为空', 'MISSING_GROUP_CODE');
+                }
+
+                const albums = await this.groupAlbumExporter.getAlbumList(groupCode);
+
+                this.sendSuccessResponse(res, {
+                    albums,
+                    totalCount: albums.length
+                }, requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, requestId);
+            }
+        });
+
+        // 获取相册媒体列表
+        this.app.get('/api/groups/:groupCode/albums/:albumId/media', async (req, res) => {
+            const requestId = (req as any).requestId;
+            try {
+                const { groupCode, albumId } = req.params;
+                
+                if (!groupCode || !albumId) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群号和相册ID不能为空', 'MISSING_PARAMS');
+                }
+
+                const mediaItems = await this.groupAlbumExporter.getAlbumMediaList(groupCode, albumId);
+
+                this.sendSuccessResponse(res, {
+                    media: mediaItems,
+                    totalCount: mediaItems.length
+                }, requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, requestId);
+            }
+        });
+
+        // 导出群相册
+        this.app.post('/api/groups/:groupCode/albums/export', async (req, res) => {
+            const requestId = (req as any).requestId;
+            try {
+                const { groupCode } = req.params;
+                const { groupName, albumIds } = req.body;
+                
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群号不能为空', 'MISSING_GROUP_CODE');
+                }
+
+                const result = await this.groupAlbumExporter.exportGroupAlbum(
+                    groupCode,
+                    groupName || `群${groupCode}`,
+                    albumIds,
+                    (progress) => {
+                        this.broadcastWebSocketMessage({
+                            type: 'album_export_progress',
+                            data: {
+                                groupCode,
+                                ...progress
+                            }
+                        });
+                    }
+                );
+
+                if (!result.success) {
+                    throw new SystemError(ErrorType.API_ERROR, result.error || '导出失败', 'EXPORT_FAILED');
+                }
+
+                this.sendSuccessResponse(res, result, requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, requestId);
+            }
+        });
+
+        // 获取群相册导出记录
+        this.app.get('/api/group-albums/export-records', async (req, res) => {
+            try {
+                const limit = req.query['limit'] ? parseInt(req.query['limit'] as string) : 50;
+                const records = this.groupAlbumExporter.getExportRecords(limit);
+
+                this.sendSuccessResponse(res, {
+                    records,
+                    totalCount: records.length
+                }, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // ===================
+        // 群文件管理API
+        // ===================
+
+        // 获取群文件列表
+        this.app.get('/api/groups/:groupCode/files', async (req, res) => {
+            const requestId = (req as any).requestId;
+            try {
+                const { groupCode } = req.params;
+                const folderId = req.query['folderId'] as string || '/';
+                const startIndex = req.query['startIndex'] ? parseInt(req.query['startIndex'] as string) : 0;
+                const fileCount = req.query['fileCount'] ? parseInt(req.query['fileCount'] as string) : 100;
+                
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群号不能为空', 'MISSING_GROUP_CODE');
+                }
+
+                const { files, folders } = await this.groupFilesExporter.getGroupFileList(
+                    groupCode,
+                    folderId,
+                    startIndex,
+                    fileCount
+                );
+
+                this.sendSuccessResponse(res, {
+                    files,
+                    folders,
+                    fileCount: files.length,
+                    folderCount: folders.length
+                }, requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, requestId);
+            }
+        });
+
+        // 获取群文件数量
+        this.app.get('/api/groups/:groupCode/files/count', async (req, res) => {
+            const requestId = (req as any).requestId;
+            try {
+                const { groupCode } = req.params;
+                
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群号不能为空', 'MISSING_GROUP_CODE');
+                }
+
+                const count = await this.groupFilesExporter.getGroupFileCount(groupCode);
+
+                this.sendSuccessResponse(res, { count }, requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, requestId);
+            }
+        });
+
+        // 导出群文件列表（仅元数据）
+        this.app.post('/api/groups/:groupCode/files/export', async (req, res) => {
+            const requestId = (req as any).requestId;
+            try {
+                const { groupCode } = req.params;
+                const { groupName } = req.body;
+                
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群号不能为空', 'MISSING_GROUP_CODE');
+                }
+
+                const result = await this.groupFilesExporter.exportGroupFilesMetadata(
+                    groupCode,
+                    groupName || `群${groupCode}`,
+                    (progress) => {
+                        this.broadcastWebSocketMessage({
+                            type: 'files_export_progress',
+                            data: {
+                                groupCode,
+                                ...progress
+                            }
+                        });
+                    }
+                );
+
+                if (!result.success) {
+                    throw new SystemError(ErrorType.API_ERROR, result.error || '导出失败', 'EXPORT_FAILED');
+                }
+
+                this.sendSuccessResponse(res, result, requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, requestId);
+            }
+        });
+
+        // 导出群文件（含下载）
+        this.app.post('/api/groups/:groupCode/files/export-with-download', async (req, res) => {
+            const requestId = (req as any).requestId;
+            try {
+                const { groupCode } = req.params;
+                const { groupName } = req.body;
+                
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群号不能为空', 'MISSING_GROUP_CODE');
+                }
+
+                const result = await this.groupFilesExporter.exportGroupFilesWithDownload(
+                    groupCode,
+                    groupName || `群${groupCode}`,
+                    (progress) => {
+                        this.broadcastWebSocketMessage({
+                            type: 'files_export_progress',
+                            data: {
+                                groupCode,
+                                ...progress
+                            }
+                        });
+                    }
+                );
+
+                if (!result.success) {
+                    throw new SystemError(ErrorType.API_ERROR, result.error || '导出失败', 'EXPORT_FAILED');
+                }
+
+                this.sendSuccessResponse(res, result, requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, requestId);
+            }
+        });
+
+        // 获取群文件导出记录
+        this.app.get('/api/group-files/export-records', async (req, res) => {
+            try {
+                const limit = req.query['limit'] ? parseInt(req.query['limit'] as string) : 50;
+                const records = this.groupFilesExporter.getExportRecords(limit);
 
                 this.sendSuccessResponse(res, {
                     records,
