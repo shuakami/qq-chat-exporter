@@ -185,7 +185,7 @@ jobs:
           |--------|------|------|------|
           | **Shell 模式** | Windows x64 | 独立无头 QQ，适合服务器/自动化 | \`NapCat-QCE-Windows-x64-${VERSION}.zip\` |
           | **Shell 模式** | Linux x64 | 独立无头 QQ，适合服务器/Docker | \`NapCat-QCE-Linux-x64-${VERSION}.tar.gz\` |
-          | **Framework 模式** | 跨平台 | LiteLoader 插件，与 QQNT 共存 | \`NapCat-Framework-QCE-${VERSION}.zip\` |
+          | **Framework 模式** | Windows | QQNT 插件，与桌面 QQ 共存 | \`NapCat-Framework-QCE-${VERSION}.zip\` |
 
           > **如何选择？**
           > - **Shell 模式**：独立运行，需要单独登录 QQ，适合服务器部署和自动化备份
@@ -209,12 +209,9 @@ jobs:
           <details>
           <summary>Framework 模式使用方法</summary>
 
-          1. 安装 [LiteLoaderQQNT](https://liteloaderqqnt.github.io/)
-          2. 将解压后的文件夹复制到 LiteLoader 插件目录：
-             - Windows: \`%APPDATA%/LiteLoaderQQNT/plugins/NapCat/\`
-             - Linux: \`~/.config/LiteLoaderQQNT/plugins/NapCat/\`
-          3. 重启 QQNT
-          4. 访问 \`http://localhost:40653/qce-v4-tool\`
+          1. 解压下载的 \`NapCat-Framework-QCE-${VERSION}.zip\`
+          2. 运行 \`napiLoader.bat\`
+          3. 访问 \`http://localhost:40653/qce-v4-tool\`
 
           </details>
 
