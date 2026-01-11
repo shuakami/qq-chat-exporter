@@ -934,6 +934,15 @@ export class QQChatExporterApiServer {
             const selfInfo = this.core.selfInfo;
             const avatarUrl = selfInfo?.avatarUrl || (selfInfo?.uin ? `https://q1.qlogo.cn/g?b=qq&nk=${selfInfo.uin}&s=640` : null);
             
+            // 获取运行模式
+            const bridge = (globalThis as any).__NAPCAT_BRIDGE__;
+            const workingEnv = bridge?.workingEnv || 'unknown';
+            const workingEnvLabel = workingEnv === 'framework' 
+              ? 'Framework (QQNT插件模式)' 
+              : workingEnv === 'shell' 
+                ? 'Shell (独立无头模式)' 
+                : '未知';
+            
             this.sendSuccessResponse(res, {
                 name: APP_INFO.name,
                 copyright: APP_INFO.copyright,
@@ -941,6 +950,8 @@ export class QQChatExporterApiServer {
                 napcat: {
                     version: 'unknown',
                     online: selfInfo?.online || false,
+                    workingEnv,
+                    workingEnvLabel,
                     selfInfo: {
                         uid: selfInfo?.uid || '',
                         uin: selfInfo?.uin || '',
