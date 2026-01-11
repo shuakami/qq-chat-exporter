@@ -21,6 +21,8 @@ export interface SystemInfo {
   napcat: {
     version: string
     online: boolean
+    workingEnv?: 'shell' | 'framework' | 'unknown'
+    workingEnvLabel?: string
     selfInfo: {
       uid: string
       uin: string
