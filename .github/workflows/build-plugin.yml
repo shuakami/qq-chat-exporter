@@ -107,16 +107,22 @@ jobs:
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Build Framework plugin package
+      - name: Build Frontend
+        run: |
+          cd qce-v4-tool
+          pnpm install
+          pnpm run build
+
+      - name: Build Framework complete package
         run: python3 scripts/build-framework-plugin.py
         env:
           NODE_ENV: production
           QCE_VERSION: ${{ steps.version.outputs.version }}
 
-      - name: Upload Framework plugin artifact
+      - name: Upload Framework artifact
         uses: actions/upload-artifact@v4
         with:
-          name: QCE-Framework-Plugin-${{ steps.version.outputs.version }}
-          path: QCE-Framework-Plugin-*.zip
+          name: NapCat-Framework-QCE-${{ steps.version.outputs.version }}
+          path: NapCat-Framework-QCE-*.zip
           retention-days: 7
 
