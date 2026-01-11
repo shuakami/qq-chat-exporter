@@ -1445,36 +1445,40 @@ export default function QCEDashboard() {
                         {batchMode ? "退出批量模式" : "批量导出"}
                       </Button>
                     </motion.div>
-                    {batchMode && selectedItems.size > 0 && (
+                    {batchMode && (
                       <>
                         <motion.div whileTap={{ scale: 0.98 }}>
                           <Button 
-                            onClick={handleOpenBatchExportDialog} 
-                            className="rounded-full"
-                          >
-                            导出选中 ({selectedItems.size})
-                          </Button>
-                        </motion.div>
-                        <motion.div whileTap={{ scale: 0.98 }}>
-                          <Button 
                             onClick={handleSelectAll} 
-                            variant="ghost" 
+                            variant="outline" 
                             size="sm" 
                             className="rounded-full"
                           >
                             全选
                           </Button>
                         </motion.div>
-                        <motion.div whileTap={{ scale: 0.98 }}>
-                          <Button 
-                            onClick={handleClearSelection} 
-                            variant="ghost" 
-                            size="sm" 
-                            className="rounded-full"
-                          >
-                            清空
-                          </Button>
-                        </motion.div>
+                        {selectedItems.size > 0 && (
+                          <>
+                            <motion.div whileTap={{ scale: 0.98 }}>
+                              <Button 
+                                onClick={handleClearSelection} 
+                                variant="ghost" 
+                                size="sm" 
+                                className="rounded-full"
+                              >
+                                清空
+                              </Button>
+                            </motion.div>
+                            <motion.div whileTap={{ scale: 0.98 }}>
+                              <Button 
+                                onClick={handleOpenBatchExportDialog} 
+                                className="rounded-full"
+                              >
+                                导出选中 ({selectedItems.size})
+                              </Button>
+                            </motion.div>
+                          </>
+                        )}
                       </>
                     )}
                   </div>
