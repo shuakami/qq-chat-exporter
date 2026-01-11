@@ -1228,6 +1228,21 @@ export default function QCEDashboard() {
                     
                     {/* 右侧：状态指示器 */}
                     <div className="flex items-center gap-6">
+                      {/* 运行模式指示器 */}
+                      {systemInfo?.napcat.workingEnv && (
+                        <div className="flex items-center gap-2" title={systemInfo.napcat.workingEnvLabel || ''}>
+                          <span className={`w-2 h-2 rounded-full ${
+                            systemInfo.napcat.workingEnv === 'framework' 
+                              ? 'bg-purple-500' 
+                              : systemInfo.napcat.workingEnv === 'shell' 
+                                ? 'bg-blue-500' 
+                                : 'bg-gray-400'
+                          }`} />
+                          <span className="text-sm text-muted-foreground">
+                            {systemInfo.napcat.workingEnv === 'framework' ? 'Framework' : systemInfo.napcat.workingEnv === 'shell' ? 'Shell' : '未知'}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center gap-2">
                         <motion.span
                           className={`w-2 h-2 rounded-full ${wsConnected ? "bg-neutral-900" : "bg-red-400"}`}
