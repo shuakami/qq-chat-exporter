@@ -77,3 +77,46 @@ jobs:
       - name: Build complete
         run: echo "${{ matrix.platform }}-${{ matrix.arch }} build completed (version ${{ steps.version.outputs.version }})"
 
+  build-framework-plugin:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Generate build version
+        id: version
+        shell: bash
+        run: |
+          BASE_VERSION=$(node -p "require('./plugins/qq-chat-exporter/package.json').version")
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            VERSION="${BASE_VERSION}-pr${{ github.event.pull_request.number }}-${SHORT_SHA}"
+          else
+            VERSION="${BASE_VERSION}-dev-${SHORT_SHA}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Build Framework plugin package
+        run: python3 scripts/build-framework-plugin.py
+        env:
+          NODE_ENV: production
+          QCE_VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Upload Framework plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QCE-Framework-Plugin-${{ steps.version.outputs.version }}
+          path: QCE-Framework-Plugin-*.zip
+          retention-days: 7
+
