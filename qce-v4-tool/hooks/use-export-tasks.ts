@@ -445,8 +445,38 @@ export function useExportTasks(props?: UseExportTasksProps) {
     }
   }, [updateTaskProgress, apiCall, setTasks, tasks])
 
+  const isJsonlExport = useCallback((task: ExportTask): boolean => {
+    return task.fileName?.includes('_chunked_jsonl') || task.format === 'STREAMING_JSONL'
+  }, [])
+
+  const openTaskFileLocation = useCallback(async (task: ExportTask): Promise<boolean> => {
+    if (!task.filePath) {
+      setError('文件路径不存在')
+      return false
+    }
+
+    try {
+      await apiCall(`/api/open-file-location`, {
+        method: 'POST',
+        body: JSON.stringify({ filePath: task.filePath })
+      })
+      return true
+    } catch (err) {
+      const errorMessage = `打开文件位置失败: ${err instanceof Error ? err.message : "未知错误"}`
+      setError(errorMessage)
+      console.error("[QCE] Open file location error:", err)
+      return false
+    }
+  }, [apiCall])
+
   const downloadTask = useCallback(async (task: ExportTask) => {
     if (!task.fileName) return
+
+    // JSONL 导出是目录格式，应打开文件位置而非下载
+    if (isJsonlExport(task)) {
+      await openTaskFileLocation(task)
+      return
+    }
 
     try {
       await downloadFile(task.fileName)
@@ -455,7 +485,7 @@ export function useExportTasks(props?: UseExportTasksProps) {
       setError(errorMessage)
       console.error("[QCE] Download error:", err)
     }
-  }, [downloadFile])
+  }, [downloadFile, isJsonlExport, openTaskFileLocation])
 
   const deleteOriginalFiles = useCallback(async (taskId: string): Promise<boolean> => {
     try {
@@ -543,5 +573,7 @@ export function useExportTasks(props?: UseExportTasksProps) {
     getTaskStats,
     isDataStale,
     setError,
+    isJsonlExport,
+    openTaskFileLocation,
   }
 }
