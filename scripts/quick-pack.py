@@ -183,6 +183,258 @@ const CurrentPath = path.dirname(__filename);
             f.write(fixed_content)
         print("[x] Fixed loadNapCat.js")
     
+    # Update launcher scripts with portable QQ support (GUI file picker + path memory)
+    print("[4.2/11] Updating launcher scripts with portable QQ support...")
+    
+    # Common launcher logic for portable QQ support
+    launcher_common_logic = '''
+:resolve_qq_path
+rem Priority 1: Command line argument
+if not "%~1"=="" (
+    if exist "%~1" (
+        set "QQPath=%~1"
+        goto :save_and_boot
+    ) else (
+        echo [Error] Provided QQ path is invalid: %~1
+        goto :try_env
+    )
+)
+
+:try_env
+rem Priority 2: Environment variable
+if not "%NAPCAT_QQ_PATH%"=="" (
+    if exist "%NAPCAT_QQ_PATH%" (
+        set "QQPath=%NAPCAT_QQ_PATH%"
+        goto :napcat_boot
+    ) else (
+        echo [Warning] NAPCAT_QQ_PATH is set but invalid: %NAPCAT_QQ_PATH%
+    )
+)
+
+:try_saved
+rem Priority 3: Saved path from previous run
+if exist "%QQ_PATH_CONFIG%" (
+    set /p SavedPath=<"%QQ_PATH_CONFIG%"
+    if exist "!SavedPath!" (
+        set "QQPath=!SavedPath!"
+        echo [Info] Using saved QQ path: !SavedPath!
+        goto :napcat_boot
+    )
+)
+
+:try_registry
+rem Priority 4: Registry query
+for /f "tokens=2*" %%a in ('reg query "HKEY_LOCAL_MACHINE\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\QQ" /v "UninstallString" 2^>nul') do (
+    set "RetString=%%~b"
+    for %%x in ("!RetString!") do set "pathWithoutUninstall=%%~dpx"
+    set "QQPath=!pathWithoutUninstall!QQ.exe"
+    if exist "!QQPath!" goto :save_and_boot
+)
+
+:try_common_paths
+rem Priority 5: Common installation paths
+for %%p in (
+    "%ProgramFiles%\\Tencent\\QQNT\\QQ.exe"
+    "%ProgramFiles(x86)%\\Tencent\\QQNT\\QQ.exe"
+    "%LocalAppData%\\Programs\\Tencent\\QQNT\\QQ.exe"
+    "C:\\Program Files\\Tencent\\QQNT\\QQ.exe"
+    "D:\\Program Files\\Tencent\\QQNT\\QQ.exe"
+) do (
+    if exist %%p (
+        set "QQPath=%%~p"
+        goto :save_and_boot
+    )
+)
+
+:manual_select
+echo.
+echo ============================================
+echo   QQ Installation Not Found
+echo ============================================
+echo.
+echo Could not detect QQ installation automatically.
+echo This may happen if you are using a portable/green version of QQ.
+echo.
+echo Options:
+echo   [1] Browse for QQ.exe (GUI file picker)
+echo   [2] Enter path manually
+echo   [3] Exit
+echo.
+set /p choice="Select option (1/2/3): "
+
+if "%choice%"=="1" goto :gui_select
+if "%choice%"=="2" goto :text_input
+if "%choice%"=="3" exit /b 1
+goto :manual_select
+
+:gui_select
+echo.
+echo [Info] Opening file picker...
+for /f "delims=" %%i in ('powershell -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'QQ Executable (QQ.exe)|QQ.exe|All Files (*.*)|*.*'; $f.Title = 'Select QQ.exe'; $f.InitialDirectory = 'C:\\Program Files'; if ($f.ShowDialog() -eq 'OK') { $f.FileName } else { '' }"') do set "QQPath=%%i"
+
+if "%QQPath%"=="" (
+    echo [Error] No file selected.
+    goto :manual_select
+)
+goto :validate_path
+
+:text_input
+echo.
+set /p "QQPath=Enter full path to QQ.exe: "
+
+:validate_path
+if not exist "%QQPath%" (
+    echo [Error] File not found: %QQPath%
+    goto :manual_select
+)
+
+for %%f in ("%QQPath%") do set "filename=%%~nxf"
+if /i not "%filename%"=="QQ.exe" (
+    echo [Warning] Selected file is not QQ.exe, continue anyway? (Y/N)
+    set /p confirm="Confirm: "
+    if /i not "!confirm!"=="Y" goto :manual_select
+)
+
+:save_and_boot
+if not exist "%cd%\\config" mkdir "%cd%\\config"
+echo %QQPath%>"%QQ_PATH_CONFIG%"
+echo [Info] QQ path saved to config\\qq_path.txt
+
+:napcat_boot
+echo.
+echo [Info] Using QQ: %QQPath%
+echo.
+
+set NAPCAT_MAIN_PATH=%NAPCAT_MAIN_PATH:\\=/%
+echo (async () =^> {await import("file:///%NAPCAT_MAIN_PATH%")})() > "%NAPCAT_LOAD_PATH%"
+
+"%NAPCAT_LAUNCHER_PATH%" "%QQPath%" "%NAPCAT_INJECT_PATH%" %*
+'''
+
+    # launcher-user.bat (no admin, with pause)
+    launcher_user_bat = '''@echo off
+chcp 65001 >nul
+setlocal enabledelayedexpansion
+
+set NAPCAT_PATCH_PACKAGE=%cd%\\qqnt.json
+set NAPCAT_LOAD_PATH=%cd%\\loadNapCat.js
+set NAPCAT_INJECT_PATH=%cd%\\NapCatWinBootHook.dll
+set NAPCAT_LAUNCHER_PATH=%cd%\\NapCatWinBootMain.exe
+set NAPCAT_MAIN_PATH=%cd%\\napcat.mjs
+set QQ_PATH_CONFIG=%cd%\\config\\qq_path.txt
+''' + launcher_common_logic + '''
+pause
+'''
+
+    # launcher.bat (admin mode, no pause)
+    launcher_bat = '''@echo off
+chcp 65001 >nul
+setlocal enabledelayedexpansion
+
+net session >nul 2>&1
+if %errorLevel% == 0 (
+    echo Administrator mode detected.
+) else (
+    echo Please run this script in administrator mode.
+    powershell -Command "Start-Process 'wt.exe' -ArgumentList 'cmd /c cd /d \\"%cd%\\" && \\"%~f0\\" %*' -Verb runAs"
+    exit
+)
+
+set NAPCAT_PATCH_PACKAGE=%cd%\\qqnt.json
+set NAPCAT_LOAD_PATH=%cd%\\loadNapCat.js
+set NAPCAT_INJECT_PATH=%cd%\\NapCatWinBootHook.dll
+set NAPCAT_LAUNCHER_PATH=%cd%\\NapCatWinBootMain.exe
+set NAPCAT_MAIN_PATH=%cd%\\napcat.mjs
+set QQ_PATH_CONFIG=%cd%\\config\\qq_path.txt
+''' + launcher_common_logic
+
+    # launcher-win10.bat (admin mode for win10, no pause)
+    launcher_win10_bat = '''@echo off
+chcp 65001 >nul
+setlocal enabledelayedexpansion
+
+net session >nul 2>&1
+if %errorLevel% == 0 (
+    echo Administrator mode detected.
+) else (
+    echo Please run this script in administrator mode.
+    powershell -Command "Start-Process 'cmd.exe' -ArgumentList '/c cd /d \\"%cd%\\" && \\"%~f0\\" %*' -Verb runAs"
+    exit
+)
+
+set NAPCAT_PATCH_PACKAGE=%cd%\\qqnt.json
+set NAPCAT_LOAD_PATH=%cd%\\loadNapCat.js
+set NAPCAT_INJECT_PATH=%cd%\\NapCatWinBootHook.dll
+set NAPCAT_LAUNCHER_PATH=%cd%\\NapCatWinBootMain.exe
+set NAPCAT_MAIN_PATH=%cd%\\napcat.mjs
+set QQ_PATH_CONFIG=%cd%\\config\\qq_path.txt
+''' + launcher_common_logic
+
+    # launcher-win10-user.bat (no admin, with pause)
+    launcher_win10_user_bat = '''@echo off
+chcp 65001 >nul
+setlocal enabledelayedexpansion
+
+set NAPCAT_PATCH_PACKAGE=%cd%\\qqnt.json
+set NAPCAT_LOAD_PATH=%cd%\\loadNapCat.js
+set NAPCAT_INJECT_PATH=%cd%\\NapCatWinBootHook.dll
+set NAPCAT_LAUNCHER_PATH=%cd%\\NapCatWinBootMain.exe
+set NAPCAT_MAIN_PATH=%cd%\\napcat.mjs
+set QQ_PATH_CONFIG=%cd%\\config\\qq_path.txt
+''' + launcher_common_logic + '''
+pause
+'''
+
+    # reset-qq-path.bat
+    reset_qq_path_bat = '''@echo off
+chcp 65001 >nul
+setlocal enabledelayedexpansion
+
+echo.
+echo ============================================
+echo   Reset QQ Path Configuration
+echo ============================================
+echo.
+
+set QQ_PATH_CONFIG=%cd%\\config\\qq_path.txt
+
+if exist "%QQ_PATH_CONFIG%" (
+    echo Current saved path:
+    type "%QQ_PATH_CONFIG%"
+    echo.
+    echo.
+    set /p confirm="Delete saved path and reconfigure? (Y/N): "
+    if /i "!confirm!"=="Y" (
+        del "%QQ_PATH_CONFIG%"
+        echo [Info] Saved path deleted.
+        echo [Info] Run launcher-user.bat to reconfigure.
+    ) else (
+        echo [Info] Operation cancelled.
+    )
+) else (
+    echo [Info] No saved QQ path found.
+)
+
+echo.
+pause
+'''
+
+    launcher_files = {
+        "launcher.bat": launcher_bat,
+        "launcher-user.bat": launcher_user_bat,
+        "launcher-win10.bat": launcher_win10_bat,
+        "launcher-win10-user.bat": launcher_win10_user_bat,
+        "reset-qq-path.bat": reset_qq_path_bat
+    }
+    
+    for filename, content in launcher_files.items():
+        filepath = os.path.join(pack_dir, filename)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"  [x] Created {filename}")
+    
+    print("[x] Launcher scripts updated")
+    
     print("[x] Extracted")
     print()
     
