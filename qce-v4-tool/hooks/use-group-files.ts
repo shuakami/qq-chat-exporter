@@ -303,6 +303,27 @@ export function useGroupFiles() {
     }
   }, [api])
 
+  const downloadFile = useCallback(async (groupCode: string, fileId: string): Promise<string | null> => {
+    try {
+      const response = await api.apiCall<{ downloadUrl: string }>(
+        `/api/groups/${groupCode}/files/download`,
+        { 
+          method: 'POST',
+          body: JSON.stringify({ fileId })
+        }
+      )
+      
+      if (response.success && response.data?.downloadUrl) {
+        window.open(response.data.downloadUrl, '_blank')
+        return response.data.downloadUrl
+      }
+      return null
+    } catch (err) {
+      console.error('[useGroupFiles] 下载文件失败:', err)
+      return null
+    }
+  }, [api])
+
   // 格式化文件大小
   const formatFileSize = useCallback((bytes: number): string => {
     if (bytes === 0) return '0 B'
@@ -332,6 +353,7 @@ export function useGroupFiles() {
     exportFilesMetadata,
     exportFilesWithDownload,
     loadFileExportRecords,
+    downloadFile,
     
     // 通用
     loading,

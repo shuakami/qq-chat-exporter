@@ -186,63 +186,107 @@ export class GroupAlbumExporter {
         });
     }
 
-    /**
-     * 获取群相册列表
-     */
     async getAlbumList(groupCode: string): Promise<AlbumInfo[]> {
         try {
-            const result = await this.core.apis.WebApi.getAlbumList(groupCode);
+            console.log(`[GroupAlbumExporter] 获取相册列表: groupCode=${groupCode}`);
+            const result = await this.core.apis.WebApi.getAlbumListByNTQQ(groupCode);
             
-            if (result && Array.isArray(result)) {
-                return result.map((album: any) => ({
-                    albumId: album.id || album.albumId,
-                    albumName: album.title || album.name || `相册_${album.id}`,
-                    photoCount: album.photoCount || album.count || 0
-                }));
+            console.log('[GroupAlbumExporter] API返回:', JSON.stringify(result, null, 2).substring(0, 500));
+            
+            if (!result?.response) {
+                console.error('[GroupAlbumExporter] 获取相册列表失败: 无响应数据');
+                return [];
             }
+
+            if (result.response.result !== 0) {
+                console.error('[GroupAlbumExporter] 获取相册列表失败: result =', result.response.result, 'errMs =', result.response.errMs);
+                return [];
+            }
+
+            const albumList = result.response.album_list;
+            console.log(`[GroupAlbumExporter] 相册数量: ${albumList?.length || 0}`);
             
-            return [];
+            if (!albumList || !Array.isArray(albumList)) {
+                return [];
+            }
+
+            return albumList.map((album: any) => ({
+                albumId: album.album_id,
+                albumName: album.name || `相册_${album.album_id}`
+            }));
         } catch (error) {
             console.error('[GroupAlbumExporter] 获取相册列表失败:', error);
             return [];
         }
     }
 
-    /**
-     * 获取相册媒体列表
-     */
     async getAlbumMediaList(groupCode: string, albumId: string): Promise<AlbumMediaItem[]> {
         try {
-            const result = await this.core.apis.WebApi.getAlbumMediaListByNTQQ(groupCode, albumId);
-            
-            if (!result) return [];
-
+            console.log(`[GroupAlbumExporter] 获取相册媒体: groupCode=${groupCode}, albumId=${albumId}`);
             const mediaItems: AlbumMediaItem[] = [];
-            
-            // 解析返回的媒体数据
-            if (result && typeof result === 'object') {
-                const items = (result as any).media_list || (result as any).mediaList || [];
-                
-                for (const item of items) {
-                    const mediaItem: AlbumMediaItem = {
-                        id: item.id || item.lloc || `media_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                        url: item.url || item.originUrl || item.raw_url || '',
-                        thumbUrl: item.thumbUrl || item.thumb_url || '',
-                        type: item.type === 'video' || item.isVideo ? 'video' : 'image',
-                        uploadTime: item.uploadTime || item.upload_time,
-                        uploaderUin: item.uploaderUin || item.uploader_uin,
-                        uploaderNick: item.uploaderNick || item.uploader_nick,
-                        width: item.width,
-                        height: item.height,
-                        fileSize: item.fileSize || item.file_size
-                    };
+            let attachInfo = '';
+
+            while (true) {
+                const response = await this.core.apis.WebApi.getAlbumMediaListByNTQQ(groupCode, albumId, attachInfo);
+
+                console.log('[GroupAlbumExporter] 媒体API返回完整数据:', JSON.stringify(response, null, 2).substring(0, 2000));
+                console.log('[GroupAlbumExporter] 返回数据的所有键:', Object.keys(response || {}));
+
+                if (!response) {
+                    console.error('[GroupAlbumExporter] 获取相册媒体列表失败: 无响应数据');
+                    break;
+                }
+
+                if (response.result !== 0) {
+                    console.error('[GroupAlbumExporter] 获取相册媒体列表失败: result =', response.result, 'errMs =', (response as any).errMs);
+                    break;
+                }
+
+                // 尝试多种可能的字段名
+                const items = (response as any).media_list 
+                    || (response as any).mediaList 
+                    || (response as any).feed_list 
+                    || (response as any).feedList
+                    || (response as any).list
+                    || [];
                     
+                console.log(`[GroupAlbumExporter] 本次获取媒体数量: ${items.length}`);
+                
+                if (items.length > 0) {
+                    console.log('[GroupAlbumExporter] 第一个媒体项:', JSON.stringify(items[0], null, 2));
+                }
+
+                for (const item of items) {
+                    // 处理可能的嵌套结构
+                    const mediaData = item.cell_media || item.media || item;
+                    const imageData = mediaData.image || mediaData;
+                    
+                    const mediaItem: AlbumMediaItem = {
+                        id: imageData.lloc || item.lloc || item.id || `media_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        url: imageData.raw_url || imageData.url || imageData.originUrl || item.raw_url || item.url || '',
+                        thumbUrl: imageData.thumb_url || imageData.thumbUrl || item.thumb_url || '',
+                        type: (item.is_video || item.isVideo || mediaData.type === 1) ? 'video' : 'image',
+                        uploadTime: item.upload_time ? Number(item.upload_time) : undefined,
+                        uploaderUin: item.owner_uin || item.ownerUin,
+                        uploaderNick: item.owner_name || item.ownerName,
+                        width: imageData.width || item.width,
+                        height: imageData.height || item.height,
+                        fileSize: imageData.picsize || item.picsize || item.fileSize
+                    };
+
                     if (mediaItem.url) {
                         mediaItems.push(mediaItem);
                     }
                 }
+
+                const nextAttachInfo = (response as any).attach_info || (response as any).attachInfo;
+                if (!nextAttachInfo || items.length === 0) {
+                    break;
+                }
+                attachInfo = nextAttachInfo;
             }
-            
+
+            console.log(`[GroupAlbumExporter] 总共获取媒体: ${mediaItems.length}`);
             return mediaItems;
         } catch (error) {
             console.error('[GroupAlbumExporter] 获取相册媒体列表失败:', error);

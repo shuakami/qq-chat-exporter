@@ -156,61 +156,76 @@ export class GroupFilesExporter {
      */
     async getGroupFileList(
         groupCode: string,
-        folderId: string = '/',
+        folderId: string = '',
         startIndex: number = 0,
         fileCount: number = 100
     ): Promise<{ files: GroupFileInfo[]; folders: GroupFolderInfo[] }> {
         try {
-            const richMediaService = this.core.context.session.getRichMediaService();
+            console.log(`[GroupFilesExporter] 开始获取群文件列表: groupCode=${groupCode}, folderId=${folderId}, startIndex=${startIndex}, fileCount=${fileCount}`);
             
-            const result = await richMediaService.getGroupFileList(groupCode, {
+            const params = {
                 sortType: 1,
                 fileCount,
                 startIndex,
-                sortOrder: 1,
+                sortOrder: 2,
                 showOnlinedocFolder: 0,
                 folderId
-            });
+            };
+            console.log('[GroupFilesExporter] 请求参数:', JSON.stringify(params));
+            
+            const items = await this.core.apis.MsgApi.getGroupFileList(groupCode, params);
+            
+            console.log(`[GroupFilesExporter] API返回数据: items数量=${items?.length ?? 'undefined'}`);
+            if (items && items.length > 0) {
+                console.log('[GroupFilesExporter] 第一个item示例:', JSON.stringify(items[0], null, 2));
+            }
 
             const files: GroupFileInfo[] = [];
             const folders: GroupFolderInfo[] = [];
 
-            if (result && (result as any).groupSpaceResult) {
-                // 解析文件列表
-                const fileList = (result as any).fileList || [];
-                const folderList = (result as any).folderList || [];
+            if (!items || !Array.isArray(items)) {
+                console.warn('[GroupFilesExporter] API返回数据无效:', typeof items, items);
+                return { files: [], folders: [] };
+            }
 
-                for (const file of fileList) {
+            for (const item of items) {
+                if (item.fileInfo) {
+                    const fileInfo = item.fileInfo;
                     files.push({
-                        fileId: file.fileId || file.id,
-                        fileName: file.fileName || file.name,
-                        fileSize: file.fileSize || file.size || 0,
-                        uploadTime: file.uploadTime || file.uploadedTime || 0,
-                        uploaderUin: file.uploaderUin || file.uploadUin,
-                        uploaderNick: file.uploaderNick || file.uploadNick,
-                        downloadCount: file.downloadTimes || file.downloadCount || 0,
-                        deadTime: file.deadTime,
-                        modifyTime: file.modifyTime,
-                        parentFolderId: folderId
+                        fileId: fileInfo.fileId,
+                        fileName: fileInfo.fileName,
+                        fileSize: parseInt(fileInfo.fileSize, 10) || 0,
+                        uploadTime: fileInfo.uploadTime,
+                        uploaderUin: fileInfo.uploaderUin,
+                        uploaderNick: fileInfo.uploaderName,
+                        downloadCount: fileInfo.downloadTimes,
+                        deadTime: fileInfo.deadTime,
+                        modifyTime: fileInfo.modifyTime,
+                        parentFolderId: folderId || '/'
                     });
                 }
 
-                for (const folder of folderList) {
+                if (item.folderInfo) {
+                    const folderInfo = item.folderInfo;
                     folders.push({
-                        folderId: folder.folderId || folder.id,
-                        folderName: folder.folderName || folder.name,
-                        createTime: folder.createTime,
-                        creatorUin: folder.creatorUin,
-                        creatorNick: folder.creatorNick,
-                        totalFileCount: folder.totalFileCount || folder.fileCount || 0,
-                        parentFolderId: folderId
+                        folderId: folderInfo.folderId,
+                        folderName: folderInfo.folderName,
+                        createTime: folderInfo.createTime,
+                        creatorUin: folderInfo.createUin,
+                        creatorNick: folderInfo.creatorName,
+                        totalFileCount: folderInfo.totalFileCount,
+                        parentFolderId: folderId || '/'
                     });
                 }
             }
 
+            console.log(`[GroupFilesExporter] 解析结果: files=${files.length}, folders=${folders.length}`);
             return { files, folders };
         } catch (error) {
             console.error('[GroupFilesExporter] 获取群文件列表失败:', error);
+            if (error instanceof Error) {
+                console.error('[GroupFilesExporter] 错误堆栈:', error.stack);
+            }
             return { files: [], folders: [] };
         }
     }
@@ -220,15 +235,18 @@ export class GroupFilesExporter {
      */
     async getAllFilesRecursive(
         groupCode: string,
-        folderId: string = '/',
+        folderId: string = '',
         onProgress?: FileExportProgressCallback
     ): Promise<{ files: GroupFileInfo[]; folders: GroupFolderInfo[] }> {
+        console.log(`[GroupFilesExporter] 开始递归获取群文件: groupCode=${groupCode}`);
+        
         const allFiles: GroupFileInfo[] = [];
         const allFolders: GroupFolderInfo[] = [];
         const foldersToProcess: { id: string; name: string }[] = [{ id: folderId, name: '根目录' }];
 
         while (foldersToProcess.length > 0) {
             const currentFolder = foldersToProcess.shift()!;
+            console.log(`[GroupFilesExporter] 处理文件夹: ${currentFolder.name} (id=${currentFolder.id})`);
             
             onProgress?.({
                 phase: 'listing',
@@ -239,6 +257,8 @@ export class GroupFilesExporter {
 
             const { files, folders } = await this.getGroupFileList(groupCode, currentFolder.id);
             
+            console.log(`[GroupFilesExporter] 文件夹 ${currentFolder.name} 包含: ${files.length} 个文件, ${folders.length} 个子文件夹`);
+            
             allFiles.push(...files);
             
             for (const folder of folders) {
@@ -246,10 +266,10 @@ export class GroupFilesExporter {
                 foldersToProcess.push({ id: folder.folderId, name: folder.folderName });
             }
 
-            // 添加延迟避免请求过快
             await new Promise(resolve => setTimeout(resolve, 200));
         }
 
+        console.log(`[GroupFilesExporter] 递归获取完成: 总计 ${allFiles.length} 个文件, ${allFolders.length} 个文件夹`);
         return { files: allFiles, folders: allFolders };
     }
 
@@ -299,6 +319,27 @@ export class GroupFilesExporter {
     }
 
     /**
+     * 获取群文件下载链接
+     */
+    async getFileDownloadUrl(groupCode: string, fileId: string): Promise<string | null> {
+        try {
+            const fileUUID = fileId.startsWith('/') ? fileId.substring(1) : fileId;
+            console.log(`[GroupFilesExporter] 获取下载链接: groupCode=${groupCode}, fileUUID=${fileUUID}`);
+            
+            const url = await this.core.apis.PacketApi.pkt.operation.GetGroupFileUrl(
+                parseInt(groupCode, 10),
+                fileUUID
+            );
+            
+            console.log('[GroupFilesExporter] 下载链接:', url);
+            return url || null;
+        } catch (error) {
+            console.error('[GroupFilesExporter] 获取文件下载链接失败:', error);
+            return null;
+        }
+    }
+
+    /**
      * 导出群文件（仅元数据，不下载文件）
      */
     async exportGroupFilesMetadata(
@@ -314,12 +355,10 @@ export class GroupFilesExporter {
         try {
             fs.mkdirSync(exportDir, { recursive: true });
 
-            // 获取所有文件和文件夹
-            const { files, folders } = await this.getAllFilesRecursive(groupCode, '/', onProgress);
+            const { files, folders } = await this.getAllFilesRecursive(groupCode, '', onProgress);
 
             const totalSize = files.reduce((sum, f) => sum + f.fileSize, 0);
 
-            // 保存元数据
             const metadata = {
                 groupCode,
                 groupName,
@@ -331,7 +370,7 @@ export class GroupFilesExporter {
                     ...f,
                     files: files.filter(file => file.parentFolderId === f.folderId)
                 })),
-                rootFiles: files.filter(f => f.parentFolderId === '/')
+                rootFiles: files.filter(f => f.parentFolderId === '/' || f.parentFolderId === '')
             };
 
             fs.writeFileSync(
@@ -340,15 +379,13 @@ export class GroupFilesExporter {
                 'utf-8'
             );
 
-            // 生成可读的文件列表
             let readableList = `# ${groupName} 群文件列表\n`;
             readableList += `导出时间: ${new Date().toLocaleString('zh-CN')}\n`;
             readableList += `文件总数: ${files.length}\n`;
             readableList += `文件夹数: ${folders.length}\n`;
             readableList += `总大小: ${this.formatFileSize(totalSize)}\n\n`;
 
-            // 根目录文件
-            const rootFiles = files.filter(f => f.parentFolderId === '/');
+            const rootFiles = files.filter(f => f.parentFolderId === '/' || f.parentFolderId === '');
             if (rootFiles.length > 0) {
                 readableList += `## 根目录 (${rootFiles.length} 个文件)\n\n`;
                 for (const file of rootFiles) {
@@ -357,7 +394,6 @@ export class GroupFilesExporter {
                 readableList += '\n';
             }
 
-            // 各文件夹
             for (const folder of folders) {
                 const folderFiles = files.filter(f => f.parentFolderId === folder.folderId);
                 readableList += `## ${folder.folderName} (${folderFiles.length} 个文件)\n\n`;
@@ -373,7 +409,6 @@ export class GroupFilesExporter {
                 'utf-8'
             );
 
-            // 添加导出记录
             this.addRecord({
                 id: exportId,
                 groupCode,
@@ -448,28 +483,26 @@ export class GroupFilesExporter {
         try {
             fs.mkdirSync(exportDir, { recursive: true });
 
-            // 获取所有文件和文件夹
-            const { files, folders } = await this.getAllFilesRecursive(groupCode, '/', onProgress);
+            const { files, folders } = await this.getAllFilesRecursive(groupCode, '', onProgress);
 
             let downloadedCount = 0;
             let failedCount = 0;
             const totalSize = files.reduce((sum, f) => sum + f.fileSize, 0);
 
-            // 创建文件夹结构
             const folderPaths: Map<string, string> = new Map();
             folderPaths.set('/', exportDir);
+            folderPaths.set('', exportDir);
 
             for (const folder of folders) {
-                const parentPath = folderPaths.get(folder.parentFolderId || '/') || exportDir;
+                const parentPath = folderPaths.get(folder.parentFolderId || '') || exportDir;
                 const folderPath = path.join(parentPath, folder.folderName.replace(/[\/\\:*?"<>|]/g, '_'));
                 fs.mkdirSync(folderPath, { recursive: true });
                 folderPaths.set(folder.folderId, folderPath);
             }
 
-            // 下载文件
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
-                const parentPath = folderPaths.get(file.parentFolderId || '/') || exportDir;
+                const parentPath = folderPaths.get(file.parentFolderId || '') || exportDir;
                 const filePath = path.join(parentPath, file.fileName.replace(/[\/\\:*?"<>|]/g, '_'));
 
                 onProgress?.({
@@ -487,11 +520,9 @@ export class GroupFilesExporter {
                     failedCount++;
                 }
 
-                // 添加延迟避免请求过快
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
 
-            // 保存元数据
             const metadata = {
                 groupCode,
                 groupName,
@@ -511,7 +542,6 @@ export class GroupFilesExporter {
                 'utf-8'
             );
 
-            // 添加导出记录
             this.addRecord({
                 id: exportId,
                 groupCode,

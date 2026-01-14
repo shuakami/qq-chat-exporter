@@ -774,6 +774,7 @@ export class QQChatExporterApiServer {
                     '群文件管理': [
                         'GET /api/groups/:groupCode/files - 获取群文件列表',
                         'GET /api/groups/:groupCode/files/count - 获取群文件数量',
+                        'POST /api/groups/:groupCode/files/download - 获取单个文件下载链接',
                         'POST /api/groups/:groupCode/files/export - 导出群文件列表',
                         'POST /api/groups/:groupCode/files/export-with-download - 导出群文件（含下载）',
                         'GET /api/group-files/export-records?limit=50 - 获取群文件导出记录'
@@ -2475,6 +2476,34 @@ export class QQChatExporterApiServer {
                 const count = await this.groupFilesExporter.getGroupFileCount(groupCode);
 
                 this.sendSuccessResponse(res, { count }, requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, requestId);
+            }
+        });
+
+        // 获取单个文件下载链接（使用POST避免URL中的特殊字符问题）
+        this.app.post('/api/groups/:groupCode/files/download', async (req, res) => {
+            const requestId = (req as any).requestId;
+            try {
+                const { groupCode } = req.params;
+                const { fileId } = req.body;
+                
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群号不能为空', 'MISSING_GROUP_CODE');
+                }
+                if (!fileId) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '文件ID不能为空', 'MISSING_FILE_ID');
+                }
+
+                console.log(`[GroupFilesExporter] 下载文件: groupCode=${groupCode}, fileId=${fileId}`);
+                
+                const downloadUrl = await this.groupFilesExporter.getFileDownloadUrl(groupCode, fileId);
+
+                if (!downloadUrl) {
+                    throw new SystemError(ErrorType.API_ERROR, '获取下载链接失败', 'DOWNLOAD_URL_FAILED');
+                }
+
+                this.sendSuccessResponse(res, { downloadUrl }, requestId);
             } catch (error) {
                 this.sendErrorResponse(res, error, requestId);
             }
