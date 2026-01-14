@@ -181,8 +181,8 @@ jobs:
           <summary>使用方法</summary>
 
           **完整模式**（需要登录QQ，支持导出新记录）：
-          - **Windows**：解压后运行 \`launcher-user.bat\`
-          - **Linux**：运行 \`./launcher-user.sh\`
+          - **Windows**：解压后运行 \`launcher-user-debug.bat\`
+          - **Linux**：运行 \`./launcher-user-debug.sh\`
 
           **独立模式**（无需登录QQ，仅浏览已导出文件）：
           - **Windows**：运行 \`start-standalone.bat\`

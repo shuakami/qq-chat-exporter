@@ -316,12 +316,24 @@ export class QCEStandaloneServer {
                     throw new Error(`文件不存在: ${filePath}`);
                 }
                 
+                // 检查是文件还是目录
+                const isDirectory = fs.statSync(filePath).isDirectory();
                 const normalizedPath = filePath.replace(/\//g, '\\');
-                const command = process.platform === 'win32'
-                    ? `explorer /select,"${normalizedPath}"`
-                    : process.platform === 'darwin'
-                    ? `open -R "${filePath}"`
-                    : `xdg-open "${path.dirname(filePath)}"`;
+                
+                let command: string;
+                if (process.platform === 'win32') {
+                    command = isDirectory 
+                        ? `explorer "${normalizedPath}"`
+                        : `explorer /select,"${normalizedPath}"`;
+                } else if (process.platform === 'darwin') {
+                    command = isDirectory 
+                        ? `open "${filePath}"`
+                        : `open -R "${filePath}"`;
+                } else {
+                    command = isDirectory 
+                        ? `xdg-open "${filePath}"`
+                        : `xdg-open "${path.dirname(filePath)}"`;
+                }
                 
                 exec(command);
                 

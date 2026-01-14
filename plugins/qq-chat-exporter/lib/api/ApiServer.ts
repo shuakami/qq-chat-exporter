@@ -2910,17 +2910,32 @@ export class QQChatExporterApiServer {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, '缺少文件路径参数', 'MISSING_FILE_PATH');
                 }
 
-                // 检查文件是否存在
+                // 检查文件/目录是否存在
                 if (!fs.existsSync(filePath)) {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, '文件不存在', 'FILE_NOT_FOUND');
                 }
 
-                // Windows: 使用 explorer /select 打开文件位置并选中文件
-                const command = process.platform === 'win32' 
-                    ? `explorer /select,"${filePath.replace(/\//g, '\\')}"`
-                    : process.platform === 'darwin'
-                    ? `open -R "${filePath}"`
-                    : `xdg-open "${path.dirname(filePath)}"`;
+                // 检查是文件还是目录
+                const isDirectory = fs.statSync(filePath).isDirectory();
+
+                // Windows: 使用 explorer /select 打开文件位置并选中文件，目录则直接打开
+                // macOS: 使用 open -R 打开文件位置，目录则直接打开
+                // Linux: 使用 xdg-open 打开目录
+                let command: string;
+                if (process.platform === 'win32') {
+                    command = isDirectory 
+                        ? `explorer "${filePath.replace(/\//g, '\\')}"`
+                        : `explorer /select,"${filePath.replace(/\//g, '\\')}"`;
+                } else if (process.platform === 'darwin') {
+                    command = isDirectory 
+                        ? `open "${filePath}"`
+                        : `open -R "${filePath}"`;
+                } else {
+                    // Linux: 目录直接打开，文件打开其所在目录
+                    command = isDirectory 
+                        ? `xdg-open "${filePath}"`
+                        : `xdg-open "${path.dirname(filePath)}"`;
+                }
 
                 exec(command, (error) => {
                     if (error) {
