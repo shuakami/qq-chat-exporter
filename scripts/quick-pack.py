@@ -303,12 +303,41 @@ echo [Info] QQ path saved to config\\qq_path.txt
 :napcat_boot
 echo.
 echo [Info] Using QQ: %QQPath%
+
+rem Check if this is QQNT (required) vs old QQ
+echo %QQPath% | findstr /i "\\Bin\\QQ.exe" >nul
+if %errorlevel% equ 0 (
+    echo.
+    echo ============================================
+    echo   [Error] Incompatible QQ Version Detected
+    echo ============================================
+    echo.
+    echo The selected QQ appears to be the OLD version ^(QQ 9.x^).
+    echo NapCat requires QQNT ^(QQ 9.9.x or later^).
+    echo.
+    echo Your path: %QQPath%
+    echo.
+    echo QQNT paths typically look like:
+    echo   - C:\Program Files\Tencent\QQNT\QQ.exe
+    echo   - %LocalAppData%\Programs\Tencent\QQNT\QQ.exe
+    echo.
+    echo Please:
+    echo   1. Download QQNT from https://im.qq.com/
+    echo   2. Run reset-qq-path.bat to clear saved path
+    echo   3. Run this launcher again
+    echo.
+    goto :end_script
+)
+
 echo.
 
 set NAPCAT_MAIN_PATH=%NAPCAT_MAIN_PATH:\\=/%
 echo (async () =^> {await import("file:///%NAPCAT_MAIN_PATH%")})() > "%NAPCAT_LOAD_PATH%"
 
 "%NAPCAT_LAUNCHER_PATH%" "%QQPath%" "%NAPCAT_INJECT_PATH%" %*
+goto :end_script
+
+:end_script
 '''
 
     # launcher-user.bat (no admin, with pause)
@@ -324,6 +353,7 @@ set NAPCAT_MAIN_PATH=%cd%\\napcat.mjs
 set QQ_PATH_CONFIG=%cd%\\config\\qq_path.txt
 ''' + launcher_common_logic + '''
 pause
+exit /b
 '''
 
     # launcher.bat (admin mode, no pause)
@@ -383,6 +413,7 @@ set NAPCAT_MAIN_PATH=%cd%\\napcat.mjs
 set QQ_PATH_CONFIG=%cd%\\config\\qq_path.txt
 ''' + launcher_common_logic + '''
 pause
+exit /b
 '''
 
     # reset-qq-path.bat
