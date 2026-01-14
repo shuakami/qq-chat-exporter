@@ -231,6 +231,44 @@ export class GroupFilesExporter {
     }
 
     /**
+     * 获取单个文件夹的所有文件（带分页）
+     */
+    private async getGroupFileListPaginated(
+        groupCode: string,
+        folderId: string = ''
+    ): Promise<{ files: GroupFileInfo[]; folders: GroupFolderInfo[] }> {
+        const allFiles: GroupFileInfo[] = [];
+        const allFolders: GroupFolderInfo[] = [];
+        const pageSize = 100;
+        let startIndex = 0;
+        let hasMore = true;
+
+        while (hasMore) {
+            const { files, folders } = await this.getGroupFileList(groupCode, folderId, startIndex, pageSize);
+            
+            allFiles.push(...files);
+            allFolders.push(...folders);
+
+            // 如果返回的数量小于请求的数量，说明没有更多数据
+            const totalReturned = files.length + folders.length;
+            if (totalReturned < pageSize) {
+                hasMore = false;
+            } else {
+                startIndex += pageSize;
+                // 防止无限循环，设置最大页数限制
+                if (startIndex > 10000) {
+                    console.warn(`[GroupFilesExporter] 文件夹 ${folderId} 文件数量超过限制，停止分页`);
+                    hasMore = false;
+                }
+                // 分页间隔，避免请求过快
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+
+        return { files: allFiles, folders: allFolders };
+    }
+
+    /**
      * 递归获取所有文件和文件夹
      */
     async getAllFilesRecursive(
@@ -255,7 +293,8 @@ export class GroupFilesExporter {
                 folderName: currentFolder.name
             });
 
-            const { files, folders } = await this.getGroupFileList(groupCode, currentFolder.id);
+            // 使用分页获取，确保获取所有文件
+            const { files, folders } = await this.getGroupFileListPaginated(groupCode, currentFolder.id);
             
             console.log(`[GroupFilesExporter] 文件夹 ${currentFolder.name} 包含: ${files.length} 个文件, ${folders.length} 个子文件夹`);
             
