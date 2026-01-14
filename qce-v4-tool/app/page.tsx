@@ -230,6 +230,8 @@ export default function QCEDashboard() {
     setError,
     exportGroupAvatars,
     avatarExportLoading,
+    isJsonlExport,
+    openTaskFileLocation,
   } = useQCE({
     onNotification: (notification) => {
       setNotifications(prev => [...prev, { id: Date.now().toString(), ...notification }])
@@ -1406,9 +1408,19 @@ export default function QCEDashboard() {
                                     variant="outline"
                                     className="h-8 rounded-full"
                                     onClick={() => downloadTask(task)}
+                                    title={isJsonlExport(task) ? "JSONL 为目录格式，将打开文件夹" : "下载文件"}
                                   >
-                                    <Download className="w-3 h-3 mr-1" />
-                                    下载
+                                    {isJsonlExport(task) ? (
+                                      <>
+                                        <FolderOpen className="w-3 h-3 mr-1" />
+                                        打开
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Download className="w-3 h-3 mr-1" />
+                                        下载
+                                      </>
+                                    )}
                                   </Button>
                                 </motion.div>
                               </>
@@ -1903,9 +1915,19 @@ export default function QCEDashboard() {
                                     variant="outline"
                                     className="h-8 rounded-full"
                                     onClick={() => downloadTask(task)}
+                                    title={isJsonlExport(task) ? "JSONL 为目录格式，将打开文件夹" : "下载文件"}
                                   >
-                                    <Download className="w-3 h-3 mr-1" />
-                                    下载
+                                    {isJsonlExport(task) ? (
+                                      <>
+                                        <FolderOpen className="w-3 h-3 mr-1" />
+                                        打开
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Download className="w-3 h-3 mr-1" />
+                                        下载
+                                      </>
+                                    )}
                                   </Button>
                                 </motion.div>
                               </>

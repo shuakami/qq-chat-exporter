@@ -64,6 +64,8 @@ export function useQCE(props?: { onNotification?: UseExportTasksProps['onNotific
     deleteOriginalFiles: exportTasks.deleteOriginalFiles,
     getTaskStats: exportTasks.getTaskStats,
     isTaskDataStale: exportTasks.isDataStale,
+    isJsonlExport: exportTasks.isJsonlExport,
+    openTaskFileLocation: exportTasks.openTaskFileLocation,
 
     // Global States
     isLoading,
