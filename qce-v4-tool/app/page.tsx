@@ -13,6 +13,7 @@ import { MessagePreviewModal } from "@/components/ui/message-preview-modal"
 import { BatchExportDialog, type BatchExportItem, type BatchExportConfig } from "@/components/ui/batch-export-dialog"
 import { ScheduledBackupMergeDialog } from "@/components/ui/scheduled-backup-merge-dialog"
 import { GroupEssenceModal } from "@/components/ui/group-essence-modal"
+import { GroupFilesModal } from "@/components/ui/group-files-modal"
 import { SettingsPanel } from "@/components/ui/settings-panel"
 import {
   Dialog,
@@ -102,6 +103,10 @@ export default function QCEDashboard() {
   // 群精华消息模态框状态
   const [isEssenceModalOpen, setIsEssenceModalOpen] = useState(false)
   const [essenceGroup, setEssenceGroup] = useState<{ groupCode: string; groupName: string } | null>(null)
+  
+  // 群文件/群相册模态框状态
+  const [isGroupFilesModalOpen, setIsGroupFilesModalOpen] = useState(false)
+  const [groupFilesTarget, setGroupFilesTarget] = useState<{ groupCode: string; groupName: string } | null>(null)
   
   // 批量导出模式状态
   const [batchMode, setBatchMode] = useState(false)
@@ -225,6 +230,8 @@ export default function QCEDashboard() {
     setError,
     exportGroupAvatars,
     avatarExportLoading,
+    isJsonlExport,
+    openTaskFileLocation,
   } = useQCE({
     onNotification: (notification) => {
       setNotifications(prev => [...prev, { id: Date.now().toString(), ...notification }])
@@ -271,6 +278,18 @@ export default function QCEDashboard() {
   const handleCloseEssenceModal = () => {
     setIsEssenceModalOpen(false)
     setEssenceGroup(null)
+  }
+
+  // 打开群文件/群相册模态框
+  const handleOpenGroupFilesModal = (groupCode: string, groupName: string) => {
+    setGroupFilesTarget({ groupCode, groupName })
+    setIsGroupFilesModalOpen(true)
+  }
+
+  // 关闭群文件/群相册模态框
+  const handleCloseGroupFilesModal = () => {
+    setIsGroupFilesModalOpen(false)
+    setGroupFilesTarget(null)
   }
 
   // 打开文件位置
@@ -1404,9 +1423,19 @@ export default function QCEDashboard() {
                                     variant="outline"
                                     className="h-8 rounded-full"
                                     onClick={() => downloadTask(task)}
+                                    title={isJsonlExport(task) ? "JSONL 为目录格式，将打开文件夹" : "下载文件"}
                                   >
-                                    <Download className="w-3 h-3 mr-1" />
-                                    下载
+                                    {isJsonlExport(task) ? (
+                                      <>
+                                        <FolderOpen className="w-3 h-3 mr-1" />
+                                        打开
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Download className="w-3 h-3 mr-1" />
+                                        下载
+                                      </>
+                                    )}
                                   </Button>
                                 </motion.div>
                               </>
@@ -1592,6 +1621,16 @@ export default function QCEDashboard() {
                                       onClick={() => handleOpenEssenceModal(group.groupCode, group.groupName)}
                                     >
                                       精华
+                                    </Button>
+                                  </motion.div>
+                                  <motion.div whileTap={{ scale: 0.98 }}>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="rounded-full h-7 px-2.5 text-xs"
+                                      onClick={() => handleOpenGroupFilesModal(group.groupCode, group.groupName)}
+                                    >
+                                      文件
                                     </Button>
                                   </motion.div>
                                 </div>
@@ -1891,9 +1930,19 @@ export default function QCEDashboard() {
                                     variant="outline"
                                     className="h-8 rounded-full"
                                     onClick={() => downloadTask(task)}
+                                    title={isJsonlExport(task) ? "JSONL 为目录格式，将打开文件夹" : "下载文件"}
                                   >
-                                    <Download className="w-3 h-3 mr-1" />
-                                    下载
+                                    {isJsonlExport(task) ? (
+                                      <>
+                                        <FolderOpen className="w-3 h-3 mr-1" />
+                                        打开
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Download className="w-3 h-3 mr-1" />
+                                        下载
+                                      </>
+                                    )}
                                   </Button>
                                 </motion.div>
                               </>
@@ -2948,6 +2997,17 @@ export default function QCEDashboard() {
           groupCode={essenceGroup.groupCode}
           groupName={essenceGroup.groupName}
           onOpenFileLocation={openFileLocation}
+          onNotification={addNotification}
+        />
+      )}
+
+      {/* 群文件/群相册模态框 */}
+      {groupFilesTarget && (
+        <GroupFilesModal
+          isOpen={isGroupFilesModalOpen}
+          onClose={handleCloseGroupFilesModal}
+          groupCode={groupFilesTarget.groupCode}
+          groupName={groupFilesTarget.groupName}
           onNotification={addNotification}
         />
       )}

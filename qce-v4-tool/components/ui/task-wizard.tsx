@@ -1048,6 +1048,7 @@ export function TaskWizard({
     <>
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
+        fullScreen
         overlayClassName="bg-white/60 dark:bg-neutral-950/60 backdrop-blur-xl"
         className="flex flex-col h-full p-0"
       >

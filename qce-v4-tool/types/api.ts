@@ -386,3 +386,123 @@ export interface EssenceExportResponse {
   fileSize: number
   downloadUrl: string
 }
+
+
+// Group Album Types
+export interface AlbumInfo {
+  albumId: string
+  albumName: string
+  photoCount?: number
+}
+
+export interface AlbumMediaItem {
+  id: string
+  url: string
+  thumbUrl?: string
+  type: 'image' | 'video'
+  uploadTime?: number
+  uploaderUin?: string
+  uploaderNick?: string
+  width?: number
+  height?: number
+  fileSize?: number
+}
+
+export interface AlbumExportResult {
+  success: boolean
+  groupCode: string
+  groupName: string
+  albumCount: number
+  mediaCount: number
+  downloadedCount: number
+  failedCount: number
+  exportPath: string
+  exportId: string
+  error?: string
+}
+
+export interface AlbumExportRecord {
+  id: string
+  groupCode: string
+  groupName: string
+  albumCount: number
+  mediaCount: number
+  downloadedCount: number
+  exportPath: string
+  exportTime: string
+  success: boolean
+  error?: string
+}
+
+export interface AlbumsResponse {
+  albums: AlbumInfo[]
+  totalCount: number
+}
+
+export interface AlbumMediaResponse {
+  media: AlbumMediaItem[]
+  totalCount: number
+}
+
+// Group Files Types
+export interface GroupFileInfo {
+  fileId: string
+  fileName: string
+  fileSize: number
+  uploadTime: number
+  uploaderUin?: string
+  uploaderNick?: string
+  downloadCount?: number
+  deadTime?: number
+  modifyTime?: number
+  parentFolderId?: string
+}
+
+export interface GroupFolderInfo {
+  folderId: string
+  folderName: string
+  createTime?: number
+  creatorUin?: string
+  creatorNick?: string
+  totalFileCount?: number
+  parentFolderId?: string
+}
+
+export interface FileExportResult {
+  success: boolean
+  groupCode: string
+  groupName: string
+  fileCount: number
+  folderCount: number
+  downloadedCount: number
+  failedCount: number
+  totalSize: number
+  exportPath: string
+  exportId: string
+  error?: string
+}
+
+export interface FileExportRecord {
+  id: string
+  groupCode: string
+  groupName: string
+  fileCount: number
+  folderCount: number
+  downloadedCount: number
+  totalSize: number
+  exportPath: string
+  exportTime: string
+  success: boolean
+  error?: string
+}
+
+export interface GroupFilesResponse {
+  files: GroupFileInfo[]
+  folders: GroupFolderInfo[]
+  fileCount: number
+  folderCount: number
+}
+
+export interface GroupFileCountResponse {
+  count: number
+}

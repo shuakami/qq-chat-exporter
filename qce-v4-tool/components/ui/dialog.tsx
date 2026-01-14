@@ -34,21 +34,32 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
 type DialogContentProps = React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   overlayClassName?: string
+  fullScreen?: boolean
 }
 
 export const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(({ className, children, overlayClassName, ...props }, ref) => (
+>(({ className, children, overlayClassName, fullScreen = false, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay className={overlayClassName} />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        // 全屏覆盖显示，修复高分辨率屏幕定位偏移问题
-        "fixed inset-0 z-[101]",
-        "w-full h-full",
-        "bg-white dark:bg-neutral-900",
+        fullScreen
+          ? [
+              "fixed inset-0 z-[101]",
+              "w-full h-full",
+              "bg-white dark:bg-neutral-900",
+            ]
+          : [
+              "fixed left-1/2 top-1/2 z-[101]",
+              "-translate-x-1/2 -translate-y-1/2",
+              "w-full max-w-lg",
+              "bg-white dark:bg-neutral-900",
+              "rounded-lg shadow-lg",
+              "border border-neutral-200 dark:border-neutral-700",
+            ],
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
         "outline-none",
