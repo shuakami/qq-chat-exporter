@@ -230,6 +230,8 @@ export default function QCEDashboard() {
     setError,
     exportGroupAvatars,
     avatarExportLoading,
+    isJsonlExport,
+    openTaskFileLocation,
   } = useQCE({
     onNotification: (notification) => {
       setNotifications(prev => [...prev, { id: Date.now().toString(), ...notification }])
@@ -1245,6 +1247,21 @@ export default function QCEDashboard() {
                     
                     {/* 右侧：状态指示器 */}
                     <div className="flex items-center gap-6">
+                      {/* 运行模式指示器 */}
+                      {systemInfo?.napcat.workingEnv && (
+                        <div className="flex items-center gap-2" title={systemInfo.napcat.workingEnvLabel || ''}>
+                          <span className={`w-2 h-2 rounded-full ${
+                            systemInfo.napcat.workingEnv === 'framework' 
+                              ? 'bg-purple-500' 
+                              : systemInfo.napcat.workingEnv === 'shell' 
+                                ? 'bg-blue-500' 
+                                : 'bg-gray-400'
+                          }`} />
+                          <span className="text-sm text-muted-foreground">
+                            {systemInfo.napcat.workingEnv === 'framework' ? 'Framework' : systemInfo.napcat.workingEnv === 'shell' ? 'Shell' : '未知'}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center gap-2">
                         <motion.span
                           className={`w-2 h-2 rounded-full ${wsConnected ? "bg-neutral-900" : "bg-red-400"}`}
@@ -1406,9 +1423,19 @@ export default function QCEDashboard() {
                                     variant="outline"
                                     className="h-8 rounded-full"
                                     onClick={() => downloadTask(task)}
+                                    title={isJsonlExport(task) ? "JSONL 为目录格式，将打开文件夹" : "下载文件"}
                                   >
-                                    <Download className="w-3 h-3 mr-1" />
-                                    下载
+                                    {isJsonlExport(task) ? (
+                                      <>
+                                        <FolderOpen className="w-3 h-3 mr-1" />
+                                        打开
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Download className="w-3 h-3 mr-1" />
+                                        下载
+                                      </>
+                                    )}
                                   </Button>
                                 </motion.div>
                               </>
@@ -1903,9 +1930,19 @@ export default function QCEDashboard() {
                                     variant="outline"
                                     className="h-8 rounded-full"
                                     onClick={() => downloadTask(task)}
+                                    title={isJsonlExport(task) ? "JSONL 为目录格式，将打开文件夹" : "下载文件"}
                                   >
-                                    <Download className="w-3 h-3 mr-1" />
-                                    下载
+                                    {isJsonlExport(task) ? (
+                                      <>
+                                        <FolderOpen className="w-3 h-3 mr-1" />
+                                        打开
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Download className="w-3 h-3 mr-1" />
+                                        下载
+                                      </>
+                                    )}
                                   </Button>
                                 </motion.div>
                               </>

@@ -16,9 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.get_version.outputs.version }}
-      download_url: ${{ steps.get_version.outputs.download_url }}
     steps:
-      - name: "[x] 获取 NapCat 最新版本"
+      - name: "获取 NapCat 最新版本"
         id: get_version
         run: |
           NAPCAT_VERSION=$(curl -s https://api.github.com/repos/NapNeko/NapCatQQ/releases/latest | jq -r '.tag_name')
@@ -26,15 +25,10 @@ jobs:
             echo "无法获取最新版本，使用默认版本"
             NAPCAT_VERSION="v4.8.119"
           fi
-          NAPCAT_URL="https://github.com/NapNeko/NapCatQQ/releases/download/${NAPCAT_VERSION}/NapCat.Shell.zip"
-          
           echo "version=${NAPCAT_VERSION}" >> $GITHUB_OUTPUT
-          echo "download_url=${NAPCAT_URL}" >> $GITHUB_OUTPUT
-          
           echo "检测到 NapCat 版本: ${NAPCAT_VERSION}"
-          echo "下载地址: ${NAPCAT_URL}"
 
-  build-all-platforms:
+  build-shell-packages:
     strategy:
       matrix:
         include:
@@ -46,41 +40,32 @@ jobs:
             platform: Linux
             arch: x64
             artifact_ext: tar.gz
-          # macOS 因兼容性问题暂时不构建
-          # - os: macos-13
-          #   platform: macOS
-          #   arch: x64
-          #   artifact_ext: tar.gz
-          # - os: macos-latest
-          #   platform: macOS
-          #   arch: arm64
-          #   artifact_ext: tar.gz
     
     runs-on: ${{ matrix.os }}
     
     steps:
-      - name: "[1/5] Checkout repository"
+      - name: "Checkout repository"
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
       
-      - name: "[2/5] Setup Node.js & pnpm"
+      - name: "Setup Node.js"
         uses: actions/setup-node@v4
         with:
           node-version: 20.x
       
-      - name: "[3/5] Setup pnpm"
+      - name: "Setup pnpm"
         uses: pnpm/action-setup@v4
         with:
           version: 8
       
-      - name: "[4/5] Sync version from tag"
+      - name: "Sync version from tag"
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
           node scripts/sync-version.js "$VERSION"
         shell: bash
       
-      - name: "[5/5] Build complete package"
+      - name: "Build Shell package"
         run: python${{ matrix.platform == 'Windows' && '' || '3' }} scripts/quick-pack.py
         shell: bash
         env:
@@ -88,97 +73,126 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
           QCE_VERSION: ${{ github.ref_name }}
       
-      - name: "[x] 上传主包构建产物"
+      - name: "上传 Shell 构建产物"
         uses: actions/upload-artifact@v4
         with:
           name: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}
           path: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.${{ matrix.artifact_ext }}
           retention-days: 7
-      
 
-
-  create-release:
-    needs: [get-napcat-version, build-all-platforms]
+  build-framework-package:
     runs-on: ubuntu-latest
     
     steps:
-      - name: "[1/5] 检出仓库"
+      - name: "Checkout repository"
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
       
-      - name: "[2/5] 下载所有构建产物"
+      - name: "Setup Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+      
+      - name: "Setup pnpm"
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+      
+      - name: "Build Frontend"
+        run: |
+          cd qce-v4-tool
+          pnpm install
+          pnpm run build
+      
+      - name: "Build Framework package"
+        run: python3 scripts/build-framework-plugin.py
+        env:
+          NODE_ENV: production
+          QCE_VERSION: ${{ github.ref_name }}
+      
+      - name: "上传 Framework 构建产物"
+        uses: actions/upload-artifact@v4
+        with:
+          name: NapCat-Framework-QCE
+          path: NapCat-Framework-QCE-*.zip
+          retention-days: 7
+
+  create-release:
+    needs: [get-napcat-version, build-shell-packages, build-framework-package]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: "检出仓库"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: "下载所有构建产物"
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
       
-      - name: "[3/5] 准备发布文件"
+      - name: "准备发布文件"
         run: |
           mkdir -p release-files
-          # Copy main packages
           find artifacts/NapCat-QCE-Windows-x64 -type f -name "*.zip" -exec cp {} release-files/ \; 2>/dev/null || true
           find artifacts/NapCat-QCE-Linux-x64 -type f -name "*.tar.gz" -exec cp {} release-files/ \; 2>/dev/null || true
-
+          find artifacts/NapCat-Framework-QCE -type f -name "*.zip" -exec cp {} release-files/ \; 2>/dev/null || true
           echo "发布文件列表："
           ls -lh release-files/
       
-      - name: "[4/5] 生成发布说明"
+      - name: "生成发布说明"
         id: release_notes
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
           NAPCAT_VERSION="${{ needs.get-napcat-version.outputs.version }}"
           
-          # 判断是否为预发布版本
-          PRERELEASE_WARNING=""
-          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"rc"* ]]; then
-            PRERELEASE_WARNING=$'> [!TIP]\n> **'"${VERSION}"' 为 Beta 版本**，包含大量新功能但可能存在未知问题。如追求稳定，请使用 [最新稳定版](https://github.com/shuakami/qq-chat-exporter/releases?q=NOT+beta+NOT+alpha+NOT+rc&expanded=true)\n'
-          fi
-          
           # 获取上一个 tag
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           
-          # 生成更新内容：遍历所有 commit，有 body 的展开，没 body 的只显示标题
+          # 生成更新内容
           CHANGELOG=""
           if [ -n "$PREV_TAG" ]; then
-            for commit in $(git log ${PREV_TAG}..HEAD --format="%H" --reverse); do
-              subject=$(git log -1 --format="%s" $commit)
-              body=$(git log -1 --format="%b" $commit | sed '/^$/d')
-              
-              if [ -n "$body" ]; then
-                # 有 body，展开详细内容
-                CHANGELOG="${CHANGELOG}
-          
-          **${subject}**
-          
-          ${body}"
-              else
-                # 没 body，只显示标题
-                CHANGELOG="${CHANGELOG}
-          - ${subject}"
-              fi
-            done
+            while IFS= read -r commit; do
+              subject=$(git log -1 --format="%s" "$commit")
+              CHANGELOG="${CHANGELOG}- ${subject}
+          "
+            done < <(git log ${PREV_TAG}..HEAD --format="%H" --reverse)
           else
             CHANGELOG="- 首次发布完整集成包"
           fi
           
-          # 创建发布说明
+          # 判断是否为预发布版本
+          PRERELEASE_NOTE=""
+          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"rc"* ]]; then
+            PRERELEASE_NOTE="> **${VERSION} 为 Beta 版本**，包含大量新功能但可能存在未知问题。如追求稳定，请使用 [最新稳定版](https://github.com/shuakami/qq-chat-exporter/releases?q=NOT+beta+NOT+alpha+NOT+rc&expanded=true)"
+          fi
+          
+          # 写入发布说明
           cat > RELEASE_NOTES.md << EOF
-          集成了 NapCat ${NAPCAT_VERSION} 和 QQ 聊天记录导出插件 ${VERSION} 的开箱即用完整包。所有依赖已安装完毕，配置文件已预配置好，解压后直接运行即可使用。
+          集成了 NapCat 和 QQ 聊天记录导出插件的开箱即用完整包。所有依赖已安装完毕，配置文件已预配置好，解压后直接运行即可使用。
 
-          ${PRERELEASE_WARNING}
+          ${PRERELEASE_NOTE}
+
           ### ${VERSION} 更新内容
+
           ${CHANGELOG}
 
           ### 下载
 
-          | 平台 | 状态 | 文件 |
-          |------|------|------|
-          | Windows 10/11 x64 | ✅ 完全支持 | \`NapCat-QCE-Windows-x64-${VERSION}.zip\` |
-          | Linux x64 | ✅ 应该支持 | \`NapCat-QCE-Linux-x64-${VERSION}.tar.gz\` |
-          | macOS | ⚠️ 暂不支持 | 因兼容性问题暂不提供 |
+          | 包类型 | 平台 | 说明 | 文件 |
+          |--------|------|------|------|
+          | **Shell 模式** | Windows x64 | 独立无头 QQ，适合服务器/自动化 | \`NapCat-QCE-Windows-x64-${VERSION}.zip\` |
+          | **Shell 模式** | Linux x64 | 独立无头 QQ，适合服务器/Docker | \`NapCat-QCE-Linux-x64-${VERSION}.tar.gz\` |
+          | **Framework 模式** | Windows | QQNT 插件，与桌面 QQ 共存 | \`NapCat-Framework-QCE-${VERSION}.zip\` |
+
+          > **如何选择？**
+          > - **Shell 模式**：独立运行，需要单独登录 QQ，适合服务器部署和自动化备份
+          > - **Framework 模式**：作为 QQNT 插件运行，与正在使用的 QQ 共享登录，适合 Windows 桌面用户
 
           <details>
-          <summary>使用方法</summary>
+          <summary>Shell 模式使用方法</summary>
 
           **完整模式**（需要登录QQ，支持导出新记录）：
           - **Windows**：解压后运行 \`launcher-user.bat\`
@@ -193,17 +207,24 @@ jobs:
           </details>
 
           <details>
+          <summary>Framework 模式使用方法</summary>
+
+          1. 解压下载的 \`NapCat-Framework-QCE-${VERSION}.zip\`
+          2. 运行 \`napiLoader-debug.bat\`（可查看访问令牌）
+          3. 访问 \`http://localhost:40653/qce-v4-tool\`
+
+          </details>
+
+          <details>
           <summary>系统要求</summary>
 
           需要 QQ 客户端版本 34606 以上（推荐 9.9.19-34740），[下载地址](https://im.qq.com/)
 
           - **Windows**：Windows 10/11 x64。如提示缺少 DLL，安装 [Visual C++ 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-          - **Linux**：Ubuntu 20.04+ / Debian 11+ / CentOS 8+，glibc 2.31+。QQ 需安装在 \`/opt/QQ\` 或通过环境变量指定路径
+          - **Linux**：Ubuntu 20.04+ / Debian 11+ / CentOS 8+，glibc 2.31+
           - **macOS**：⚠️ 因兼容性问题暂不支持
 
           </details>
-
-          ---
 
           本软件完全免费开源，遵循 GPL-3.0 协议。如果有人向你收费，立即申请退款并举报。
 
@@ -216,13 +237,11 @@ jobs:
           </a>
           EOF
           
-          # 移除每行开头的空格（heredoc 缩进问题）
+          # 移除每行开头的空格
           sed -i 's/^          //' RELEASE_NOTES.md
-          
           echo "已为版本 ${VERSION} 生成发布说明"
-          echo "包含 NapCat ${NAPCAT_VERSION}"
       
-      - name: "[5/5] 创建 GitHub Release"
+      - name: "创建 GitHub Release"
         uses: softprops/action-gh-release@v1
         with:
           name: ${{ github.ref_name }}
@@ -234,15 +253,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: "[x] 发布完成"
+      - name: "发布完成"
         run: |
           echo "========================================="
           echo "版本 ${{ github.ref_name }} 发布成功！"
-          echo "包含 NapCat ${{ needs.get-napcat-version.outputs.version }}"
           echo "========================================="
-          echo "发布的文件："
-          echo "- ✅ NapCat-QCE-Windows-x64-${{ github.ref_name }}.zip"
-          echo "- ✅ NapCat-QCE-Linux-x64-${{ github.ref_name }}.tar.gz"
-          echo "- ⚠️  macOS 因兼容性问题暂不发布"
-          echo "========================================="
-
