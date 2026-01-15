@@ -672,6 +672,157 @@ export class SimpleMessageParser {
       return this.parseGrayTipElement(element.grayTipElement);
     }
 
+    // 长消息 (ElementType 13 - STRUCTLONGMSG)
+    if (element.structLongMsgElement) {
+      return {
+        type: 'long_message',
+        data: {
+          summary: '长消息',
+          resId: element.structLongMsgElement.resId || '',
+          xmlContent: element.structLongMsgElement.xmlContent || ''
+        }
+      };
+    }
+
+    // 音视频通话记录 (ElementType 21 - AVRECORD)
+    if (element.avRecordElement) {
+      const avRecord = element.avRecordElement;
+      const typeText = avRecord.type === 1 ? '语音通话' : avRecord.type === 2 ? '视频通话' : '通话';
+      const statusText = avRecord.text || '已结束';
+      return {
+        type: 'av_record',
+        data: {
+          summary: `${typeText} - ${statusText}`,
+          type: avRecord.type,
+          time: avRecord.time || '0',
+          text: statusText,
+          mainType: avRecord.mainType,
+          extraType: avRecord.extraType
+        }
+      };
+    }
+
+    // Markdown (ElementType 14 - MARKDOWN)
+    if (element.markdownElement) {
+      return {
+        type: 'markdown',
+        data: {
+          content: element.markdownElement.content || '',
+          summary: 'Markdown消息'
+        }
+      };
+    }
+
+    // Giphy动图 (ElementType 15 - GIPHY)
+    if (element.giphyElement) {
+      return {
+        type: 'giphy',
+        data: {
+          id: element.giphyElement.id || '',
+          width: element.giphyElement.width || 0,
+          height: element.giphyElement.height || 0,
+          isClip: element.giphyElement.isClip || false,
+          summary: 'Giphy动图'
+        }
+      };
+    }
+
+    // 内联键盘 (ElementType 17 - INLINEKEYBOARD)
+    if (element.inlineKeyboardElement) {
+      return {
+        type: 'inline_keyboard',
+        data: {
+          botAppid: element.inlineKeyboardElement.botAppid || '',
+          rows: element.inlineKeyboardElement.rows || [],
+          summary: '内联键盘'
+        }
+      };
+    }
+
+    // 日历 (ElementType 19 - CALENDAR)
+    if (element.calendarElement) {
+      return {
+        type: 'calendar',
+        data: {
+          summary: element.calendarElement.summary || '日历',
+          msg: element.calendarElement.msg || '',
+          expireTimeMs: element.calendarElement.expireTimeMs || '0',
+          schemaType: element.calendarElement.schemaType || 0
+        }
+      };
+    }
+
+    // YOLO游戏结果 (ElementType 20 - YOLOGAMERESULT)
+    if (element.yoloGameResultElement) {
+      return {
+        type: 'yolo_game_result',
+        data: {
+          userInfo: element.yoloGameResultElement.UserInfo || [],
+          summary: 'YOLO游戏结果'
+        }
+      };
+    }
+
+    // 表情气泡 (ElementType 27 - FACEBUBBLE)
+    if (element.faceBubbleElement) {
+      return {
+        type: 'face_bubble',
+        data: {
+          faceCount: element.faceBubbleElement.faceCount || 0,
+          faceSummary: element.faceBubbleElement.faceSummary || '',
+          summary: element.faceBubbleElement.faceSummary || '表情气泡'
+        }
+      };
+    }
+
+    // 豆腐记录 (ElementType 23 - TOFURECORD)
+    if (element.tofuRecordElement) {
+      return {
+        type: 'tofu_record',
+        data: {
+          type: element.tofuRecordElement.type || 0,
+          descriptionContent: element.tofuRecordElement.descriptionContent || '',
+          summary: element.tofuRecordElement.descriptionContent || '豆腐记录'
+        }
+      };
+    }
+
+    // 置顶任务消息 (ElementType 29 - TASKTOPMSG)
+    if (element.taskTopMsgElement) {
+      return {
+        type: 'task_top_msg',
+        data: {
+          msgTitle: element.taskTopMsgElement.msgTitle || '',
+          msgSummary: element.taskTopMsgElement.msgSummary || '',
+          iconUrl: element.taskTopMsgElement.iconUrl || '',
+          summary: element.taskTopMsgElement.msgTitle || '置顶消息'
+        }
+      };
+    }
+
+    // 推荐消息 (ElementType 43 - RECOMMENDEDMSG)
+    if (element.recommendedMsgElement) {
+      return {
+        type: 'recommended_msg',
+        data: {
+          botAppid: (element.recommendedMsgElement as any).botAppid || '',
+          summary: '推荐消息'
+        }
+      };
+    }
+
+    // 操作栏 (ElementType 44 - ACTIONBAR)
+    if (element.actionBarElement) {
+      return {
+        type: 'action_bar',
+        data: {
+          botAppid: element.actionBarElement.botAppid || '',
+          rows: element.actionBarElement.rows || [],
+          summary: '操作栏'
+        }
+      };
+    }
+
     // 未知类型
     console.warn(`[SimpleMessageParser] 未知消息元素类型: ${element.elementType}`, element);
     return {
@@ -753,6 +904,54 @@ export class SimpleMessageParser {
       case 'json': {
         const t = `[JSON消息]`;
         return { text: t, html: htmlEnabled ? `<div class="json">${t}</div>` : '' };
+      }
+      case 'long_message': {
+        const t = `[长消息]`;
+        return { text: t, html: htmlEnabled ? `<div class="long-message">${t}</div>` : '' };
+      }
+      case 'av_record': {
+        const t = element.data.summary || '[通话记录]';
+        return { text: t, html: htmlEnabled ? `<div class="av-record">${escapeHtmlFast(t)}</div>` : '' };
+      }
+      case 'markdown': {
+        const t = `[Markdown消息]`;
+        return { text: t, html: htmlEnabled ? `<div class="markdown">${t}</div>` : '' };
+      }
+      case 'giphy': {
+        const t = `[Giphy动图]`;
+        return { text: t, html: htmlEnabled ? `<div class="giphy">${t}</div>` : '' };
+      }
+      case 'inline_keyboard': {
+        const t = `[内联键盘]`;
+        return { text: t, html: htmlEnabled ? `<div class="inline-keyboard">${t}</div>` : '' };
+      }
+      case 'calendar': {
+        const t = element.data.summary || '[日历]';
+        return { text: t, html: htmlEnabled ? `<div class="calendar">${escapeHtmlFast(t)}</div>` : '' };
+      }
+      case 'yolo_game_result': {
+        const t = `[YOLO游戏结果]`;
+        return { text: t, html: htmlEnabled ? `<div class="yolo-game">${t}</div>` : '' };
+      }
+      case 'face_bubble': {
+        const t = element.data.summary || '[表情气泡]';
+        return { text: t, html: htmlEnabled ? `<div class="face-bubble">${escapeHtmlFast(t)}</div>` : '' };
+      }
+      case 'tofu_record': {
+        const t = element.data.summary || '[豆腐记录]';
+        return { text: t, html: htmlEnabled ? `<div class="tofu-record">${escapeHtmlFast(t)}</div>` : '' };
+      }
+      case 'task_top_msg': {
+        const t = element.data.summary || '[置顶消息]';
+        return { text: t, html: htmlEnabled ? `<div class="task-top">${escapeHtmlFast(t)}</div>` : '' };
+      }
+      case 'recommended_msg': {
+        const t = `[推荐消息]`;
+        return { text: t, html: htmlEnabled ? `<div class="recommended">${t}</div>` : '' };
+      }
+      case 'action_bar': {
+        const t = `[操作栏]`;
+        return { text: t, html: htmlEnabled ? `<div class="action-bar">${t}</div>` : '' };
       }
       case 'system': {
         const t = element.data.text || element.data.summary || '系统消息';
@@ -1242,18 +1441,54 @@ export class SimpleMessageParser {
   private getSystemMessageSummary(element: any): string {
     const t = element.elementType;
     switch (t) {
-      case 8:
+      case 8:  // ElementType.GreyTip
         return '系统提示消息';
-      case 9:
-        return '文件传输消息';
-      case 10:
-        return '语音通话消息';
-      case 11:
-        return '视频通话消息';
-      case 12:
-        return '红包消息';
-      case 13:
-        return '转账消息';
+      case 9:  // ElementType.WALLET
+        return '钱包/红包消息';
+      case 10: // ElementType.ARK
+        return 'Ark卡片消息';
+      case 11: // ElementType.MFACE
+        return '商城表情';
+      case 12: // ElementType.LIVEGIFT
+        return '直播礼物';
+      case 13: // ElementType.STRUCTLONGMSG
+        return '长消息';
+      case 14: // ElementType.MARKDOWN
+        return 'Markdown消息';
+      case 15: // ElementType.GIPHY
+        return 'Giphy动图';
+      case 16: // ElementType.MULTIFORWARD
+        return '合并转发';
+      case 17: // ElementType.INLINEKEYBOARD
+        return '内联键盘';
+      case 18: // ElementType.INTEXTGIFT
+        return '文内礼物';
+      case 19: // ElementType.CALENDAR
+        return '日历';
+      case 20: // ElementType.YOLOGAMERESULT
+        return 'YOLO游戏结果';
+      case 21: // ElementType.AVRECORD
+        return '音视频通话记录';
+      case 22: // ElementType.FEED
+        return '动态';
+      case 23: // ElementType.TOFURECORD
+        return '豆腐记录';
+      case 24: // ElementType.ACEBUBBLE
+        return 'ACE气泡';
+      case 25: // ElementType.ACTIVITY
+        return '活动';
+      case 26: // ElementType.TOFU
+        return '豆腐';
+      case 27: // ElementType.FACEBUBBLE
+        return '表情气泡';
+      case 28: // ElementType.SHARELOCATION
+        return '位置分享';
+      case 29: // ElementType.TASKTOPMSG
+        return '置顶任务消息';
+      case 43: // ElementType.RECOMMENDEDMSG
+        return '推荐消息';
+      case 44: // ElementType.ACTIONBAR
+        return '操作栏';
       default:
         return `系统消息 (类型: ${t})`;
     }
