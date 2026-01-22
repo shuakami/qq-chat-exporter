@@ -1,0 +1,1321 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="QQ 聊天记录导出工具">
+      
+      
+      
+        <link rel="canonical" href="https://shuakami.github.io/qq-chat-exporter/guide/">
+      
+      
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../feedback/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>使用手册 - QQ Chat Exporter</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#_1" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href=".." title="QQ Chat Exporter" class="md-header__button md-logo" aria-label="QQ Chat Exporter" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            QQ Chat Exporter
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              使用手册
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="切换到深色模式"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="切换到深色模式" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="切换到浅色模式"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="切换到浅色模式" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/shuakami/qq-chat-exporter" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    shuakami/qq-chat-exporter
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="QQ Chat Exporter" class="md-nav__button md-logo" aria-label="QQ Chat Exporter" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    QQ Chat Exporter
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/shuakami/qq-chat-exporter" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    shuakami/qq-chat-exporter
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    首页
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    使用手册
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    使用手册
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        目录
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        下载
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="下载">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        可用的下载包
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        如何选择模式？
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="如何选择模式？">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#shell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shell 模式
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#framework" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Framework 模式
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#framework_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Framework 模式使用方法
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        启动
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="启动">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        第一步：下载
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        第二步：选择模式启动
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="第二步：选择模式启动">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A. 完整模式（我要导出聊天记录）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B. 独立模式（我只看以前导出的文件）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        导出聊天记录
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="导出聊天记录">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        如何导出？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        关键设置说明
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        进阶玩法
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="进阶玩法">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        批量导出（我想把所有群都存下来）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        定时自动备份（每天自动存增量）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        超大群导出（几十万条消息防止卡死）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        常见场景
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="常见场景">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        场景 1：我要永久保存和某人的聊天记录
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        场景 2：定期备份活跃的群聊
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        场景 3：导出百万消息的大群
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        场景 4：只想要文字，不要图片（省空间）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../feedback/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    如何反馈问题
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    如何贡献
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        目录
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        下载
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="下载">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        可用的下载包
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        如何选择模式？
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="如何选择模式？">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#shell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shell 模式
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#framework" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Framework 模式
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#framework_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Framework 模式使用方法
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        启动
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="启动">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        第一步：下载
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        第二步：选择模式启动
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="第二步：选择模式启动">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A. 完整模式（我要导出聊天记录）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B. 独立模式（我只看以前导出的文件）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        导出聊天记录
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="导出聊天记录">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        如何导出？
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        关键设置说明
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        进阶玩法
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="进阶玩法">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        批量导出（我想把所有群都存下来）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        定时自动备份（每天自动存增量）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        超大群导出（几十万条消息防止卡死）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        常见场景
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="常见场景">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        场景 1：我要永久保存和某人的聊天记录
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        场景 2：定期备份活跃的群聊
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        场景 3：导出百万消息的大群
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        场景 4：只想要文字，不要图片（省空间）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+  <h1>使用手册</h1>
+
+<p>QCE 能把 QQ 聊天记录（好友/群聊）保存到电脑上。支持导出成网页（HTML）、数据（JSON）等格式，且能完整下载图片和视频。</p>
+<h2 id="_1">目录</h2>
+<ol>
+<li><a href="#下载">下载</a></li>
+<li><a href="#启动">启动</a></li>
+<li><a href="#导出聊天记录">导出聊天记录</a></li>
+<li><a href="#进阶玩法">进阶玩法</a></li>
+<li><a href="#常见场景">常见场景</a></li>
+</ol>
+<h2 id="_2">下载</h2>
+<h3 id="_3">可用的下载包</h3>
+<table>
+<thead>
+<tr>
+<th>包类型</th>
+<th>平台</th>
+<th>说明</th>
+<th>文件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Shell 模式</td>
+<td>Windows x64</td>
+<td>独立无头 QQ，适合服务器/自动化</td>
+<td>NapCat-QCE-Windows-x64-vxxx.zip</td>
+</tr>
+<tr>
+<td>Shell 模式</td>
+<td>Linux x64</td>
+<td>独立无头 QQ，适合服务器/Docker</td>
+<td>NapCat-QCE-Linux-x64-vxxx.tar.gz</td>
+</tr>
+<tr>
+<td>Framework 模式</td>
+<td>Windows</td>
+<td>QQNT 插件，与桌面 QQ 共存</td>
+<td>NapCat-Framework-QCE-vxxx.zip</td>
+</tr>
+</tbody>
+</table>
+<p>去 <a href="https://github.com/shuakami/qq-chat-exporter/releases">GitHub Releases</a> 下载。</p>
+<h3 id="_4">如何选择模式？</h3>
+<h4 id="shell">Shell 模式</h4>
+<p>独立运行，需要单独登录 QQ，适合服务器部署和自动化备份。这个模式下 QQ 在后台无头运行，不需要桌面界面。</p>
+<blockquote>
+<p>详细使用步骤请参考下方 <a href="#启动">启动</a> 中的 <strong>"A. 完整模式"</strong> 部分</p>
+</blockquote>
+<h4 id="framework">Framework 模式</h4>
+<p>作为 QQNT 插件运行，与正在使用的 QQ 共享登录，适合 Windows 桌面用户。这种模式与你的常用 QQ 集成，共享登录状态。</p>
+<h3 id="framework_1">Framework 模式使用方法</h3>
+<ol>
+<li>下载 <code>NapCat-Framework-QCE-vxxx.zip</code></li>
+<li>解压到合适的位置（如 <code>C:\Users\你的用户名\Documents\</code>）</li>
+<li><strong>重要</strong>：退出已有的 QQ 登录！</li>
+<li>运行 <code>napiLoader.bat</code></li>
+<li>用手机扫码登录 QQ</li>
+<li>在 <code>security.json</code> 中查找 <code>token</code></li>
+</ol>
+<details>
+<summary><strong>如何找到 token？</strong></summary>
+
+按 `Win + R`，输入 `%USERPROFILE%\.qq-chat-exporter` 并回车，打开 `security.json` 文件，找到 `accessToken` 字段：
+
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;accessToken&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;*lL@*7&amp;PEfNk03t@h^4e@psZlFuAB8G#&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;secretKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MVdUIkfAi#P4QyHrLeZQVdNG!esptU2fEnuNSZSb@or@4#4ARGV2NVLBdbSFD&amp;Pi&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2025-12-16T10:42:01.818Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">&quot;allowedIPs&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;127.0.0.1&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;::1&quot;</span><span class="p">],</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">&quot;tokenExpired&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-01-28T10:26:03.879Z&quot;</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="p">}</span>
+</code></pre></div>
+那么 `*lL@*7&PEfNk03t@h^4e@psZlFuAB8G#` 就是你要用的 token
+</details>
+
+<ol>
+<li>访问 <code>http://localhost:40653/qce-v4-tool</code>，使用找到的 token 进行操作</li>
+</ol>
+<h2 id="_5">启动</h2>
+<p>不需要安装任何复杂的环境，下载解压就能用。更多下载选项请参考 <a href="#下载">下载</a> 章节。</p>
+<h3 id="_6">第一步：下载</h3>
+<p>去 <a href="https://github.com/shuakami/qq-chat-exporter/releases">GitHub Releases</a> 下载对应系统的压缩包（比如 Windows 选 <code>.zip</code>），解压到一个文件夹里。</p>
+<p>或者使用 <a href="#下载">下载</a> 章节中提供的 Framework 模式下载。</p>
+<h3 id="_7">第二步：选择模式启动</h3>
+<p>QCE 有两种启动模式，看你需要干什么：</p>
+<h4 id="a">A. 完整模式（我要导出聊天记录）</h4>
+<p><em>需要登录 QQ，能获取新消息。</em></p>
+<ul>
+<li><strong>Windows</strong>：双击 <code>launcher-user.bat</code></li>
+<li><strong>Linux</strong>：运行 <code>./launcher-user.sh</code></li>
+<li><strong>操作</strong>：看黑底白字的控制台窗口，用手机 QQ 扫码登录。</li>
+<li><strong>打开界面</strong>：浏览器访问 <code>http://localhost:40653/qce-v4-tool</code>，输入控制台里显示的 <code>Access Token</code>。</li>
+</ul>
+<p><img alt="Token 位置" src="../images/token-location.png" /></p>
+<p>控制台这个里面选的就是 <code>Access Token</code></p>
+<blockquote>
+<p><strong>找不到 Token 或提示错误？</strong></p>
+<p>很简单，按住键盘上的 <code>Win</code> + <code>R</code> 键，粘贴下面这段话并回车：
+<code>%USERPROFILE%\.qq-chat-exporter</code></p>
+<p>在打开的文件夹里找到 <code>security.json</code>，右键用记事本打开，里面的 accessToken 对应的一长串字符就是你的 Token。</p>
+<p>比如：
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;accessToken&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;*lL@*7&amp;PEfNk03t@h^4e@psZlFuAB8G#&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">&quot;secretKey&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MVdUIkfAi#P4QyHrLeZQVdNG!esptU2fEnuNSZSb@or@4#4ARGV2NVLBdbSFD&amp;Pi&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">&quot;createdAt&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2025-12-16T10:42:01.818Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">&quot;allowedIPs&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;127.0.0.1&quot;</span><span class="p">,</span><span class="s2">&quot;::1&quot;</span><span class="p">],</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">&quot;tokenExpired&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-01-28T10:26:03.879Z&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nt">&quot;disableIPWhitelist&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span><span class="nt">&quot;lastAccess&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-01-21T10:27:37.619Z&quot;</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="p">}</span>
+</code></pre></div>
+这个 <code>*lL@*7&amp;PEfNk03t@h^4e@psZlFuAB8G#</code> 就是我的 Token</p>
+</blockquote>
+<h4 id="b">B. 独立模式（我只看以前导出的文件）</h4>
+<p><em>不需要登录 QQ，只能查看已下载的备份。</em></p>
+<ul>
+<li><strong>Windows</strong>：双击 <code>start-standalone.bat</code></li>
+<li><strong>Linux</strong>：运行 <code>./start-standalone.sh</code></li>
+<li><strong>操作</strong>：直接访问 <code>http://localhost:40653/qce-v4-tool</code>，无需 Token。</li>
+</ul>
+<h2 id="_8">导出聊天记录</h2>
+<p>进入界面后，看左侧菜单的 <strong>会话 (Sessions)</strong>，这里列出了你的所有好友和群。</p>
+<h3 id="_9">如何导出？</h3>
+<ol>
+<li>在列表中找到你想备份的好友或群（找不到点一下右上角"刷新"）。</li>
+<li>点击右边的 <strong>导出</strong> 按钮。</li>
+<li>在弹窗里选好格式和时间，点 <strong>创建任务</strong>。</li>
+<li>去 <strong>任务</strong> 页面看进度，完成后点 <strong>打开文件位置</strong>。</li>
+</ol>
+<p><img alt="导出按钮" src="../images/export-button.png" /></p>
+<h3 id="_10">关键设置说明</h3>
+<p><strong>选什么格式？</strong></p>
+<ul>
+<li><strong>HTML</strong>：导出成网页，长得和手机 QQ 界面一样，带头像和气泡，适合人看。</li>
+<li><strong>JSON</strong>：给程序员用的，或者用来做数据分析。</li>
+<li><strong>TXT</strong>：纯文字，没图没表情，体积最小。</li>
+</ul>
+<p><strong>媒体资源（图片/视频）</strong></p>
+<ul>
+<li>默认会自动下载图片视频。</li>
+<li><strong>注意</strong>：导出 HTML 时会生成一个 <code>.html</code> 文件和一个 <code>resources</code> 文件夹。<strong>千万别把它俩分开</strong>，否则图片会加载不出来。</li>
+<li>推荐勾选"导出为 ZIP"，打包在一起最安全。</li>
+</ul>
+<p><strong>时间范围</strong></p>
+<ul>
+<li>不填就是导出所有历史记录。</li>
+<li>想省时间可以只选最近一个月。</li>
+</ul>
+<p><img alt="导出设置" src="../images/export-settings.png" /></p>
+<h2 id="_11">进阶玩法</h2>
+<h3 id="_12">批量导出（我想把所有群都存下来）</h3>
+<ol>
+<li>在 <strong>会话</strong> 页面点右上角 <strong>批量导出</strong>。</li>
+<li>点 <strong>全选</strong>（或者手动勾选几个）。</li>
+<li>点 <strong>导出选中</strong>，统一设置格式，挂机等它跑完就行。</li>
+</ol>
+<h3 id="_13">定时自动备份（每天自动存增量）</h3>
+<p>不想每次手动点？可以设个闹钟自动跑。</p>
+<ol>
+<li>去 <strong>定时</strong> 页面 -&gt; <strong>新建定时任务</strong>。</li>
+<li><strong>调度策略</strong>：比如选"每天"。</li>
+<li><strong>时间范围技巧</strong>：选 <strong>昨天</strong>。这样每天只存过去 24 小时的新消息，速度快。</li>
+<li><strong>合并</strong>：月底可以用 <strong>合并备份</strong> 功能，把每天生成的碎片文件拼成一个完整的大文件。</li>
+</ol>
+<h3 id="_14">超大群导出（几十万条消息防止卡死）</h3>
+<p>如果是好几年的老群，消息量巨大（百万级），普通导出可能会让软件崩溃。</p>
+<ul>
+<li><strong>开启方法</strong>：导出时点开 <strong>高级选项</strong>，勾选 <strong>流式导出 (Stream Export)</strong>。</li>
+<li><strong>效果</strong>：它会把记录切分成小块处理，生成一个特殊的 ZIP 包，解压后打开 <code>index.html</code> 依然能流畅浏览。</li>
+</ul>
+<h2 id="_15">常见场景</h2>
+<h3 id="1">场景 1：我要永久保存和某人的聊天记录</h3>
+<ul>
+<li><strong>做法</strong>：找到好友 -&gt; 导出 -&gt; 选 <strong>HTML</strong> 格式 -&gt; 时间留空（全量） -&gt; 勾选 <strong>导出为 ZIP</strong>。</li>
+<li><strong>结果</strong>：你会得到一个压缩包，存到硬盘或网盘里。哪怕以后 QQ 没了，解压出来双击 html 文件就能完美重现聊天场景。</li>
+</ul>
+<h3 id="2">场景 2：定期备份活跃的群聊</h3>
+<ul>
+<li><strong>做法</strong>：新建定时任务 -&gt; 选群 -&gt; 设为"每天"凌晨 3 点 -&gt; 范围选"昨天"。</li>
+<li><strong>结果</strong>：软件每天半夜自动干活。如果想看完整的，用"合并备份"功能把它们连起来。</li>
+</ul>
+<h3 id="3">场景 3：导出百万消息的大群</h3>
+<ul>
+<li><strong>做法</strong>：导出 -&gt; 高级选项 -&gt; 勾选 <strong>流式导出</strong> -&gt; 选 HTML。</li>
+<li><strong>结果</strong>：得到一个分段加载的网页包。看的时候滚轮滚到哪，它加载到哪，完全不卡。</li>
+</ul>
+<h3 id="4">场景 4：只想要文字，不要图片（省空间）</h3>
+<ul>
+<li><strong>做法</strong>：导出时勾选 <strong>快速导出（跳过资源下载）</strong>，或者格式选 <strong>TXT</strong>。</li>
+<li><strong>结果</strong>：速度极快，几秒钟搞定，文件只有几 MB。</li>
+</ul>
+<blockquote>
+<p><strong>遇到问题？</strong> 开发文档和 API 可以在这里看：<a href="https://deepwiki.com/shuakami/qq-chat-exporter">DeepWiki API Reference</a></p>
+</blockquote>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
