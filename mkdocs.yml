@@ -1,0 +1,50 @@
+site_name: QQ Chat Exporter
+site_url: https://shuakami.github.io/qq-chat-exporter/
+site_description: QQ 聊天记录导出工具
+repo_url: https://github.com/shuakami/qq-chat-exporter
+repo_name: shuakami/qq-chat-exporter
+docs_dir: docs
+
+theme:
+  name: material
+  language: zh
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 切换到深色模式
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 切换到浅色模式
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search:
+      lang: zh
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - attr_list
+  - md_in_html
+
+nav:
+  - 首页: index.md
+  - 使用手册: guide.md
+  - 如何反馈问题: feedback.md
+  - 如何贡献: contributing.md
