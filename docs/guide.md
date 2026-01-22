@@ -44,13 +44,8 @@ QCE 能把 QQ 聊天记录（好友/群聊）保存到电脑上。支持导出�
 <details>
 <summary><strong>如何找到 token？</strong></summary>
 
-很简单，按照下面步骤操作：
+按 `Win + R`，输入 `%USERPROFILE%\.qq-chat-exporter` 并回车，打开 `security.json` 文件，找到 `accessToken` 字段：
 
-1. 打开解压后的文件夹
-2. 找到 `security.json` 文件，右键用记事本打开
-3. 查找 `"accessToken"` 字段，冒号后面的一长串字符就是你的 token
-
-比如你看到这样的内容：
 ```json
 {
   "accessToken": "*lL@*7&PEfNk03t@h^4e@psZlFuAB8G#",
