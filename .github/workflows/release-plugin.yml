@@ -210,8 +210,23 @@ jobs:
           <summary>Framework 模式使用方法</summary>
 
           1. 解压下载的 \`NapCat-Framework-QCE-${VERSION}.zip\`
-          2. 运行 \`napiLoader-debug.bat\`（可查看访问令牌）
-          3. 访问 \`http://localhost:40653/qce-v4-tool\`
+          2. 运行 \`napiLoader.bat\`
+          3. 用手机扫码登录 QQ
+          4. 访问 \`http://localhost:40653/qce-v4-tool\`
+
+          <details>
+          <summary>如何找到访问令牌？</summary>
+
+          打开解压目录下的 \`security.json\` 文件，找到 \`accessToken\` 字段：
+
+          \`\`\`json
+          {
+            "accessToken": "你的令牌在这里",
+            ...
+          }
+          \`\`\`
+
+          </details>
 
           </details>
 
