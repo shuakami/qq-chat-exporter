@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: "📖 用户手册"
-    url: https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C
+    url: https://shuakami.github.io/qq-chat-exporter/
     about: "完整使用教程，从入门到进阶"
   - name: "📌 已知问题汇总"
     url: https://github.com/shuakami/qq-chat-exporter/issues/164

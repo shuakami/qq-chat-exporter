@@ -6,7 +6,7 @@
 
 ## 文档
 
-访问 https://sdjz.wiki/post/qce用户手册 查看使用文档。
+访问 https://shuakami.github.io/qq-chat-exporter/ 查看使用文档。
 
 ## 快速开始
 
