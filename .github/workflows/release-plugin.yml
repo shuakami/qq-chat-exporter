@@ -217,7 +217,7 @@ jobs:
           <details>
           <summary>如何找到访问令牌？</summary>
 
-          打开解压目录下的 \`security.json\` 文件，找到 \`accessToken\` 字段：
+          按 \`Win + R\`，输入 \`%USERPROFILE%\\.qq-chat-exporter\` 并回车，打开 \`security.json\` 文件，找到 \`accessToken\` 字段：
 
           \`\`\`json
           {
