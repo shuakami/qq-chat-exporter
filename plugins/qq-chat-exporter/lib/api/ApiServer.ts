@@ -774,7 +774,10 @@ export class QQChatExporterApiServer {
                     '群文件管理': [
                         'GET /api/groups/:groupCode/files - 获取群文件列表',
                         'GET /api/groups/:groupCode/files/count - 获取群文件数量',
+<<<<<<< HEAD
                         'POST /api/groups/:groupCode/files/download - 获取单个文件下载链接',
+=======
+>>>>>>> 5fa4ced (feat: add group files and album export functionality (closes #245))
                         'POST /api/groups/:groupCode/files/export - 导出群文件列表',
                         'POST /api/groups/:groupCode/files/export-with-download - 导出群文件（含下载）',
                         'GET /api/group-files/export-records?limit=50 - 获取群文件导出记录'
@@ -2492,6 +2495,7 @@ export class QQChatExporterApiServer {
             }
         });
 
+<<<<<<< HEAD
         // 获取单个文件下载链接（使用POST避免URL中的特殊字符问题）
         this.app.post('/api/groups/:groupCode/files/download', async (req, res) => {
             const requestId = (req as any).requestId;
@@ -2520,6 +2524,8 @@ export class QQChatExporterApiServer {
             }
         });
 
+=======
+>>>>>>> 5fa4ced (feat: add group files and album export functionality (closes #245))
         // 导出群文件列表（仅元数据）
         this.app.post('/api/groups/:groupCode/files/export', async (req, res) => {
             const requestId = (req as any).requestId;
