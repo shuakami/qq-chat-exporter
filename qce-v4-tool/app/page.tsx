@@ -11,6 +11,7 @@ import { ScheduledExportWizard } from "@/components/ui/scheduled-export-wizard"
 import { ExecutionHistoryModal } from "@/components/ui/execution-history-modal"
 import { MessagePreviewModal } from "@/components/ui/message-preview-modal"
 import { BatchExportDialog, type BatchExportItem, type BatchExportConfig } from "@/components/ui/batch-export-dialog"
+import { SessionList } from "@/components/ui/session-list"
 import { ScheduledBackupMergeDialog } from "@/components/ui/scheduled-backup-merge-dialog"
 import { GroupEssenceModal } from "@/components/ui/group-essence-modal"
 import { GroupFilesModal } from "@/components/ui/group-files-modal"
@@ -1450,7 +1451,7 @@ export default function QCEDashboard() {
             )}
 
             {activeTab === "sessions" && (
-              <motion.div key="tab-sessions" {...fadeSlide} className="space-y-10 pt-10">
+              <motion.div key="tab-sessions" {...fadeSlide} className="space-y-6 pt-10">
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-2xl font-semibold tracking-tight text-foreground">会话管理</h2>
@@ -1474,279 +1475,28 @@ export default function QCEDashboard() {
                         {batchMode ? "退出批量模式" : "批量导出"}
                       </Button>
                     </motion.div>
-                    {batchMode && (
-                      <>
-                        <motion.div whileTap={{ scale: 0.98 }}>
-                          <Button 
-                            onClick={handleSelectAll} 
-                            variant="outline" 
-                            size="sm" 
-                            className="rounded-full"
-                          >
-                            全选
-                          </Button>
-                        </motion.div>
-                        {selectedItems.size > 0 && (
-                          <>
-                            <motion.div whileTap={{ scale: 0.98 }}>
-                              <Button 
-                                onClick={handleClearSelection} 
-                                variant="ghost" 
-                                size="sm" 
-                                className="rounded-full"
-                              >
-                                清空
-                              </Button>
-                            </motion.div>
-                            <motion.div whileTap={{ scale: 0.98 }}>
-                              <Button 
-                                onClick={handleOpenBatchExportDialog} 
-                                className="rounded-full"
-                              >
-                                导出选中 ({selectedItems.size})
-                              </Button>
-                            </motion.div>
-                          </>
-                        )}
-                      </>
-                    )}
                   </div>
                 </div>
 
-                {groups.length === 0 && friends.length === 0 ? (
-                  <motion.div
-                    className="rounded-2xl border border-dashed border-border bg-background/60 py-14 text-center"
-                    initial={{ opacity: 0, scale: 0.98, y: 6 }}
-                    animate={{ opacity: 1, scale: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
-                  >
-                    <p className="text-foreground">暂无会话数据</p>
-                    <p className="text-muted-foreground mt-1">请确认 QQ 已连接，然后点击 "刷新列表"</p>
-                  </motion.div>
-                ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Groups */}
-                    {groups.length > 0 && (
-                      <section className="space-y-3">
-                        <h3 className="text-sm font-medium text-foreground">群组（{groups.length}）</h3>
-                        <motion.div
-                          className="space-y-2"
-                          variants={STAG.container}
-                          initial="initial"
-                          animate="animate"
-                          exit="exit"
-                        >
-                          {groups.map((group, idx) => {
-                            const isSelected = selectedItems.has(`group_${group.groupCode}`)
-                            return (
-                            <motion.div
-                              key={group.groupCode}
-                              className={[
-                                "flex items-center gap-3 rounded-2xl border px-4 py-3 transition",
-                                batchMode 
-                                  ? isSelected 
-                                    ? "border-border bg-muted"
-                                    : "border-border bg-background/70 hover:bg-muted cursor-pointer"
-                                  : "border-border bg-background/70 hover:bg-muted"
-                              ].join(" ")}
-                              variants={STAG.item}
-                              {...hoverLift}
-                              onClick={() => batchMode && handleToggleItem('group', group.groupCode)}
-                            >
-                              {batchMode && (
-                                <Checkbox
-                                  checked={isSelected}
-                                  onCheckedChange={() => handleToggleItem('group', group.groupCode)}
-                                  onClick={(e) => e.stopPropagation()}
-                                />
-                              )}
-                              <Avatar className="w-10 h-10 rounded-xl overflow-hidden">
-                                <motion.div
-                                  initial={{ opacity: 0 }}
-                                  animate={{ opacity: 1, transition: { duration: DUR.normal, ease: EASE.inOut } }}
-                                >
-                                  <AvatarImage
-                                    src={group.avatarUrl || `https://p.qlogo.cn/gh/${group.groupCode}/${group.groupCode}/640/`}
-                                    alt={group.groupName}
-                                  />
-                                </motion.div>
-                                <AvatarFallback className="rounded-xl">
-                                  {group.groupName.charAt(0).toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate font-medium text-foreground">{group.groupName}</p>
-                                <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                  <span>{group.memberCount} 成员</span>
-                                  <span className="text-muted-foreground/70">•</span>
-                                  <span className="font-mono">{group.groupCode}</span>
-                                </div>
-                              </div>
-                              {!batchMode && (
-                                <div className="flex items-center gap-1.5 flex-shrink-0">
-                                  <motion.div whileTap={{ scale: 0.98 }}>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="rounded-full h-7 px-2.5 text-xs"
-                                      onClick={() => handlePreviewChat('group', group.groupCode, group.groupName, { chatType: 2, peerUid: group.groupCode })}
-                                    >
-                                      预览
-                                    </Button>
-                                  </motion.div>
-                                  <motion.div whileTap={{ scale: 0.98 }}>
-                                    <Button
-                                      size="sm"
-                                      className="rounded-full h-7 px-2.5 text-xs"
-                                      onClick={() => handleOpenTaskWizard({
-                                        chatType: 2,
-                                        peerUid: group.groupCode,
-                                        sessionName: group.groupName,
-                                      })}
-                                    >
-                                      导出
-                                    </Button>
-                                  </motion.div>
-                                  <motion.div whileTap={{ scale: 0.98 }}>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="rounded-full h-7 px-2.5 text-xs"
-                                      disabled={avatarExportLoading === group.groupCode}
-                                      onClick={() => handleExportGroupAvatars(group.groupCode, group.groupName)}
-                                    >
-                                      {avatarExportLoading === group.groupCode ? '...' : '头像'}
-                                    </Button>
-                                  </motion.div>
-                                  <motion.div whileTap={{ scale: 0.98 }}>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="rounded-full h-7 px-2.5 text-xs"
-                                      onClick={() => handleOpenEssenceModal(group.groupCode, group.groupName)}
-                                    >
-                                      精华
-                                    </Button>
-                                  </motion.div>
-                                  <motion.div whileTap={{ scale: 0.98 }}>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="rounded-full h-7 px-2.5 text-xs"
-                                      onClick={() => handleOpenGroupFilesModal(group.groupCode, group.groupName)}
-                                    >
-                                      文件
-                                    </Button>
-                                  </motion.div>
-                                </div>
-                              )}
-                            </motion.div>
-                            )
-                          })}
-                        </motion.div>
-                      </section>
-                    )}
-
-                    {/* Friends */}
-                    {friends.length > 0 && (
-                      <section className="space-y-3">
-                        <h3 className="text-sm font-medium text-foreground">好友（{friends.length}）</h3>
-                        <motion.div
-                          className="space-y-2"
-                          variants={STAG.container}
-                          initial="initial"
-                          animate="animate"
-                          exit="exit"
-                        >
-                          {friends.map((friend) => {
-                            const isSelected = selectedItems.has(`friend_${friend.uid}`)
-                            return (
-                            <motion.div
-                              key={friend.uid}
-                              className={[
-                                "flex items-center gap-3 rounded-2xl border px-4 py-3 transition",
-                                batchMode 
-                                  ? isSelected 
-                                    ? "border-border bg-muted ring-1 ring-neutral-300" 
-                                    : "border-border bg-background/70 hover:bg-background cursor-pointer"
-                                  : "border-border bg-background/70 hover:bg-background"
-                              ].join(" ")}
-                              variants={STAG.item}
-                              {...hoverLift}
-                              onClick={() => batchMode && handleToggleItem('friend', friend.uid)}
-                            >
-                              {batchMode && (
-                                <Checkbox
-                                  checked={isSelected}
-                                  onCheckedChange={() => handleToggleItem('friend', friend.uid)}
-                                  onClick={(e) => e.stopPropagation()}
-                                />
-                              )}
-                              <Avatar className="w-10 h-10 rounded-xl overflow-hidden">
-                                <motion.div
-                                  initial={{ opacity: 0 }}
-                                  animate={{ opacity: 1, transition: { duration: DUR.normal, ease: EASE.inOut } }}
-                                >
-                                  <AvatarImage
-                                    src={friend.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${friend.uin}&s=640`}
-                                    alt={friend.remark || friend.nick}
-                                  />
-                                </motion.div>
-                                <AvatarFallback className="rounded-xl">
-                                  {(friend.remark || friend.nick).charAt(0).toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                  <p className="truncate font-medium text-foreground">{friend.remark || friend.nick}</p>
-                                  {friend.isOnline && (
-                                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" />
-                                  )}
-                                </div>
-                                <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                                  <span className="font-mono">{friend.uin}</span>
-                                  {friend.remark && friend.nick !== friend.remark && (
-                                    <>
-                                      <span className="text-muted-foreground/70">•</span>
-                                      <span className="truncate text-muted-foreground">{friend.nick}</span>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                              {!batchMode && (
-                                <div className="flex items-center gap-2">
-                                  <motion.div whileTap={{ scale: 0.98 }}>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="rounded-full h-8"
-                                      onClick={() => handlePreviewChat('friend', friend.uid, friend.remark || friend.nick, { chatType: 1, peerUid: friend.uid })}
-                                    >
-                                      预览
-                                    </Button>
-                                  </motion.div>
-                                  <motion.div whileTap={{ scale: 0.98 }}>
-                                    <Button
-                                      size="sm"
-                                      className="rounded-full h-8"
-                                      onClick={() => handleOpenTaskWizard({
-                                        chatType: 1,
-                                        peerUid: friend.uid,
-                                        sessionName: friend.remark || friend.nick,
-                                      })}
-                                    >
-                                      导出
-                                    </Button>
-                                  </motion.div>
-                                </div>
-                              )}
-                            </motion.div>
-                            )
-                          })}
-                        </motion.div>
-                      </section>
-                    )}
-                  </div>
-                )}
+                <SessionList
+                  groups={groups}
+                  friends={friends}
+                  isLoading={isLoading}
+                  batchMode={batchMode}
+                  selectedItems={selectedItems}
+                  avatarExportLoading={avatarExportLoading}
+                  onRefresh={loadChatData}
+                  onToggleBatchMode={handleToggleBatchMode}
+                  onSelectAll={handleSelectAll}
+                  onClearSelection={handleClearSelection}
+                  onToggleItem={handleToggleItem}
+                  onOpenBatchExportDialog={handleOpenBatchExportDialog}
+                  onPreviewChat={handlePreviewChat}
+                  onOpenTaskWizard={handleOpenTaskWizard}
+                  onExportGroupAvatars={handleExportGroupAvatars}
+                  onOpenEssenceModal={handleOpenEssenceModal}
+                  onOpenGroupFilesModal={handleOpenGroupFilesModal}
+                />
               </motion.div>
             )}
 
