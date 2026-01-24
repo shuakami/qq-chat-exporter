@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect } from "react"
 import type { Group, Friend } from "@/types/api"
 
 export type SessionType = 'all' | 'group' | 'friend'
@@ -37,7 +37,7 @@ export interface UseSessionFilterReturn {
   sortOrder: SortOrder
   page: number
   pageSize: number
-  
+
   // Actions
   setSearch: (search: string) => void
   setType: (type: SessionType) => void
@@ -46,7 +46,7 @@ export interface UseSessionFilterReturn {
   setPage: (page: number) => void
   setPageSize: (size: number) => void
   resetFilters: () => void
-  
+
   // Computed
   filteredItems: SessionItem[]
   paginatedItems: SessionItem[]
@@ -54,7 +54,7 @@ export interface UseSessionFilterReturn {
   totalPages: number
   hasNextPage: boolean
   hasPrevPage: boolean
-  
+
   // Stats
   groupCount: number
   friendCount: number
@@ -138,7 +138,7 @@ export function useSessionFilter(
     // Sort
     items = [...items].sort((a, b) => {
       let comparison = 0
-      
+
       switch (sortField) {
         case 'name':
           comparison = a.name.localeCompare(b.name, 'zh-CN')
@@ -153,7 +153,7 @@ export function useSessionFilter(
           comparison = a.id.localeCompare(b.id)
           break
       }
-      
+
       return sortOrder === 'asc' ? comparison : -comparison
     })
 
@@ -172,6 +172,15 @@ export function useSessionFilter(
   const totalPages = Math.ceil(totalItems / pageSize) || 1
   const hasNextPage = page < totalPages
   const hasPrevPage = page > 1
+
+  // Clamp page to totalPages when filteredItems length changes
+  // This handles the case where the data set shrinks (e.g. after a refresh)
+  // while the user is on a high page number.
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages)
+    }
+  }, [totalPages, page])
 
   // Stats
   const groupCount = groups.length
@@ -220,7 +229,7 @@ export function useSessionFilter(
     sortOrder,
     page,
     pageSize,
-    
+
     // Actions
     setSearch: handleSetSearch,
     setType: handleSetType,
@@ -229,7 +238,7 @@ export function useSessionFilter(
     setPage,
     setPageSize: handleSetPageSize,
     resetFilters,
-    
+
     // Computed
     filteredItems,
     paginatedItems,
@@ -237,7 +246,7 @@ export function useSessionFilter(
     totalPages,
     hasNextPage,
     hasPrevPage,
-    
+
     // Stats
     groupCount,
     friendCount,
