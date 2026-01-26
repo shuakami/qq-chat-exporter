@@ -70,6 +70,6 @@
   "dependencies": {
     "express": "^5.2.1",
     "silk-wasm": "^3.6.1",
-    "ws": "^8.18.3"
+    "ws": "^8.19.0"
   }
 }
