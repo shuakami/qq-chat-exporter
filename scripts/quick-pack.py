@@ -329,6 +329,8 @@ if %errorlevel% equ 0 (
     goto :end_script
 )
 
+call :sync_patch_package
+
 echo.
 
 set NAPCAT_MAIN_PATH=%NAPCAT_MAIN_PATH:\\=/%
@@ -336,6 +338,52 @@ echo (async () =^> {await import("file:///%NAPCAT_MAIN_PATH%")})() > "%NAPCAT_LO
 
 "%NAPCAT_LAUNCHER_PATH%" "%QQPath%" "%NAPCAT_INJECT_PATH%" %*
 goto :end_script
+
+:sync_patch_package
+set "QQPackageJson="
+set "QQDir="
+for %%f in ("%QQPath%") do set "QQDir=%%~dpf"
+
+if exist "!QQDir!resources\\app\\package.json" (
+    set "QQPackageJson=!QQDir!resources\\app\\package.json"
+)
+
+if "!QQPackageJson!"=="" if exist "!QQDir!versions" (
+    for /f "delims=" %%d in ('dir /b /ad /o-n "!QQDir!versions" 2^>nul') do (
+        if exist "!QQDir!versions\\%%d\\resources\\app\\package.json" (
+            set "QQPackageJson=!QQDir!versions\\%%d\\resources\\app\\package.json"
+            goto :sync_patch_package_found
+        )
+    )
+)
+
+:sync_patch_package_found
+if "!QQPackageJson!"=="" (
+    echo [Warning] QQNT package.json not found, using bundled qqnt.json.
+    goto :eof
+)
+
+echo [Info] Syncing qqnt.json from installed QQNT metadata...
+set "QCE_QQ_PACKAGE_JSON=!QQPackageJson!"
+set "QCE_PATCH_PACKAGE=%NAPCAT_PATCH_PACKAGE%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$ErrorActionPreference='Stop';" ^
+    "$source = Get-Content -Raw -LiteralPath $env:QCE_QQ_PACKAGE_JSON | ConvertFrom-Json;" ^
+    "$patch = [ordered]@{};" ^
+    "foreach ($name in 'name','verHash','version','linuxVersion','linuxVerHash','private','description','productName','author','homepage','sideEffects','bin','buildVersion') { if ($source.PSObject.Properties.Name -contains $name) { $patch[$name] = $source.$name } };" ^
+    "$patch['main'] = './loadNapCat.js';" ^
+    "$patch['isPureShell'] = $true;" ^
+    "$patch['isByteCodeShell'] = $true;" ^
+    "$patch['platform'] = 'win32';" ^
+    "$patch['eleArch'] = 'x64';" ^
+    "$patch | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath $env:QCE_PATCH_PACKAGE -Encoding UTF8"
+
+if errorlevel 1 (
+    echo [Warning] Failed to refresh qqnt.json, falling back to bundled metadata.
+) else (
+    echo [Info] qqnt.json refreshed successfully.
+)
+goto :eof
 
 :end_script
 '''
@@ -855,7 +903,7 @@ QCE 版本: {VERSION}
 {usage_steps}
 
 系统要求:
-- QQ 客户端 34606+ (推荐 9.9.19-34740)
+- 已安装的 QQNT（启动时会自动同步本机 QQNT 的版本信息）
 - 下载地址: https://im.qq.com/
 - 独立模式需要 Node.js 18+
 
