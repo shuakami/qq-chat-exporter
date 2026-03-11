@@ -81,36 +81,71 @@ export default FileApi;
   return bridge;
 }
 
+function normalizeGroup(group) {
+  const code = group?.groupCode ?? group?.group_code ?? group?.group_id ?? group?.groupId ?? group?.groupUin ?? '';
+  const name = group?.groupName ?? group?.group_name ?? group?.groupRemark ?? group?.name ?? String(code || 'unknown');
+  const memberCount = group?.memberCount ?? group?.member_count ?? group?.memberNum ?? 0;
+  const maxMember = group?.maxMember ?? group?.max_member ?? group?.maxMemberCount ?? 0;
+
+  return {
+    ...group,
+    groupCode: String(code),
+    groupName: String(name),
+    memberCount: Number(memberCount) || 0,
+    maxMember: Number(maxMember) || 0
+  };
+}
+
+async function callAction(actionName, payload) {
+  const { actions, instance } = getBridge();
+  const handler = actions?.get?.(actionName);
+  if (!handler) return null;
+  const result = await handler.handle(payload, 'plugin', instance?.config);
+  return result?.data ?? result ?? null;
+}
+
 export const GroupApi = {
   async getGroups(forceRefresh = false) {
     const { core } = getBridge();
-    const impl = core?.apis?.GroupApi?.getGroups || core?.apis?.group?.getGroups;
-    if (!impl) throw new Error('[QCE Overlay] GroupApi.getGroups 不可用');
-    return impl.call(core.apis.GroupApi || core.apis.group, forceRefresh);
+    const contexts = [core?.apis?.GroupApi, core?.apis?.group].filter(Boolean);
+    const methodNames = ['getGroups', 'getGroupList', 'getGroupLists'];
+
+    for (const ctx of contexts) {
+      for (const methodName of methodNames) {
+        const impl = ctx?.[methodName];
+        if (typeof impl !== 'function') continue;
+        const result = await impl.call(ctx, forceRefresh);
+        if (Array.isArray(result)) return result.map(normalizeGroup);
+        if (Array.isArray(result?.data)) return result.data.map(normalizeGroup);
+        if (Array.isArray(result?.result?.groupList)) return result.result.groupList.map(normalizeGroup);
+      }
+    }
+
+    const actionResult = await callAction('get_group_list', {});
+    if (Array.isArray(actionResult)) return actionResult.map(normalizeGroup);
+
+    throw new Error('[QCE Overlay] GroupApi.getGroups 不可用');
   },
 
   async fetchGroupDetail(groupId) {
     const { core } = getBridge();
     const impl = core?.apis?.GroupApi?.fetchGroupDetail || core?.apis?.group?.fetchGroupDetail;
-    if (impl) return impl.call(core.apis.GroupApi || core.apis.group, String(groupId));
-    
-    const { actions, instance } = getBridge();
-    const handler = actions?.get?.('get_group_info');
-    if (!handler) throw new Error('[QCE Overlay] get_group_info 不可用');
-    const result = await handler.handle({ group_id: Number(groupId) }, 'plugin', instance?.config);
-    return result?.data;
+    if (impl) {
+      const detail = await impl.call(core.apis.GroupApi || core.apis.group, String(groupId));
+      return detail ? normalizeGroup(detail) : detail;
+    }
+
+    const actionResult = await callAction('get_group_info', { group_id: Number(groupId) });
+    return actionResult ? normalizeGroup(actionResult) : actionResult;
   },
 
   async getGroupMemberAll(groupId, forceRefresh = false) {
     const { core } = getBridge();
     const impl = core?.apis?.GroupApi?.getGroupMemberAll || core?.apis?.group?.getGroupMemberAll;
     if (impl) return impl.call(core.apis.GroupApi || core.apis.group, String(groupId), forceRefresh);
-    
-    const { actions, instance } = getBridge();
-    const handler = actions?.get?.('get_group_member_list');
-    if (!handler) throw new Error('[QCE Overlay] get_group_member_list 不可用');
-    const result = await handler.handle({ group_id: Number(groupId) }, 'plugin', instance?.config);
-    return { result: { infos: new Map(result?.data?.map(m => [m.user_id, m]) || []) } };
+
+    const members = await callAction('get_group_member_list', { group_id: Number(groupId) });
+    return { result: { infos: new Map((members || []).map(m => [m.user_id, m])) } };
   }
 };
 
@@ -155,12 +190,113 @@ export default UserApi;
   return bridge;
 }
 
+function normalizeFriend(friend, categoryId = 1) {
+  const uin = String(
+    friend?.uin ??
+    friend?.user_id ??
+    friend?.qq ??
+    friend?.coreInfo?.uin ??
+    ''
+  );
+  const uid = String(
+    friend?.uid ??
+    friend?.coreInfo?.uid ??
+    friend?.user_uid ??
+    uin
+  );
+  const nick =
+    friend?.coreInfo?.nick ??
+    friend?.nickname ??
+    friend?.nick ??
+    uin;
+  const remark =
+    friend?.coreInfo?.remark ??
+    friend?.remark ??
+    null;
+
+  return {
+    ...friend,
+    uid,
+    uin,
+    coreInfo: {
+      ...(friend?.coreInfo || {}),
+      uid,
+      uin,
+      nick,
+      remark
+    },
+    baseInfo: {
+      ...(friend?.baseInfo || {}),
+      categoryId: friend?.baseInfo?.categoryId ?? friend?.categoryId ?? categoryId
+    },
+    status: friend?.status || { status: 0 }
+  };
+}
+
+function normalizeCategory(category, index = 0) {
+  const categoryId = category?.categoryId ?? category?.id ?? category?.category_id ?? (index + 1);
+  const buddyList = Array.isArray(category?.buddyList)
+    ? category.buddyList
+    : Array.isArray(category?.friends)
+      ? category.friends
+      : [];
+
+  return {
+    ...category,
+    categoryId,
+    buddyList: buddyList.map(friend => normalizeFriend(friend, categoryId))
+  };
+}
+
+function flattenToCategory(friends) {
+  return [normalizeCategory({ categoryId: 1, buddyList: friends || [] }, 0)];
+}
+
+async function callAction(actionName, payload) {
+  const { actions, instance } = getBridge();
+  const handler = actions?.get?.(actionName);
+  if (!handler) return null;
+  const result = await handler.handle(payload, 'plugin', instance?.config);
+  return result?.data ?? result ?? null;
+}
+
 export const FriendApi = {
-  async getBuddy(forceRefresh = false) {
+  async getBuddyV2ExWithCate(forceRefresh = false) {
     const { core } = getBridge();
-    const impl = core?.apis?.FriendApi?.getBuddy || core?.apis?.friend?.getBuddy;
-    if (!impl) throw new Error('[QCE Overlay] FriendApi.getBuddy 不可用');
-    return impl.call(core.apis.FriendApi || core.apis.friend, forceRefresh);
+    const contexts = [core?.apis?.FriendApi, core?.apis?.friend].filter(Boolean);
+    const methodNames = ['getBuddyV2ExWithCate', 'getBuddyV2ExWithCategory'];
+
+    for (const ctx of contexts) {
+      for (const methodName of methodNames) {
+        const impl = ctx?.[methodName];
+        if (typeof impl !== 'function') continue;
+        const result = await impl.call(ctx, forceRefresh);
+        if (Array.isArray(result)) return result.map(normalizeCategory);
+        if (Array.isArray(result?.data)) return result.data.map(normalizeCategory);
+      }
+    }
+
+    for (const ctx of contexts) {
+      const impl = ctx?.getBuddy || ctx?.getFriends;
+      if (typeof impl !== 'function') continue;
+      const result = await impl.call(ctx, forceRefresh);
+      if (Array.isArray(result)) return flattenToCategory(result.map(friend => normalizeFriend(friend)));
+      if (Array.isArray(result?.data)) return flattenToCategory(result.data.map(friend => normalizeFriend(friend)));
+    }
+
+    const actionResult = await callAction('get_friend_list', {});
+    if (Array.isArray(actionResult)) return flattenToCategory(actionResult.map(friend => normalizeFriend(friend)));
+
+    throw new Error('[QCE Overlay] FriendApi.getBuddyV2ExWithCate 不可用');
+  },
+
+  async getBuddy(forceRefresh = false) {
+    const categories = await this.getBuddyV2ExWithCate(forceRefresh);
+    return categories.flatMap(cat => cat?.buddyList || []);
+  },
+
+  async getFriends(forceRefresh = false) {
+    return this.getBuddy(forceRefresh);
   }
 };
 
