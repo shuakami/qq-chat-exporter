@@ -144,8 +144,17 @@ export const GroupApi = {
     const impl = core?.apis?.GroupApi?.getGroupMemberAll || core?.apis?.group?.getGroupMemberAll;
     if (impl) return impl.call(core.apis.GroupApi || core.apis.group, String(groupId), forceRefresh);
 
-    const members = await callAction('get_group_member_list', { group_id: Number(groupId) });
-    return { result: { infos: new Map((members || []).map(m => [m.user_id, m])) } };
+    const { actions, instance } = getBridge();
+    const handler = actions?.get?.('get_group_member_list');
+    if (!handler) throw new Error('[QCE Overlay] get_group_member_list 不可用');
+
+    const result = await handler.handle({ group_id: Number(groupId) }, 'plugin', instance?.config);
+    const members = result?.data ?? result ?? null;
+    if (!Array.isArray(members)) {
+      throw new Error('[QCE Overlay] get_group_member_list 返回异常');
+    }
+
+    return { result: { infos: new Map(members.map(m => [m.user_id, m])) } };
   }
 };
 
@@ -320,9 +329,20 @@ export class NapCatCore {
   constructor() {
     const { core } = getBridge();
     if (!core) throw new Error('[QCE Overlay] NapCatCore实例不可用');
-    
-    this.apis = { MsgApi, FileApi, GroupApi, UserApi, FriendApi };
+
+    const coreApis = core.apis && typeof core.apis === 'object' ? core.apis : {};
+    const coreContext = core.context && typeof core.context === 'object' ? core.context : {};
+
+    this.apis = {
+      ...coreApis,
+      MsgApi,
+      FileApi,
+      GroupApi,
+      UserApi,
+      FriendApi
+    };
     this.context = {
+      ...coreContext,
       logger: {
         log: (...args) => core.context?.logger?.log?.(...args) || console.log('[QCE]', ...args),
         logError: (...args) => core.context?.logger?.logError?.(...args) || console.error('[QCE]', ...args),
