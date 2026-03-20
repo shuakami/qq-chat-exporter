@@ -90,7 +90,7 @@ export class AuthManager {
       
       // 只为相对路径或同域请求添加认证头
       const url = input instanceof URL ? input.toString() : input.toString();
-      const isApiRequest = url.startsWith('/api') || url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost');
+      const isApiRequest = url.startsWith('/api') || url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost') || url.startsWith(window.location.origin);
       
       if (isApiRequest && this.token) {
         if (!options.headers) {

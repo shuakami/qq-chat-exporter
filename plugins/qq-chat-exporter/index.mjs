@@ -49,12 +49,13 @@ function normalizePluginArgs(arg0, arg1, arg2, arg3) {
   if (arg0 && typeof arg0 === 'object' && (
     Object.prototype.hasOwnProperty.call(arg0, 'core') ||
     Object.prototype.hasOwnProperty.call(arg0, 'obContext') ||
+    Object.prototype.hasOwnProperty.call(arg0, 'oneBot') ||
     Object.prototype.hasOwnProperty.call(arg0, 'actions') ||
     Object.prototype.hasOwnProperty.call(arg0, 'instance')
   )) {
     return {
       core: arg0.core,
-      obContext: arg0.obContext,
+      obContext: arg0.obContext || arg0.oneBot,
       actions: arg0.actions,
       instance: arg0.instance
     };
