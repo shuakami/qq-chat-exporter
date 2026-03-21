@@ -16,6 +16,12 @@
 4. 复制控制台的 Token
 5. 打开 `http://localhost:40653/qce-v4-tool`
 
+### Docker NapCat 部署
+
+如果已有 Docker 部署的 NapCat（Shell 模式），可以作为插件直接挂载，无需桌面 QQNT 环境。
+
+详见 [Docker NapCat 部署指南](docs/docker-napcat-deployment.md)。
+
 ## 相关项目
 
 如果导出聊天记录后，想深入分析聊天内容可以试试 [ChatLab](https://chatlab.fun/)

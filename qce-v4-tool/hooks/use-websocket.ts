@@ -45,7 +45,8 @@ export function useWebSocket({
       return
     }
 
-    const websocket = new WebSocket("ws://localhost:40653")
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+    const websocket = new WebSocket(`${wsProtocol}//${window.location.host}`)
 
     websocket.onopen = () => {
       console.log("[QCE] WebSocket connected")

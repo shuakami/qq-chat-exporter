@@ -2,7 +2,14 @@ import { useCallback, useMemo } from "react"
 import type { APIResponse } from "@/types/api"
 import AuthManager from "@/lib/auth"
 
-const API_BASE = "http://localhost:40653"
+function getApiBase() {
+  if (typeof window !== "undefined") {
+    return window.location.origin
+  }
+  return "http://localhost:40653"
+}
+
+const API_BASE = getApiBase()
 
 export function useApi() {
   const apiCall = useCallback(async <T,>(endpoint: string, options?: RequestInit): Promise<APIResponse<T>> => {

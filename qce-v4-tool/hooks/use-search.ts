@@ -1,7 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from "react"
 import type { Group, Friend, GroupsResponse, FriendsResponse } from "@/types/api"
 
-const API_BASE = "http://localhost:40653"
+function getApiBase() {
+  if (typeof window !== "undefined") {
+    return window.location.origin
+  }
+  return "http://localhost:40653"
+}
+
+const API_BASE = getApiBase()
 
 interface SearchState<T> {
   allData: T[]          // 所有加载的数据
