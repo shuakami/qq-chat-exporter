@@ -363,6 +363,7 @@ export default GroupApi;
   // user.d.ts
   const userDts = `export declare const UserApi: {
   getUserDetailInfo(uid: string | number, noCache?: boolean): Promise<any>;
+  getUidByUinV2(uin: string | number): Promise<any>;
   getRecentContactListSnapShot(count?: number): Promise<any>;
 };
 

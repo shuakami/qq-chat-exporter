@@ -181,6 +181,13 @@ export const UserApi = {
     return result?.data;
   },
 
+  async getUidByUinV2(uin) {
+    const { core } = getBridge();
+    const impl = core?.apis?.UserApi?.getUidByUinV2 || core?.apis?.user?.getUidByUinV2;
+    if (!impl) throw new Error('[QCE Overlay] UserApi.getUidByUinV2 不可用');
+    return impl.call(core.apis.UserApi || core.apis.user, uin);
+  },
+
   async getRecentContactListSnapShot(count = 100) {
     const { core } = getBridge();
     const impl = core?.apis?.UserApi?.getRecentContactListSnapShot || core?.apis?.user?.getRecentContactListSnapShot;
