@@ -1,5 +1,6 @@
 import type { NapCatCore } from 'NapCatQQ/src/core/index.js';
 import type { CleanMessage } from '../parser/SimpleMessageParser.js';
+import { DecryptedSqliteQueryBackend } from './DecryptedSqliteQueryBackend.js';
 
 type DatabaseParam = string | number | bigint | Buffer | Uint8Array | null;
 type DatabaseCell = string | number | bigint | Buffer | Uint8Array | null | undefined;
@@ -7,11 +8,22 @@ type DatabaseRow = Record<string, DatabaseCell>;
 
 interface DatabaseApiLike {
     hasPassphrase?: () => boolean;
+    isSqliteAvailable?: () => Promise<boolean>;
+    decryptDatabase?: (dbName: string, outputPath?: string) => string | null;
     query<T extends DatabaseRow = DatabaseRow>(
         dbName: string,
         sql: string,
         params?: readonly DatabaseParam[]
     ): T[] | null;
+}
+
+interface DatabaseQueryBackend {
+    query<T extends DatabaseRow = DatabaseRow>(
+        tableName: string,
+        sql: string,
+        params?: readonly DatabaseParam[]
+    ): T[];
+    dispose(): void;
 }
 
 interface TableColumnInfo extends DatabaseRow {
@@ -109,118 +121,128 @@ export class QQNTDatabaseService {
         preferredPeerName?: string
     ): Promise<DatabaseSessionExportResult> {
         const tableName = Number(peer.chatType) === 2 ? 'group_msg_table' : 'c2c_msg_table';
-        this.ensureTableExists(tableName);
+        const backend = await this.createQueryBackend(NT_MSG_DB);
 
-        const identifiers = await this.resolvePeerIdentifiers(peer.peerUid);
-        const columns = this.getTableColumns(tableName);
-        if (columns.length === 0) {
-            throw new Error(`数据库表 ${tableName} 不存在或无法读取`);
-        }
+        try {
+            this.ensureTableExists(backend, tableName);
 
-        const peerColumn = this.detectPeerColumn(tableName, columns, identifiers);
-        if (!peerColumn) {
-            throw new Error(`没有在 ${tableName} 里找到与 ${peer.peerUid} 对应的会话字段`);
-        }
+            const identifiers = await this.resolvePeerIdentifiers(backend, peer.peerUid);
+            const columns = this.getTableColumns(backend, tableName);
+            if (columns.length === 0) {
+                throw new Error(`数据库表 ${tableName} 不存在或无法读取`);
+            }
 
-        const sampleRows = this.queryRows<DatabaseRow>(
-            tableName,
-            `SELECT rowid AS "__qce_rowid", * FROM ${this.quoteIdentifier(tableName)}
-             WHERE ${this.buildInTextCondition(peerColumn, identifiers.length)}
-             LIMIT 200`,
-            identifiers
-        );
+            const peerColumn = this.detectPeerColumn(backend, tableName, columns, identifiers);
+            if (!peerColumn) {
+                throw new Error(`没有在 ${tableName} 里找到与 ${peer.peerUid} 对应的会话字段`);
+            }
 
-        if (sampleRows.length === 0) {
-            throw new Error(`数据库中没有找到 ${peer.peerUid} 对应的聊天记录`);
-        }
+            const sampleRows = this.queryRows<DatabaseRow>(
+                backend,
+                tableName,
+                `SELECT rowid AS "__qce_rowid", * FROM ${this.quoteIdentifier(tableName)}
+                 WHERE ${this.buildInTextCondition(peerColumn, identifiers.length)}
+                 LIMIT 200`,
+                identifiers
+            );
 
-        const timeColumn = this.detectTimeColumn(columns, sampleRows, peerColumn);
-        const idColumn = this.detectIdColumn(columns, sampleRows, peerColumn);
-        const seqColumn = this.detectSeqColumn(columns, sampleRows, peerColumn);
-        const senderColumn = this.detectSenderColumn(columns, sampleRows, {
-            peerColumn,
-            timeColumn,
-            idColumn,
-            seqColumn
-        });
-        const senderNameColumn = this.detectSenderNameColumn(columns, sampleRows, {
-            peerColumn,
-            timeColumn,
-            idColumn,
-            seqColumn,
-            senderColumn
-        });
+            if (sampleRows.length === 0) {
+                throw new Error(`数据库中没有找到 ${peer.peerUid} 对应的聊天记录`);
+            }
 
-        const detectedShape: RowShapeDetection = {
-            tableName,
-            peerColumn,
-            timeColumn,
-            idColumn,
-            seqColumn,
-            senderColumn,
-            senderNameColumn,
-            typeColumn: this.detectTypeColumn(columns, sampleRows, peerColumn),
-            textColumns: this.detectTextColumns(columns),
-            blobColumns: columns
-                .filter(column => this.isBlobColumn(column))
-                .map(column => column.name)
-        };
-
-        const orderBy = detectedShape.timeColumn
-            ? `CAST(${this.quoteIdentifier(detectedShape.timeColumn)} AS INTEGER) ASC, "__qce_rowid" ASC`
-            : `"__qce_rowid" ASC`;
-
-        const rows = this.queryRows<DatabaseRow>(
-            tableName,
-            `SELECT rowid AS "__qce_rowid", * FROM ${this.quoteIdentifier(tableName)}
-             WHERE ${this.buildInTextCondition(peerColumn, identifiers.length)}
-             ORDER BY ${orderBy}`,
-            identifiers
-        );
-
-        const selfIdentifiers = this.getSelfIdentifiers();
-        const peerLabel = preferredPeerName?.trim() || (Number(peer.chatType) === 2 ? `群聊 ${peer.peerUid}` : `好友 ${peer.peerUid}`);
-
-        const startTimeMs = this.normalizeFilterTimestamp(filter?.startTime, false);
-        const endTimeMs = this.normalizeFilterTimestamp(filter?.endTime, true);
-
-        const messages = rows
-            .map((row, index) => this.convertRowToCleanMessage(row, detectedShape, {
-                chatType: Number(peer.chatType) === 2 ? 'group' : 'private',
+            const selfIdentifiers = this.getSelfIdentifiers();
+            const timeColumn = this.detectTimeColumn(columns, sampleRows, peerColumn);
+            const idColumn = this.detectIdColumn(columns, sampleRows, peerColumn);
+            const seqColumn = this.detectSeqColumn(columns, sampleRows, peerColumn);
+            const senderColumn = this.detectSenderColumn(columns, sampleRows, {
+                peerColumn,
+                timeColumn,
+                idColumn,
+                seqColumn,
                 peerIdentifiers: identifiers,
-                selfIdentifiers,
-                peerLabel,
-                fallbackIndex: index + 1
-            }))
-            .filter((message): message is CleanMessage => Boolean(message))
-            .filter(message => {
-                if (!message.timestamp) {
-                    return true;
-                }
-                if (startTimeMs !== undefined && message.timestamp < startTimeMs) {
-                    return false;
-                }
-                if (endTimeMs !== undefined && message.timestamp > endTimeMs) {
-                    return false;
-                }
-                return true;
-            })
-            .sort((a, b) => {
-                if (a.timestamp !== b.timestamp) {
-                    return a.timestamp - b.timestamp;
-                }
-                return String(a.seq || '').localeCompare(String(b.seq || ''));
+                selfIdentifiers
+            });
+            const senderNameColumn = this.detectSenderNameColumn(columns, sampleRows, {
+                peerColumn,
+                timeColumn,
+                idColumn,
+                seqColumn,
+                senderColumn
             });
 
-        if (messages.length === 0) {
-            throw new Error(`数据库中没有找到符合筛选条件的聊天记录`);
-        }
+            const detectedShape: RowShapeDetection = {
+                tableName,
+                peerColumn,
+                timeColumn,
+                idColumn,
+                seqColumn,
+                senderColumn,
+                senderNameColumn,
+                typeColumn: this.detectTypeColumn(columns, sampleRows, peerColumn),
+                textColumns: this.detectTextColumns(columns),
+                blobColumns: columns
+                    .filter(column => this.isBlobColumn(column))
+                    .map(column => column.name)
+            };
 
-        return {
-            messages,
-            identifiers,
-            detectedShape
-        };
+            const orderBy = detectedShape.timeColumn
+                ? `CAST(${this.quoteIdentifier(detectedShape.timeColumn)} AS INTEGER) ASC, "__qce_rowid" ASC`
+                : `"__qce_rowid" ASC`;
+
+            const rows = this.queryRows<DatabaseRow>(
+                backend,
+                tableName,
+                `SELECT rowid AS "__qce_rowid", * FROM ${this.quoteIdentifier(tableName)}
+                 WHERE ${this.buildInTextCondition(peerColumn, identifiers.length)}
+                 ORDER BY ${orderBy}`,
+                identifiers
+            );
+
+            const peerLabel = preferredPeerName?.trim() || (Number(peer.chatType) === 2 ? `群聊 ${peer.peerUid}` : `好友 ${peer.peerUid}`);
+
+            const startTimeMs = this.normalizeFilterTimestamp(filter?.startTime, false);
+            const endTimeMs = this.normalizeFilterTimestamp(filter?.endTime, true);
+
+            const messages = rows
+                .map((row, index) => this.convertRowToCleanMessage(row, detectedShape, {
+                    chatType: Number(peer.chatType) === 2 ? 'group' : 'private',
+                    peerIdentifiers: identifiers,
+                    selfIdentifiers,
+                    peerLabel,
+                    fallbackIndex: index + 1
+                }))
+                .filter((message): message is CleanMessage => Boolean(message))
+                .filter(message => {
+                    if (!message.timestamp) {
+                        return true;
+                    }
+                    if (startTimeMs !== undefined && message.timestamp < startTimeMs) {
+                        return false;
+                    }
+                    if (endTimeMs !== undefined && message.timestamp > endTimeMs) {
+                        return false;
+                    }
+                    return true;
+                })
+                .sort((a, b) => {
+                    if (a.timestamp !== b.timestamp) {
+                        return a.timestamp - b.timestamp;
+                    }
+                    return String(a.seq || '').localeCompare(String(b.seq || ''));
+                });
+
+            if (messages.length === 0) {
+                throw new Error('数据库中没有找到符合筛选条件的聊天记录');
+            }
+
+            return {
+                messages,
+                identifiers,
+                detectedShape
+            };
+        } finally {
+            backend.dispose();
+        }
     }
 
     private resolveDatabaseApi(): DatabaseApiLike {
@@ -245,21 +267,95 @@ export class QQNTDatabaseService {
         return databaseApi;
     }
 
+    private async createQueryBackend(dbName: string): Promise<DatabaseQueryBackend> {
+        const databaseApi = this.resolveDatabaseApi();
+
+        if (typeof databaseApi.isSqliteAvailable === 'function') {
+            try {
+                const available = await databaseApi.isSqliteAvailable();
+                if (available === false) {
+                    this.logWarn(`当前运行时缺少 node:sqlite，数据库导出将改用解密后明文库读取: ${dbName}`);
+                    return this.createDecryptedFallbackBackend(databaseApi, dbName);
+                }
+            } catch (error) {
+                this.logWarn(`检查 node:sqlite 可用性失败，继续尝试直接查询数据库: ${this.stringifyError(error)}`);
+            }
+        }
+
+        try {
+            const probeResult = databaseApi.query<{ qce_probe: number }>(
+                dbName,
+                'SELECT 1 AS qce_probe'
+            );
+
+            if (!probeResult) {
+                throw new Error(`读取数据库 ${dbName} 失败`);
+            }
+
+            return {
+                query: <T extends DatabaseRow = DatabaseRow>(
+                    tableName: string,
+                    sql: string,
+                    params: readonly DatabaseParam[] = []
+                ): T[] => {
+                    const result = databaseApi.query<T>(dbName, sql, params);
+                    if (!result) {
+                        throw new Error(`读取数据库表 ${tableName} 失败`);
+                    }
+                    return result;
+                },
+                dispose: () => {
+                    // API 查询模式不需要额外清理
+                }
+            };
+        } catch (error) {
+            if (this.shouldUseDecryptedFallback(error)) {
+                this.logWarn(`DatabaseApi.query 不可用，改用解密后明文库读取: ${this.stringifyError(error)}`);
+                return this.createDecryptedFallbackBackend(databaseApi, dbName);
+            }
+
+            throw error;
+        }
+    }
+
+    private async createDecryptedFallbackBackend(
+        databaseApi: DatabaseApiLike,
+        dbName: string
+    ): Promise<DatabaseQueryBackend> {
+        const backend = await DecryptedSqliteQueryBackend.create(
+            dbName,
+            databaseApi,
+            this.core.selfInfo?.uin
+        );
+
+        return {
+            query: <T extends DatabaseRow = DatabaseRow>(
+                tableName: string,
+                sql: string,
+                params: readonly DatabaseParam[] = []
+            ): T[] => {
+                try {
+                    return backend.query<T>(sql, params);
+                } catch (error) {
+                    throw new Error(`读取数据库表 ${tableName} 失败: ${this.stringifyError(error)}`);
+                }
+            },
+            dispose: () => backend.dispose()
+        };
+    }
+
     private queryRows<T extends DatabaseRow>(
+        backend: DatabaseQueryBackend,
         tableName: string,
         sql: string,
         params: readonly DatabaseParam[] = []
     ): T[] {
-        const result = this.resolveDatabaseApi().query<T>(NT_MSG_DB, sql, params);
-        if (!result) {
-            throw new Error(`读取数据库表 ${tableName} 失败`);
-        }
-        return result;
+        return backend.query<T>(tableName, sql, params);
     }
 
-    private ensureTableExists(tableName: string): void {
-        const rows = this.resolveDatabaseApi().query<{ name: string }>(
-            NT_MSG_DB,
+    private ensureTableExists(backend: DatabaseQueryBackend, tableName: string): void {
+        const rows = backend.query<{ name: string }>(
+            tableName,
             'SELECT name FROM sqlite_master WHERE type = ? AND name = ? LIMIT 1',
             ['table', tableName]
         );
@@ -269,14 +365,18 @@ export class QQNTDatabaseService {
         }
     }
 
-    private getTableColumns(tableName: string): TableColumnInfo[] {
+    private getTableColumns(backend: DatabaseQueryBackend, tableName: string): TableColumnInfo[] {
         return this.queryRows<TableColumnInfo>(
+            backend,
             tableName,
             `PRAGMA table_info(${this.quoteIdentifier(tableName)})`
         );
     }
 
-    private async resolvePeerIdentifiers(peerUid: string): Promise<string[]> {
+    private async resolvePeerIdentifiers(
+        backend: DatabaseQueryBackend,
+        peerUid: string
+    ): Promise<string[]> {
         const identifiers = new Set<string>();
         const queue: string[] = [];
         const normalizedPeerUid = peerUid.trim();
@@ -308,12 +408,12 @@ export class QQNTDatabaseService {
         }
 
         try {
-            this.ensureTableExists(UID_MAPPING_TABLE);
+            this.ensureTableExists(backend, UID_MAPPING_TABLE);
         } catch {
             return Array.from(identifiers);
         }
 
-        const mappingColumns = this.getTableColumns(UID_MAPPING_TABLE)
+        const mappingColumns = this.getTableColumns(backend, UID_MAPPING_TABLE)
             .filter(column => !this.isBlobColumn(column));
 
         let safetyCounter = 0;
@@ -326,6 +426,7 @@ export class QQNTDatabaseService {
 
             for (const column of mappingColumns) {
                 const rows = this.queryRows<DatabaseRow>(
+                    backend,
                     UID_MAPPING_TABLE,
                     `SELECT * FROM ${this.quoteIdentifier(UID_MAPPING_TABLE)}
                      WHERE CAST(${this.quoteIdentifier(column.name)} AS TEXT) = ?
@@ -352,6 +453,7 @@ export class QQNTDatabaseService {
     }
 
     private detectPeerColumn(
+        backend: DatabaseQueryBackend,
         tableName: string,
         columns: TableColumnInfo[],
         identifiers: string[]
@@ -365,6 +467,7 @@ export class QQNTDatabaseService {
             }
 
             const rows = this.queryRows<{ matched_count: number | string }>(
+                backend,
                 tableName,
                 `SELECT COUNT(1) AS matched_count
                  FROM ${this.quoteIdentifier(tableName)}
@@ -458,6 +561,8 @@ export class QQNTDatabaseService {
             timeColumn?: string;
             idColumn?: string;
             seqColumn?: string;
+            peerIdentifiers: string[];
+            selfIdentifiers: string[];
         }
     ): string | undefined {
         const excludedNames = new Set([
@@ -470,6 +575,10 @@ export class QQNTDatabaseService {
         const candidates = columns.filter(column => !this.isBlobColumn(column) && !excludedNames.has(column.name));
         let bestColumn: string | undefined;
         let bestScore = -1;
+        const knownIdentifiers = new Set([
+            ...excluded.peerIdentifiers,
+            ...excluded.selfIdentifiers
+        ]);
 
         for (const column of candidates) {
             const values = sampleRows
@@ -486,7 +595,20 @@ export class QQNTDatabaseService {
             }
 
             const uniqueCount = new Set(values).size;
-            const score = uniqueCount * 10 - Math.round(avgLength);
+            const matchedKnownIdentifiers = values.filter(value => knownIdentifiers.has(value)).length;
+            const smallNumericCount = values.filter(value => /^\d+$/.test(value) && Number(value) >= 0 && Number(value) <= 32).length;
+
+            let score = uniqueCount * 10 - Math.round(avgLength);
+            score += matchedKnownIdentifiers * 40;
+            score -= smallNumericCount * 8;
+
+            if (/(sender|from|user|member|uin|uid|nick|name)/i.test(column.name)) {
+                score += 25;
+            }
+            if (/(type|time|seq|msg|text|content)/i.test(column.name)) {
+                score -= 12;
+            }
+
             if (score > bestScore) {
                 bestScore = score;
                 bestColumn = column.name;
@@ -987,6 +1109,37 @@ export class QQNTDatabaseService {
             score -= 10;
         }
         return score;
+    }
+
+    private shouldUseDecryptedFallback(error: unknown): boolean {
+        const message = this.stringifyError(error);
+        return /node:sqlite|experimental-sqlite|checkSqliteAvailable/i.test(message);
+    }
+
+    private stringifyError(error: unknown): string {
+        if (error instanceof Error) {
+            return error.message;
+        }
+
+        if (typeof error === 'string') {
+            return error;
+        }
+
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
+    private logWarn(message: string): void {
+        const logger = this.core.context?.logger;
+        if (typeof logger?.logWarn === 'function') {
+            logger.logWarn(`[QQNTDatabaseService] ${message}`);
+            return;
+        }
+
+        console.warn(`[QQNTDatabaseService] ${message}`);
     }
 
     private escapeHtml(text: string): string {

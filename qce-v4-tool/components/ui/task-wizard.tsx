@@ -129,6 +129,13 @@ export function TaskWizard({
   }, [prefilledData, isOpen])
 
   useEffect(() => {
+    if (!isOpen) return
+
+    const shouldOpenManualInput = prefilledData?.sessionSource === "database" && !prefilledData?.peerUid
+    setManualInputMode(shouldOpenManualInput)
+  }, [isOpen, prefilledData?.sessionSource, prefilledData?.peerUid])
+
+  useEffect(() => {
     if (form.sessionSource === "database" && form.streamingZipMode) {
       setForm((p) => ({ ...p, streamingZipMode: false }))
     }
@@ -406,12 +413,11 @@ export function TaskWizard({
           <Label className="text-sm font-medium mb-2 block">选择聊天类型</Label>
           <div className="grid grid-cols-2 gap-2">
             <Button
-              variant={form.chatType === 1 && !manualInputMode ? "default" : "outline"}
+              variant={form.chatType === 1 ? "default" : "outline"}
               size="sm"
               onClick={() => {
                 setForm((p) => ({ ...p, chatType: 1 }))
                 setSearchTerm("")
-                setManualInputMode(false)
                 if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
                 friendSearchRef.current.search("")
               }}
@@ -421,12 +427,11 @@ export function TaskWizard({
               好友聊天
             </Button>
             <Button
-              variant={form.chatType === 2 && !manualInputMode ? "default" : "outline"}
+              variant={form.chatType === 2 ? "default" : "outline"}
               size="sm"
               onClick={() => {
                 setForm((p) => ({ ...p, chatType: 2 }))
                 setSearchTerm("")
-                setManualInputMode(false)
                 if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
                 groupSearchRef.current.search("")
               }}
@@ -452,13 +457,13 @@ export function TaskWizard({
         {manualInputMode ? (
           <div className="space-y-3 p-4 border border-blue-200 dark:border-blue-800 rounded-2xl bg-blue-50/50 dark:bg-blue-950/30">
             <div className="space-y-2">
-              <Label htmlFor="manualQQ" className="text-sm">{form.chatType === 2 ? "群号" : "QQ 号"}</Label>
+              <Label htmlFor="manualQQ" className="text-sm">QQ 号或群号</Label>
               <Input
                 id="manualQQ"
-                placeholder={form.chatType === 2 ? "输入要导出的群号" : "输入要导出的 QQ 号"}
+                placeholder="输入要导出的 QQ 号或群号"
                 value={manualQQNumber}
                 onChange={(e) => setManualQQNumber(e.target.value.replace(/\D/g, ''))}
-                className="rounded-xl font-mono"
+                className="rounded-xl font-sans"
               />
             </div>
             <div className="space-y-2">
@@ -477,12 +482,8 @@ export function TaskWizard({
               className="w-full rounded-full bg-blue-600 hover:bg-blue-700"
               size="sm"
             >
-              <CheckCircle className="w-4 h-4 mr-2" />
               确认
             </Button>
-            <p className="text-xs text-blue-600 dark:text-blue-400">
-              这里会直接走本地数据库导出，适合已删除好友、已退出群聊，或者列表里已经看不到的会话
-            </p>
           </div>
         ) : (
           <>
@@ -736,12 +737,6 @@ export function TaskWizard({
             className="rounded-xl"
           />
         </div>
-
-        {form.sessionSource === "database" && (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-            当前会话会直接从本地数据库读取，因此可以导出已删除好友或已退出群的聊天记录。这个模式暂时只走标准导出，不走流式导出和在线预览。
-          </div>
-        )}
 
         <Separator />
 

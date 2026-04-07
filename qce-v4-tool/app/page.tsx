@@ -422,6 +422,13 @@ export default function QCEDashboard() {
     setIsTaskWizardOpen(true)
   }
 
+  const handleOpenManualTaskWizard = () => {
+    handleOpenTaskWizard({
+      chatType: 1,
+      sessionSource: "database",
+    })
+  }
+
   const handlePreviewChat = (
     type: 'group' | 'friend',
     id: string,
@@ -1302,6 +1309,15 @@ export default function QCEDashboard() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    <motion.div whileTap={{ scale: 0.98 }}>
+                      <Button
+                        onClick={handleOpenManualTaskWizard}
+                        variant="outline"
+                        className="rounded-full bg-white text-neutral-900 hover:bg-neutral-50 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-100 dark:border-white"
+                      >
+                        手动导出
+                      </Button>
+                    </motion.div>
                     <motion.div whileTap={{ scale: 0.98 }}>
                       <Button onClick={loadChatData} disabled={isLoading} variant="outline" className="rounded-full">
                         <RefreshCw className="w-4 h-4 mr-2" />

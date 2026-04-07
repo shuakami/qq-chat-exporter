@@ -1,0 +1,8 @@
+Ophir LOJKINE <pere.jobs@gmail.com> (https://github.com/lovasoa)
+@kripken
+@hankinsoft
+@firien
+@dinedal
+@taytay
+@kaizhu256
+@brodybits
