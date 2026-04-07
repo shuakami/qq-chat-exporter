@@ -24,6 +24,7 @@ import { JsonExporter } from '../core/exporter/JsonExporter.js';
 import { ExcelExporter } from '../core/exporter/ExcelExporter.js';
 import { ModernHtmlExporter } from '../core/exporter/ModernHtmlExporter.js';
 import { DatabaseManager } from '../core/storage/DatabaseManager.js';
+import { QQNTDatabaseService } from '../core/storage/QQNTDatabaseService.js';
 import { ResourceHandler } from '../core/resource/ResourceHandler.js';
 import { ScheduledExportManager } from '../core/scheduler/ScheduledExportManager.js';
 import { FrontendBuilder } from '../webui/FrontendBuilder.js';
@@ -42,7 +43,8 @@ import type { RawMessage } from 'NapCatQQ/src/core/types.js';
 import type { 
     SystemErrorData,
     ExportTaskConfig,
-    ExportTaskState
+    ExportTaskState,
+    ExportSessionSource
 } from '../types/index.js';
 import { 
     ErrorType,
@@ -94,6 +96,7 @@ export class QQChatExporterApiServer {
     
     // 数据库管理器
     private dbManager: DatabaseManager;
+    private qqntDatabaseService: QQNTDatabaseService;
     
     // 资源处理器
     private resourceHandler: ResourceHandler;
@@ -150,6 +153,7 @@ export class QQChatExporterApiServer {
         const userProfile = process.env['USERPROFILE'] || process.env['HOME'] || '.';
         const dbPath = path.join(userProfile, '.qq-chat-exporter', 'tasks.db');
         this.dbManager = new DatabaseManager(dbPath);
+        this.qqntDatabaseService = new QQNTDatabaseService(core);
         
         // 初始化资源处理器
         this.resourceHandler = new ResourceHandler(core, this.dbManager);
@@ -1124,7 +1128,7 @@ export class QQChatExporterApiServer {
                 const page = parseInt(req.query['page'] as string) || 1;
                 const limit = parseInt(req.query['limit'] as string) || 999;
                 
-                const groups = await this.core.apis.GroupApi.getGroups(forceRefresh);
+                const groups: any[] = await this.core.apis.GroupApi.getGroups(forceRefresh);
                 
                 // 添加头像信息并分页
                 const groupsWithAvatars = groups.map(group => ({
@@ -1213,9 +1217,9 @@ export class QQChatExporterApiServer {
                 }
 
                 const messages = essenceList
-                    .flatMap(e => e?.data?.msg_list || [])
+                    .flatMap((e: any) => e?.data?.msg_list || [])
                     .filter(Boolean)
-                    .map(msg => ({
+                    .map((msg: any) => ({
                         msgSeq: msg.msg_seq,
                         msgRandom: msg.msg_random,
                         senderUin: msg.sender_uin,
@@ -1256,8 +1260,8 @@ export class QQChatExporterApiServer {
 
                 const { format = 'json' } = req.body;
                 
-                const groups = await this.core.apis.GroupApi.getGroups(false);
-                const groupInfo = groups.find(g => g.groupCode === groupCode);
+                const groups: any[] = await this.core.apis.GroupApi.getGroups(false);
+                const groupInfo = groups.find((g: any) => g.groupCode === groupCode);
                 const groupName = groupInfo?.groupName || `群${groupCode}`;
 
                 const essenceList = await this.core.apis.WebApi.getGroupEssenceMsgAll(groupCode);
@@ -1267,9 +1271,9 @@ export class QQChatExporterApiServer {
                 }
 
                 const messages = essenceList
-                    .flatMap(e => e?.data?.msg_list || [])
+                    .flatMap((e: any) => e?.data?.msg_list || [])
                     .filter(Boolean)
-                    .map(msg => ({
+                    .map((msg: any) => ({
                         msgSeq: msg.msg_seq,
                         msgRandom: msg.msg_random,
                         senderUin: msg.sender_uin,
@@ -1365,8 +1369,8 @@ export class QQChatExporterApiServer {
                 }
 
                 // 获取群信息
-                const groups = await this.core.apis.GroupApi.getGroups(false);
-                const groupInfo = groups.find(g => g.groupCode === groupCode);
+                const groups: any[] = await this.core.apis.GroupApi.getGroups(false);
+                const groupInfo = groups.find((g: any) => g.groupCode === groupCode);
                 const groupName = groupInfo?.groupName || groupCode;
 
                 // 创建导出目录
@@ -1731,6 +1735,7 @@ export class QQChatExporterApiServer {
                     id: task.taskId,
                     peer: task.peer,
                     sessionName: task.sessionName || task.peer.peerUid, // 直接使用已保存的会话名称
+                    sessionSource: task.sessionSource || 'api',
                     status: task.status,
                     progress: task.progress,
                     format: task.format,
@@ -1773,6 +1778,7 @@ export class QQChatExporterApiServer {
                     id: task.taskId,
                     peer: task.peer,
                     sessionName: task.sessionName || task.peer.peerUid, // 直接使用已保存的会话名称
+                    sessionSource: task.sessionSource || 'api',
                     status: task.status,
                     progress: task.progress,
                     format: task.format,
@@ -1867,15 +1873,28 @@ export class QQChatExporterApiServer {
         // 创建异步导出任务
         this.app.post('/api/messages/export', async (req, res) => {
             try {
-                const { peer, format = 'JSON', filter, options, sessionName: userSessionName } = req.body;
+                const {
+                    peer,
+                    format = 'JSON',
+                    filter,
+                    options,
+                    sessionName: userSessionName,
+                    sessionSource = 'api'
+                } = req.body as {
+                    peer?: { chatType?: number; peerUid?: string };
+                    format?: string;
+                    filter?: any;
+                    options?: any;
+                    sessionName?: string;
+                    sessionSource?: ExportSessionSource;
+                };
 
                 if (!peer || !peer.chatType || !peer.peerUid) {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, 'peer参数不完整', 'INVALID_PEER');
                 }
 
-                // Issue #226: 支持通过QQ号导出，自动转换为uid
                 let actualPeerUid = peer.peerUid;
-                if (peer.chatType === 1 && /^\d+$/.test(peer.peerUid)) {
+                if (sessionSource !== 'database' && peer.chatType === 1 && /^\d+$/.test(peer.peerUid)) {
                     // 私聊且peerUid是纯数字（QQ号），尝试转换为uid
                     const uid = await this.core.apis.UserApi.getUidByUinV2(peer.peerUid);
                     if (uid) {
@@ -1913,6 +1932,10 @@ export class QQChatExporterApiServer {
                 if (userSessionName && userSessionName.trim()) {
                     // 使用用户输入的任务名
                     sessionName = userSessionName.trim();
+                } else if (sessionSource === 'database') {
+                    sessionName = actualPeer.chatType === 2
+                        ? `群聊 ${actualPeer.peerUid}`
+                        : `好友 ${actualPeer.peerUid}`;
                 } else {
                     // 如果用户没有输入，则尝试自动获取会话名称
                     sessionName = actualPeer.peerUid;
@@ -1925,14 +1948,14 @@ export class QQChatExporterApiServer {
                         let namePromise;
                         if (actualPeer.chatType === 1) {
                             // 私聊 - 仅尝试从已缓存的好友列表获取
-                            namePromise = this.core.apis.FriendApi.getBuddy().then(friends => {
+                            namePromise = this.core.apis.FriendApi.getBuddy().then((friends: any[]) => {
                                 const friend = friends.find((f: any) => f.coreInfo?.uid === actualPeer.peerUid);
                                 return friend?.coreInfo?.remark || friend?.coreInfo?.nick || actualPeer.peerUid;
                             });
                         } else if (actualPeer.chatType === 2) {
                             // 群聊 - 仅尝试从已缓存的群列表获取
-                            namePromise = this.core.apis.GroupApi.getGroups().then(groups => {
-                                const group = groups.find(g => g.groupCode === actualPeer.peerUid || g.groupCode === actualPeer.peerUid.toString());
+                            namePromise = this.core.apis.GroupApi.getGroups().then((groups: any[]) => {
+                                const group = groups.find((g: any) => g.groupCode === actualPeer.peerUid || g.groupCode === actualPeer.peerUid.toString());
                                 return group?.groupName || `群聊 ${actualPeer.peerUid}`;
                             });
                         } else {
@@ -1969,7 +1992,8 @@ export class QQChatExporterApiServer {
                     createdAt: new Date().toISOString(),
                     format,
                     filter,
-                    options
+                    options,
+                    sessionSource
                 };
                 
                 this.exportTasks.set(taskId, task);
@@ -1993,7 +2017,11 @@ export class QQChatExporterApiServer {
                 }, (req as any).requestId);
 
                 // 在后台异步处理导出（传递自定义输出目录）
-                this.processExportTaskAsync(taskId, actualPeer, format, filter, options, fileName, downloadUrl, customOutputDir);
+                if (sessionSource === 'database') {
+                    this.processDatabaseExportTaskAsync(taskId, actualPeer, format, filter, options, fileName, downloadUrl, customOutputDir);
+                } else {
+                    this.processExportTaskAsync(taskId, actualPeer, format, filter, options, fileName, downloadUrl, customOutputDir);
+                }
 
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
@@ -2005,10 +2033,14 @@ export class QQChatExporterApiServer {
         // ===================
         this.app.post('/api/messages/export-streaming-zip', async (req, res) => {
             try {
-                const { peer, filter, options, sessionName: userSessionName } = req.body;
-
+                const { peer, filter, options, sessionName: userSessionName, sessionSource } = req.body;
+                
                 if (!peer || !peer.chatType || !peer.peerUid) {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, 'peer参数不完整', 'INVALID_PEER');
+                }
+
+                if (sessionSource === 'database') {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '数据库模式暂时只支持标准导出，不支持流式 ZIP', 'DATABASE_STREAMING_UNSUPPORTED');
                 }
 
                 // Issue #226: 支持通过QQ号导出，自动转换为uid
@@ -2050,13 +2082,13 @@ export class QQChatExporterApiServer {
                         
                         let namePromise;
                         if (actualPeer.chatType === 1) {
-                            namePromise = this.core.apis.FriendApi.getBuddy().then(friends => {
+                            namePromise = this.core.apis.FriendApi.getBuddy().then((friends: any[]) => {
                                 const friend = friends.find((f: any) => f.coreInfo?.uid === actualPeer.peerUid);
                                 return friend?.coreInfo?.remark || friend?.coreInfo?.nick || actualPeer.peerUid;
                             });
                         } else if (actualPeer.chatType === 2) {
-                            namePromise = this.core.apis.GroupApi.getGroups().then(groups => {
-                                const group = groups.find(g => g.groupCode === actualPeer.peerUid || g.groupCode === actualPeer.peerUid.toString());
+                            namePromise = this.core.apis.GroupApi.getGroups().then((groups: any[]) => {
+                                const group = groups.find((g: any) => g.groupCode === actualPeer.peerUid || g.groupCode === actualPeer.peerUid.toString());
                                 return group?.groupName || `群聊 ${actualPeer.peerUid}`;
                             });
                         } else {
@@ -2129,10 +2161,14 @@ export class QQChatExporterApiServer {
         // ===================
         this.app.post('/api/messages/export-streaming-jsonl', async (req, res) => {
             try {
-                const { peer, filter, options, sessionName: userSessionName } = req.body;
-
+                const { peer, filter, options, sessionName: userSessionName, sessionSource } = req.body;
+                
                 if (!peer || !peer.chatType || !peer.peerUid) {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, 'peer参数不完整', 'INVALID_PEER');
+                }
+
+                if (sessionSource === 'database') {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '数据库模式暂时只支持标准导出，不支持流式 JSONL', 'DATABASE_STREAMING_UNSUPPORTED');
                 }
 
                 // Issue #226: 支持通过QQ号导出，自动转换为uid
@@ -2174,13 +2210,13 @@ export class QQChatExporterApiServer {
                         
                         let namePromise;
                         if (actualPeer.chatType === 1) {
-                            namePromise = this.core.apis.FriendApi.getBuddy().then(friends => {
+                            namePromise = this.core.apis.FriendApi.getBuddy().then((friends: any[]) => {
                                 const friend = friends.find((f: any) => f.coreInfo?.uid === actualPeer.peerUid);
                                 return friend?.coreInfo?.remark || friend?.coreInfo?.nick || actualPeer.peerUid;
                             });
                         } else if (actualPeer.chatType === 2) {
-                            namePromise = this.core.apis.GroupApi.getGroups().then(groups => {
-                                const group = groups.find(g => g.groupCode === actualPeer.peerUid || g.groupCode === actualPeer.peerUid.toString());
+                            namePromise = this.core.apis.GroupApi.getGroups().then((groups: any[]) => {
+                                const group = groups.find((g: any) => g.groupCode === actualPeer.peerUid || g.groupCode === actualPeer.peerUid.toString());
                                 return group?.groupName || `群聊 ${actualPeer.peerUid}`;
                             });
                         } else {
@@ -3875,6 +3911,257 @@ export class QQChatExporterApiServer {
         }
     }
 
+    private async processDatabaseExportTaskAsync(
+        taskId: string,
+        peer: any,
+        format: string,
+        filter: any,
+        options: any,
+        fileName: string,
+        _downloadUrl: string,
+        customOutputDir?: string
+    ): Promise<void> {
+        let task = this.exportTasks.get(taskId);
+
+        try {
+            if (task) {
+                await this.updateTaskStatus(taskId, {
+                    status: 'running',
+                    progress: 0,
+                    message: '开始读取本地数据库...'
+                });
+            }
+
+            this.broadcastWebSocketMessage({
+                type: 'export_progress',
+                data: {
+                    taskId,
+                    status: 'running',
+                    progress: 0,
+                    message: '开始读取本地数据库...'
+                }
+            });
+
+            const databaseResult = await this.qqntDatabaseService.exportSessionMessages(
+                peer,
+                filter,
+                task?.sessionName
+            );
+
+            let cleanMessages = databaseResult.messages;
+
+            task = this.exportTasks.get(taskId);
+            if (task) {
+                await this.updateTaskStatus(taskId, {
+                    progress: 35,
+                    message: '数据库读取完成，正在整理消息...',
+                    messageCount: cleanMessages.length
+                });
+            }
+
+            this.broadcastWebSocketMessage({
+                type: 'export_progress',
+                data: {
+                    taskId,
+                    status: 'running',
+                    progress: 35,
+                    message: '数据库读取完成，正在整理消息...',
+                    messageCount: cleanMessages.length
+                }
+            });
+
+            if (options?.includeSystemMessages === false) {
+                cleanMessages = cleanMessages.filter(message => !message.system);
+            }
+
+            if (filter?.excludeUserUins && filter.excludeUserUins.length > 0) {
+                const excludeSet = new Set(filter.excludeUserUins.map((uin: string) => String(uin)));
+                cleanMessages = cleanMessages.filter(message => {
+                    const senderUin = String(message.sender?.uin || message.sender?.uid || '');
+                    return !excludeSet.has(senderUin);
+                });
+            }
+
+            cleanMessages = [...cleanMessages].sort((a, b) => this.compareCleanMessagesChronologically(a, b));
+
+            task = this.exportTasks.get(taskId);
+            if (task) {
+                await this.updateTaskStatus(taskId, {
+                    progress: 75,
+                    message: '正在生成文件...',
+                    messageCount: cleanMessages.length
+                });
+            }
+
+            this.broadcastWebSocketMessage({
+                type: 'export_progress',
+                data: {
+                    taskId,
+                    status: 'running',
+                    progress: 75,
+                    message: '正在生成文件...',
+                    messageCount: cleanMessages.length
+                }
+            });
+
+            const defaultOutputDir = this.pathManager.getExportsDir();
+            const outputDir = customOutputDir && customOutputDir.trim() ? customOutputDir.trim() : defaultOutputDir;
+            if (!fs.existsSync(outputDir)) {
+                fs.mkdirSync(outputDir, { recursive: true });
+            }
+
+            const filePath = path.join(outputDir, fileName);
+            const exportOptions = {
+                outputPath: filePath,
+                includeResourceLinks: options?.includeResourceLinks ?? false,
+                includeSystemMessages: options?.includeSystemMessages ?? true,
+                filterPureImageMessages: options?.filterPureImageMessages ?? true,
+                prettyFormat: options?.prettyFormat ?? true,
+                timeFormat: 'YYYY-MM-DD HH:mm:ss',
+                encoding: 'utf-8'
+            };
+
+            const currentTask = this.exportTasks.get(taskId);
+            const sessionName = currentTask?.sessionName || (peer.chatType === 2 ? `群聊 ${peer.peerUid}` : `好友 ${peer.peerUid}`);
+            const selfInfo = this.core.selfInfo;
+            const chatInfo = {
+                name: sessionName,
+                type: (peer.chatType === ChatType.Group || peer.chatType === 2 ? 'group' : 'private') as 'group' | 'private',
+                selfUid: selfInfo?.uid,
+                selfUin: selfInfo?.uin,
+                selfName: selfInfo?.nick
+            };
+
+            let exporter: any;
+            switch (format.toUpperCase()) {
+                case 'TXT':
+                    exporter = new TextExporter(exportOptions, {}, this.core);
+                    await exporter.export(cleanMessages, chatInfo);
+                    break;
+                case 'JSON':
+                    exporter = new JsonExporter(exportOptions, {
+                        embedAvatarsAsBase64: options?.embedAvatarsAsBase64 ?? false
+                    }, this.core);
+                    await exporter.export(cleanMessages, chatInfo);
+                    break;
+                case 'EXCEL':
+                    exporter = new ExcelExporter(exportOptions, {}, this.core);
+                    await exporter.export(cleanMessages, chatInfo);
+                    break;
+                case 'HTML':
+                    const htmlExporter = new ModernHtmlExporter({
+                        outputPath: filePath,
+                        includeResourceLinks: false,
+                        includeSystemMessages: exportOptions.includeSystemMessages,
+                        encoding: exportOptions.encoding
+                    });
+                    await htmlExporter.export(cleanMessages, chatInfo);
+                    break;
+                default:
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '不支持的导出格式', 'INVALID_FORMAT');
+            }
+
+            let finalFilePath = filePath;
+            let finalFileName = fileName;
+            let isZipExport = false;
+
+            if (format.toUpperCase() === 'HTML' && options?.exportAsZip === true) {
+                try {
+                    task = this.exportTasks.get(taskId);
+                    if (task) {
+                        await this.updateTaskStatus(taskId, {
+                            progress: 95,
+                            message: '正在打包ZIP文件...'
+                        });
+                    }
+
+                    this.broadcastWebSocketMessage({
+                        type: 'export_progress',
+                        data: {
+                            taskId,
+                            status: 'running',
+                            progress: 95,
+                            message: '正在打包ZIP文件...'
+                        }
+                    });
+
+                    const zipFileName = fileName.replace(/\.html$/i, '.zip');
+                    const zipFilePath = path.join(outputDir, zipFileName);
+                    await ZipExporter.createZip(filePath, zipFilePath, []);
+                    finalFilePath = zipFilePath;
+                    finalFileName = zipFileName;
+                    isZipExport = true;
+                } catch (zipError) {
+                    console.error(`[ApiServer] 数据库模式创建ZIP压缩包失败:`, zipError);
+                }
+            }
+
+            const stats = fs.statSync(finalFilePath);
+
+            task = this.exportTasks.get(taskId);
+            if (task) {
+                await this.updateTaskStatus(taskId, {
+                    status: 'completed',
+                    progress: 100,
+                    message: '导出完成',
+                    messageCount: cleanMessages.length,
+                    filePath: finalFilePath,
+                    fileSize: stats.size,
+                    completedAt: new Date().toISOString(),
+                    fileName: finalFileName,
+                    isZipExport,
+                    originalFilePath: isZipExport ? filePath : undefined
+                });
+            }
+
+            const finalDownloadUrl = this.generateDownloadUrl(
+                finalFilePath,
+                finalFileName,
+                customOutputDir,
+                isZipExport ? '/download?file=' : '/downloads/'
+            );
+
+            this.broadcastWebSocketMessage({
+                type: 'export_complete',
+                data: {
+                    taskId,
+                    status: 'completed',
+                    progress: 100,
+                    message: '导出完成',
+                    messageCount: cleanMessages.length,
+                    fileName: finalFileName,
+                    filePath: finalFilePath,
+                    fileSize: stats.size,
+                    downloadUrl: finalDownloadUrl,
+                    isZipExport,
+                    originalFilePath: isZipExport ? filePath : undefined
+                }
+            });
+
+            await this.dbManager.flushWriteQueue();
+        } catch (error) {
+            console.error(`[ApiServer] 数据库导出任务失败: ${taskId}`, error);
+
+            task = this.exportTasks.get(taskId);
+            if (task) {
+                await this.updateTaskStatus(taskId, {
+                    status: 'failed',
+                    error: error instanceof Error ? error.message : '导出失败',
+                    completedAt: new Date().toISOString()
+                });
+            }
+
+            this.broadcastWebSocketMessage({
+                type: 'export_error',
+                data: {
+                    taskId,
+                    status: 'failed',
+                    error: error instanceof Error ? error.message : '导出失败'
+                }
+            });
+        }
+    }
+
     /**
      * 计算可排序的消息时间戳（毫秒）
      */
@@ -4403,7 +4690,7 @@ export class QQChatExporterApiServer {
 
             // 初始化解析器
             const { SimpleMessageParser } = await import('../core/parser/SimpleMessageParser.js');
-            const parser = new SimpleMessageParser(this.core);
+            const parser = new SimpleMessageParser();
 
             // 头像收集（如果启用了 embedAvatarsAsBase64）
             const embedAvatars = options?.embedAvatarsAsBase64 === true;
@@ -5052,6 +5339,7 @@ export class QQChatExporterApiServer {
                     taskId: config.taskId,
                     peer: config.peer,
                     sessionName: config.chatName,
+                    sessionSource: config.sessionSource || 'api',
                     status: state.status,
                     progress: state.totalMessages > 0 ? Math.round((state.processedMessages / state.totalMessages) * 100) : 0,
                     format: config.formats[0] || 'JSON',
@@ -5090,6 +5378,7 @@ export class QQChatExporterApiServer {
                 taskId: task.taskId,
                 taskName: task.sessionName,
                 peer: task.peer,
+                sessionSource: task.sessionSource || 'api',
                 chatType: task.peer.chatType === 1 ? ChatTypeSimple.PRIVATE : ChatTypeSimple.GROUP,
                 chatName: task.sessionName,
                 chatAvatar: '', // 可以后续添加
@@ -5772,12 +6061,12 @@ export class QQChatExporterApiServer {
     private async getDisplayNameForChat(chatType: 'friend' | 'group', chatId: string): Promise<string | undefined> {
         try {
             if (chatType === 'group') {
-                const groups = await this.core.apis.GroupApi.getGroups(false);
-                const group = groups.find(g => g.groupCode === chatId);
+                const groups: any[] = await this.core.apis.GroupApi.getGroups(false);
+                const group = groups.find((g: any) => g.groupCode === chatId);
                 return group?.groupName;
             } else {
-                const friends = await this.core.apis.FriendApi.getFriends(false);
-                const friend = friends.find(f => f.uin === chatId || f.uid === chatId);
+                const friends: any[] = await this.core.apis.FriendApi.getFriends(false);
+                const friend = friends.find((f: any) => f.uin === chatId || f.uid === chatId);
                 return friend?.nick || friend?.remark;
             }
         } catch (error) {

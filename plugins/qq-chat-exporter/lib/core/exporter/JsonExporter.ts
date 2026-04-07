@@ -6,11 +6,12 @@
 
 import { ExportFormat } from '../../types/index.js';
 import type { ExportResult } from '../../types/index.js';
-import { BaseExporter, ExportOptions } from './BaseExporter.js';
-import { CleanMessage, SimpleMessageParser } from '../parser/SimpleMessageParser.js';
-import { NapCatCore } from 'NapCatQQ/src/core/index.js';
-import { RawMessage } from 'NapCatQQ/src/core/index.js';
-import { ParsedMessage } from '../parser/MessageParser.js';
+import { BaseExporter } from './BaseExporter.js';
+import type { ExportOptions } from './BaseExporter.js';
+import { SimpleMessageParser } from '../parser/SimpleMessageParser.js';
+import type { CleanMessage } from '../parser/SimpleMessageParser.js';
+import type { NapCatCore, RawMessage } from 'NapCatQQ/src/core/index.js';
+import type { ParsedMessage } from '../parser/MessageParser.js';
 import { VERSION, APP_INFO } from '../../version.js';
 
 import { ChunkedJsonlWriter } from './ChunkedJsonlWriter.js';
@@ -265,14 +266,23 @@ export class JsonExporter extends BaseExporter {
      * - 默认：single-json（现有流式导出逻辑）
      * - 可选：chunked-jsonl（优化方案：manifest + chunks/*.jsonl）
      */
-    override async export(messages: RawMessage[], chatInfo?: any): Promise<ExportResult> {
-        if (this.jsonOptions.exportMode === 'chunked-jsonl') {
-            const r = await this.exportChunkedJsonl(messages, chatInfo, this.jsonOptions.chunkedJsonl);
+    override async export(messages: any[], chatInfo?: any): Promise<ExportResult> {
+        const canUseStreamingPipeline = this.core && (
+            messages.length === 0 ||
+            this.isRawMessage(messages[0])
+        );
+
+        if (this.jsonOptions.exportMode === 'chunked-jsonl' && canUseStreamingPipeline) {
+            const r = await this.exportChunkedJsonl(messages as RawMessage[], chatInfo, this.jsonOptions.chunkedJsonl);
             // ChunkedJsonlExportResult 兼容 ExportResult（结构类型）
             return r;
         }
 
-        return await this.exportSingleJsonStreaming(messages, chatInfo);
+        if (canUseStreamingPipeline) {
+            return await this.exportSingleJsonStreaming(messages as RawMessage[], chatInfo);
+        }
+
+        return await super.export(messages, chatInfo);
     }
 
     /**

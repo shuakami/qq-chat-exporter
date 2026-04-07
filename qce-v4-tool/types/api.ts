@@ -103,6 +103,8 @@ export interface FriendsResponse {
   hasPrev: boolean
 }
 
+export type ExportSessionSource = "api" | "database"
+
 // Task Types
 export interface ExportTask {
   id: string
@@ -112,6 +114,7 @@ export interface ExportTask {
     guildId: string
   }
   sessionName: string
+  sessionSource?: ExportSessionSource
   status: "pending" | "running" | "completed" | "failed"
   progress: number
   format: string
@@ -139,6 +142,7 @@ export interface CreateTaskForm {
   chatType: number
   peerUid: string
   sessionName: string
+  sessionSource?: ExportSessionSource
   format: string
   startTime?: string
   endTime?: string
@@ -164,11 +168,13 @@ export interface CreateTaskRequest {
     guildId: string
   }
   sessionName?: string
+  sessionSource?: ExportSessionSource
   format: string
   filter: {
     startTime?: number
     endTime?: number
     keywords?: string[]
+    excludeUserUins?: string[]
     includeRecalled: boolean
   }
   options: {

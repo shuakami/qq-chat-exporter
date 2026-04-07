@@ -69,6 +69,7 @@ export function TaskWizard({
     chatType: 2,
     peerUid: "",
     sessionName: "",
+    sessionSource: "api",
     format: "JSON",
     startTime: "",
     endTime: "",
@@ -106,6 +107,7 @@ export function TaskWizard({
         chatType: prefilledData.chatType || 2,
         peerUid: prefilledData.peerUid || "",
         sessionName: prefilledData.sessionName || "",
+        sessionSource: prefilledData.sessionSource || "api",
         format: format,
         startTime: prefilledData.startTime || "",
         endTime: prefilledData.endTime || "",
@@ -125,6 +127,12 @@ export function TaskWizard({
       })
     }
   }, [prefilledData, isOpen])
+
+  useEffect(() => {
+    if (form.sessionSource === "database" && form.streamingZipMode) {
+      setForm((p) => ({ ...p, streamingZipMode: false }))
+    }
+  }, [form.sessionSource, form.streamingZipMode])
 
   useEffect(() => {
     if (prefilledData?.peerUid && isOpen) {
@@ -151,7 +159,7 @@ export function TaskWizard({
   // init search data
   const groupSearchRef = useRef(groupSearch)
   const friendSearchRef = useRef(friendSearch)
-  const searchTimerRef = useRef<NodeJS.Timeout>()
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null)
   const currentChatTypeRef = useRef(form.chatType)
 
   useEffect(() => {
@@ -184,6 +192,7 @@ export function TaskWizard({
         chatType: 2,
         peerUid: "",
         sessionName: "",
+        sessionSource: "api",
         format: "JSON",
         startTime: "",
         endTime: "",
@@ -205,9 +214,9 @@ export function TaskWizard({
     setSelectedTarget(target)
     setShowTargetSelector(false)
     if ("groupCode" in target) {
-      setForm((p) => ({ ...p, chatType: 2, peerUid: target.groupCode, sessionName: target.groupName }))
+      setForm((p) => ({ ...p, chatType: 2, peerUid: target.groupCode, sessionName: target.groupName, sessionSource: "api" }))
     } else {
-      setForm((p) => ({ ...p, chatType: 1, peerUid: target.uid, sessionName: target.remark || target.nick }))
+      setForm((p) => ({ ...p, chatType: 1, peerUid: target.uid, sessionName: target.remark || target.nick, sessionSource: "api" }))
     }
   }
 
@@ -281,7 +290,13 @@ export function TaskWizard({
     }, 300)
   }, [])
 
-  useEffect(() => () => searchTimerRef.current && clearTimeout(searchTimerRef.current), [])
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current)
+      }
+    }
+  }, [])
 
   const getDisplayTargets = () => {
     const s = form.chatType === 2 ? groupSearch : friendSearch
@@ -334,33 +349,48 @@ export function TaskWizard({
 
   // 手动输入QQ号确认（Issue #226）
   const handleManualInputConfirm = useCallback(() => {
-    const qqNumber = manualQQNumber.trim()
-    if (!qqNumber) return
+    const manualId = manualQQNumber.trim()
+    if (!manualId) return
+
+    const isGroupChat = form.chatType === 2
+    const resolvedSessionName = manualSessionName.trim() || (isGroupChat ? `群聊 ${manualId}` : `好友 ${manualId}`)
     
     // 设置表单数据
     setForm((p) => ({
       ...p,
-      chatType: 1, // 私聊
-      peerUid: qqNumber,
-      sessionName: manualSessionName.trim() || `好友 ${qqNumber}`
+      chatType: isGroupChat ? 2 : 1,
+      peerUid: manualId,
+      sessionName: resolvedSessionName,
+      sessionSource: "database",
+      streamingZipMode: false
     }))
     
-    // 创建一个虚拟的 Friend 对象用于显示
-    const virtualFriend: Friend = {
-      uid: qqNumber,
-      uin: qqNumber,
-      nick: manualSessionName.trim() || `好友 ${qqNumber}`,
-      remark: manualSessionName.trim() || null,
-      avatarUrl: `https://q1.qlogo.cn/g?b=qq&nk=${qqNumber}&s=640`,
-      isOnline: false,
-      status: 0,
-      categoryId: 1
+    if (isGroupChat) {
+      const virtualGroup: Group = {
+        groupCode: manualId,
+        groupName: resolvedSessionName,
+        memberCount: 0,
+        maxMember: 0,
+        avatarUrl: `https://p.qlogo.cn/gh/${manualId}/${manualId}/640`
+      }
+      setSelectedTarget(virtualGroup)
+    } else {
+      const virtualFriend: Friend = {
+        uid: manualId,
+        uin: Number(manualId),
+        nick: resolvedSessionName,
+        remark: manualSessionName.trim() || undefined,
+        avatarUrl: `https://q1.qlogo.cn/g?b=qq&nk=${manualId}&s=640`,
+        isOnline: false,
+        status: 0,
+        categoryId: 1
+      }
+      setSelectedTarget(virtualFriend)
     }
-    
-    setSelectedTarget(virtualFriend)
+
     setShowTargetSelector(false)
     setManualInputMode(false)
-  }, [manualQQNumber, manualSessionName])
+  }, [form.chatType, manualQQNumber, manualSessionName])
 
   const canSubmit = () => selectedTarget !== null && form.sessionName.trim() !== ""
 
@@ -406,7 +436,7 @@ export function TaskWizard({
               群组聊天
             </Button>
           </div>
-          {/* 手动输入QQ号选项（Issue #226） */}
+          {/* 手动输入 QQ 号或群号（数据库模式） */}
           <Button
             variant={manualInputMode ? "default" : "ghost"}
             size="sm"
@@ -414,18 +444,18 @@ export function TaskWizard({
             className="w-full mt-2 justify-center rounded-full text-xs"
           >
             {manualInputMode ? <X className="w-3 h-3 mr-1" /> : <User className="w-3 h-3 mr-1" />}
-            {manualInputMode ? "取消手动输入" : "手动输入QQ号"}
+            {manualInputMode ? "取消手动输入" : "手动输入 QQ 号或群号"}
           </Button>
         </div>
 
-        {/* 手动输入QQ号面板（Issue #226） */}
+        {/* 手动输入面板（数据库模式） */}
         {manualInputMode ? (
           <div className="space-y-3 p-4 border border-blue-200 dark:border-blue-800 rounded-2xl bg-blue-50/50 dark:bg-blue-950/30">
             <div className="space-y-2">
-              <Label htmlFor="manualQQ" className="text-sm">QQ号码</Label>
+              <Label htmlFor="manualQQ" className="text-sm">{form.chatType === 2 ? "群号" : "QQ 号"}</Label>
               <Input
                 id="manualQQ"
-                placeholder="输入要导出的QQ号"
+                placeholder={form.chatType === 2 ? "输入要导出的群号" : "输入要导出的 QQ 号"}
                 value={manualQQNumber}
                 onChange={(e) => setManualQQNumber(e.target.value.replace(/\D/g, ''))}
                 className="rounded-xl font-mono"
@@ -451,7 +481,7 @@ export function TaskWizard({
               确认
             </Button>
             <p className="text-xs text-blue-600 dark:text-blue-400">
-              适用于好友列表中未显示的用户，如超过1000人限制的好友
+              这里会直接走本地数据库导出，适合已删除好友、已退出群聊，或者列表里已经看不到的会话
             </p>
           </div>
         ) : (
@@ -633,19 +663,28 @@ export function TaskWizard({
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1">
-                    <p className="font-medium text-sm">
-                      {"groupName" in selectedTarget
-                        ? selectedTarget.groupName
-                        : selectedTarget.remark || selectedTarget.nick}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-sm">
+                        {"groupName" in selectedTarget
+                          ? selectedTarget.groupName
+                          : selectedTarget.remark || selectedTarget.nick}
+                      </p>
+                      {form.sessionSource === "database" && (
+                        <Badge variant="outline" className="rounded-full text-[10px]">数据库模式</Badge>
+                      )}
+                    </div>
                     <p className="text-xs text-neutral-600 dark:text-neutral-400">
                       {"groupName" in selectedTarget
-                        ? `${selectedTarget.memberCount}/${selectedTarget.maxMember} 成员`
-                        : `${selectedTarget.isOnline ? "在线" : "离线"}`}
+                        ? form.sessionSource === "database"
+                          ? `群号 ${selectedTarget.groupCode}`
+                          : `${selectedTarget.memberCount}/${selectedTarget.maxMember} 成员`
+                        : form.sessionSource === "database"
+                          ? `QQ 号 ${selectedTarget.uin}`
+                          : `${selectedTarget.isOnline ? "在线" : "离线"}`}
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    {onPreview && (
+                    {onPreview && form.sessionSource !== "database" && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -664,7 +703,7 @@ export function TaskWizard({
                         预览
                       </Button>
                     )}
-                    {onExportAvatars && form.chatType === 2 && "groupCode" in selectedTarget && (
+                    {onExportAvatars && form.sessionSource !== "database" && form.chatType === 2 && "groupCode" in selectedTarget && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -697,6 +736,12 @@ export function TaskWizard({
             className="rounded-xl"
           />
         </div>
+
+        {form.sessionSource === "database" && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+            当前会话会直接从本地数据库读取，因此可以导出已删除好友或已退出群的聊天记录。这个模式暂时只走标准导出，不走流式导出和在线预览。
+          </div>
+        )}
 
         <Separator />
 
@@ -800,7 +845,7 @@ export function TaskWizard({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label htmlFor="excludeUserUins">排除用户（可选）</Label>
-            {selectedTarget && "groupCode" in selectedTarget && (
+            {selectedTarget && "groupCode" in selectedTarget && form.sessionSource !== "database" && (
               <Button
                 type="button"
                 variant="ghost"
@@ -860,10 +905,9 @@ export function TaskWizard({
                       const uin = member.uin || member.uid
                       const isSelected = selectedMemberUins.has(uin)
                       const displayName = member.cardName || member.nick
-                      // 处理 role: 4=owner, 3=admin, 其他=member
-                      const roleNum = typeof member.role === 'number' ? member.role : 0
-                      const isOwner = roleNum === 4 || member.role === 'owner'
-                      const isAdmin = roleNum === 3 || member.role === 'admin'
+                      const roleValue = String(member.role)
+                      const isOwner = roleValue === 'owner' || roleValue === '4'
+                      const isAdmin = roleValue === 'admin' || roleValue === '3'
                       return (
                         <div
                           key={uin}
@@ -958,7 +1002,7 @@ export function TaskWizard({
                 desc: form.format === "HTML" 
                   ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式，适合导出超大群聊记录。"
                   : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式，适合导出超大群聊记录。",
-                visible: form.format === "HTML" || form.format === "JSON",
+                visible: form.sessionSource !== "database" && (form.format === "HTML" || form.format === "JSON"),
                 highlight: true
               },
               {
