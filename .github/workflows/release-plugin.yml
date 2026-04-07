@@ -209,13 +209,23 @@ jobs:
           <details>
           <summary>Framework 模式使用方法</summary>
 
+          **方式 A：直接运行 \`napiLoader.bat\`（推荐）**
+
+          这条路不要求先安装 LiteLoaderQQNT。
+
+          1. 解压下载的 \`NapCat-Framework-QCE-${VERSION}.zip\`
+          2. 如果当前 QQ 正在运行，先完全退出 QQ
+          3. 运行 \`napiLoader.bat\`
+          4. 如果 QQ 弹出登录页，按平时的方式登录 QQ
+          5. 访问 \`http://localhost:40653/qce-v4-tool\`
+
+          **方式 B：LiteLoaderQQNT 插件方式（只有明确要这样装时才用）**
+
+          只有这条路才要求先安装 LiteLoaderQQNT。
+
           1. 先按 LiteLoaderQQNT 官方文档完成安装：<https://liteloaderqqnt.github.io/>
-          2. 解压下载的 \`NapCat-Framework-QCE-${VERSION}.zip\`
-          3. 这个 Framework 包已经把需要的内容整合好了，普通用户直接解压后继续往下做就可以，不需要再手动挪文件夹
-          4. 如果当前 QQ 正在运行，先完全退出 QQ
-          5. 运行 \`napiLoader.bat\`
-          6. 如果 QQ 弹出登录页，按平时的方式登录 QQ
-          7. 访问 \`http://localhost:40653/qce-v4-tool\`
+          2. 装好以后，确认 QQ 设置左侧已经出现 LiteLoaderQQNT
+          3. 再按 LiteLoaderQQNT / NapCat 的插件安装方式去部署这个包
 
           <details>
           <summary>如何找到访问令牌？</summary>
