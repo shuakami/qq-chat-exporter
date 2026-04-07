@@ -302,11 +302,12 @@ echo [Info] QQ path saved to config\\qq_path.txt
 
 :napcat_boot
 echo.
-echo [Info] Using QQ: %QQPath%
+echo [Info] Using QQ: "%QQPath%"
 
 rem Check if this is QQNT (required) vs old QQ
-echo %QQPath% | findstr /i "\\Bin\\QQ.exe" >nul
-if %errorlevel% equ 0 (
+set "isOldQQ="
+if not "!QQPath:\Bin\QQ.exe=!"=="!QQPath!" set "isOldQQ=1"
+if defined isOldQQ (
     echo.
     echo ============================================
     echo   [Error] Incompatible QQ Version Detected
@@ -315,7 +316,7 @@ if %errorlevel% equ 0 (
     echo The selected QQ appears to be the OLD version ^(QQ 9.x^).
     echo NapCat requires QQNT ^(QQ 9.9.x or later^).
     echo.
-    echo Your path: %QQPath%
+    echo Your path: "%QQPath%"
     echo.
     echo QQNT paths typically look like:
     echo   - C:\Program Files\Tencent\QQNT\QQ.exe
