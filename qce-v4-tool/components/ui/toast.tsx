@@ -727,7 +727,7 @@ export const Toast = React.memo(({
                 }}
                 className={`px-3 py-1.5 bg-transparent ${theme.dismissButtonHover} ${theme.textSecondary} text-[12px] font-medium rounded-md transition-all active:scale-95`}
               >
-                Dismiss
+                关闭
               </button>
 
               {resolvedActions.map((action, index) => {
