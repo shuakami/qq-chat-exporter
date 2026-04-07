@@ -42,6 +42,10 @@ export interface ResourceHandlerConfig {
     cacheCleanupThreshold: number;
 }
 
+const RESOURCE_HEALTH_CACHE_MS = 30 * 60 * 1000;
+const RESOURCE_HEALTH_STALE_MS = 6 * 60 * 60 * 1000;
+const RESOURCE_HEALTH_BATCH_SIZE = 50;
+
 /**
  * 下载任务
  */
@@ -198,17 +202,26 @@ class CircuitBreaker {
 class ResourceHealthChecker {
     private healthStatus: Map<string, boolean> = new Map();
     private lastCheckTime: Map<string, Date> = new Map();
+    private md5VerifiedAtLastCheck: Map<string, boolean> = new Map();
 
     /**
      * 检查资源健康状态
      */
-    async checkHealth(resourceInfo: ResourceInfo): Promise<boolean> {
+    async checkHealth(
+        resourceInfo: ResourceInfo,
+        options: { verifyMd5?: boolean; cacheDurationMs?: number } = {}
+    ): Promise<boolean> {
         const now = new Date();
         const lastCheck = this.lastCheckTime.get(resourceInfo.md5);
+        const verifyMd5 = options.verifyMd5 === true;
+        const cacheDurationMs = options.cacheDurationMs ?? RESOURCE_HEALTH_CACHE_MS;
         
         // 如果最近检查过且状态良好，直接返回缓存结果
-        if (lastCheck && (now.getTime() - lastCheck.getTime()) < 300000) { // 5分钟缓存
-            return this.healthStatus.get(resourceInfo.md5) || false;
+        if (lastCheck && (now.getTime() - lastCheck.getTime()) < cacheDurationMs) {
+            const lastCheckVerifiedMd5 = this.md5VerifiedAtLastCheck.get(resourceInfo.md5) === true;
+            if (!verifyMd5 || lastCheckVerifiedMd5) {
+                return this.healthStatus.get(resourceInfo.md5) || false;
+            }
         }
 
         let isHealthy = false;
@@ -221,8 +234,8 @@ class ResourceHealthChecker {
                     stats.size === resourceInfo.fileSize
                 );
                 
-                // 如果有MD5，验证文件完整性
-                if (isHealthy && resourceInfo.md5) {
+                // 仅在明确需要时才重新计算MD5，避免每次导出都全量扫文件
+                if (isHealthy && verifyMd5 && resourceInfo.md5) {
                     const fileMd5 = await this.calculateFileMd5(resourceInfo.localPath);
                     isHealthy = fileMd5 === resourceInfo.md5;
                 }
@@ -233,6 +246,7 @@ class ResourceHealthChecker {
 
         this.healthStatus.set(resourceInfo.md5, isHealthy);
         this.lastCheckTime.set(resourceInfo.md5, now);
+        this.md5VerifiedAtLastCheck.set(resourceInfo.md5, verifyMd5);
         
         return isHealthy;
     }
@@ -257,6 +271,7 @@ class ResourceHealthChecker {
     cleanup(): void {
         this.healthStatus.clear();
         this.lastCheckTime.clear();
+        this.md5VerifiedAtLastCheck.clear();
     }
 }
 
@@ -284,6 +299,7 @@ export class ResourceHandler {
     private downloadQueue: DownloadTask[] = [];
     private activeDownloads: Map<string, Promise<string>> = new Map();
     private isProcessing: boolean = false;
+    private isHealthCheckRunning: boolean = false;
     private healthCheckTimer: NodeJS.Timeout | null = null;
     
     // 进度回调
@@ -406,22 +422,34 @@ export class ResourceHandler {
      * 处理单个媒体元素
      */
     private async processElement(message: RawMessage, element: MessageElement): Promise<ResourceInfo | null> {
-        const resourceInfo = this.extractResourceInfo(element);
+        const baseResourceInfo = this.extractResourceInfo(element);
+        if (!baseResourceInfo) {
+            return null;
+        }
+
+        const resourceInfo = await this.mergeWithCachedResource(baseResourceInfo);
         if (!resourceInfo) {
             return null;
         }
 
         // 设置本地存储路径
-        const localPath = this.generateLocalPath(resourceInfo);
+        const localPath = resourceInfo.localPath || this.generateLocalPath(resourceInfo);
         resourceInfo.localPath = localPath;
         
         // 检查健康状态
-        const isHealthy = await this.healthChecker.checkHealth(resourceInfo);
+        const isHealthy = await this.healthChecker.checkHealth(resourceInfo, {
+            cacheDurationMs: RESOURCE_HEALTH_CACHE_MS
+        });
         resourceInfo.accessible = isHealthy;
         resourceInfo.checkedAt = new Date();
+        if (isHealthy) {
+            resourceInfo.status = ResourceStatus.DOWNLOADED;
+            resourceInfo.lastError = undefined;
+        }
         
         // 如果资源不健康或不存在，添加到下载队列并等待下载完成
         if (!isHealthy) {
+            resourceInfo.status = ResourceStatus.PENDING;
             await this.enqueueDownload(message, element, resourceInfo);
             // 注意：enqueueDownload只是添加到队列，实际下载是异步的
             // 我们在processMessageResources的最后统一等待所有下载完成
@@ -431,6 +459,33 @@ export class ResourceHandler {
         await this.dbManager.saveResourceInfo(resourceInfo);
         
         return resourceInfo;
+    }
+
+    private async mergeWithCachedResource(resourceInfo: ResourceInfo): Promise<ResourceInfo> {
+        if (!resourceInfo.md5) {
+            return resourceInfo;
+        }
+
+        const cachedResource = await this.dbManager.getResourceByMd5(resourceInfo.md5);
+        if (!cachedResource) {
+            return resourceInfo;
+        }
+
+        return {
+            ...cachedResource,
+            ...resourceInfo,
+            fileSize: resourceInfo.fileSize || cachedResource.fileSize,
+            mimeType: resourceInfo.mimeType || cachedResource.mimeType,
+            localPath: cachedResource.localPath || resourceInfo.localPath,
+            accessible: cachedResource.accessible,
+            checkedAt: cachedResource.checkedAt,
+            status: cachedResource.status || resourceInfo.status,
+            downloadAttempts: Math.max(
+                cachedResource.downloadAttempts || 0,
+                resourceInfo.downloadAttempts || 0
+            ),
+            lastError: cachedResource.lastError || resourceInfo.lastError
+        };
     }
 
     /**
@@ -1037,22 +1092,43 @@ export class ResourceHandler {
      * 执行定期健康检查
      */
     private async performScheduledHealthCheck(): Promise<void> {
+        if (this.isHealthCheckRunning) {
+            return;
+        }
+
+        if (this.isProcessing || this.activeDownloads.size > 0 || this.downloadQueue.length > 0) {
+            return;
+        }
+
+        this.isHealthCheckRunning = true;
+
         try {
-            const resources = await this.dbManager.getResourcesByStatus(ResourceStatus.DOWNLOADED);
+            const cutoffTime = new Date(Date.now() - RESOURCE_HEALTH_STALE_MS);
+            const resources = await this.dbManager.getResourcesNeedingHealthCheck(
+                cutoffTime,
+                RESOURCE_HEALTH_BATCH_SIZE
+            );
             
             for (const resource of resources) {
-                const isHealthy = await this.healthChecker.checkHealth(resource);
+                const isHealthy = await this.healthChecker.checkHealth(resource, {
+                    cacheDurationMs: RESOURCE_HEALTH_CACHE_MS
+                });
+                resource.checkedAt = new Date();
+                resource.accessible = isHealthy;
                 
                 if (!isHealthy && resource.status === ResourceStatus.DOWNLOADED) {
                     resource.status = ResourceStatus.FAILED;
-                    resource.accessible = false;
-                    resource.checkedAt = new Date();
-                    
-                    await this.dbManager.saveResourceInfo(resource);
+                } else if (isHealthy) {
+                    resource.status = ResourceStatus.DOWNLOADED;
+                    resource.lastError = undefined;
                 }
+
+                await this.dbManager.saveResourceInfo(resource);
             }
         } catch (error) {
             // 静默处理
+        } finally {
+            this.isHealthCheckRunning = false;
         }
     }
 
@@ -1107,6 +1183,7 @@ export class ResourceHandler {
             clearInterval(this.healthCheckTimer);
             this.healthCheckTimer = null;
         }
+        this.isHealthCheckRunning = false;
         
         // 清理下载队列
         this.downloadQueue = [];

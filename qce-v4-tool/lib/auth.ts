@@ -90,7 +90,7 @@ export class AuthManager {
       
       // 只为相对路径或同域请求添加认证头
       const url = input instanceof URL ? input.toString() : input.toString();
-      const isApiRequest = url.startsWith('/api') || url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost') || url.startsWith(window.location.origin);
+      const isApiRequest = this.isProtectedApiRequest(url);
       
       if (isApiRequest && this.token) {
         if (!options.headers) {
@@ -105,8 +105,9 @@ export class AuthManager {
       try {
         const response = await originalFetch(input, options);
         
-        // 如果返回401或403，清除token并重定向
-        if (response.status === 401 || response.status === 403) {
+        // 只有受保护的本地 API 返回鉴权失败时，才清除 token。
+        // 外部请求（例如 GitHub Star 数）失败不应该影响登录态。
+        if (isApiRequest && (response.status === 401 || response.status === 403)) {
           this.clearToken();
           window.location.href = '/qce-v4-tool/auth';
           return response;
@@ -117,6 +118,22 @@ export class AuthManager {
         throw error;
       }
     };
+  }
+
+  private isProtectedApiRequest(url: string): boolean {
+    if (url.startsWith('/')) {
+      return true;
+    }
+
+    try {
+      const parsedUrl = new URL(url, window.location.origin);
+      const isSameOrigin = parsedUrl.origin === window.location.origin;
+      const isLocalhostOrigin = ['127.0.0.1', 'localhost'].includes(parsedUrl.hostname);
+
+      return isSameOrigin || isLocalhostOrigin;
+    } catch {
+      return false;
+    }
   }
 }
 

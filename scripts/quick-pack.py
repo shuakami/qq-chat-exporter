@@ -572,17 +572,11 @@ pause
         "consoleLogLevel": "info",
         "packetBackend": "auto",
         "packetServer": "",
-        "o3HookMode": 1,
-        "plugins": {
-            "enable": True,
-            "list": [
-                {
-                    "name": "qq-chat-exporter",
-                    "enable": True,
-                    "path": "./plugins/qq-chat-exporter/index.mjs"
-                }
-            ]
-        }
+        "o3HookMode": 1
+    }
+
+    plugins_config = {
+        "qq-chat-exporter": True
     }
     
     onebot_config = {
@@ -605,7 +599,10 @@ pause
     
     with open(f"{pack_dir}/config/napcat.json", "w") as f:
         json.dump(napcat_config, f, indent=2)
-    
+
+    with open(f"{pack_dir}/config/plugins.json", "w") as f:
+        json.dump(plugins_config, f, indent=2)
+
     with open(f"{pack_dir}/config/onebot11.json", "w") as f:
         json.dump(onebot_config, f, indent=2)
     

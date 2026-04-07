@@ -333,7 +333,7 @@ export class ProgressTracker extends EventEmitter {
         try {
             const taskConfig = this.taskConfigs.get(taskId);
             if (taskConfig) {
-                await this.dbManager.saveTask(taskConfig, taskState);
+                await this.dbManager.saveTask(taskConfig, taskState, { force: true });
                 console.debug(`任务 ${taskId} 最终状态已保存`);
             } else {
                 console.warn(`无法保存任务 ${taskId}: 配置不存在`);

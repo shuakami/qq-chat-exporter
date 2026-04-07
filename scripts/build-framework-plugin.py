@@ -144,21 +144,18 @@ def main():
         "consoleLogLevel": "info",
         "packetBackend": "auto",
         "packetServer": "",
-        "o3HookMode": 1,
-        "plugins": {
-            "enable": True,
-            "list": [
-                {
-                    "name": "qq-chat-exporter",
-                    "enable": True,
-                    "path": "./plugins/qq-chat-exporter/index.mjs"
-                }
-            ]
-        }
+        "o3HookMode": 1
     }
-    
+
+    plugins_config = {
+        "qq-chat-exporter": True
+    }
+
     with open(os.path.join(config_dir, "napcat.json"), "w", encoding="utf-8") as f:
         json.dump(napcat_config, f, indent=2, ensure_ascii=False)
+
+    with open(os.path.join(config_dir, "plugins.json"), "w", encoding="utf-8") as f:
+        json.dump(plugins_config, f, indent=2, ensure_ascii=False)
     print("[x] Done")
     print()
     

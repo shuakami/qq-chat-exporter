@@ -12,11 +12,13 @@ import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import fs from 'fs';
 import { exec } from 'child_process';
+import { createInterface } from 'readline';
+import { once } from 'events';
 
 // 导入核心模块
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 import { BatchMessageFetcher } from '../core/fetcher/BatchMessageFetcher.js';
-import { SimpleMessageParser } from '../core/parser/SimpleMessageParser.js';
+import { SimpleMessageParser, type CleanMessage } from '../core/parser/SimpleMessageParser.js';
 import { TextExporter } from '../core/exporter/TextExporter.js';
 import { JsonExporter } from '../core/exporter/JsonExporter.js';
 import { ExcelExporter } from '../core/exporter/ExcelExporter.js';
@@ -3874,6 +3876,177 @@ export class QQChatExporterApiServer {
     }
 
     /**
+     * 计算可排序的消息时间戳（毫秒）
+     */
+    private getSortableCleanMessageTimestamp(message: CleanMessage): number {
+        if (typeof message?.timestamp === 'number' && Number.isFinite(message.timestamp) && message.timestamp > 0) {
+            return message.timestamp;
+        }
+
+        const parsed = Date.parse(String(message?.time || ''));
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    /**
+     * CleanMessage 按时间正序比较
+     */
+    private compareCleanMessagesChronologically(a: CleanMessage, b: CleanMessage): number {
+        const timeDiff = this.getSortableCleanMessageTimestamp(a) - this.getSortableCleanMessageTimestamp(b);
+        if (timeDiff !== 0) {
+            return timeDiff;
+        }
+
+        const seqA = Number(a?.seq || 0);
+        const seqB = Number(b?.seq || 0);
+        if (Number.isFinite(seqA) && Number.isFinite(seqB) && seqA !== seqB) {
+            return seqA - seqB;
+        }
+
+        return String(a?.id || '').localeCompare(String(b?.id || ''));
+    }
+
+    /**
+     * 将单个 CleanMessage 批次写入临时 JSONL 文件
+     */
+    private async writeCleanMessageBatchFile(batchFilePath: string, messages: CleanMessage[]): Promise<void> {
+        const stream = fs.createWriteStream(batchFilePath, { encoding: 'utf-8', flags: 'w' });
+
+        try {
+            for (const message of messages) {
+                const line = `${JSON.stringify(message)}\n`;
+                if (!stream.write(line)) {
+                    await once(stream, 'drain');
+                }
+            }
+
+            stream.end();
+            await once(stream, 'finish');
+        } catch (error) {
+            try {
+                stream.destroy();
+            } catch {
+                // noop
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * 将倒序抓取到的消息批次转存为正序批次文件
+     */
+    private async spoolCleanMessagesChronologically(
+        rawGenerator: AsyncGenerator<RawMessage[], void, unknown>,
+        parser: SimpleMessageParser,
+        spoolRootDir: string,
+        options: {
+            excludeUserUins?: string[];
+            resourceHandler?: ResourceHandler;
+            processResources?: boolean;
+            onBatchStart?: (info: { batchIndex: number; totalMessages: number }) => void;
+            onBatchReady?: (info: { batchIndex: number; totalMessages: number; batchFilePath: string; batchMessageCount: number }) => void;
+        } = {}
+    ): Promise<{
+        batchFiles: string[];
+        batchCount: number;
+        totalMessages: number;
+    }> {
+        fs.mkdirSync(spoolRootDir, { recursive: true });
+
+        const batchFiles: string[] = [];
+        const excludeSet = new Set((options.excludeUserUins || []).map(uin => String(uin)));
+        let batchCount = 0;
+        let totalMessages = 0;
+
+        for await (const batch of rawGenerator) {
+            batchCount++;
+            options.onBatchStart?.({ batchIndex: batchCount, totalMessages });
+
+            let filteredBatch = batch;
+            if (excludeSet.size > 0) {
+                filteredBatch = filteredBatch.filter((msg: any) => !excludeSet.has(String(msg.senderUin || '')));
+            }
+
+            if (options.processResources && filteredBatch.length > 0 && options.resourceHandler) {
+                try {
+                    await options.resourceHandler.processMessageResources(filteredBatch);
+                } catch (error) {
+                    console.warn(`[StreamingExport] 批次 ${batchCount} 资源处理失败:`, error);
+                }
+            }
+
+            const cleanBatch: CleanMessage[] = [];
+            for (const rawMsg of filteredBatch) {
+                const cleanMsg = await parser.parseSingleMessage(rawMsg);
+                if (cleanMsg) {
+                    cleanBatch.push(cleanMsg);
+                }
+            }
+
+            cleanBatch.sort((a, b) => this.compareCleanMessagesChronologically(a, b));
+            totalMessages += cleanBatch.length;
+
+            const batchFilePath = path.join(
+                spoolRootDir,
+                `batch_${String(batchCount).padStart(6, '0')}.jsonl`
+            );
+            await this.writeCleanMessageBatchFile(batchFilePath, cleanBatch);
+            batchFiles.push(batchFilePath);
+
+            options.onBatchReady?.({
+                batchIndex: batchCount,
+                totalMessages,
+                batchFilePath,
+                batchMessageCount: cleanBatch.length
+            });
+
+            if (batchCount % 5 === 0 && global.gc) {
+                global.gc();
+            }
+        }
+
+        return {
+            batchFiles,
+            batchCount,
+            totalMessages
+        };
+    }
+
+    /**
+     * 按时间正序回放临时批次文件
+     */
+    private async *readCleanMessageBatchFilesChronologically(
+        batchFiles: string[],
+        onBatchLoaded?: (loadedBatches: number, totalBatches: number) => void
+    ): AsyncGenerator<CleanMessage, void, undefined> {
+        const totalBatches = batchFiles.length;
+        let loadedBatches = 0;
+
+        for (let i = batchFiles.length - 1; i >= 0; i--) {
+            const batchFilePath = batchFiles[i];
+            loadedBatches++;
+            onBatchLoaded?.(loadedBatches, totalBatches);
+
+            const stream = fs.createReadStream(batchFilePath, { encoding: 'utf-8' });
+            const lineReader = createInterface({
+                input: stream,
+                crlfDelay: Infinity
+            });
+
+            try {
+                for await (const line of lineReader) {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine) {
+                        continue;
+                    }
+                    yield JSON.parse(trimmedLine) as CleanMessage;
+                }
+            } finally {
+                lineReader.close();
+            }
+        }
+    }
+
+    /**
      * 流式ZIP导出处理（专为超大消息量设计，防止OOM）
      * 使用分块导出 + ZIP打包：
      * 1. 流式获取消息
@@ -3967,12 +4140,8 @@ export class QQChatExporterApiServer {
 
             // 创建消息流生成器
             const messageGenerator = fetcher.fetchAllMessagesInTimeRange(peer, startTimeMs, endTimeMs);
-            
-            // 收集所有消息并解析（流式）
-            let totalRawMessages = 0;
-            let batchCount = 0;
 
-            // 创建异步生成器：流式获取 -> 流式解析
+            // 统一的进度广播
             const broadcastProgress = (progress: number, message: string, count?: number) => {
                 this.exportTasks.get(taskId) && this.updateTaskStatus(taskId, {
                     progress,
@@ -3985,58 +4154,44 @@ export class QQChatExporterApiServer {
                 });
             };
 
-            async function* streamParseMessages(
-                rawGenerator: AsyncGenerator<any[], void, unknown>,
-                parserInstance: SimpleMessageParser,
-                filterOpts: any,
-                updateProgress: (progress: number, message: string, count?: number) => void,
-                resourceHandler: ResourceHandler
-            ) {
-                for await (const batch of rawGenerator) {
-                    batchCount++;
-                    const currentProgress = Math.min(batchCount * 3, 50);
-                    
-                    // 过滤指定用户
-                    let filteredBatch = batch;
-                    if (filterOpts?.excludeUserUins && filterOpts.excludeUserUins.length > 0) {
-                        const excludeSet = new Set(filterOpts.excludeUserUins.map((uin: string) => String(uin)));
-                        filteredBatch = filteredBatch.filter((msg: any) => !excludeSet.has(String(msg.senderUin || '')));
-                    }
-
-                    // 先处理资源（下载到本地）
-                    if (filteredBatch.length > 0) {
-                        try {
-                            updateProgress(currentProgress, `正在下载资源 (批次 ${batchCount})...`, totalRawMessages);
-                            await resourceHandler.processMessageResources(filteredBatch);
-                        } catch (e) {
-                            console.warn(`[StreamingZip] 批次资源处理失败:`, e);
-                        }
-                    }
-
-                    for (const rawMsg of filteredBatch) {
-                        const cleanMsg = await parserInstance.parseSingleMessage(rawMsg);
-                        if (cleanMsg) {
-                            totalRawMessages++;
-                            yield cleanMsg;
-                        }
-                    }
-
-                    updateProgress(currentProgress, `已获取 ${totalRawMessages} 条消息...`, totalRawMessages);
-
-                    // 每5批次触发垃圾回收
-                    if (batchCount % 5 === 0 && global.gc) {
-                        global.gc();
+            // 先按抓取顺序分批落盘，再倒序回放这些批次，确保最终按时间正序导出
+            const spoolResult = await this.spoolCleanMessagesChronologically(
+                messageGenerator,
+                parser,
+                path.join(tempDir!, 'message_batches'),
+                {
+                    excludeUserUins: filter?.excludeUserUins,
+                    resourceHandler: taskResourceHandler,
+                    processResources: !options?.filterPureImageMessages,
+                    onBatchStart: ({ batchIndex, totalMessages }) => {
+                        const currentProgress = Math.min(batchIndex * 3, 45);
+                        const currentMessage = !options?.filterPureImageMessages
+                            ? `正在整理第 ${batchIndex} 批消息和资源...`
+                            : `正在整理第 ${batchIndex} 批消息...`;
+                        broadcastProgress(currentProgress, currentMessage, totalMessages);
+                    },
+                    onBatchReady: ({ batchIndex, totalMessages }) => {
+                        const currentProgress = Math.min(batchIndex * 3 + 2, 60);
+                        broadcastProgress(currentProgress, `已整理 ${totalMessages} 条消息，正在转成时间正序...`, totalMessages);
                     }
                 }
-            }
+            );
 
-            const cleanMessageStream = streamParseMessages(messageGenerator, parser, filter, broadcastProgress, taskResourceHandler);
+            broadcastProgress(62, '消息整理完成，正在按时间正序生成网页...', spoolResult.totalMessages);
 
-            // 使用分块导出（流式写入）
-            this.broadcastWebSocketMessage({
-                type: 'export_progress',
-                data: { taskId, status: 'running', progress: 65, message: '正在分块写入...' }
-            });
+            const cleanMessageStream = this.readCleanMessageBatchFilesChronologically(
+                spoolResult.batchFiles,
+                (loadedBatches, totalBatches) => {
+                    const currentProgress = totalBatches > 0
+                        ? 62 + Math.floor((loadedBatches / totalBatches) * 16)
+                        : 78;
+                    broadcastProgress(
+                        Math.min(currentProgress, 78),
+                        `正在按时间正序生成网页 (${loadedBatches}/${Math.max(totalBatches, 1)})...`,
+                        spoolResult.totalMessages
+                    );
+                }
+            );
 
             const chunkedResult = await htmlExporter.exportChunkedFromIterable(
                 cleanMessageStream,
@@ -4050,10 +4205,7 @@ export class QQChatExporterApiServer {
             );
 
             // 更新进度
-            this.broadcastWebSocketMessage({
-                type: 'export_progress',
-                data: { taskId, status: 'running', progress: 80, message: '正在打包ZIP文件...' }
-            });
+            broadcastProgress(80, '正在打包ZIP文件...', chunkedResult.totalMessages);
 
             // 使用 archiver 打包整个临时目录
             const archiver = await import('archiver');

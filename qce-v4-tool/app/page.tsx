@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useEffect, useRef, useMemo } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Checkbox } from "@/components/ui/checkbox"
+import { toast } from "@/components/ui/toast"
 import { TaskWizard } from "@/components/ui/task-wizard"
 import { ScheduledExportWizard } from "@/components/ui/scheduled-export-wizard"
 import { ExecutionHistoryModal } from "@/components/ui/execution-history-modal"
@@ -27,7 +28,6 @@ import {
   Download,
   RefreshCw,
   X,
-  AlertCircle,
   Star,
   ExternalLink,
   ToggleLeft,
@@ -69,7 +69,7 @@ import { useResourceIndex } from "@/hooks/use-resource-index"
 import { ThemeToggle } from "@/components/qce-dashboard/theme-toggle"
 
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
-import { EASE, DUR, makeStagger, hoverLift, fadeSlide, toastAnim, statusPulse } from "@/components/qce-dashboard/animations"
+import { EASE, DUR, makeStagger, hoverLift, fadeSlide, statusPulse } from "@/components/qce-dashboard/animations"
 
 export default function QCEDashboard() {
   const [activeTab, setActiveTabState] = useState("overview")
@@ -86,20 +86,8 @@ export default function QCEDashboard() {
     name: string,
     peer: { chatType: number, peerUid: string }
   } | null>(null)
-  const [showStarToast, setShowStarToast] = useState(false)
   const [isFilePathModalOpen, setIsFilePathModalOpen] = useState(false)
   const [selectedFile, setSelectedFile] = useState<{ filePath: string; sessionName: string; fileName: string; size?: number } | null>(null)
-  const [notifications, setNotifications] = useState<Array<{
-    id: string
-    type: 'success' | 'error' | 'info'
-    title: string
-    message: string
-    actions?: Array<{
-      label: string
-      onClick: () => void
-      variant?: 'default' | 'destructive'
-    }>
-  }>>([])
   
   // 群精华消息模态框状态
   const [isEssenceModalOpen, setIsEssenceModalOpen] = useState(false)
@@ -150,7 +138,6 @@ export default function QCEDashboard() {
   const scheduledExportsLoadedRef = useRef(false)
   const chatHistoryLoadedRef = useRef(false)
   const stickerPacksLoadedRef = useRef(false)
-  const previousTasksRef = useRef<typeof tasks>([])
 
   // 是否偏好降级动画
   const reduceMotion = useReducedMotion() ?? false
@@ -212,6 +199,35 @@ export default function QCEDashboard() {
     fetchStars()
   }, [])
 
+  const addNotification = useCallback((
+    type: 'success' | 'error' | 'info',
+    title: string,
+    message: string,
+    actions?: Array<{
+      label: string
+      onClick: () => void
+      variant?: 'default' | 'destructive'
+      keepOpen?: boolean
+    }>,
+    duration?: number
+  ) => {
+    const showToast = type === 'success'
+      ? toast.success
+      : type === 'error'
+        ? toast.error
+        : toast.info
+
+    return showToast(title, {
+      description: message,
+      actions,
+      duration: duration === 0 ? Number.POSITIVE_INFINITY : duration,
+    })
+  }, [])
+
+  const removeNotification = useCallback((id: string) => {
+    toast.dismiss(id)
+  }, [])
+
   const {
     systemInfo,
     refreshSystemInfo,
@@ -235,7 +251,12 @@ export default function QCEDashboard() {
     openTaskFileLocation,
   } = useQCE({
     onNotification: (notification) => {
-      setNotifications(prev => [...prev, { id: Date.now().toString(), ...notification }])
+      addNotification(
+        notification.type,
+        notification.title,
+        notification.message,
+        notification.actions
+      )
     }
   })
 
@@ -444,22 +465,6 @@ export default function QCEDashboard() {
   const handleCloseFilePathModal = () => {
     setIsFilePathModalOpen(false)
     setSelectedFile(null)
-  }
-
-  const addNotification = (type: 'success' | 'error' | 'info', title: string, message: string, actions?: Array<{ label: string; onClick: () => void; variant?: 'default' | 'destructive' }>, duration?: number) => {
-    const id = Date.now().toString()
-    setNotifications(prev => [...prev, { id, type, title, message, actions }])
-    const autoCloseDuration = duration ?? 5000
-    if (autoCloseDuration > 0) {
-      setTimeout(() => {
-        setNotifications(prev => prev.filter(n => n.id !== id))
-      }, autoCloseDuration)
-    }
-    return id
-  }
-
-  const removeNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id))
   }
 
   const handleExportStickerPack = async (packId: string, packName: string) => {
@@ -880,28 +885,35 @@ export default function QCEDashboard() {
     }
   }, [activeTab, groups.length, friends.length, loadChatData])
 
-  // 监听任务完成，显示 Star toast（每次程序启动仅显示一次，存储在 sessionStorage）
   useEffect(() => {
-    const previousTasks = previousTasksRef.current
-    const currentTasks = tasks
+    if (!error) return
+    toast.error("发生错误", { description: error })
+    setError(null)
+  }, [error, setError])
 
-    const newlyCompletedTasks = currentTasks.filter(currentTask => {
-      const previousTask = previousTasks.find(prevTask => prevTask.id === currentTask.id)
-      return currentTask.status === "completed" && previousTask && previousTask.status !== "completed"
-    })
+  useEffect(() => {
+    if (!scheduledError) return
+    toast.error("定时任务错误", { description: scheduledError })
+    setScheduledError(null)
+  }, [scheduledError, setScheduledError])
 
-    const hasShownThisSession = typeof window !== "undefined" && sessionStorage.getItem("qce-star-toast-shown") === "true"
+  useEffect(() => {
+    if (!chatHistoryError) return
+    toast.error("聊天记录错误", { description: chatHistoryError })
+    setChatHistoryError(null)
+  }, [chatHistoryError, setChatHistoryError])
 
-    if (newlyCompletedTasks.length > 0 && !hasShownThisSession) {
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem("qce-star-toast-shown", "true")
-      }
-      setShowStarToast(true)
-      setTimeout(() => setShowStarToast(false), 10000)
-    }
+  useEffect(() => {
+    if (!stickerPacksError) return
+    toast.error("表情包错误", { description: stickerPacksError })
+    setStickerPacksError(null)
+  }, [stickerPacksError, setStickerPacksError])
 
-    previousTasksRef.current = currentTasks
-  }, [tasks])
+  useEffect(() => {
+    if (!resourceIndexError) return
+    toast.error("资源索引错误", { description: resourceIndexError })
+    setResourceIndexError(null)
+  }, [resourceIndexError, setResourceIndexError])
 
   const getStatusText = (status: string) => {
     switch (status) {
@@ -992,176 +1004,6 @@ export default function QCEDashboard() {
           </div>
         </div>
       </motion.div>
-
-      {/* Toasts */}
-      <AnimatePresence>
-        {error && (
-          <motion.div
-            key="error-toast"
-            className="fixed bottom-6 right-6 z-50 w-full max-w-sm rounded-2xl border border-border bg-background/80 p-5 shadow-2xl shadow-neutral-500/10 backdrop-blur-lg"
-            {...toastAnim}
-          >
-            <button 
-              onClick={() => setError(null)}
-              className="absolute top-3 right-3 rounded-full p-1.5 text-muted-foreground transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 rounded-full border border-border bg-muted p-2.5">
-                <AlertCircle className="w-5 h-5 text-muted-foreground" />
-              </div>
-              <div className="flex-1 pt-0.5">
-                <h3 className="text-base font-semibold text-foreground">发生错误</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{error}</p>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {scheduledError && (
-          <motion.div
-            key="scheduled-error-toast"
-            className="fixed bottom-6 right-6 z-50 w-full max-w-sm rounded-2xl border border-border bg-background/80 p-5 shadow-2xl shadow-neutral-500/10 backdrop-blur-lg"
-            style={{ bottom: error ? '140px' : '24px' }}
-            {...toastAnim}
-          >
-            <button 
-              onClick={() => setScheduledError(null)}
-              className="absolute top-3 right-3 rounded-full p-1.5 text-muted-foreground transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 rounded-full border border-border bg-muted p-2.5">
-                <AlertCircle className="w-5 h-5 text-muted-foreground" />
-              </div>
-              <div className="flex-1 pt-0.5">
-                <h3 className="text-base font-semibold text-foreground">定时任务错误</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{scheduledError}</p>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {chatHistoryError && (
-          <motion.div
-            key="chat-history-error-toast"
-            className="fixed bottom-6 right-6 z-50 w-full max-w-sm rounded-2xl border border-border bg-background/80 p-5 shadow-2xl shadow-neutral-500/10 backdrop-blur-lg"
-            style={{ bottom: (error || scheduledError) ? (error && scheduledError ? '280px' : '140px') : '24px' }}
-            {...toastAnim}
-          >
-            <button 
-              onClick={() => setChatHistoryError(null)}
-              className="absolute top-3 right-3 rounded-full p-1.5 text-muted-foreground transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 rounded-full border border-border bg-muted p-2.5">
-                <AlertCircle className="w-5 h-5 text-muted-foreground" />
-              </div>
-              <div className="flex-1 pt-0.5">
-                <h3 className="text-base font-semibold text-foreground">聊天记录错误</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{chatHistoryError}</p>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showStarToast && (
-          <motion.div
-            key="star-toast"
-            className="fixed bottom-6 right-6 z-50 w-full max-w-sm rounded-2xl border border-border bg-background p-5 shadow-2xl shadow-neutral-500/10 backdrop-blur-lg"
-            style={{ bottom: (error || scheduledError || chatHistoryError) ? 
-              (Number(!!error) + Number(!!scheduledError) + Number(!!chatHistoryError)) === 3 ? '420px' :
-              (Number(!!error) + Number(!!scheduledError) + Number(!!chatHistoryError)) === 2 ? '280px' :
-              '140px' : '24px' }}
-            {...toastAnim}
-          >
-            <button 
-              onClick={() => setShowStarToast(false)}
-              className="absolute top-3 right-3 rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 rounded-full border border-yellow-200 bg-yellow-50 p-2.5 dark:border-yellow-900/60 dark:bg-yellow-950/30">
-                <Star className="w-5 h-5 text-yellow-600 fill-current" />
-              </div>
-              <div className="flex-1 pt-0.5">
-                <h3 className="text-base font-semibold text-foreground">兄弟兄弟...</h3>
-                <p className="mt-1 text-sm text-muted-foreground">如果有帮助到你，给我点个 Star 吧喵</p>
-                <motion.button
-                  onClick={() => window.open('https://github.com/shuakami/qq-chat-exporter', '_blank')}
-                  className="mt-3 flex items-center gap-2 rounded-full bg-yellow-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-yellow-600"
-                  whileHover={{ y: -1, transition: { duration: DUR.fast, ease: EASE.out } }}
-                  whileTap={{ scale: 0.98, transition: { duration: DUR.fast, ease: EASE.inOut } }}
-                >
-                  <Star className="w-4 h-4 fill-current" />
-                  前往 GitHub
-                  <ExternalLink className="w-3 h-3" />
-                </motion.button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Notification Cards */}
-      <div className={`fixed right-6 z-[200] space-y-3 pointer-events-none transition-all duration-300 ${
-        showStarToast ? 'bottom-[180px]' : 'bottom-6'
-      }`}>
-        <AnimatePresence>
-          {notifications.map((notification, index) => (
-            <motion.div
-              key={notification.id}
-              className="w-full max-w-sm rounded-2xl border border-border bg-background/95 p-4 shadow-2xl shadow-neutral-500/10 backdrop-blur-lg pointer-events-auto"
-              style={{ marginBottom: index > 0 ? '12px' : 0 }}
-              {...toastAnim}
-            >
-              <button 
-                onClick={() => setNotifications(prev => prev.filter(n => n.id !== notification.id))}
-                className="absolute top-3 right-3 rounded-full p-1.5 text-muted-foreground/70 hover:text-muted-foreground hover:bg-muted transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              <div className="flex items-start gap-3 pr-8">
-                <div className="flex-1">
-                  <h3 className="text-sm font-semibold text-foreground">{notification.title}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground whitespace-pre-line">{notification.message}</p>
-                  {notification.actions && notification.actions.length > 0 && (
-                    <div className="mt-3 flex gap-2">
-                      {notification.actions.map((action, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => {
-                            action.onClick()
-                            setNotifications(prev => prev.filter(n => n.id !== notification.id))
-                          }}
-                          className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                            action.variant === 'destructive' 
-                              ? 'bg-red-500 text-white hover:bg-red-600' 
-                              : 'bg-neutral-900 text-white hover:bg-neutral-800'
-                          }`}
-                        >
-                          {action.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
 
       {/* Main */}
       <main className="px-6 pb-16">
