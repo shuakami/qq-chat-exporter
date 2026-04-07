@@ -841,7 +841,7 @@ node "$NAPCAT_MAIN_PATH"
     if os_name == "Windows":
         usage_steps = """使用方法:
 1. 解压到任意目录
-2. 完整模式: 运行 launcher-user.bat (需要登录QQ，支持导出新记录)
+2. 完整模式: 运行 launcher-user.bat (需要登录QQ，支持导出新记录，第一次接触项目的小白用户优先用这个)
 3. 独立模式: 运行 start-standalone.bat (无需登录，仅浏览已导出文件)
 4. 浏览器访问: http://localhost:40653/qce-v4-tool
    完整模式需输入控制台显示的访问令牌
@@ -897,12 +897,18 @@ QCE 版本: {VERSION}
 - 预配置的 Web 界面
 - 独立模式支持（无需登录QQ）
 
+如果你是第一次接触项目，优先使用 Shell 模式，不建议先折腾 Framework 模式。
+
 {usage_steps}
 
 系统要求:
 - 已安装的 QQNT（启动时会自动同步本机 QQNT 的版本信息）
 - 下载地址: https://im.qq.com/
 - 独立模式需要 Node.js 18+
+
+常见问题:
+- 如果启动时提示 `Cannot find package 'express'`，通常是当前安装包文件损坏或缺失了。
+- 最简单的处理方式是重新下载官方完整包，完整解压后直接覆盖当前目录，再重新运行 `launcher-user.bat`。
 
 支持:
 - NapCat: https://github.com/NapNeko/NapCatQQ
