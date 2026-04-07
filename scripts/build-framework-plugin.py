@@ -180,43 +180,58 @@ def main():
     print()
     
     # Create README
-    readme = f"""{"=" * 60}
-NapCat Framework + QQ Chat Exporter
-{"=" * 60}
+    build_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    readme_md = f"""# NapCat Framework + QQ Chat Exporter
+
+- NapCat 版本：{napcat_version}
+- QCE 版本：{qce_version}
+- 构建时间：{build_time}
+
+这是 Framework 模式的完整包，适合想让 QCE 和正在使用的 QQ 一起运行的场景，比如定时任务、后台备份。
+
+## 安装步骤
+
+1. 先按 LiteLoaderQQNT 官方文档完成安装：<https://liteloaderqqnt.github.io/>
+2. 解压 `NapCat-Framework-QCE-v{qce_version}.zip`
+3. 这个 Framework 包已经把需要的内容整合好了，普通用户直接解压后继续往下做就可以，不需要再手动挪文件夹
+4. 如果当前 QQ 正在运行，先完全退出 QQ
+5. 在解压后的目录里运行 `napiLoader.bat`
+6. 如果 QQ 弹出登录页，按平时的方式登录 QQ
+7. 访问 <http://localhost:40653/qce-v4-tool>
+
+## 如何找到 token
+
+按 `Win + R`，输入 `%USERPROFILE%\\.qq-chat-exporter` 并回车，打开 `security.json` 文件，找到 `accessToken` 字段。
+
+## 相关链接
+
+- NapCat: <https://napneko.github.io/>
+- LiteLoaderQQNT: <https://liteloaderqqnt.github.io/>
+- QCE: <https://github.com/shuakami/qq-chat-exporter>
+"""
+    readme_txt = f"""NapCat Framework + QQ Chat Exporter
 NapCat 版本: {napcat_version}
 QCE 版本: {qce_version}
-构建时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-{"=" * 60}
+构建时间: {build_time}
 
-这是 NapCat Framework 模式的完整包，作为 LiteLoaderQQNT 插件运行。
-与 Shell 模式不同，Framework 模式可以与正在使用的 QQNT 共存。
+这是 Framework 模式的完整包，适合想让 QCE 和正在使用的 QQ 一起运行的场景，比如定时任务、后台备份。
 
 安装步骤:
-1. 安装 LiteLoaderQQNT: https://liteloaderqqnt.github.io/
-2. 将此文件夹复制到 LiteLoader 插件目录:
-   Windows: %APPDATA%/LiteLoaderQQNT/plugins/NapCat/
-   Linux: ~/.config/LiteLoaderQQNT/plugins/NapCat/
-   macOS: ~/Library/Application Support/LiteLoaderQQNT/plugins/NapCat/
-3. 重启 QQNT
-4. 访问 http://localhost:40653/qce-v4-tool
+1. 先按 LiteLoaderQQNT 官方文档完成安装: https://liteloaderqqnt.github.io/
+2. 解压 NapCat-Framework-QCE-v{qce_version}.zip
+3. 这个 Framework 包已经把需要的内容整合好了，普通用户直接解压后继续往下做就可以，不需要再手动挪文件夹
+4. 如果当前 QQ 正在运行，先完全退出 QQ
+5. 在解压后的目录里运行 napiLoader.bat
+6. 如果 QQ 弹出登录页，按平时的方式登录 QQ
+7. 访问 http://localhost:40653/qce-v4-tool
 
-优势:
-- 与正在使用的 QQNT 共享登录状态
-- 无需单独登录，无需保持独立 QQ 实例
-- 支持定时备份，可在使用 QQ 的同时进行
-
-注意:
-- 需要先安装 LiteLoaderQQNT
-- 首次使用需要在 QQNT 中启用 NapCat 插件
-
-相关链接:
-- NapCat: https://napneko.github.io/
-- LiteLoaderQQNT: https://liteloaderqqnt.github.io/
-- QCE: https://github.com/shuakami/qq-chat-exporter
-{"=" * 60}
+如何找到 token:
+按 Win + R，输入 %USERPROFILE%\\.qq-chat-exporter 并回车，打开 security.json 文件，找到 accessToken 字段。
 """
+    with open(os.path.join(output_dir, "README.md"), "w", encoding="utf-8") as f:
+        f.write(readme_md)
     with open(os.path.join(output_dir, "README.txt"), "w", encoding="utf-8") as f:
-        f.write(readme)
+        f.write(readme_txt)
     
     # Create ZIP
     print("[8/8] Creating ZIP archive...")
