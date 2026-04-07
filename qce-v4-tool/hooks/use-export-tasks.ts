@@ -1,12 +1,4 @@
-import {
-  Fragment,
-  createElement,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react"
+import { Fragment, createElement, useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import type {
   APIResponse,
   CreateTaskForm,
@@ -50,42 +42,6 @@ export interface UseExportTasksProps {
   }) => void
 }
 
-function resolveExportFormatLabel(form: CreateTaskForm) {
-  if (form.streamingZipMode) {
-    return form.format === "JSON" ? "流式 JSONL" : "流式 HTML ZIP"
-  }
-
-  if (form.format === "HTML" && form.exportAsZip) {
-    return "HTML ZIP"
-  }
-
-  return form.format
-}
-
-function resolveTimeRangeLabel(form: CreateTaskForm) {
-  if (!form.startTime && !form.endTime) {
-    return "全部历史记录"
-  }
-
-  if (form.startTime && form.endTime) {
-    return `${form.startTime} ~ ${form.endTime}`
-  }
-
-  if (form.startTime) {
-    return `从 ${form.startTime} 开始`
-  }
-
-  return `到 ${form.endTime} 为止`
-}
-
-function buildCreateToastDescription(form: CreateTaskForm) {
-  return [
-    `会话：${form.sessionName}`,
-    `格式：${resolveExportFormatLabel(form)}`,
-    `范围：${resolveTimeRangeLabel(form)}`,
-  ].join("\n")
-}
-
 function isStreamingJsonlFile(fileName?: string) {
   if (!fileName) return false
   return fileName.includes("_chunked_jsonl") || fileName.includes("chunked_jsonl")
@@ -97,96 +53,49 @@ function isStreamingZipFile(fileName?: string) {
 }
 
 function buildRunningToastDescription(task: ExportTask, data?: ProgressPayload) {
-  const progress = Math.max(0, Math.min(100, Math.round(data?.progress ?? task.progress ?? 0)))
-  const messageCount = data?.messageCount ?? task.messageCount
-  const progressMessage = data?.message || task.progressMessage
-  const fileName = data?.fileName || task.fileName
-
-  const lines = [`会话：${task.sessionName}`, `进度：${progress}%`]
-
-  if (progressMessage) {
-    lines.push(`状态：${progressMessage}`)
-  } else {
-    lines.push("状态：正在整理并写出聊天记录")
-  }
-
-  if (messageCount !== undefined) {
-    lines.push(`已处理：${messageCount.toLocaleString()} 条消息`)
-  }
-
-  if (fileName) {
-    lines.push(`文件：${fileName}`)
-  }
-
-  return lines.join("\n")
+  return data?.message || task.progressMessage || "导出任务已创建，正在等待进度更新"
 }
 
-function buildStarDescription(lines: string[]): ReactNode {
+function buildCompletedToastDescription(task: ExportTask, data: ProgressPayload): ReactNode {
+  const fileName = data.fileName || task.fileName
+  const isStreamingJsonl = isStreamingJsonlFile(fileName)
+  const isStreamingZip = isStreamingZipFile(fileName)
+  const isZipExport = data.isZipExport ?? task.isZipExport
+  const originalFilePath = data.originalFilePath ?? task.originalFilePath
+  const isHtmlExport = task.format?.toUpperCase() === "HTML" && !isStreamingZip
+
+  let prefix = ""
+  if (isStreamingJsonl) {
+    prefix = "分块导出已完成。"
+  } else if (isStreamingZip) {
+    prefix = "流式 ZIP 导出已完成。"
+  } else if (isHtmlExport && isZipExport !== true) {
+    prefix = "请在导出目录直接打开 HTML 文件。"
+  } else if (isZipExport === true && originalFilePath) {
+    prefix = "ZIP 导出已完成。"
+  }
+
   return createElement(
     Fragment,
     null,
-    lines.length > 0
-      ? createElement("div", { className: "whitespace-pre-line" }, lines.join("\n"))
-      : null,
+    prefix ? `${prefix} ` : null,
+    "如果有帮助到你，给我点个 ",
     createElement(
-      "div",
-      { className: lines.length > 0 ? "mt-2" : undefined },
-      "如果有帮助到你，给我点个 ",
-      createElement(
-        "a",
-        {
-          href: GITHUB_URL,
-          target: "_blank",
-          rel: "noreferrer",
-          className: "underline underline-offset-4",
-        },
-        "Star",
-      ),
-      " 吧喵",
+      "a",
+      {
+        href: GITHUB_URL,
+        target: "_blank",
+        rel: "noreferrer",
+        className: "underline underline-offset-4",
+      },
+      "Star",
     ),
+    " 吧喵",
   )
 }
 
-function buildCompletedToastDescription(task: ExportTask, data: ProgressPayload) {
-  const fileName = data.fileName || task.fileName
-  const messageCount = data.messageCount ?? task.messageCount
-  const isStreamingJsonl = isStreamingJsonlFile(fileName)
-  const isStreamingZip = isStreamingZipFile(fileName)
-  const isHtmlExport = task.format?.toUpperCase() === "HTML" && !isStreamingZip
-  const isZipExport = data.isZipExport ?? task.isZipExport
-  const originalFilePath = data.originalFilePath ?? task.originalFilePath
-
-  const lines: string[] = []
-
-  if (messageCount !== undefined) {
-    lines.push(`共导出 ${messageCount.toLocaleString()} 条消息`)
-  }
-
-  if (fileName) {
-    lines.push(`文件：${fileName}`)
-  }
-
-  if (isStreamingJsonl) {
-    lines.push("大规模数据已经分块保存，可以点击“查看使用方法”继续处理")
-  } else if (isStreamingZip) {
-    lines.push("请先解压 ZIP，再打开 index.html")
-  } else if (isHtmlExport && isZipExport !== true) {
-    lines.push("请在导出目录直接打开 HTML 文件，图片才能正常显示")
-  } else if (isZipExport === true && originalFilePath) {
-    lines.push("如需节省空间，可以删除原始 HTML 和资源文件")
-  }
-
-  return buildStarDescription(lines)
-}
-
 function buildFailedToastDescription(task: ExportTask, data?: ProgressPayload) {
-  const lines = [data?.error || task.error || data?.message || "导出失败，请稍后重试"]
-
-  if ((data?.progress ?? task.progress) > 0) {
-    lines.push(`进度停在 ${(data?.progress ?? task.progress).toFixed(0)}%`)
-  }
-
-  return lines.join("\n")
+  return data?.error || task.error || data?.message || "导出失败，请稍后重试"
 }
 
 function createFallbackTask(data: ProgressPayload): ExportTask {
@@ -220,12 +129,12 @@ function mergeTask(task: ExportTask, data: ProgressPayload): ExportTask {
     progress: data.progress,
     status: data.status,
     ...(data.messageCount !== undefined && { messageCount: data.messageCount }),
-    ...(data.message && { progressMessage: data.message }),
-    ...(data.error && { error: data.error }),
-    ...(data.fileName && { fileName: data.fileName }),
-    ...(data.filePath && { filePath: data.filePath }),
-    ...(data.downloadUrl && { downloadUrl: data.downloadUrl }),
-    ...(data.completedAt && { completedAt: data.completedAt }),
+    ...(data.message !== undefined && { progressMessage: data.message }),
+    ...(data.error !== undefined && { error: data.error }),
+    ...(data.fileName !== undefined && { fileName: data.fileName }),
+    ...(data.filePath !== undefined && { filePath: data.filePath }),
+    ...(data.downloadUrl !== undefined && { downloadUrl: data.downloadUrl }),
+    ...(data.completedAt !== undefined && { completedAt: data.completedAt }),
     ...(data.isZipExport !== undefined && { isZipExport: data.isZipExport }),
     ...(data.originalFilePath !== undefined && { originalFilePath: data.originalFilePath }),
   }
@@ -318,7 +227,6 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     if (isStreamingJsonl && filePath) {
       actions.push({
         label: "查看使用方法",
-        keepOpen: true,
         onClick: () => {
           window.dispatchEvent(new CustomEvent("show-jsonl-help", { detail: { filePath } }))
         },
@@ -328,7 +236,6 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     if (isStreamingZip && filePath) {
       actions.push({
         label: "查看使用方法",
-        keepOpen: true,
         onClick: () => {
           window.dispatchEvent(new CustomEvent("show-streaming-zip-help", { detail: { filePath } }))
         },
@@ -338,7 +245,6 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     if (filePath) {
       actions.push({
         label: "打开文件位置",
-        keepOpen: true,
         onClick: () => {
           void openFileLocation(filePath)
         },
@@ -373,7 +279,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     if (!toastId) {
       toastId = toast.loading("正在导出", {
         description: buildRunningToastDescription(task, data),
-        duration: Number.POSITIVE_INFINITY,
+        duration: Infinity,
       })
       taskToastIdsRef.current.set(task.id, toastId)
     }
@@ -399,7 +305,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
         title: "导出完成~",
         description: buildCompletedToastDescription(task, payload),
         actions,
-        duration: actions.length > 0 ? Number.POSITIVE_INFINITY : 12000,
+        duration: actions.length > 0 ? Infinity : 8000,
       })
       return
     }
@@ -410,7 +316,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
         title: "导出失败",
         description: buildFailedToastDescription(task, data),
         actions: undefined,
-        duration: 12000,
+        duration: 8000,
       })
       return
     }
@@ -420,7 +326,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       title: "正在导出",
       description: buildRunningToastDescription(task, data),
       actions: undefined,
-      duration: Number.POSITIVE_INFINITY,
+      duration: Infinity,
     })
   }, [buildCompletedActions])
 
@@ -500,8 +406,8 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     }
 
     const creatingToastId = toast.loading("创建中", {
-      description: buildCreateToastDescription(form),
-      duration: Number.POSITIVE_INFINITY,
+      description: "正在创建导出任务...",
+      duration: Infinity,
     })
 
     try {
@@ -572,22 +478,22 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           fileName: response.data.fileName,
           downloadUrl: response.data.downloadUrl,
           createdAt: new Date().toISOString(),
+          progressMessage: "导出任务已创建，正在等待进度更新",
         }
 
-        taskToastIdsRef.current.set(taskId, creatingToastId)
-        toast.update(creatingToastId, {
+        const existingToastId = taskToastIdsRef.current.get(taskId)
+        const toastId = existingToastId || creatingToastId
+
+        if (existingToastId && existingToastId !== creatingToastId) {
+          toast.dismiss(creatingToastId)
+        }
+
+        taskToastIdsRef.current.set(taskId, toastId)
+        toast.update(toastId, {
           type: "loading",
           title: "正在导出",
-          description: buildRunningToastDescription(newTask, {
-            taskId,
-            progress: 0,
-            status: "running",
-            message: "导出任务已创建，正在等待进度更新",
-            messageCount: response.data.messageCount,
-            fileName: response.data.fileName,
-            downloadUrl: response.data.downloadUrl,
-          }),
-          duration: Number.POSITIVE_INFINITY,
+          description: "导出任务已创建，正在等待进度更新",
+          duration: Infinity,
         })
 
         setTasks((prev) => [newTask, ...prev])
@@ -600,7 +506,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
         type: "error",
         title: "创建失败",
         description: errorMessage,
-        duration: 12000,
+        duration: 8000,
       })
       return false
     } catch (err) {
@@ -611,7 +517,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
         type: "error",
         title: "创建失败",
         description: errorMessage,
-        duration: 12000,
+        duration: 8000,
       })
       return false
     } finally {
@@ -635,28 +541,19 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       taskId,
       progress,
       status,
-      ...(additionalData?.error && { error: additionalData.error }),
-      ...(additionalData?.fileName && { fileName: additionalData.fileName }),
-      ...(additionalData?.filePath && { filePath: additionalData.filePath }),
-      ...(additionalData?.downloadUrl && { downloadUrl: additionalData.downloadUrl }),
-      ...(additionalData?.completedAt && { completedAt: additionalData.completedAt }),
+      ...(additionalData?.error !== undefined && { error: additionalData.error }),
+      ...(additionalData?.fileName !== undefined && { fileName: additionalData.fileName }),
+      ...(additionalData?.filePath !== undefined && { filePath: additionalData.filePath }),
+      ...(additionalData?.downloadUrl !== undefined && { downloadUrl: additionalData.downloadUrl }),
+      ...(additionalData?.completedAt !== undefined && { completedAt: additionalData.completedAt }),
     }
 
-    let updatedTask: ExportTask | undefined
-
     setTasks((prev) => {
-      const next = prev.map((task) => {
-        if (task.id !== taskId) return task
-        const nextTask = mergeTask(task, payload)
-        updatedTask = nextTask
-        return nextTask
-      })
+      const next = prev.map((task) => task.id === taskId ? mergeTask(task, payload) : task)
       tasksRef.current = next
       return next
     })
-
-    syncTaskToast(updatedTask || createFallbackTask(payload), payload)
-  }, [syncTaskToast])
+  }, [])
 
   const handleWebSocketProgress = useCallback((data: ProgressPayload) => {
     console.log("[QCE] handleWebSocketProgress received:", {
@@ -680,7 +577,10 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       return next
     })
 
-    const resolvedTask = updatedTask || tasksRef.current.find((task) => task.id === data.taskId) || createFallbackTask(data)
+    const resolvedTask = updatedTask
+      || tasksRef.current.find((task) => task.id === data.taskId)
+      || createFallbackTask(data)
+
     syncTaskToast(resolvedTask, data)
   }, [syncTaskToast])
 
