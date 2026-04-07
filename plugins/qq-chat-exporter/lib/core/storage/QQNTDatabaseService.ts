@@ -22,7 +22,7 @@ interface DatabaseQueryBackend {
         tableName: string,
         sql: string,
         params?: readonly DatabaseParam[]
-    ): T[];
+    ): Promise<T[]>;
     dispose(): void;
 }
 
@@ -124,20 +124,20 @@ export class QQNTDatabaseService {
         const backend = await this.createQueryBackend(NT_MSG_DB);
 
         try {
-            this.ensureTableExists(backend, tableName);
+            await this.ensureTableExists(backend, tableName);
 
             const identifiers = await this.resolvePeerIdentifiers(backend, peer.peerUid);
-            const columns = this.getTableColumns(backend, tableName);
+            const columns = await this.getTableColumns(backend, tableName);
             if (columns.length === 0) {
                 throw new Error(`数据库表 ${tableName} 不存在或无法读取`);
             }
 
-            const peerColumn = this.detectPeerColumn(backend, tableName, columns, identifiers);
+            const peerColumn = await this.detectPeerColumn(backend, tableName, columns, identifiers);
             if (!peerColumn) {
                 throw new Error(`没有在 ${tableName} 里找到与 ${peer.peerUid} 对应的会话字段`);
             }
 
-            const sampleRows = this.queryRows<DatabaseRow>(
+            const sampleRows = await this.queryRows<DatabaseRow>(
                 backend,
                 tableName,
                 `SELECT rowid AS "__qce_rowid", * FROM ${this.quoteIdentifier(tableName)}
@@ -189,7 +189,7 @@ export class QQNTDatabaseService {
                 ? `CAST(${this.quoteIdentifier(detectedShape.timeColumn)} AS INTEGER) ASC, "__qce_rowid" ASC`
                 : `"__qce_rowid" ASC`;
 
-            const rows = this.queryRows<DatabaseRow>(
+            const rows = await this.queryRows<DatabaseRow>(
                 backend,
                 tableName,
                 `SELECT rowid AS "__qce_rowid", * FROM ${this.quoteIdentifier(tableName)}
@@ -269,13 +269,24 @@ export class QQNTDatabaseService {
 
     private async createQueryBackend(dbName: string): Promise<DatabaseQueryBackend> {
         const databaseApi = this.resolveDatabaseApi();
+        let fallbackBackend: DatabaseQueryBackend | null = null;
+        let fallbackReason: string | null = null;
+
+        const ensureFallbackBackend = async (reason: string): Promise<DatabaseQueryBackend> => {
+            if (!fallbackBackend) {
+                this.logWarn(`原生数据库查询将切换到解密后明文库读取: ${reason}`);
+                fallbackBackend = await this.createDecryptedFallbackBackend(databaseApi, dbName);
+            }
+
+            fallbackReason = reason;
+            return fallbackBackend;
+        };
 
         if (typeof databaseApi.isSqliteAvailable === 'function') {
             try {
                 const available = await databaseApi.isSqliteAvailable();
                 if (available === false) {
-                    this.logWarn(`当前运行时缺少 node:sqlite，数据库导出将改用解密后明文库读取: ${dbName}`);
-                    return this.createDecryptedFallbackBackend(databaseApi, dbName);
+                    return ensureFallbackBackend(`当前运行时缺少 node:sqlite: ${dbName}`);
                 }
             } catch (error) {
                 this.logWarn(`检查 node:sqlite 可用性失败，继续尝试直接查询数据库: ${this.stringifyError(error)}`);
@@ -293,25 +304,42 @@ export class QQNTDatabaseService {
             }
 
             return {
-                query: <T extends DatabaseRow = DatabaseRow>(
+                query: async <T extends DatabaseRow = DatabaseRow>(
                     tableName: string,
                     sql: string,
                     params: readonly DatabaseParam[] = []
-                ): T[] => {
-                    const result = databaseApi.query<T>(dbName, sql, params);
-                    if (!result) {
-                        throw new Error(`读取数据库表 ${tableName} 失败`);
+                ): Promise<T[]> => {
+                    if (fallbackBackend) {
+                        return fallbackBackend.query<T>(tableName, sql, params);
                     }
-                    return result;
+
+                    try {
+                        const result = databaseApi.query<T>(dbName, sql, params);
+                        if (!result) {
+                            throw new Error(`读取数据库表 ${tableName} 失败`);
+                        }
+                        return result;
+                    } catch (error) {
+                        if (!this.shouldUseDecryptedFallback(error)) {
+                            throw error;
+                        }
+
+                        const backend = await ensureFallbackBackend(
+                            `原生查询 ${tableName} 失败: ${this.stringifyError(error)}`
+                        );
+                        return backend.query<T>(tableName, sql, params);
+                    }
                 },
                 dispose: () => {
-                    // API 查询模式不需要额外清理
+                    fallbackBackend?.dispose();
+                    if (fallbackReason) {
+                        this.logWarn(`本次数据库导出已使用明文库后备通道完成读取: ${fallbackReason}`);
+                    }
                 }
             };
         } catch (error) {
             if (this.shouldUseDecryptedFallback(error)) {
-                this.logWarn(`DatabaseApi.query 不可用，改用解密后明文库读取: ${this.stringifyError(error)}`);
-                return this.createDecryptedFallbackBackend(databaseApi, dbName);
+                return ensureFallbackBackend(`DatabaseApi.query 初始化失败: ${this.stringifyError(error)}`);
             }
 
             throw error;
@@ -329,11 +357,11 @@ export class QQNTDatabaseService {
         );
 
         return {
-            query: <T extends DatabaseRow = DatabaseRow>(
+            query: async <T extends DatabaseRow = DatabaseRow>(
                 tableName: string,
                 sql: string,
                 params: readonly DatabaseParam[] = []
-            ): T[] => {
+            ): Promise<T[]> => {
                 try {
                     return backend.query<T>(sql, params);
                 } catch (error) {
@@ -344,17 +372,17 @@ export class QQNTDatabaseService {
         };
     }
 
-    private queryRows<T extends DatabaseRow>(
+    private async queryRows<T extends DatabaseRow>(
         backend: DatabaseQueryBackend,
         tableName: string,
         sql: string,
         params: readonly DatabaseParam[] = []
-    ): T[] {
+    ): Promise<T[]> {
         return backend.query<T>(tableName, sql, params);
     }
 
-    private ensureTableExists(backend: DatabaseQueryBackend, tableName: string): void {
-        const rows = backend.query<{ name: string }>(
+    private async ensureTableExists(backend: DatabaseQueryBackend, tableName: string): Promise<void> {
+        const rows = await backend.query<{ name: string }>(
             tableName,
             'SELECT name FROM sqlite_master WHERE type = ? AND name = ? LIMIT 1',
             ['table', tableName]
@@ -365,7 +393,7 @@ export class QQNTDatabaseService {
         }
     }
 
-    private getTableColumns(backend: DatabaseQueryBackend, tableName: string): TableColumnInfo[] {
+    private getTableColumns(backend: DatabaseQueryBackend, tableName: string): Promise<TableColumnInfo[]> {
         return this.queryRows<TableColumnInfo>(
             backend,
             tableName,
@@ -408,12 +436,12 @@ export class QQNTDatabaseService {
         }
 
         try {
-            this.ensureTableExists(backend, UID_MAPPING_TABLE);
+            await this.ensureTableExists(backend, UID_MAPPING_TABLE);
         } catch {
             return Array.from(identifiers);
         }
 
-        const mappingColumns = this.getTableColumns(backend, UID_MAPPING_TABLE)
+        const mappingColumns = (await this.getTableColumns(backend, UID_MAPPING_TABLE))
             .filter(column => !this.isBlobColumn(column));
 
         let safetyCounter = 0;
@@ -425,7 +453,7 @@ export class QQNTDatabaseService {
             }
 
             for (const column of mappingColumns) {
-                const rows = this.queryRows<DatabaseRow>(
+                const rows = await this.queryRows<DatabaseRow>(
                     backend,
                     UID_MAPPING_TABLE,
                     `SELECT * FROM ${this.quoteIdentifier(UID_MAPPING_TABLE)}
@@ -452,12 +480,12 @@ export class QQNTDatabaseService {
         return Array.from(identifiers);
     }
 
-    private detectPeerColumn(
+    private async detectPeerColumn(
         backend: DatabaseQueryBackend,
         tableName: string,
         columns: TableColumnInfo[],
         identifiers: string[]
-    ): string | undefined {
+    ): Promise<string | undefined> {
         let bestColumn: string | undefined;
         let bestScore = 0;
 
@@ -466,7 +494,7 @@ export class QQNTDatabaseService {
                 continue;
             }
 
-            const rows = this.queryRows<{ matched_count: number | string }>(
+            const rows = await this.queryRows<{ matched_count: number | string }>(
                 backend,
                 tableName,
                 `SELECT COUNT(1) AS matched_count
@@ -1113,12 +1141,13 @@ export class QQNTDatabaseService {
 
     private shouldUseDecryptedFallback(error: unknown): boolean {
         const message = this.stringifyError(error);
-        return /node:sqlite|experimental-sqlite|checkSqliteAvailable/i.test(message);
+        return /node:sqlite|experimental-sqlite|checkSqliteAvailable|ERR_OUT_OF_RANGE|out of range|too large to be represented as a JavaScript number/i.test(message);
     }
 
     private stringifyError(error: unknown): string {
         if (error instanceof Error) {
-            return error.message;
+            const code = (error as Error & { code?: string }).code;
+            return code ? `${code}: ${error.message}` : error.message;
         }
 
         if (typeof error === 'string') {

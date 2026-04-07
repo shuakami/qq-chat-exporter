@@ -9,7 +9,7 @@ export type DecryptedDatabaseParam = string | number | bigint | Buffer | Uint8Ar
 interface SqlJsStatementLike {
     bind(values?: readonly unknown[]): void;
     step(): boolean;
-    getAsObject(): Record<string, unknown>;
+    getAsObject(params?: null, config?: { useBigInt?: boolean }): Record<string, unknown>;
     free(): void;
 }
 
@@ -116,7 +116,7 @@ export class DecryptedSqliteQueryBackend {
 
             const rows: T[] = [];
             while (statement.step()) {
-                rows.push(statement.getAsObject() as T);
+                rows.push(statement.getAsObject(null, { useBigInt: true }) as T);
             }
 
             return rows;
