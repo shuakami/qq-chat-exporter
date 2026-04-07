@@ -52,12 +52,6 @@ function isStreamingZipFile(fileName?: string) {
   return fileName.includes("_streaming.zip") || fileName.endsWith("_streaming.zip")
 }
 
-function buildCreateToastDescription(form: CreateTaskForm) {
-  const sessionSourceLabel = form.sessionSource === "database" ? "本地数据库" : "在线接口"
-  const targetLabel = form.sessionName || form.peerUid
-  return `正在为 ${targetLabel} 创建导出任务，数据来源：${sessionSourceLabel}`
-}
-
 function buildRunningToastDescription(task: ExportTask, data?: ProgressPayload) {
   return data?.message || task.progressMessage || "导出任务已创建，正在等待进度更新"
 }
@@ -420,8 +414,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       setLoading(true)
       setError(null)
 
-      const sessionSource = form.sessionSource ?? "api"
-      const useStreamingMode = sessionSource !== "database" && form.streamingZipMode === true
+      const useStreamingMode = form.streamingZipMode === true
       const isJsonFormat = form.format === "JSON"
 
       const requestBody: CreateTaskRequest = {
@@ -431,7 +424,6 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           guildId: "",
         },
         sessionName: form.sessionName,
-        sessionSource,
         format: useStreamingMode
           ? (isJsonFormat ? "STREAMING_JSONL" : "STREAMING_ZIP")
           : form.format,
@@ -475,7 +467,6 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           id: taskId,
           peer: requestBody.peer,
           sessionName: form.sessionName,
-          sessionSource,
           status: "running",
           progress: 0,
           format: form.format,

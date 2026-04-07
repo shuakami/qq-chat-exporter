@@ -6,16 +6,16 @@
 
 import fs from 'fs';
 import path from 'path';
-import type { RawMessage, NapCatCore } from 'NapCatQQ/src/core/index.js';
+import { RawMessage } from 'NapCatQQ/src/core/index.js';
 import { 
     ExportFormat, 
+    ExportResult, 
     SystemError, 
     ErrorType 
 } from '../../types/index.js';
-import type { ExportResult } from '../../types/index.js';
-import { MessageParser } from '../parser/MessageParser.js';
-import type { MessageParserConfig } from '../parser/MessageParser.js';
-import type { CleanMessage } from '../parser/SimpleMessageParser.js';
+import { MessageParser, MessageParserConfig } from '../parser/MessageParser.js';
+import { SimpleMessageParser } from '../parser/SimpleMessageParser.js';
+import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 
 /**
  * 导出选项接口
@@ -107,7 +107,7 @@ export abstract class BaseExporter {
      * @param chatInfo 聊天信息
      * @returns 导出结果
      */
-    async export(messages: any[], chatInfo?: any): Promise<ExportResult> {
+    async export(messages: RawMessage[], chatInfo?: any): Promise<ExportResult> {
         const startTime = Date.now();
         
         try {
@@ -137,16 +137,8 @@ export abstract class BaseExporter {
             this.updateProgress(filteredMessages.length, filteredMessages.length, '导出完成');
             
             const resourceCount = filteredMessages.reduce((acc, msg) => {
-                if (this.isRawMessage(msg)) {
-                    const elements = msg.elements || [];
-                    return acc + elements.filter((e: any) => e.picElement || e.fileElement).length;
-                }
-
-                if (this.isCleanMessage(msg)) {
-                    return acc + (msg.content.resources?.length || 0);
-                }
-
-                return acc;
+                const elements = msg.elements || [];
+                return acc + elements.filter(e => e.picElement || e.fileElement).length;
             }, 0);
 
             return {
@@ -169,7 +161,7 @@ export abstract class BaseExporter {
      * 生成内容的抽象方法
      * 各子类必须实现此方法
      */
-    protected abstract generateContent(messages: any[], chatInfo?: any): Promise<string>;
+    protected abstract generateContent(messages: RawMessage[], chatInfo?: any): Promise<string>;
 
     /**
      * 检查输出目录是否存在，不存在则创建
@@ -324,7 +316,7 @@ export abstract class BaseExporter {
     /**
      * 纯图片消息过滤（已废弃）
      */
-    protected async applyPureImageFilter(messages: any[]): Promise<any[]> {
+    protected async applyPureImageFilter(messages: RawMessage[]): Promise<RawMessage[]> {
         return messages;
     }
 
@@ -335,18 +327,19 @@ export abstract class BaseExporter {
      * @param messages 原始消息数组
      * @returns 按时间排序后的消息数组
      */
-    protected sortMessagesByTimestamp(messages: any[]): any[] {
+    protected sortMessagesByTimestamp(messages: RawMessage[]): RawMessage[] {
         const sortedMessages = [...messages].sort((a, b) => {
-            let timeA = this.extractSortableTimestamp(a);
-            let timeB = this.extractSortableTimestamp(b);
+            // 解析时间戳
+            let timeA = parseInt(a.msgTime || '0');
+            let timeB = parseInt(b.msgTime || '0');
             
             // 处理无效时间戳
             if (isNaN(timeA) || timeA <= 0) {
-                console.warn(`[BaseExporter] 消息 ${this.getMessageDebugId(a)} 的时间戳无效`);
+                console.warn(`[BaseExporter] 消息 ${a.msgId} 的时间戳无效: ${a.msgTime}`);
                 timeA = 0; // 无效时间戳放到最前面
             }
             if (isNaN(timeB) || timeB <= 0) {
-                console.warn(`[BaseExporter] 消息 ${this.getMessageDebugId(b)} 的时间戳无效`);
+                console.warn(`[BaseExporter] 消息 ${b.msgId} 的时间戳无效: ${b.msgTime}`);
                 timeB = 0;
             }
             
@@ -369,60 +362,12 @@ export abstract class BaseExporter {
         
         // 输出排序统计信息
         if (sortedMessages.length > 0) {
-            const firstTime = this.extractSortableTimestamp(sortedMessages[0]);
-            const lastTime = this.extractSortableTimestamp(sortedMessages[sortedMessages.length - 1]);
+            const firstTime = sortedMessages[0]?.msgTime;
+            const lastTime = sortedMessages[sortedMessages.length - 1]?.msgTime;
             console.log(`[BaseExporter] 消息排序: 时间范围从 ${firstTime} 到 ${lastTime}`);
         }
         
         return sortedMessages;
-    }
-
-    protected isRawMessage(message: any): message is RawMessage {
-        return Boolean(
-            message &&
-            typeof message.msgId === 'string' &&
-            message.elements !== undefined &&
-            message.msgTime !== undefined
-        );
-    }
-
-    protected isCleanMessage(message: any): message is CleanMessage {
-        return Boolean(
-            message &&
-            typeof message.id === 'string' &&
-            typeof message.timestamp === 'number' &&
-            message.content !== undefined &&
-            message.sender !== undefined
-        );
-    }
-
-    private extractSortableTimestamp(message: any): number {
-        if (this.isRawMessage(message)) {
-            return parseInt(message.msgTime || '0');
-        }
-
-        if (this.isCleanMessage(message)) {
-            if (Number.isFinite(message.timestamp) && message.timestamp > 0) {
-                return message.timestamp;
-            }
-
-            const parsed = Date.parse(String(message.time || ''));
-            return Number.isFinite(parsed) ? parsed : 0;
-        }
-
-        return 0;
-    }
-
-    private getMessageDebugId(message: any): string {
-        if (this.isRawMessage(message)) {
-            return message.msgId;
-        }
-
-        if (this.isCleanMessage(message)) {
-            return message.id;
-        }
-
-        return 'unknown';
     }
 
     // ====== [新增] 受保护工具：创建写流 ======

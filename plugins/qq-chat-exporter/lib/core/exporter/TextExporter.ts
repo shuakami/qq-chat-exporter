@@ -5,12 +5,11 @@
  */
 
 import { ExportFormat } from '../../types/index.js';
-import { BaseExporter } from './BaseExporter.js';
-import type { ExportOptions } from './BaseExporter.js';
-import type { RawMessage, NapCatCore } from 'NapCatQQ/src/core/index.js';
-import type { ParsedMessage } from '../parser/MessageParser.js';
-import { SimpleMessageParser } from '../parser/SimpleMessageParser.js';
-import type { CleanMessage } from '../parser/SimpleMessageParser.js';
+import { BaseExporter, ExportOptions } from './BaseExporter.js';
+import { RawMessage } from 'NapCatQQ/src/core/index.js';
+import { NapCatCore } from 'NapCatQQ/src/core/index.js';
+import { ParsedMessage } from '../parser/MessageParser.js';
+import { SimpleMessageParser, CleanMessage } from '../parser/SimpleMessageParser.js';
 
 /**
  * 文本格式选项接口
@@ -66,34 +65,31 @@ export class TextExporter extends BaseExporter {
      * 实现导出方法
      */
     protected async generateContent(
-        messages: any[], 
+        messages: RawMessage[], 
         chatInfo?: { name?: string; type?: string; avatar?: string; participantCount?: number }
     ): Promise<string> {
         let parsedMessages: ParsedMessage[] = [];
         
-        if (messages.length > 0 && this.isCleanMessage(messages[0])) {
-            parsedMessages = this.convertCleanMessagesToParsedMessages(messages as CleanMessage[]);
-            console.log(`[TextExporter] 检测到CleanMessage[]，直接使用 ${parsedMessages.length} 条消息`);
-        } else if (this.core) {
-            // 尝试使用MessageParser解析消息
+        // 尝试使用MessageParser解析消息
+        if (this.core) {
             try {
                 const parser = this.getMessageParser(this.core);
-                parsedMessages = await parser.parseMessages(messages as RawMessage[]);
+                parsedMessages = await parser.parseMessages(messages);
                 console.log(`[TextExporter] MessageParser解析了 ${parsedMessages.length} 条消息`);
                 
                 // 如果MessageParser解析结果为空，使用fallback
                 if (parsedMessages.length === 0 && messages.length > 0) {
                     console.log(`[TextExporter] MessageParser解析结果为空，使用SimpleMessageParser作为fallback`);
-                    parsedMessages = await this.useFallbackParser(messages as RawMessage[]);
+                    parsedMessages = await this.useFallbackParser(messages);
                 }
             } catch (error) {
                 console.error(`[TextExporter] MessageParser解析失败，使用SimpleMessageParser作为fallback:`, error);
-                parsedMessages = await this.useFallbackParser(messages as RawMessage[]);
+                parsedMessages = await this.useFallbackParser(messages);
             }
         } else {
             // 没有NapCatCore实例，直接使用SimpleMessageParser
             console.log(`[TextExporter] 没有NapCatCore实例，使用SimpleMessageParser`);
-            parsedMessages = await this.useFallbackParser(messages as RawMessage[]);
+            parsedMessages = await this.useFallbackParser(messages);
         }
         
         const lines: string[] = [];
@@ -141,10 +137,7 @@ export class TextExporter extends BaseExporter {
         const simpleParser = new SimpleMessageParser();
         const cleanMessages = await simpleParser.parseMessages(messages);
         
-        return this.convertCleanMessagesToParsedMessages(cleanMessages);
-    }
-
-    private convertCleanMessagesToParsedMessages(cleanMessages: CleanMessage[]): ParsedMessage[] {
+        // 将CleanMessage转换为ParsedMessage格式
         return cleanMessages.map((cleanMsg: CleanMessage): ParsedMessage => ({
             messageId: cleanMsg.id,
             messageSeq: cleanMsg.seq,
