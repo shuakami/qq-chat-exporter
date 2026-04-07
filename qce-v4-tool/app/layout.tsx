@@ -4,6 +4,7 @@ import { GeistMono } from 'geist/font/mono'
 import { Analytics } from '@vercel/analytics/next'
 import { LoadingProvider } from '@/components/loading-provider'
 import { AuthProvider } from '@/components/auth-provider'
+import { Toaster } from '@/components/ui/toast'
 import '@/styles/globals.css'
 
 export const metadata: Metadata = {
@@ -59,6 +60,7 @@ export default function RootLayout({
         <AuthProvider>
           <LoadingProvider>
             {children}
+            <Toaster position="bottom-right" theme="macos" />
           </LoadingProvider>
         </AuthProvider>
         <Analytics />

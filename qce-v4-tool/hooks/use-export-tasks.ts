@@ -1,35 +1,335 @@
-import { useState, useCallback, useEffect, useRef } from "react"
-import type { ExportTask, CreateTaskForm, CreateTaskRequest, TasksResponse, CreateTaskResponse, APIResponse } from "@/types/api"
+import { Fragment, createElement, useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import type {
+  APIResponse,
+  CreateTaskForm,
+  CreateTaskRequest,
+  CreateTaskResponse,
+  ExportTask,
+  TasksResponse,
+} from "@/types/api"
+import { toast, type ToastAction } from "@/components/ui/toast"
 import { useApi } from "./use-api"
 
+const GITHUB_URL = "https://github.com/shuakami/qq-chat-exporter"
+
+type TaskStatus = "running" | "completed" | "failed"
+
+type ProgressPayload = {
+  taskId: string
+  progress: number
+  status: TaskStatus
+  message?: string
+  messageCount?: number
+  error?: string
+  fileName?: string
+  downloadUrl?: string
+  completedAt?: string
+  isZipExport?: boolean
+  originalFilePath?: string
+  filePath?: string
+}
+
 export interface UseExportTasksProps {
-  onNotification?: (notification: { 
-    type: 'success' | 'error' | 'info', 
-    title: string, 
-    message: string,
+  onNotification?: (notification: {
+    type: "success" | "error" | "info"
+    title: string
+    message: string
     actions?: Array<{
       label: string
       onClick: () => void
-      variant?: 'default' | 'destructive'
+      variant?: "default" | "destructive"
     }>
   }) => void
 }
 
-export function useExportTasks(props?: UseExportTasksProps) {
+function isStreamingJsonlFile(fileName?: string) {
+  if (!fileName) return false
+  return fileName.includes("_chunked_jsonl") || fileName.includes("chunked_jsonl")
+}
+
+function isStreamingZipFile(fileName?: string) {
+  if (!fileName) return false
+  return fileName.includes("_streaming.zip") || fileName.endsWith("_streaming.zip")
+}
+
+function buildRunningToastDescription(task: ExportTask, data?: ProgressPayload) {
+  return data?.message || task.progressMessage || "导出任务已创建，正在等待进度更新"
+}
+
+function buildCompletedToastDescription(task: ExportTask, data: ProgressPayload): ReactNode {
+  const fileName = data.fileName || task.fileName
+  const isStreamingJsonl = isStreamingJsonlFile(fileName)
+  const isStreamingZip = isStreamingZipFile(fileName)
+  const isZipExport = data.isZipExport ?? task.isZipExport
+  const originalFilePath = data.originalFilePath ?? task.originalFilePath
+  const isHtmlExport = task.format?.toUpperCase() === "HTML" && !isStreamingZip
+
+  let prefix = ""
+  if (isStreamingJsonl) {
+    prefix = "分块导出已完成。"
+  } else if (isStreamingZip) {
+    prefix = "流式 ZIP 导出已完成。"
+  } else if (isHtmlExport && isZipExport !== true) {
+    prefix = "请在导出目录直接打开 HTML 文件。"
+  } else if (isZipExport === true && originalFilePath) {
+    prefix = "ZIP 导出已完成。"
+  }
+
+  return createElement(
+    Fragment,
+    null,
+    prefix ? `${prefix} ` : null,
+    "如果有帮助到你，给我点个 ",
+    createElement(
+      "a",
+      {
+        href: GITHUB_URL,
+        target: "_blank",
+        rel: "noreferrer",
+        className: "underline underline-offset-4",
+      },
+      "Star",
+    ),
+    " 吧喵",
+  )
+}
+
+function buildFailedToastDescription(task: ExportTask, data?: ProgressPayload) {
+  return data?.error || task.error || data?.message || "导出失败，请稍后重试"
+}
+
+function createFallbackTask(data: ProgressPayload): ExportTask {
+  return {
+    id: data.taskId,
+    peer: {
+      chatType: 0,
+      peerUid: "",
+      guildId: "",
+    },
+    sessionName: "导出任务",
+    status: data.status,
+    progress: data.progress,
+    format: "",
+    messageCount: data.messageCount,
+    progressMessage: data.message,
+    error: data.error,
+    fileName: data.fileName,
+    filePath: data.filePath,
+    downloadUrl: data.downloadUrl,
+    createdAt: new Date().toISOString(),
+    completedAt: data.completedAt,
+    isZipExport: data.isZipExport,
+    originalFilePath: data.originalFilePath,
+  }
+}
+
+function mergeTask(task: ExportTask, data: ProgressPayload): ExportTask {
+  return {
+    ...task,
+    progress: data.progress,
+    status: data.status,
+    ...(data.messageCount !== undefined && { messageCount: data.messageCount }),
+    ...(data.message !== undefined && { progressMessage: data.message }),
+    ...(data.error !== undefined && { error: data.error }),
+    ...(data.fileName !== undefined && { fileName: data.fileName }),
+    ...(data.filePath !== undefined && { filePath: data.filePath }),
+    ...(data.downloadUrl !== undefined && { downloadUrl: data.downloadUrl }),
+    ...(data.completedAt !== undefined && { completedAt: data.completedAt }),
+    ...(data.isZipExport !== undefined && { isZipExport: data.isZipExport }),
+    ...(data.originalFilePath !== undefined && { originalFilePath: data.originalFilePath }),
+  }
+}
+
+export function useExportTasks(_props?: UseExportTasksProps) {
   const [tasks, setTasks] = useState<ExportTask[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastLoadTime, setLastLoadTime] = useState<number>(0)
   const { apiCall, downloadFile } = useApi()
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null)
-  const onNotificationRef = useRef(props?.onNotification)
-  
-  // Update notification callback ref when props change
-  useEffect(() => {
-    onNotificationRef.current = props?.onNotification
-  }, [props?.onNotification])
+  const taskToastIdsRef = useRef(new Map<string, string>())
+  const tasksRef = useRef<ExportTask[]>([])
 
-  // Load all tasks from server
+  useEffect(() => {
+    tasksRef.current = tasks
+  }, [tasks])
+
+  const openFileLocation = useCallback(async (filePath?: string) => {
+    if (!filePath) {
+      toast.error("打开文件位置失败", {
+        description: "文件路径不存在",
+      })
+      return false
+    }
+
+    try {
+      await apiCall("/api/open-file-location", {
+        method: "POST",
+        body: JSON.stringify({ filePath }),
+      })
+      return true
+    } catch (err) {
+      toast.error("打开文件位置失败", {
+        description: err instanceof Error ? err.message : "未知错误",
+      })
+      return false
+    }
+  }, [apiCall])
+
+  const dismissTaskToast = useCallback((taskId: string) => {
+    const toastId = taskToastIdsRef.current.get(taskId)
+    if (!toastId) return
+
+    toast.dismiss(toastId)
+    taskToastIdsRef.current.delete(taskId)
+  }, [])
+
+  const deleteOriginalFilesInternal = useCallback(async (taskId: string): Promise<boolean> => {
+    try {
+      setError(null)
+
+      const response = await apiCall(`/api/tasks/${taskId}/original-files`, {
+        method: "DELETE",
+      })
+
+      if (response.success) {
+        setTasks((prev) => {
+          const next = prev.map((task) =>
+            task.id === taskId
+              ? { ...task, originalFilePath: undefined }
+              : task,
+          )
+          tasksRef.current = next
+          return next
+        })
+        return true
+      }
+
+      setError(response.error?.message || "删除原始文件失败")
+      return false
+    } catch (err) {
+      const errorMessage = `删除原始文件失败: ${err instanceof Error ? err.message : "未知错误"}`
+      setError(errorMessage)
+      console.error("[QCE] Delete original files error:", err)
+      return false
+    }
+  }, [apiCall])
+
+  const buildCompletedActions = useCallback((task: ExportTask, data: ProgressPayload): ToastAction[] => {
+    const actions: ToastAction[] = []
+    const fileName = data.fileName || task.fileName
+    const filePath = data.filePath || task.filePath
+    const isStreamingJsonl = isStreamingJsonlFile(fileName)
+    const isStreamingZip = isStreamingZipFile(fileName)
+    const isZipExport = data.isZipExport ?? task.isZipExport
+    const originalFilePath = data.originalFilePath ?? task.originalFilePath
+
+    if (isStreamingJsonl && filePath) {
+      actions.push({
+        label: "查看使用方法",
+        onClick: () => {
+          window.dispatchEvent(new CustomEvent("show-jsonl-help", { detail: { filePath } }))
+        },
+      })
+    }
+
+    if (isStreamingZip && filePath) {
+      actions.push({
+        label: "查看使用方法",
+        onClick: () => {
+          window.dispatchEvent(new CustomEvent("show-streaming-zip-help", { detail: { filePath } }))
+        },
+      })
+    }
+
+    if (filePath) {
+      actions.push({
+        label: "打开文件位置",
+        onClick: () => {
+          void openFileLocation(filePath)
+        },
+      })
+    }
+
+    if (isZipExport === true && originalFilePath) {
+      actions.push({
+        label: "删除原文件",
+        variant: "destructive",
+        onClick: async () => {
+          const success = await deleteOriginalFilesInternal(data.taskId)
+          if (success) {
+            toast.success("删除成功", {
+              description: "原始文件已删除",
+            })
+          } else {
+            toast.error("删除失败", {
+              description: "删除原始文件失败",
+            })
+          }
+        },
+      })
+    }
+
+    return actions
+  }, [deleteOriginalFilesInternal, openFileLocation])
+
+  const syncTaskToast = useCallback((task: ExportTask, data?: ProgressPayload) => {
+    let toastId = taskToastIdsRef.current.get(task.id)
+
+    if (!toastId) {
+      toastId = toast.loading("正在导出", {
+        description: buildRunningToastDescription(task, data),
+        duration: Infinity,
+      })
+      taskToastIdsRef.current.set(task.id, toastId)
+    }
+
+    if (task.status === "completed") {
+      const payload = data || {
+        taskId: task.id,
+        progress: task.progress,
+        status: "completed" as const,
+        messageCount: task.messageCount,
+        fileName: task.fileName,
+        filePath: task.filePath,
+        downloadUrl: task.downloadUrl,
+        completedAt: task.completedAt,
+        isZipExport: task.isZipExport,
+        originalFilePath: task.originalFilePath,
+      }
+
+      const actions = buildCompletedActions(task, payload)
+
+      toast.update(toastId, {
+        type: "success",
+        title: "导出完成~",
+        description: buildCompletedToastDescription(task, payload),
+        actions,
+        duration: actions.length > 0 ? Infinity : 8000,
+      })
+      return
+    }
+
+    if (task.status === "failed") {
+      toast.update(toastId, {
+        type: "error",
+        title: "导出失败",
+        description: buildFailedToastDescription(task, data),
+        actions: undefined,
+        duration: 8000,
+      })
+      return
+    }
+
+    toast.update(toastId, {
+      type: "loading",
+      title: "正在导出",
+      description: buildRunningToastDescription(task, data),
+      actions: undefined,
+      duration: Infinity,
+    })
+  }, [buildCompletedActions])
+
   const loadTasks = useCallback(async (): Promise<boolean> => {
     try {
       setLoading(true)
@@ -41,10 +341,10 @@ export function useExportTasks(props?: UseExportTasksProps) {
         setTasks(response.data.tasks)
         setLastLoadTime(Date.now())
         return true
-      } else {
-        setError(response.error?.message || "获取任务列表失败")
-        return false
       }
+
+      setError(response.error?.message || "获取任务列表失败")
+      return false
     } catch (err) {
       const errorMessage = `获取任务列表失败: ${err instanceof Error ? err.message : "未知错误"}`
       setError(errorMessage)
@@ -55,7 +355,6 @@ export function useExportTasks(props?: UseExportTasksProps) {
     }
   }, [apiCall])
 
-  // Silent refresh tasks (without loading state for polling)
   const refreshTasks = useCallback(async (): Promise<boolean> => {
     try {
       setError(null)
@@ -66,19 +365,16 @@ export function useExportTasks(props?: UseExportTasksProps) {
         setTasks(response.data.tasks)
         setLastLoadTime(Date.now())
         return true
-      } else {
-        // Don't show error for silent refresh
-        console.warn("[QCE] Silent refresh failed:", response.error?.message || "获取任务列表失败")
-        return false
       }
+
+      console.warn("[QCE] Silent refresh failed:", response.error?.message || "获取任务列表失败")
+      return false
     } catch (err) {
-      // Don't show error for silent refresh
       console.warn("[QCE] Silent refresh error:", err instanceof Error ? err.message : "未知错误")
       return false
     }
   }, [apiCall])
 
-  // Delete a specific task
   const deleteTask = useCallback(async (taskId: string): Promise<boolean> => {
     try {
       setError(null)
@@ -88,19 +384,20 @@ export function useExportTasks(props?: UseExportTasksProps) {
       })
 
       if (response.success) {
+        dismissTaskToast(taskId)
         setTasks((prev) => prev.filter((task) => task.id !== taskId))
         return true
-      } else {
-        setError(response.error?.message || "删除任务失败")
-        return false
       }
+
+      setError(response.error?.message || "删除任务失败")
+      return false
     } catch (err) {
       const errorMessage = `删除任务失败: ${err instanceof Error ? err.message : "未知错误"}`
       setError(errorMessage)
       console.error("[QCE] Delete task error:", err)
       return false
     }
-  }, [apiCall])
+  }, [apiCall, dismissTaskToast])
 
   const createTask = useCallback(async (form: CreateTaskForm): Promise<boolean> => {
     if (!form.peerUid || !form.sessionName) {
@@ -108,13 +405,17 @@ export function useExportTasks(props?: UseExportTasksProps) {
       return false
     }
 
+    const creatingToastId = toast.loading("创建中", {
+      description: "正在创建导出任务...",
+      duration: Infinity,
+    })
+
     try {
       setLoading(true)
       setError(null)
 
-      // 判断是否使用流式导出模式
       const useStreamingMode = form.streamingZipMode === true
-      const isJsonFormat = form.format === 'JSON'
+      const isJsonFormat = form.format === "JSON"
 
       const requestBody: CreateTaskRequest = {
         peer: {
@@ -123,35 +424,34 @@ export function useExportTasks(props?: UseExportTasksProps) {
           guildId: "",
         },
         sessionName: form.sessionName,
-        format: useStreamingMode 
-          ? (isJsonFormat ? 'STREAMING_JSONL' : 'STREAMING_ZIP') 
+        format: useStreamingMode
+          ? (isJsonFormat ? "STREAMING_JSONL" : "STREAMING_ZIP")
           : form.format,
         filter: {
           ...(form.startTime && { startTime: Math.floor(new Date(form.startTime).getTime() / 1000) }),
           ...(form.endTime && { endTime: Math.floor(new Date(form.endTime).getTime() / 1000) }),
-          ...(form.keywords && { keywords: form.keywords.split(",").map((k) => k.trim()) }),
-          ...(form.excludeUserUins && { excludeUserUins: form.excludeUserUins.split(",").map((u) => u.trim()).filter(u => u) }),
+          ...(form.keywords && { keywords: form.keywords.split(",").map((keyword) => keyword.trim()) }),
+          ...(form.excludeUserUins && {
+            excludeUserUins: form.excludeUserUins.split(",").map((uin) => uin.trim()).filter(Boolean),
+          }),
           includeRecalled: form.includeRecalled,
         },
         options: {
-          batchSize: useStreamingMode ? 3000 : 5000, // 流式模式使用较小批次
+          batchSize: useStreamingMode ? 3000 : 5000,
           includeResourceLinks: true,
           includeSystemMessages: form.includeSystemMessages,
           filterPureImageMessages: form.filterPureImageMessages,
           prettyFormat: true,
           exportAsZip: form.exportAsZip,
           embedAvatarsAsBase64: form.embedAvatarsAsBase64,
-          // Issue #192: 传递自定义导出路径
           ...(form.outputDir?.trim() && { outputDir: form.outputDir.trim() }),
-          // Issue #216: 传递是否在文件名中包含聊天名称
           ...(form.useNameInFileName && { useNameInFileName: true }),
         },
       }
 
-      // 根据模式和格式选择不同的API端点
       let apiEndpoint = "/api/messages/export"
       if (useStreamingMode) {
-        apiEndpoint = isJsonFormat 
+        apiEndpoint = isJsonFormat
           ? "/api/messages/export-streaming-jsonl"
           : "/api/messages/export-streaming-zip"
       }
@@ -162,8 +462,9 @@ export function useExportTasks(props?: UseExportTasksProps) {
       }) as APIResponse<CreateTaskResponse>
 
       if (response.success && response.data) {
+        const taskId = response.data.taskId || `task_${Date.now()}`
         const newTask: ExportTask = {
-          id: response.data.taskId || `task_${Date.now()}`,
+          id: taskId,
           peer: requestBody.peer,
           sessionName: form.sessionName,
           status: "running",
@@ -177,288 +478,126 @@ export function useExportTasks(props?: UseExportTasksProps) {
           fileName: response.data.fileName,
           downloadUrl: response.data.downloadUrl,
           createdAt: new Date().toISOString(),
+          progressMessage: "导出任务已创建，正在等待进度更新",
         }
+
+        const existingToastId = taskToastIdsRef.current.get(taskId)
+        const toastId = existingToastId || creatingToastId
+
+        if (existingToastId && existingToastId !== creatingToastId) {
+          toast.dismiss(creatingToastId)
+        }
+
+        taskToastIdsRef.current.set(taskId, toastId)
+        toast.update(toastId, {
+          type: "loading",
+          title: "正在导出",
+          description: "导出任务已创建，正在等待进度更新",
+          duration: Infinity,
+        })
 
         setTasks((prev) => [newTask, ...prev])
         return true
       }
+
+      const errorMessage = response.error?.message || "创建任务失败"
+      setError(errorMessage)
+      toast.update(creatingToastId, {
+        type: "error",
+        title: "创建失败",
+        description: errorMessage,
+        duration: 8000,
+      })
       return false
     } catch (err) {
       const errorMessage = `创建任务失败: ${err instanceof Error ? err.message : "未知错误"}`
       setError(errorMessage)
       console.error("[QCE] Create task error:", err)
+      toast.update(creatingToastId, {
+        type: "error",
+        title: "创建失败",
+        description: errorMessage,
+        duration: 8000,
+      })
       return false
     } finally {
       setLoading(false)
     }
   }, [apiCall])
 
-  // Update task progress (called from WebSocket messages)
   const updateTaskProgress = useCallback((
-    taskId: string, 
-    progress: number, 
-    status: "running" | "completed" | "failed",
+    taskId: string,
+    progress: number,
+    status: TaskStatus,
     additionalData?: {
       error?: string
       fileName?: string
       filePath?: string
       downloadUrl?: string
       completedAt?: string
-    }
+    },
   ) => {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId 
-          ? { 
-              ...task, 
-              progress, 
-              status,
-              ...(additionalData?.error && { error: additionalData.error }),
-              ...(additionalData?.fileName && { fileName: additionalData.fileName }),
-              ...(additionalData?.filePath && { filePath: additionalData.filePath }),
-              ...(additionalData?.downloadUrl && { downloadUrl: additionalData.downloadUrl }),
-              ...(additionalData?.completedAt && { completedAt: additionalData.completedAt }),
-            }
-          : task
-      )
-    )
+    const payload: ProgressPayload = {
+      taskId,
+      progress,
+      status,
+      ...(additionalData?.error !== undefined && { error: additionalData.error }),
+      ...(additionalData?.fileName !== undefined && { fileName: additionalData.fileName }),
+      ...(additionalData?.filePath !== undefined && { filePath: additionalData.filePath }),
+      ...(additionalData?.downloadUrl !== undefined && { downloadUrl: additionalData.downloadUrl }),
+      ...(additionalData?.completedAt !== undefined && { completedAt: additionalData.completedAt }),
+    }
+
+    setTasks((prev) => {
+      const next = prev.map((task) => task.id === taskId ? mergeTask(task, payload) : task)
+      tasksRef.current = next
+      return next
+    })
   }, [])
 
-  // Handle WebSocket progress messages
-  const handleWebSocketProgress = useCallback((data: {
-    taskId: string
-    progress: number
-    status: "running" | "completed" | "failed"
-    message?: string
-    messageCount?: number
-    error?: string
-    fileName?: string
-    downloadUrl?: string
-    completedAt?: string
-    isZipExport?: boolean
-    originalFilePath?: string
-    filePath?: string
-  }) => {
-    console.log('[QCE] handleWebSocketProgress received:', {
+  const handleWebSocketProgress = useCallback((data: ProgressPayload) => {
+    console.log("[QCE] handleWebSocketProgress received:", {
       taskId: data.taskId,
       status: data.status,
       filePath: data.filePath,
       fileName: data.fileName,
-      hasFilePath: !!data.filePath
+      hasFilePath: !!data.filePath,
     })
-    
-    // Update task with all available data including messageCount and message
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === data.taskId 
-          ? { 
-              ...task, 
-              progress: data.progress, 
-              status: data.status,
-              ...(data.messageCount !== undefined && { messageCount: data.messageCount }),
-              ...(data.message && { progressMessage: data.message }),
-              ...(data.error && { error: data.error }),
-              ...(data.fileName && { fileName: data.fileName }),
-              ...(data.filePath && { filePath: data.filePath }),
-              ...(data.downloadUrl && { downloadUrl: data.downloadUrl }),
-              ...(data.completedAt && { completedAt: data.completedAt }),
-            }
-          : task
-      )
-    )
 
-    // 更新任务的isZipExport和originalFilePath
-    if (data.status === "completed") {
-      setTasks((prev) =>
-        prev.map((task) =>
-          task.id === data.taskId
-            ? { 
-                ...task, 
-                ...(data.isZipExport !== undefined && { isZipExport: data.isZipExport }),
-                ...(data.originalFilePath !== undefined && { originalFilePath: data.originalFilePath })
-              }
-            : task
-        )
-      )
+    let updatedTask: ExportTask | undefined
 
-      // 获取任务信息以判断格式
-      // 注意：优先通过文件名判断，因为任务创建时 format 可能存的是原始格式
-      const isStreamingJsonl = data.fileName?.includes('_chunked_jsonl') || data.fileName?.includes('chunked_jsonl')
-      const isStreamingZip = data.fileName?.includes('_streaming.zip') || data.fileName?.endsWith('_streaming.zip')
-      
-      const completedTask = tasks.find(t => t.id === data.taskId)
-      const taskFormat = completedTask?.format?.toUpperCase() || ''
-      const isHtmlExport = taskFormat === 'HTML' && !isStreamingZip
-      
-      console.log('[QCE] Task completed:', { 
-        taskId: data.taskId, 
-        fileName: data.fileName, 
-        filePath: data.filePath,
-        isStreamingJsonl, 
-        isStreamingZip, 
-        isHtmlExport,
-        taskFormat
+    setTasks((prev) => {
+      const next = prev.map((task) => {
+        if (task.id !== data.taskId) return task
+        const nextTask = mergeTask(task, data)
+        updatedTask = nextTask
+        return nextTask
       })
+      tasksRef.current = next
+      return next
+    })
 
-      // 如果是流式JSONL导出，显示使用说明
-      if (isStreamingJsonl && data.filePath) {
-        onNotificationRef.current?.({
-          type: 'success',
-          title: 'JSONL 分块导出完成',
-          message: '大规模数据已分块保存，点击查看使用方法',
-          actions: [
-            {
-              label: '查看使用方法',
-              onClick: () => {
-                // 触发显示JSONL帮助模态框的事件
-                window.dispatchEvent(new CustomEvent('show-jsonl-help', { detail: { filePath: data.filePath } }))
-              }
-            },
-            {
-              label: '打开文件位置',
-              onClick: async () => {
-                try {
-                  await apiCall(`/api/open-file-location`, {
-                    method: 'POST',
-                    body: JSON.stringify({ filePath: data.filePath })
-                  })
-                } catch (err) {
-                  console.error('打开文件位置失败:', err)
-                }
-              }
-            }
-          ]
-        })
-      }
-      // 如果是流式ZIP导出，显示使用说明
-      else if (isStreamingZip && data.filePath) {
-        onNotificationRef.current?.({
-          type: 'success',
-          title: '流式 ZIP 导出完成',
-          message: '大规模数据已打包完成，点击查看使用方法',
-          actions: [
-            {
-              label: '查看使用方法',
-              onClick: () => {
-                // 触发显示流式ZIP帮助模态框的事件
-                window.dispatchEvent(new CustomEvent('show-streaming-zip-help', { detail: { filePath: data.filePath } }))
-              }
-            },
-            {
-              label: '打开文件位置',
-              onClick: async () => {
-                try {
-                  await apiCall(`/api/open-file-location`, {
-                    method: 'POST',
-                    body: JSON.stringify({ filePath: data.filePath })
-                  })
-                } catch (err) {
-                  console.error('打开文件位置失败:', err)
-                }
-              }
-            }
-          ]
-        })
-      }
-      // 如果是HTML导出（非ZIP），显示使用提示
-      else if (isHtmlExport && data.isZipExport !== true && data.filePath) {
-        onNotificationRef.current?.({
-          type: 'info',
-          title: 'HTML导出完成',
-          message: '请在导出目录直接打开HTML文件，图片才能正常显示',
-          actions: [
-            {
-              label: '打开文件位置',
-              onClick: async () => {
-                try {
-                  await apiCall(`/api/open-file-location`, {
-                    method: 'POST',
-                    body: JSON.stringify({ filePath: data.filePath })
-                  })
-                } catch (err) {
-                  console.error('打开文件位置失败:', err)
-                }
-              }
-            },
-            {
-              label: '我知道了',
-              onClick: () => {
-                // 关闭通知
-              }
-            }
-          ]
-        })
-      }
-      // 如果是ZIP导出且有原始文件路径，显示通知询问是否删除
-      else if (data.isZipExport === true && data.originalFilePath) {
-        onNotificationRef.current?.({
-          type: 'success',
-          title: 'ZIP导出完成力',
-          message: '是否删除原始HTML文件和资源文件？',
-          actions: [
-            {
-              label: '删除原文件',
-              variant: 'destructive',
-              onClick: async () => {
-                try {
-                  const response = await apiCall(`/api/tasks/${data.taskId}/original-files`, {
-                    method: "DELETE",
-                  })
-                  if (response.success) {
-                    setTasks((prev) =>
-                      prev.map((task) =>
-                        task.id === data.taskId 
-                          ? { ...task, originalFilePath: undefined }
-                          : task
-                      )
-                    )
-                    onNotificationRef.current?.({
-                      type: 'success',
-                      title: '删除成功',
-                      message: '原始文件已删除'
-                    })
-                  } else {
-                    onNotificationRef.current?.({
-                      type: 'error',
-                      title: '删除失败',
-                      message: '删除原始文件失败'
-                    })
-                  }
-                } catch (err) {
-                  onNotificationRef.current?.({
-                    type: 'error',
-                    title: '删除失败',
-                    message: err instanceof Error ? err.message : "未知错误"
-                  })
-                }
-              }
-            },
-            {
-              label: '保留原文件',
-              onClick: () => {
-                // 仅关闭通知，不做任何操作
-              }
-            }
-          ]
-        })
-      }
-    }
-  }, [updateTaskProgress, apiCall, setTasks, tasks])
+    const resolvedTask = updatedTask
+      || tasksRef.current.find((task) => task.id === data.taskId)
+      || createFallbackTask(data)
+
+    syncTaskToast(resolvedTask, data)
+  }, [syncTaskToast])
 
   const isJsonlExport = useCallback((task: ExportTask): boolean => {
-    return task.fileName?.includes('_chunked_jsonl') || task.format === 'STREAMING_JSONL'
+    return task.fileName?.includes("_chunked_jsonl") || task.format === "STREAMING_JSONL"
   }, [])
 
   const openTaskFileLocation = useCallback(async (task: ExportTask): Promise<boolean> => {
     if (!task.filePath) {
-      setError('文件路径不存在')
+      setError("文件路径不存在")
       return false
     }
 
     try {
-      await apiCall(`/api/open-file-location`, {
-        method: 'POST',
-        body: JSON.stringify({ filePath: task.filePath })
+      await apiCall("/api/open-file-location", {
+        method: "POST",
+        body: JSON.stringify({ filePath: task.filePath }),
       })
       return true
     } catch (err) {
@@ -472,7 +611,6 @@ export function useExportTasks(props?: UseExportTasksProps) {
   const downloadTask = useCallback(async (task: ExportTask) => {
     if (!task.fileName) return
 
-    // JSONL 导出是目录格式，应打开文件位置而非下载
     if (isJsonlExport(task)) {
       await openTaskFileLocation(task)
       return
@@ -488,67 +626,36 @@ export function useExportTasks(props?: UseExportTasksProps) {
   }, [downloadFile, isJsonlExport, openTaskFileLocation])
 
   const deleteOriginalFiles = useCallback(async (taskId: string): Promise<boolean> => {
-    try {
-      setError(null)
-
-      const response = await apiCall(`/api/tasks/${taskId}/original-files`, {
-        method: "DELETE",
-      })
-
-      if (response.success) {
-        // 更新任务状态，移除originalFilePath
-        setTasks((prev) =>
-          prev.map((task) =>
-            task.id === taskId 
-              ? { ...task, originalFilePath: undefined }
-              : task
-          )
-        )
-        return true
-      } else {
-        setError(response.error?.message || "删除原始文件失败")
-        return false
-      }
-    } catch (err) {
-      const errorMessage = `删除原始文件失败: ${err instanceof Error ? err.message : "未知错误"}`
-      setError(errorMessage)
-      console.error("[QCE] Delete original files error:", err)
-      return false
-    }
-  }, [apiCall])
+    return deleteOriginalFilesInternal(taskId)
+  }, [deleteOriginalFilesInternal])
 
   const getTaskStats = useCallback(() => {
     return {
       total: tasks.length,
-      running: tasks.filter((t) => t.status === "running").length,
-      completed: tasks.filter((t) => t.status === "completed").length,
-      failed: tasks.filter((t) => t.status === "failed").length,
+      running: tasks.filter((task) => task.status === "running").length,
+      completed: tasks.filter((task) => task.status === "completed").length,
+      failed: tasks.filter((task) => task.status === "failed").length,
     }
   }, [tasks])
 
-  // Check if data is stale (older than 30 seconds)
   const isDataStale = useCallback(() => {
     return lastLoadTime > 0 && Date.now() - lastLoadTime > 30000
   }, [lastLoadTime])
 
-  // Auto-polling for running tasks (silent refresh)
   useEffect(() => {
-    const hasRunningTasks = tasks.some(task => task.status === "running")
-    
-    // Clear existing timer
+    const hasRunningTasks = tasks.some((task) => task.status === "running")
+
     if (pollingTimerRef.current) {
       clearInterval(pollingTimerRef.current)
       pollingTimerRef.current = null
     }
 
-    // Start polling only if there are running tasks
     if (hasRunningTasks && tasks.length > 0) {
       pollingTimerRef.current = setInterval(() => {
-        refreshTasks()
-      }, 8000) // Poll every 8 seconds for silent refresh
+        void refreshTasks()
+      }, 8000)
     }
 
-    // Cleanup on unmount or when dependencies change
     return () => {
       if (pollingTimerRef.current) {
         clearInterval(pollingTimerRef.current)

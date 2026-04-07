@@ -52,6 +52,11 @@ export enum ChatTypeSimple {
 }
 
 /**
+ * 导出会话来源
+ */
+export type ExportSessionSource = 'api' | 'database';
+
+/**
  * 消息筛选条件接口
  */
 export interface MessageFilter {
@@ -88,6 +93,8 @@ export interface ExportTaskConfig {
     taskName: string;
     /** 聊天对象信息 */
     peer: Peer;
+    /** 会话数据来源 */
+    sessionSource?: ExportSessionSource;
     /** 聊天类型 */
     chatType: ChatTypeSimple;
     /** 聊天对象名称（群名/好友昵称） */
