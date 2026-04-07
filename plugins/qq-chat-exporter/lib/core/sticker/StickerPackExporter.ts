@@ -210,6 +210,92 @@ export class StickerPackExporter {
         });
     }
 
+    private getMsgService(): any {
+        return this.core.context.session.getMsgService();
+    }
+
+    private getMarketTabList(result: any): any[] {
+        const roamEmojiTab = result?.marketEmoticonInfo?.roamEmojiTab;
+        if (!roamEmojiTab) {
+            return [];
+        }
+
+        const tabListCandidates = [
+            roamEmojiTab.ordinaryTabinfoList,
+            roamEmojiTab.ordinaryTabInfoList
+        ];
+
+        for (const tabList of tabListCandidates) {
+            if (Array.isArray(tabList) && tabList.length > 0) {
+                return tabList;
+            }
+        }
+
+        for (const tabList of tabListCandidates) {
+            if (Array.isArray(tabList)) {
+                return tabList;
+            }
+        }
+
+        return [];
+    }
+
+    private async fetchFavoriteEmojiList(limit: number): Promise<any> {
+        const msgService = this.getMsgService();
+
+        // NapCat 不同版本里，这个能力有时挂在 MsgApi 包装层，有时只能直接从 msgService 调。
+        if (typeof msgService?.fetchFavEmojiList === 'function') {
+            return await msgService.fetchFavEmojiList('', limit, true, true);
+        }
+
+        const msgApi = (this.core.apis as any)?.MsgApi;
+        if (typeof msgApi?.fetchFavEmojiList === 'function') {
+            return await msgApi.fetchFavEmojiList(limit);
+        }
+
+        throw new Error('当前运行时没有可用的 fetchFavEmojiList 方法');
+    }
+
+    private async fetchMarketEmoticonList(): Promise<any> {
+        const msgService = this.getMsgService();
+        if (typeof msgService?.fetchMarketEmoticonList !== 'function') {
+            throw new Error('当前运行时没有可用的 fetchMarketEmoticonList 方法');
+        }
+
+        const callArgsList: Array<[string | number, number]> = [
+            ['', 0],
+            [0, 0]
+        ];
+
+        let fallbackResult: any = null;
+        let lastError: unknown;
+
+        for (const args of callArgsList) {
+            try {
+                const result = await msgService.fetchMarketEmoticonList(...args);
+                if (this.getMarketTabList(result).length > 0) {
+                    return result;
+                }
+
+                if (result && !fallbackResult) {
+                    fallbackResult = result;
+                }
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        if (fallbackResult) {
+            return fallbackResult;
+        }
+
+        if (lastError instanceof Error) {
+            throw lastError;
+        }
+
+        throw new Error('获取市场表情包列表失败');
+    }
+
     /**
      * 获取所有表情包列表
      * @param types 要获取的表情包类型，默认获取所有类型
@@ -247,7 +333,7 @@ export class StickerPackExporter {
      */
     private async getFavoriteEmojis(packs: StickerPackInfo[]): Promise<void> {
         try {
-            const favEmojis = await this.core.apis.MsgApi.fetchFavEmojiList(1000);
+            const favEmojis = await this.fetchFavoriteEmojiList(1000);
             
             if (favEmojis.emojiInfoList && favEmojis.emojiInfoList.length > 0) {
                 const stickers: StickerInfo[] = [];
@@ -279,14 +365,13 @@ export class StickerPackExporter {
 
     private async getMarketEmoticonPacks(packs: StickerPackInfo[]): Promise<void> {
         try {
-            const msgService = this.core.context.session.getMsgService();
-            const result: any = await msgService.fetchMarketEmoticonList('', 1);
+            const msgService = this.getMsgService();
+            const result = await this.fetchMarketEmoticonList();
+            const tabList = this.getMarketTabList(result);
 
-            if (!result || !result.marketEmoticonInfo || !result.marketEmoticonInfo.roamEmojiTab) {
+            if (tabList.length === 0) {
                 return;
             }
-
-            const tabList = result.marketEmoticonInfo.roamEmojiTab.ordinaryTabinfoList || [];
 
             for (const tab of tabList) {
                 const epId = tab.epId.toString();

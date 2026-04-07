@@ -45,19 +45,78 @@ function createFallbackCore(rawCore) {
   return safeCore;
 }
 
+function pickFirstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function isContextLikeObject(value) {
+  return !!(value && typeof value === 'object' && (
+    Object.prototype.hasOwnProperty.call(value, 'core') ||
+    Object.prototype.hasOwnProperty.call(value, '_ctx') ||
+    Object.prototype.hasOwnProperty.call(value, 'ctx') ||
+    Object.prototype.hasOwnProperty.call(value, 'obContext') ||
+    Object.prototype.hasOwnProperty.call(value, 'oneBot') ||
+    Object.prototype.hasOwnProperty.call(value, 'actions') ||
+    Object.prototype.hasOwnProperty.call(value, 'instance') ||
+    Object.prototype.hasOwnProperty.call(value, 'logger') ||
+    Object.prototype.hasOwnProperty.call(value, 'router') ||
+    Object.prototype.hasOwnProperty.call(value, 'pluginManager')
+  ));
+}
+
 function normalizePluginArgs(arg0, arg1, arg2, arg3) {
-  if (arg0 && typeof arg0 === 'object' && (
-    Object.prototype.hasOwnProperty.call(arg0, 'core') ||
-    Object.prototype.hasOwnProperty.call(arg0, 'obContext') ||
-    Object.prototype.hasOwnProperty.call(arg0, 'oneBot') ||
-    Object.prototype.hasOwnProperty.call(arg0, 'actions') ||
-    Object.prototype.hasOwnProperty.call(arg0, 'instance')
-  )) {
+  if (isContextLikeObject(arg0)) {
+    const nestedCtx = arg0._ctx && typeof arg0._ctx === 'object'
+      ? arg0._ctx
+      : arg0.ctx && typeof arg0.ctx === 'object'
+        ? arg0.ctx
+        : undefined;
+    const core = pickFirstDefined(
+      arg0.core,
+      nestedCtx?.core,
+      arg0.NapCatCore,
+      nestedCtx?.NapCatCore,
+      arg0.instance?.core,
+      nestedCtx?.instance?.core,
+      arg0.instance,
+      nestedCtx?.instance
+    );
+    const obContext = pickFirstDefined(
+      arg0.obContext,
+      nestedCtx?.obContext,
+      arg0.oneBot,
+      nestedCtx?.oneBot,
+      arg0._ctx?.obContext,
+      arg0._ctx?.oneBot,
+      arg0.ctx?.obContext,
+      arg0.ctx?.oneBot
+    );
+    const actions = pickFirstDefined(
+      arg0.actions,
+      nestedCtx?.actions,
+      obContext?.actions,
+      arg0.instance?.actions,
+      nestedCtx?.instance?.actions
+    );
+    const instance = pickFirstDefined(
+      arg0.instance,
+      nestedCtx?.instance,
+      core
+    );
+
     return {
-      core: arg0.core,
-      obContext: arg0.obContext || arg0.oneBot,
-      actions: arg0.actions,
-      instance: arg0.instance
+      core,
+      obContext,
+      actions,
+      instance,
+      ctx: arg0,
+      nestedCtx
     };
   }
 
@@ -65,7 +124,9 @@ function normalizePluginArgs(arg0, arg1, arg2, arg3) {
     core: arg0,
     obContext: arg1,
     actions: arg2,
-    instance: arg3
+    instance: arg3,
+    ctx: undefined,
+    nestedCtx: undefined
   };
 }
 
@@ -75,10 +136,12 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
       core,
       obContext,
       actions: rawActions,
-      instance
+      instance,
+      ctx,
+      nestedCtx
     } = normalizePluginArgs(arg0, arg1, arg2, arg3);
 
-    const actions = rawActions || obContext?.actions || instance?.actions;
+    const actions = rawActions || obContext?.actions || instance?.actions || ctx?.actions || nestedCtx?.actions;
     if (!core) {
       throw new Error('NapCat core is missing in plugin_init context');
     }
@@ -91,6 +154,8 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
       obContext,
       actions,
       instance,
+      ctx,
+      pluginContext: ctx,
       workingEnv
     };
 

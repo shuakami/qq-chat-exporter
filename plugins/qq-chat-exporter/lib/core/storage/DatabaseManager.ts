@@ -25,6 +25,12 @@ import { ScheduledExportConfig, ExecutionHistory } from '../scheduler/ScheduledE
  * 数据库模式版本
  */
 const DB_SCHEMA_VERSION = 1;
+const TASK_PERSIST_MIN_INTERVAL_MS = 30 * 1000;
+const TASK_PERSIST_PROGRESS_STEP = 200;
+const TASK_PERSIST_PROGRESS_PERCENT = 0.05;
+const RESOURCE_CHECKED_AT_PERSIST_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const RESOURCE_REBUILD_MIN_DUPLICATE_LINES = 64;
+const RESOURCE_REBUILD_DUPLICATE_RATIO = 1.2;
 
 /**
  * JSONL文件路径配置
@@ -50,6 +56,28 @@ interface MemoryIndexes {
     executionHistory: Map<string, ExecutionHistory[]>; // scheduledExportId -> history[]
 }
 
+interface TaskPersistSnapshot {
+    configJson: string;
+    stateSignature: string;
+    processedMessages: number;
+    successCount: number;
+    failureCount: number;
+    totalMessages: number;
+    status: ExportTaskState['status'];
+    persistedAt: number;
+}
+
+interface ResourcePersistSnapshot {
+    signature: string;
+    checkedAt: number;
+    persistedAt: number;
+}
+
+interface StartupMaintenanceFlags {
+    tasks: boolean;
+    resources: boolean;
+}
+
 /**
  * 高性能JSONL数据库管理器类
  * 使用JSON Lines格式提供极致性能和完美兼容性
@@ -71,12 +99,19 @@ export class DatabaseManager {
     
     /** taskId 到记录ID的映射，用于通过taskId查找记录 */
     private taskIdToRecordId: Map<string, string> = new Map();
+    private taskPersistSnapshots: Map<string, TaskPersistSnapshot> = new Map();
+    private resourcePersistSnapshots: Map<string, ResourcePersistSnapshot> = new Map();
+    private startupMaintenanceFlags: StartupMaintenanceFlags = {
+        tasks: false,
+        resources: false
+    };
     
     /** 是否已初始化 */
     private initialized = false;
 
     /** 写入队列，支持批量操作 */
     private writeQueue: Array<{ file: string; data: any }> = [];
+    private batchWriteInterval: NodeJS.Timeout | null = null;
     private writeTimeout: NodeJS.Timeout | null = null;
 
     /**
@@ -124,6 +159,9 @@ export class DatabaseManager {
             // 加载所有数据到内存索引
             await this.loadIndexes();
 
+            // 自动整理旧版遗留的重复记录，避免 JSONL 历史膨胀
+            await this.performStartupMaintenance();
+
             // 设置自动批量写入
             this.setupBatchWrite();
 
@@ -163,6 +201,14 @@ export class DatabaseManager {
      * 加载所有数据到内存索引
      */
     private async loadIndexes(): Promise<void> {
+        this.taskIdToRecordId.clear();
+        this.taskPersistSnapshots.clear();
+        this.resourcePersistSnapshots.clear();
+        this.startupMaintenanceFlags = {
+            tasks: false,
+            resources: false
+        };
+
         // 加载任务数据
         await this.loadTaskIndex();
         
@@ -239,11 +285,12 @@ export class DatabaseManager {
             const recordIdStr = task.id.toString();
             this.indexes.tasks.set(recordIdStr, task);
             this.taskIdToRecordId.set(taskId, recordIdStr);
+            this.rememberPersistedTaskRecord(task);
         }
         
         // 如果发现重复记录，自动清理
         if (duplicateCount > 0) {
-            await this.rebuildTaskFile();
+            this.startupMaintenanceFlags.tasks = true;
         }
     }
 
@@ -286,10 +333,15 @@ export class DatabaseManager {
             crlfDelay: Infinity
         });
 
+        let loadedCount = 0;
+        let duplicateCount = 0;
+
         for await (const line of rl) {
             if (line.trim()) {
                 try {
                     const resource = JSON.parse(line) as ResourceInfo;
+                    loadedCount++;
+                    resource.accessible = Boolean((resource as any).accessible);
                     
                     // 修复日期字段类型：确保checkedAt是Date对象
                     if (resource.checkedAt) {
@@ -309,12 +361,20 @@ export class DatabaseManager {
                     }
                     
                     if (resource.md5) {
+                        if (this.indexes.resources.has(resource.md5)) {
+                            duplicateCount++;
+                        }
                         this.indexes.resources.set(resource.md5, resource);
+                        this.rememberPersistedResource(resource);
                     }
                 } catch (error) {
                     console.warn('解析资源数据行失败:', line, error);
                 }
             }
+        }
+
+        if (this.shouldCompactResourceFile(loadedCount, duplicateCount)) {
+            this.startupMaintenanceFlags.resources = true;
         }
     }
 
@@ -346,7 +406,11 @@ export class DatabaseManager {
      */
     private setupBatchWrite(): void {
         // 每100ms执行一次批量写入
-        setInterval(() => {
+        if (this.batchWriteInterval) {
+            clearInterval(this.batchWriteInterval);
+        }
+
+        this.batchWriteInterval = setInterval(() => {
             this.flushWriteQueue();
         }, 100);
     }
@@ -417,8 +481,14 @@ export class DatabaseManager {
     /**
      * 保存任务配置和状态
      */
-    async saveTask(config: ExportTaskConfig, state: ExportTaskState): Promise<void> {
+    async saveTask(
+        config: ExportTaskConfig,
+        state: ExportTaskState,
+        options: { force?: boolean } = {}
+    ): Promise<void> {
         this.ensureInitialized();
+        const configJson = JSON.stringify(config);
+        const stateJson = JSON.stringify(state);
 
         // 检查是否已存在该任务
         const existingRecordId = this.taskIdToRecordId.get(config.taskId);
@@ -430,8 +500,8 @@ export class DatabaseManager {
             if (existingRecord) {
                 taskRecord = {
                     ...existingRecord,
-                    config: JSON.stringify(config),
-                    state: JSON.stringify(state),
+                    config: configJson,
+                    state: stateJson,
                     updatedAt: new Date()
                 };
             } else {
@@ -439,8 +509,8 @@ export class DatabaseManager {
                 taskRecord = {
                     id: Date.now(),
                     taskId: config.taskId,
-                    config: JSON.stringify(config),
-                    state: JSON.stringify(state),
+                    config: configJson,
+                    state: stateJson,
                     createdAt: new Date(),
                     updatedAt: new Date()
                 };
@@ -451,8 +521,8 @@ export class DatabaseManager {
             taskRecord = {
                 id: Date.now(),
                 taskId: config.taskId,
-                config: JSON.stringify(config),
-                state: JSON.stringify(state),
+                config: configJson,
+                state: stateJson,
                 createdAt: new Date(),
                 updatedAt: new Date()
             };
@@ -462,8 +532,13 @@ export class DatabaseManager {
         // 更新内存索引（使用记录ID作为key）
         this.indexes.tasks.set(taskRecord.id.toString(), taskRecord);
 
+        if (!this.shouldPersistTask(config.taskId, configJson, state, options.force === true)) {
+            return;
+        }
+
         // 添加到写入队列
         this.queueWrite(this.files.tasks, taskRecord);
+        this.rememberPersistedTaskRecord(taskRecord, configJson, state);
     }
 
     /**
@@ -559,12 +634,14 @@ export class DatabaseManager {
         if (recordId) {
             this.indexes.tasks.delete(recordId);
             this.taskIdToRecordId.delete(taskId);
+            this.taskPersistSnapshots.delete(taskId);
         } else {
             // 遍历所有任务记录查找可能的匹配
             for (const [recordIdStr, taskRecord] of this.indexes.tasks.entries()) {
                 if (taskRecord.taskId === taskId) {
                     this.indexes.tasks.delete(recordIdStr);
                     this.taskIdToRecordId.delete(taskId);
+                    this.taskPersistSnapshots.delete(taskId);
                     break;
                 }
             }
@@ -595,11 +672,11 @@ export class DatabaseManager {
      * 重建任务文件
      */
     private async rebuildTaskFile(): Promise<void> {
-        const content = Array.from(this.indexes.tasks.values())
-            .map(task => JSON.stringify(task))
-            .join('\n') + (this.indexes.tasks.size > 0 ? '\n' : '');
-        
-        await fsPromises.writeFile(this.files.tasks, content, 'utf8');
+        await this.writeJsonlFileAtomically(
+            this.files.tasks,
+            Array.from(this.indexes.tasks.values())
+        );
+        this.resetTaskPersistSnapshotsFromIndexes();
     }
 
     /**
@@ -612,22 +689,18 @@ export class DatabaseManager {
             allMessages.push(...Array.from(taskMessages.values()));
         }
         
-        const content = allMessages
-            .map(message => JSON.stringify(message))
-            .join('\n') + (allMessages.length > 0 ? '\n' : '');
-        
-        await fsPromises.writeFile(this.files.messages, content, 'utf8');
+        await this.writeJsonlFileAtomically(this.files.messages, allMessages);
     }
 
     /**
      * 重建资源文件
      */
     private async rebuildResourceFile(): Promise<void> {
-        const content = Array.from(this.indexes.resources.values())
-            .map(resource => JSON.stringify(resource))
-            .join('\n') + (this.indexes.resources.size > 0 ? '\n' : '');
-        
-        await fsPromises.writeFile(this.files.resources, content, 'utf8');
+        await this.writeJsonlFileAtomically(
+            this.files.resources,
+            Array.from(this.indexes.resources.values())
+        );
+        this.resetResourcePersistSnapshotsFromIndexes();
     }
 
     /**
@@ -664,11 +737,13 @@ export class DatabaseManager {
                     if (recordId) {
                         this.indexes.tasks.delete(recordId);
                         this.taskIdToRecordId.delete(taskId);
+                        this.taskPersistSnapshots.delete(taskId);
                     } else {
                         for (const [recordIdStr, taskRecord] of this.indexes.tasks.entries()) {
                             if (taskRecord.taskId === taskId) {
                                 this.indexes.tasks.delete(recordIdStr);
                                 this.taskIdToRecordId.delete(taskId);
+                                this.taskPersistSnapshots.delete(taskId);
                                 break;
                             }
                         }
@@ -962,6 +1037,9 @@ export class DatabaseManager {
             scheduledExports: new Map(),
             executionHistory: new Map()
         };
+        this.taskIdToRecordId.clear();
+        this.taskPersistSnapshots.clear();
+        this.resourcePersistSnapshots.clear();
         
         await this.loadIndexes();
     }
@@ -992,6 +1070,10 @@ export class DatabaseManager {
                 clearTimeout(this.writeTimeout);
                 this.writeTimeout = null;
             }
+            if (this.batchWriteInterval) {
+                clearInterval(this.batchWriteInterval);
+                this.batchWriteInterval = null;
+            }
             
             // 清理索引
             this.indexes = {
@@ -1002,6 +1084,9 @@ export class DatabaseManager {
                 scheduledExports: new Map(),
                 executionHistory: new Map()
             };
+            this.taskIdToRecordId.clear();
+            this.taskPersistSnapshots.clear();
+            this.resourcePersistSnapshots.clear();
             
             this.initialized = false;
         }
@@ -1023,22 +1108,35 @@ export class DatabaseManager {
      */
     async saveResourceInfo(resourceInfo: ResourceInfo): Promise<void> {
         this.ensureInitialized();
+
+        const normalizedResourceInfo: ResourceInfo = {
+            ...resourceInfo,
+            accessible: Boolean(resourceInfo.accessible),
+            checkedAt: resourceInfo.checkedAt instanceof Date
+                ? resourceInfo.checkedAt
+                : new Date(resourceInfo.checkedAt)
+        };
         
         const resourceRecord = {
-            ...resourceInfo,
-            accessible: resourceInfo.accessible ? 1 : 0,
-            checkedAt: resourceInfo.checkedAt.toISOString(),
+            ...normalizedResourceInfo,
+            accessible: normalizedResourceInfo.accessible ? 1 : 0,
+            checkedAt: normalizedResourceInfo.checkedAt.toISOString(),
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         };
 
         // 更新内存索引
-        if (resourceInfo.md5) {
-            this.indexes.resources.set(resourceInfo.md5, resourceInfo);
+        if (normalizedResourceInfo.md5) {
+            this.indexes.resources.set(normalizedResourceInfo.md5, normalizedResourceInfo);
+        }
+
+        if (!this.shouldPersistResource(normalizedResourceInfo)) {
+            return;
         }
 
         // 添加到写入队列
         this.queueWrite(this.files.resources, resourceRecord);
+        this.rememberPersistedResource(normalizedResourceInfo);
     }
 
     /**
@@ -1124,6 +1222,30 @@ export class DatabaseManager {
     }
 
     /**
+     * 获取需要执行健康检查的资源
+     */
+    async getResourcesNeedingHealthCheck(cutoffTime: Date, limit: number = 50): Promise<ResourceInfo[]> {
+        this.ensureInitialized();
+
+        const resources: ResourceInfo[] = [];
+        for (const resource of this.indexes.resources.values()) {
+            if (resource.status !== ResourceStatus.DOWNLOADED || !resource.localPath) {
+                continue;
+            }
+
+            const checkedAt = this.toTimestamp(resource.checkedAt);
+            if (isNaN(checkedAt) || checkedAt > cutoffTime.getTime()) {
+                continue;
+            }
+
+            resources.push(resource);
+        }
+
+        resources.sort((a, b) => this.toTimestamp(a.checkedAt) - this.toTimestamp(b.checkedAt));
+        return resources.slice(0, Math.max(0, limit));
+    }
+
+    /**
      * 删除过期资源
      */
     async deleteExpiredResources(cutoffTime: Date): Promise<number> {
@@ -1142,6 +1264,7 @@ export class DatabaseManager {
         // 从内存索引中删除
         for (const md5 of toDelete) {
             this.indexes.resources.delete(md5);
+            this.resourcePersistSnapshots.delete(md5);
         }
 
         // 重建资源文件
@@ -1187,6 +1310,249 @@ export class DatabaseManager {
             failed,
             pending
         };
+    }
+
+    private async performStartupMaintenance(): Promise<void> {
+        const needsTaskMaintenance = this.startupMaintenanceFlags.tasks;
+        const needsResourceMaintenance = this.startupMaintenanceFlags.resources;
+        if (!needsTaskMaintenance && !needsResourceMaintenance) {
+            return;
+        }
+
+        try {
+            await this.createMaintenanceBackup();
+        } catch (error) {
+            console.warn('[DatabaseManager] 创建自动优化备份失败，继续使用原子重建保证安全:', error);
+        }
+
+        if (needsTaskMaintenance) {
+            await this.rebuildTaskFile();
+        }
+
+        if (needsResourceMaintenance) {
+            await this.rebuildResourceFile();
+        }
+
+        this.startupMaintenanceFlags = {
+            tasks: false,
+            resources: false
+        };
+    }
+
+    private shouldPersistTask(taskId: string, configJson: string, state: ExportTaskState, force: boolean): boolean {
+        if (force) {
+            return true;
+        }
+
+        const snapshot = this.taskPersistSnapshots.get(taskId);
+        if (!snapshot) {
+            return true;
+        }
+
+        if (snapshot.configJson !== configJson) {
+            return true;
+        }
+
+        const stateSignature = this.buildTaskStateSignature(state);
+        if (snapshot.stateSignature === stateSignature) {
+            return false;
+        }
+
+        if (snapshot.status !== state.status) {
+            return true;
+        }
+
+        if (snapshot.totalMessages !== state.totalMessages) {
+            return true;
+        }
+
+        if (snapshot.failureCount !== state.failureCount) {
+            return true;
+        }
+
+        const progressStep = Math.max(
+            TASK_PERSIST_PROGRESS_STEP,
+            Math.ceil(Math.max(state.totalMessages, snapshot.totalMessages) * TASK_PERSIST_PROGRESS_PERCENT)
+        );
+        const processedDelta = Math.abs(state.processedMessages - snapshot.processedMessages);
+        const successDelta = Math.abs(state.successCount - snapshot.successCount);
+
+        if (processedDelta >= progressStep || successDelta >= progressStep) {
+            return true;
+        }
+
+        return (Date.now() - snapshot.persistedAt) >= TASK_PERSIST_MIN_INTERVAL_MS;
+    }
+
+    private rememberPersistedTaskRecord(
+        taskRecord: TaskDbRecord,
+        configJson: string = taskRecord.config,
+        parsedState?: ExportTaskState
+    ): void {
+        try {
+            const state = parsedState || JSON.parse(taskRecord.state) as ExportTaskState;
+            this.taskPersistSnapshots.set(taskRecord.taskId, {
+                configJson,
+                stateSignature: this.buildTaskStateSignature(state),
+                processedMessages: state.processedMessages,
+                successCount: state.successCount,
+                failureCount: state.failureCount,
+                totalMessages: state.totalMessages,
+                status: state.status,
+                persistedAt: this.toTimestamp(taskRecord.updatedAt || taskRecord.createdAt)
+            });
+        } catch (error) {
+            // 静默跳过损坏记录
+        }
+    }
+
+    private resetTaskPersistSnapshotsFromIndexes(): void {
+        this.taskPersistSnapshots.clear();
+        for (const task of this.indexes.tasks.values()) {
+            this.rememberPersistedTaskRecord(task);
+        }
+    }
+
+    private buildTaskStateSignature(state: ExportTaskState): string {
+        return JSON.stringify({
+            status: state.status,
+            totalMessages: state.totalMessages,
+            processedMessages: state.processedMessages,
+            successCount: state.successCount,
+            failureCount: state.failureCount,
+            error: state.error,
+            startTime: this.normalizeDateValue(state.startTime),
+            endTime: this.normalizeDateValue(state.endTime)
+        });
+    }
+
+    private shouldPersistResource(resourceInfo: ResourceInfo): boolean {
+        if (!resourceInfo.md5) {
+            return true;
+        }
+
+        const snapshot = this.resourcePersistSnapshots.get(resourceInfo.md5);
+        if (!snapshot) {
+            return true;
+        }
+
+        const signature = this.buildResourceSignature(resourceInfo);
+        if (snapshot.signature !== signature) {
+            return true;
+        }
+
+        const checkedAt = this.toTimestamp(resourceInfo.checkedAt);
+        return checkedAt - snapshot.checkedAt >= RESOURCE_CHECKED_AT_PERSIST_INTERVAL_MS;
+    }
+
+    private rememberPersistedResource(resourceInfo: ResourceInfo): void {
+        if (!resourceInfo.md5) {
+            return;
+        }
+
+        this.resourcePersistSnapshots.set(resourceInfo.md5, {
+            signature: this.buildResourceSignature(resourceInfo),
+            checkedAt: this.toTimestamp(resourceInfo.checkedAt),
+            persistedAt: Date.now()
+        });
+    }
+
+    private resetResourcePersistSnapshotsFromIndexes(): void {
+        this.resourcePersistSnapshots.clear();
+        for (const resource of this.indexes.resources.values()) {
+            this.rememberPersistedResource(resource);
+        }
+    }
+
+    private buildResourceSignature(resourceInfo: ResourceInfo): string {
+        return JSON.stringify({
+            type: resourceInfo.type,
+            originalUrl: resourceInfo.originalUrl,
+            localPath: resourceInfo.localPath,
+            fileName: resourceInfo.fileName,
+            fileSize: resourceInfo.fileSize,
+            mimeType: resourceInfo.mimeType,
+            md5: resourceInfo.md5,
+            accessible: Boolean(resourceInfo.accessible),
+            status: resourceInfo.status,
+            downloadAttempts: resourceInfo.downloadAttempts ?? 0,
+            lastError: resourceInfo.lastError ?? ''
+        });
+    }
+
+    private shouldCompactResourceFile(loadedCount: number, duplicateCount: number): boolean {
+        if (duplicateCount < RESOURCE_REBUILD_MIN_DUPLICATE_LINES) {
+            return false;
+        }
+
+        const liveCount = this.indexes.resources.size;
+        if (liveCount === 0) {
+            return false;
+        }
+
+        return loadedCount >= Math.ceil(liveCount * RESOURCE_REBUILD_DUPLICATE_RATIO);
+    }
+
+    private toTimestamp(value: Date | string | number | undefined): number {
+        if (!value) {
+            return 0;
+        }
+
+        if (value instanceof Date) {
+            return value.getTime();
+        }
+
+        return new Date(value).getTime();
+    }
+
+    private normalizeDateValue(value: Date | string | number | undefined): string | null {
+        if (!value) {
+            return null;
+        }
+
+        const timestamp = this.toTimestamp(value);
+        if (isNaN(timestamp)) {
+            return null;
+        }
+
+        return new Date(timestamp).toISOString();
+    }
+
+    private async createMaintenanceBackup(): Promise<string> {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const backupDir = path.join(this.backupDir, `auto-optimize-${timestamp}`);
+
+        if (!fs.existsSync(backupDir)) {
+            fs.mkdirSync(backupDir, { recursive: true });
+        }
+
+        const copyPromises = Object.entries(this.files).map(([name, filePath]) => {
+            const backupFile = path.join(backupDir, `${name}.jsonl`);
+            return fsPromises.copyFile(filePath, backupFile);
+        });
+
+        await Promise.all(copyPromises);
+        return backupDir;
+    }
+
+    private async writeJsonlFileAtomically(filePath: string, records: any[]): Promise<void> {
+        const tempFile = `${filePath}.tmp`;
+        const content = records
+            .map(record => JSON.stringify(record))
+            .join('\n') + (records.length > 0 ? '\n' : '');
+
+        try {
+            await fsPromises.writeFile(tempFile, content, 'utf8');
+            if (fs.existsSync(filePath)) {
+                await fsPromises.unlink(filePath);
+            }
+            await fsPromises.rename(tempFile, filePath);
+        } catch (error) {
+            if (fs.existsSync(tempFile)) {
+                await fsPromises.unlink(tempFile).catch(() => undefined);
+            }
+            throw error;
+        }
     }
 
     /**
