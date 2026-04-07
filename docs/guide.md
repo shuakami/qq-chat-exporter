@@ -182,7 +182,8 @@ QCE 有两种启动模式，看你需要干什么：
 - 先看控制台，再看浏览器
 - 看不到 `Web` 和 `Token`，就说明还没成功启动
 
-#### 启动时提示 `Cannot find package 'express'` 怎么办？
+<details>
+<summary><strong>启动时提示 <code>Cannot find package 'express'</code> 怎么办？</strong></summary>
 
 如果控制台里出现下面这种报错：
 
@@ -204,6 +205,8 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'express'
 - 不要在压缩包里直接运行。
 - 不要只复制其中几个文件出来。
 - 如果你是小白用户，优先继续用 Shell 模式，不要先切去折腾 Framework 模式。
+
+</details>
 
 #### B. 独立模式（我只看以前导出的文件）
 
