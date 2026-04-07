@@ -24,7 +24,7 @@
 
 ## 相关项目
 
-如果导出聊天记录后，想深入分析聊天内容可以试试 [ChatLab](https://chatlab.fun/)
+如果导出聊天记录后，想深入分析聊天内容可以试试 [ChatLab](https://chatlab.fun/cn)
 
 也可以试试 [QQChatAnalyzer](https://github.com/CutrelyAlex/QQChatAnalyzer) - 支持个人分析、群聊分析、社交网络可视化和 AI 摘要
 
