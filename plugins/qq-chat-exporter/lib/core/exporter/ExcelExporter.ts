@@ -135,7 +135,7 @@ export class ExcelExporter extends BaseExporter {
         chatInfo: { name: string; type: string }
     ): void {
         // 准备表头
-        const headers = ['序号', '时间', '发送者', '消息类型', '消息内容', '是否撤回', '资源数量'];
+        const headers = ['序号', '时间', '发送者', '发送者QQ号', '消息类型', '消息内容', '是否撤回', '资源数量'];
         
         // 准备数据行
         const rows = messages.map((msg, index) => {
@@ -145,7 +145,8 @@ export class ExcelExporter extends BaseExporter {
             return [
                 index + 1,
                 msg.time,
-                msg.sender.name || msg.sender.uid,
+                this.getSenderDisplayName(msg),
+                this.getSenderQqNumber(msg),
                 this.getMessageTypeLabel(msg.type),
                 contentText,
                 msg.recalled ? '是' : '否',
@@ -164,6 +165,7 @@ export class ExcelExporter extends BaseExporter {
             { wch: 8 },  // 序号
             { wch: this.excelOptions.columnWidths.timestamp || 20 },  // 时间
             { wch: this.excelOptions.columnWidths.sender || 15 },     // 发送者
+            { wch: 16 }, // 发送者QQ号
             { wch: this.excelOptions.columnWidths.type || 12 },       // 消息类型
             { wch: this.excelOptions.columnWidths.content || 60 },    // 消息内容
             { wch: 10 }, // 是否撤回
@@ -212,10 +214,11 @@ export class ExcelExporter extends BaseExporter {
         const parser = new SimpleMessageParser();
         const stats = parser.calculateStatistics(messages);
 
-        const headers = ['排名', '发送者', 'UID', '消息数量', '占比(%)'];
+        const headers = ['排名', '发送者', 'QQ号', 'UID', '消息数量', '占比(%)'];
         const senders = Object.entries(stats.bySender)
             .map(([name, data]) => ({
                 name,
+                uin: data.uin || '',
                 uid: data.uid,
                 count: data.count,
                 percentage: Math.round((data.count / stats.total) * 100 * 100) / 100
@@ -225,6 +228,7 @@ export class ExcelExporter extends BaseExporter {
         const rows = senders.map((sender, index) => [
             index + 1,
             sender.name,
+            sender.uin,
             sender.uid,
             sender.count,
             sender.percentage
@@ -235,6 +239,7 @@ export class ExcelExporter extends BaseExporter {
         worksheet['!cols'] = [
             { wch: 8 },  // 排名
             { wch: 20 }, // 发送者
+            { wch: 16 }, // QQ号
             { wch: 15 }, // UID
             { wch: 12 }, // 消息数量
             { wch: 12 }  // 占比
@@ -247,7 +252,7 @@ export class ExcelExporter extends BaseExporter {
      * 添加资源统计工作表
      */
     private addResourceStatsSheet(workbook: XLSX.WorkBook, messages: CleanMessage[]): void {
-        const headers = ['序号', '时间', '发送者', '资源类型', '文件名', '大小(字节)', 'URL'];
+        const headers = ['序号', '时间', '发送者', '发送者QQ号', '资源类型', '文件名', '大小(字节)', 'URL'];
         
         const resourceRows: any[] = [];
         messages.forEach((msg, msgIndex) => {
@@ -256,7 +261,8 @@ export class ExcelExporter extends BaseExporter {
                     resourceRows.push([
                         resourceRows.length + 1,
                         msg.time,
-                        msg.sender.name || msg.sender.uid,
+                        this.getSenderDisplayName(msg),
+                        this.getSenderQqNumber(msg),
                         resource.type,
                         resource.filename || '',
                         resource.size || 0,
@@ -272,6 +278,7 @@ export class ExcelExporter extends BaseExporter {
             { wch: 8 },  // 序号
             { wch: 20 }, // 时间
             { wch: 15 }, // 发送者
+            { wch: 16 }, // 发送者QQ号
             { wch: 12 }, // 资源类型
             { wch: 30 }, // 文件名
             { wch: 15 }, // 大小
@@ -314,6 +321,20 @@ export class ExcelExporter extends BaseExporter {
         }
 
         return text || '[空消息]';
+    }
+
+    /**
+     * 获取发送者展示名称
+     */
+    private getSenderDisplayName(msg: CleanMessage): string {
+        return msg.sender.name || msg.sender.uid || '未知用户';
+    }
+
+    /**
+     * 获取发送者 QQ 号
+     */
+    private getSenderQqNumber(msg: CleanMessage): string {
+        return msg.sender.uin ? String(msg.sender.uin) : '';
     }
 
     /**
