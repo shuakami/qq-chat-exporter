@@ -134,7 +134,9 @@ export class TextExporter extends BaseExporter {
      * 使用SimpleMessageParser作为fallback解析器
      */
     private async useFallbackParser(messages: RawMessage[]): Promise<ParsedMessage[]> {
-        const simpleParser = new SimpleMessageParser();
+        const simpleParser = new SimpleMessageParser({
+            preferGroupMemberName: this.options.preferGroupMemberName
+        });
         const cleanMessages = await simpleParser.parseMessages(messages);
         
         // 将CleanMessage转换为ParsedMessage格式

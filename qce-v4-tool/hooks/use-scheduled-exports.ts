@@ -25,6 +25,7 @@ export interface ScheduledExportConfig {
         includeSystemMessages?: boolean;
         filterPureImageMessages?: boolean;
         prettyFormat?: boolean;
+        preferGroupMemberName?: boolean;
     };
     enabled: boolean;
     createdAt?: string;
@@ -101,6 +102,7 @@ export function useScheduledExports() {
                     includeSystemMessages: formData.includeSystemMessages ?? true,
                     filterPureImageMessages: formData.filterPureImageMessages ?? false,
                     prettyFormat: true,
+                    preferGroupMemberName: formData.preferGroupMemberName ?? true,
                 },
                 ...(formData.outputDir?.trim() && { outputDir: formData.outputDir.trim() }),
                 enabled: formData.enabled,

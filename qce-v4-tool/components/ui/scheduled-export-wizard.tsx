@@ -62,6 +62,7 @@ export function ScheduledExportWizard({
     includeResourceLinks: true,
     includeSystemMessages: true,
     filterPureImageMessages: false,
+    preferGroupMemberName: true,
   })
 
   // 选中的目标
@@ -116,6 +117,7 @@ export function ScheduledExportWizard({
         filterPureImageMessages: prefilledData.filterPureImageMessages !== undefined 
           ? prefilledData.filterPureImageMessages 
           : defaultFilter,
+        preferGroupMemberName: prefilledData.preferGroupMemberName !== undefined ? prefilledData.preferGroupMemberName : true,
       })
 
       // 如果有预填充的目标，添加到选中列表
@@ -149,6 +151,7 @@ export function ScheduledExportWizard({
         includeResourceLinks: true,
         includeSystemMessages: true,
         filterPureImageMessages: false,
+        preferGroupMemberName: true,
       })
       setSelectedTargets([])
       setSearchTerm("")
@@ -201,6 +204,7 @@ export function ScheduledExportWizard({
         includeResourceLinks: baseForm.includeResourceLinks,
         includeSystemMessages: baseForm.includeSystemMessages,
         filterPureImageMessages: baseForm.filterPureImageMessages,
+        preferGroupMemberName: baseForm.preferGroupMemberName,
       }
       
       try {
@@ -817,6 +821,13 @@ export function ScheduledExportWizard({
                       set: (v: boolean) => setBaseForm(p => ({ ...p, filterPureImageMessages: v })),
                       title: "快速导出（跳过资源下载）",
                       desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度"
+                    },
+                    {
+                      id: "preferGroupMemberName",
+                      checked: baseForm.preferGroupMemberName,
+                      set: (v: boolean) => setBaseForm(p => ({ ...p, preferGroupMemberName: v })),
+                      title: "优先使用群成员名称",
+                      desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。这个选项仅对群聊生效。"
                     }
                   ].map((opt) => (
                     <div

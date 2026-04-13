@@ -3643,6 +3643,7 @@ export class QQChatExporterApiServer {
                 includeSystemMessages: options?.includeSystemMessages ?? true,
                 filterPureImageMessages: options?.filterPureImageMessages ?? false,
                 prettyFormat: options?.prettyFormat ?? true,
+                preferGroupMemberName: options?.preferGroupMemberName ?? false,
                 timeFormat: 'YYYY-MM-DD HH:mm:ss',
                 encoding: 'utf-8'
             };
@@ -3700,7 +3701,9 @@ export class QQChatExporterApiServer {
                     break;
                 case 'HTML':
                     // HTML流式导出：使用异步生成器，实现全程低内存占用
-                    const parser = new SimpleMessageParser();
+                    const parser = new SimpleMessageParser({
+                        preferGroupMemberName: options?.preferGroupMemberName
+                    });
                     
                     const htmlExporter = new ModernHtmlExporter({
                         outputPath: filePath,
@@ -4089,7 +4092,9 @@ export class QQChatExporterApiServer {
             };
 
             // 创建分块HTML导出器
-            const parser = new SimpleMessageParser();
+            const parser = new SimpleMessageParser({
+                preferGroupMemberName: options?.preferGroupMemberName
+            });
             const htmlExporter = new ModernHtmlExporter({
                 outputPath: path.join(tempDir, 'index.html'),
                 includeResourceLinks: !options?.filterPureImageMessages,
@@ -4380,7 +4385,9 @@ export class QQChatExporterApiServer {
 
             // 初始化解析器
             const { SimpleMessageParser } = await import('../core/parser/SimpleMessageParser.js');
-            const parser = new SimpleMessageParser(this.core);
+            const parser = new SimpleMessageParser({
+                preferGroupMemberName: options?.preferGroupMemberName
+            });
 
             // 头像收集（如果启用了 embedAvatarsAsBase64）
             const embedAvatars = options?.embedAvatarsAsBase64 === true;

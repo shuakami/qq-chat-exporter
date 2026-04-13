@@ -155,6 +155,8 @@ export interface CreateTaskForm {
   outputDir?: string
   /** 在文件名中包含聊天名称（Issue #216） */
   useNameInFileName?: boolean
+  /** 群聊导出时优先使用群成员名称（Issue #358） */
+  preferGroupMemberName?: boolean
 }
 
 export interface CreateTaskRequest {
@@ -184,6 +186,8 @@ export interface CreateTaskRequest {
     outputDir?: string
     /** 在文件名中包含聊天名称（Issue #216） */
     useNameInFileName?: boolean
+    /** 群聊导出时优先使用群成员名称（Issue #358） */
+    preferGroupMemberName?: boolean
   }
 }
 
@@ -271,6 +275,7 @@ export interface ScheduledExport {
     includeSystemMessages?: boolean
     filterPureImageMessages?: boolean
     prettyFormat?: boolean
+    preferGroupMemberName?: boolean
   }
   outputDir?: string
   enabled: boolean
@@ -312,6 +317,7 @@ export interface CreateScheduledExportForm {
   includeResourceLinks?: boolean
   includeSystemMessages?: boolean
   filterPureImageMessages?: boolean
+  preferGroupMemberName?: boolean
 }
 
 export interface ScheduledExportsResponse {
