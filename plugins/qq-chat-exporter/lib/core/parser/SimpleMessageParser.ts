@@ -210,7 +210,7 @@ export interface ResourceData {
 export interface MessageStatistics {
   total: number;
   byType: Record<string, number>;
-  bySender: Record<string, { uid: string; count: number }>;
+  bySender: Record<string, { uid: string; uin?: string; count: number }>;
   resources: {
     total: number;
     byType: Record<string, number>;
@@ -1117,8 +1117,12 @@ export class SimpleMessageParser {
       if (!stats.bySender[senderKey]) {
         stats.bySender[senderKey] = {
           uid: m.sender?.uid || 'unknown',
+          uin: m.sender?.uin,
           count: 0
         };
+      }
+      if (!stats.bySender[senderKey]!.uin && m.sender?.uin) {
+        stats.bySender[senderKey]!.uin = m.sender.uin;
       }
       stats.bySender[senderKey]!.count++;
 
