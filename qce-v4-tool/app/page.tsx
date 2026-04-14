@@ -256,6 +256,41 @@ export default function QCEDashboard() {
     toast.dismiss(id)
   }, [])
 
+  const showDeleteConfirmationToast = useCallback((
+    title: string,
+    description: string,
+    onConfirmDelete: () => Promise<void>,
+  ) => {
+    let toastId = ""
+
+    toastId = toast.error(title, {
+      description,
+      duration: Number.POSITIVE_INFINITY,
+      actions: [
+        {
+          label: "确认删除",
+          onClick: () => {
+            void toast.promise(
+              onConfirmDelete,
+              {
+                loading: "正在删除...",
+                success: "已删除",
+                error: (err) => err instanceof Error ? err.message : "删除失败",
+              },
+              {
+                id: toastId,
+                description: undefined,
+                actions: undefined,
+                duration: 3200,
+              }
+            )
+          },
+          variant: "destructive",
+        },
+      ],
+    })
+  }, [])
+
   const {
     systemInfo,
     refreshSystemInfo,
@@ -1635,29 +1670,10 @@ export default function QCEDashboard() {
                             variant="ghost"
                             className="h-8 w-8 rounded-full p-0 text-muted-foreground/50 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
                             onClick={() => {
-                              toast.error(`删除任务「${task.sessionName}」？`, {
-                                description: "此操作不可撤销",
-                                actions: [
-                                  {
-                                    label: "确认删除",
-                                    onClick: () => {
-                                      toast.promise(
-                                        (async () => {
-                                          const success = await deleteTask(task.id)
-                                          if (!success) throw new Error("删除失败")
-                                          tasksLoadedRef.current = false
-                                          return success
-                                        })(),
-                                        {
-                                          loading: "正在删除...",
-                                          success: "已删除",
-                                          error: "删除失败"
-                                        }
-                                      )
-                                    },
-                                    variant: "destructive"
-                                  }
-                                ]
+                              showDeleteConfirmationToast(`删除任务「${task.sessionName}」？`, "此操作不可撤销", async () => {
+                                const success = await deleteTask(task.id)
+                                if (!success) throw new Error("删除失败")
+                                tasksLoadedRef.current = false
                               })
                             }}
                             title="删除"
@@ -1786,29 +1802,10 @@ export default function QCEDashboard() {
                           <button
                             className="p-1 text-muted-foreground/30 hover:text-red-500 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
                             onClick={() => {
-                              toast.error(`删除定时任务「${scheduledExport.name}」？`, {
-                                description: "此操作不可撤销",
-                                actions: [
-                                  {
-                                    label: "确认删除",
-                                    onClick: () => {
-                                      toast.promise(
-                                        (async () => {
-                                          const success = await deleteScheduledExport(scheduledExport.id)
-                                          if (!success) throw new Error("删除失败")
-                                          await loadScheduledExports()
-                                          return success
-                                        })(),
-                                        {
-                                          loading: "正在删除...",
-                                          success: "已删除",
-                                          error: "删除失败"
-                                        }
-                                      )
-                                    },
-                                    variant: "destructive"
-                                  }
-                                ]
+                              showDeleteConfirmationToast(`删除定时任务「${scheduledExport.name}」？`, "此操作不可撤销", async () => {
+                                const success = await deleteScheduledExport(scheduledExport.id)
+                                if (!success) throw new Error("删除失败")
+                                await loadScheduledExports()
                               })
                             }}
                           >
@@ -1989,29 +1986,10 @@ export default function QCEDashboard() {
                                   className="p-1 ml-1 rounded-md text-muted-foreground/20 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 opacity-0 group-hover:opacity-100 transition-all"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    toast.error(`删除这条记录？`, {
-                                      description: file.displayName || file.sessionName || file.chatId,
-                                      actions: [
-                                        {
-                                          label: "确认删除",
-                                          onClick: () => {
-                                            toast.promise(
-                                              (async () => {
-                                                const success = await deleteChatHistoryFile(file.fileName);
-                                                if (!success) throw new Error("删除失败");
-                                                chatHistoryLoadedRef.current = false;
-                                                return success;
-                                              })(),
-                                              {
-                                                loading: "正在删除...",
-                                                success: "已删除",
-                                                error: "删除失败"
-                                              }
-                                            )
-                                          },
-                                          variant: "destructive"
-                                        }
-                                      ]
+                                    showDeleteConfirmationToast(`删除这条记录？`, file.displayName || file.sessionName || file.chatId, async () => {
+                                      const success = await deleteChatHistoryFile(file.fileName);
+                                      if (!success) throw new Error("删除失败");
+                                      chatHistoryLoadedRef.current = false;
                                     })
                                   }}
                                 >
