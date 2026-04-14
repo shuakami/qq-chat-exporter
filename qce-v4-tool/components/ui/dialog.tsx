@@ -18,14 +18,14 @@ const DialogOverlay = React.forwardRef<
     ref={ref}
     className={cn(
       "fixed inset-0 z-[100]",
-      "bg-black/20",
+      "bg-black/25 dark:bg-black/50",
       "data-[state=open]:animate-in data-[state=closed]:animate-out",
       "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className
     )}
     style={{
-      backdropFilter: 'blur(8px)',
-      WebkitBackdropFilter: 'blur(8px)', // Safari 兼容性
+      backdropFilter: 'blur(4px)',
+      WebkitBackdropFilter: 'blur(4px)',
     }}
     {...props}
   />
@@ -50,15 +50,15 @@ export const DialogContent = React.forwardRef<
           ? [
               "fixed inset-0 z-[101]",
               "w-full h-full",
-              "bg-white dark:bg-neutral-900",
+              "bg-card dark:bg-card",
             ]
           : [
               "fixed left-1/2 top-1/2 z-[101]",
               "-translate-x-1/2 -translate-y-1/2",
               "w-full max-w-lg",
-              "bg-white dark:bg-neutral-900",
-              "rounded-lg shadow-lg",
-              "border border-neutral-200 dark:border-neutral-700",
+              "bg-card dark:bg-card",
+              "rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.08)]",
+              "border border-black/[0.06] dark:border-white/[0.06]",
             ],
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
@@ -74,11 +74,11 @@ export const DialogContent = React.forwardRef<
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
 export const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("px-6 py-5 border-b border-neutral-200 dark:border-neutral-700", className)} {...props} />
+  <div className={cn("px-5 py-4 border-b border-black/[0.06] dark:border-white/[0.06]", className)} {...props} />
 )
 
 export const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("px-6 py-4 border-t border-neutral-200 dark:border-neutral-700", className)} {...props} />
+  <div className={cn("px-5 py-3 border-t border-black/[0.06] dark:border-white/[0.06]", className)} {...props} />
 )
 
 export const DialogTitle = React.forwardRef<
@@ -87,7 +87,7 @@ export const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn("text-lg font-medium tracking-tight text-neutral-900 dark:text-neutral-100", className)}
+    className={cn("text-[15px] font-semibold text-foreground", className)}
     {...props}
   />
 ))
@@ -99,7 +99,7 @@ export const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
-    className={cn("text-sm text-neutral-600 dark:text-neutral-400", className)}
+    className={cn("text-[13px] text-muted-foreground mt-1", className)}
     {...props}
   />
 ))

@@ -191,30 +191,30 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent fullScreen className="flex flex-col h-full p-0">
-        <DialogHeader className="px-6 py-4 border-b">
+        <DialogHeader className="px-6 py-4 border-b border-black/[0.06] dark:border-white/[0.06]">
           <DialogTitle>{groupName} - 群文件与相册</DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 flex min-h-0">
           {/* 左侧导航 */}
-          <div className="w-48 border-r p-4 space-y-2">
+          <div className="w-48 border-r border-black/[0.06] dark:border-white/[0.06] p-4 space-y-2">
             <button
               onClick={() => setActiveTab('albums')}
               className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                activeTab === 'albums' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                activeTab === 'albums' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600' : 'hover:bg-muted'
               }`}
             >
               <div className="font-medium">群相册</div>
-              <div className="text-xs text-neutral-500">{albums.length} 个相册</div>
+              <div className="text-xs text-muted-foreground">{albums.length} 个相册</div>
             </button>
             <button
               onClick={() => setActiveTab('files')}
               className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                activeTab === 'files' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                activeTab === 'files' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600' : 'hover:bg-muted'
               }`}
             >
               <div className="font-medium">群文件</div>
-              <div className="text-xs text-neutral-500">{fileCount > 0 ? `${fileCount} 个文件` : '浏览文件'}</div>
+              <div className="text-xs text-muted-foreground">{fileCount > 0 ? `${fileCount} 个文件` : '浏览文件'}</div>
             </button>
           </div>
 
@@ -235,15 +235,15 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                       checked={albums.length > 0 && selectedAlbums.size === albums.length}
                       onCheckedChange={handleSelectAllAlbums}
                     />
-                    <span className="text-sm text-neutral-500">
+                    <span className="text-sm text-muted-foreground">
                       {selectedAlbums.size > 0 ? `已选 ${selectedAlbums.size} 个` : '全选'}
                     </span>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => loadAlbums(groupCode)} disabled={loading}>
+                    <Button variant="outline" size="sm" onClick={() => loadAlbums(groupCode)} disabled={loading} className="rounded-full">
                       <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                     </Button>
-                    <Button size="sm" onClick={handleExportAlbums} disabled={loading || exporting}>
+                    <Button size="sm" onClick={handleExportAlbums} disabled={loading || exporting} className="rounded-full">
                       {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4 mr-1" />}
                       {selectedAlbums.size > 0 ? '导出选中' : '导出全部'}
                     </Button>
@@ -253,14 +253,14 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                 <div className="flex-1 overflow-y-auto space-y-2">
                   {loading && albums.length === 0 ? (
                     <div className="flex items-center justify-center h-32">
-                      <Loader2 className="w-6 h-6 animate-spin text-neutral-400" />
+                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground/60" />
                     </div>
                   ) : albums.length === 0 ? (
-                    <div className="text-center py-8 text-neutral-500">暂无相册</div>
+                    <div className="text-center py-8 text-muted-foreground">暂无相册</div>
                   ) : (
                     albums.map((album) => (
-                      <div key={album.albumId} className="border rounded-lg">
-                        <div className="flex items-center gap-3 p-3 hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
+                      <div key={album.albumId} className="border border-black/[0.06] dark:border-white/[0.06] rounded-lg">
+                        <div className="flex items-center gap-3 p-3 hover:bg-muted/50">
                           <Checkbox
                             checked={selectedAlbums.has(album.albumId)}
                             onCheckedChange={() => handleToggleAlbum(album.albumId)}
@@ -276,26 +276,26 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                           </button>
                         </div>
                         {expandedAlbumId === album.albumId && (
-                          <div className="border-t p-3 bg-neutral-50 dark:bg-neutral-800/30">
+                          <div className="border-t border-black/[0.06] dark:border-white/[0.06] p-3 bg-muted/30">
                             {albumMediaLoading ? (
                               <div className="flex justify-center py-4">
                                 <Loader2 className="w-5 h-5 animate-spin" />
                               </div>
                             ) : currentAlbumMedia.length === 0 ? (
-                              <div className="text-center py-4 text-neutral-500 text-sm">暂无媒体</div>
+                              <div className="text-center py-4 text-muted-foreground text-sm">暂无媒体</div>
                             ) : (
                               <div className="grid grid-cols-6 gap-2">
                                 {currentAlbumMedia.slice(0, 18).map((media) => (
                                   <div
                                     key={media.id}
-                                    className="relative aspect-square rounded overflow-hidden bg-neutral-200 dark:bg-neutral-700 group cursor-pointer"
+                                    className="relative aspect-square rounded overflow-hidden bg-muted group cursor-pointer"
                                     onClick={() => handleDownloadSingleMedia(media)}
                                   >
                                     {(media.thumbUrl || media.url) ? (
                                       <img src={media.thumbUrl || media.url} alt="" className="w-full h-full object-cover" />
                                     ) : (
                                       <div className="w-full h-full flex items-center justify-center">
-                                        {media.type === 'video' ? <Video className="w-5 h-5 text-neutral-400" /> : <Image className="w-5 h-5 text-neutral-400" />}
+                                        {media.type === 'video' ? <Video className="w-5 h-5 text-muted-foreground/60" /> : <Image className="w-5 h-5 text-muted-foreground/60" />}
                                       </div>
                                     )}
                                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -308,7 +308,7 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                                   </div>
                                 ))}
                                 {currentAlbumMedia.length > 18 && (
-                                  <div className="aspect-square rounded bg-neutral-100 dark:bg-neutral-700 flex items-center justify-center text-neutral-500 text-sm">
+                                  <div className="aspect-square rounded bg-muted flex items-center justify-center text-muted-foreground text-sm">
                                     +{currentAlbumMedia.length - 18}
                                   </div>
                                 )}
@@ -327,7 +327,7 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                   <div className="flex items-center gap-1 text-sm">
                     {folderPath.map((folder, index) => (
                       <div key={folder.id} className="flex items-center">
-                        {index > 0 && <ChevronRight className="w-4 h-4 text-neutral-400" />}
+                        {index > 0 && <ChevronRight className="w-4 h-4 text-muted-foreground/60" />}
                         <button
                           onClick={() => handleNavigateToFolder(index)}
                           className="hover:text-blue-600 px-1"
@@ -337,7 +337,7 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                       </div>
                     ))}
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => loadFiles(groupCode, currentFolderId)} disabled={loading}>
+                  <Button variant="outline" size="sm" onClick={() => loadFiles(groupCode, currentFolderId)} disabled={loading} className="rounded-full">
                     <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                   </Button>
                 </div>
@@ -345,35 +345,35 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                 <div className="flex-1 overflow-y-auto space-y-1">
                   {loading && files.length === 0 && folders.length === 0 ? (
                     <div className="flex items-center justify-center h-32">
-                      <Loader2 className="w-6 h-6 animate-spin text-neutral-400" />
+                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground/60" />
                     </div>
                   ) : files.length === 0 && folders.length === 0 ? (
-                    <div className="text-center py-8 text-neutral-500">暂无文件</div>
+                    <div className="text-center py-8 text-muted-foreground">暂无文件</div>
                   ) : (
                     <>
                       {folders.map((folder) => (
                         <button
                           key={folder.folderId}
                           onClick={() => handleEnterFolder(folder)}
-                          className="w-full flex items-center gap-3 p-3 rounded-lg border hover:bg-neutral-50 dark:hover:bg-neutral-800 text-left"
+                          className="w-full flex items-center gap-3 p-3 rounded-lg border border-black/[0.06] dark:border-white/[0.06] hover:bg-muted/50 text-left"
                         >
                           <FolderOpen className="w-5 h-5 text-yellow-500" />
                           <div className="flex-1 min-w-0">
                             <div className="font-medium truncate">{folder.folderName}</div>
-                            <div className="text-xs text-neutral-500">{folder.totalFileCount || 0} 个文件</div>
+                            <div className="text-xs text-muted-foreground">{folder.totalFileCount || 0} 个文件</div>
                           </div>
-                          <ChevronRight className="w-4 h-4 text-neutral-400" />
+                          <ChevronRight className="w-4 h-4 text-muted-foreground/60" />
                         </button>
                       ))}
                       {files.map((file) => (
                         <div
                           key={file.fileId}
-                          className="flex items-center gap-3 p-3 rounded-lg border hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                          className="flex items-center gap-3 p-3 rounded-lg border border-black/[0.06] dark:border-white/[0.06] hover:bg-muted/50"
                         >
                           <FileText className="w-5 h-5 text-blue-500" />
                           <div className="flex-1 min-w-0">
                             <div className="font-medium truncate">{file.fileName}</div>
-                            <div className="text-xs text-neutral-500">
+                            <div className="text-xs text-muted-foreground">
                               {formatFileSize(file.fileSize)} · {formatTime(file.uploadTime)}
                             </div>
                           </div>
@@ -382,6 +382,7 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                             size="sm"
                             onClick={() => handleDownloadSingleFile(file)}
                             disabled={downloadingFileId === file.fileId}
+                            className="rounded-full"
                           >
                             {downloadingFileId === file.fileId ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
@@ -395,12 +396,12 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                   )}
                 </div>
 
-                <div className="flex justify-end gap-2 pt-4 border-t mt-4">
-                  <Button variant="outline" onClick={handleExportFilesList} disabled={loading || exporting}>
+                <div className="flex justify-end gap-2 pt-4 border-t border-black/[0.06] dark:border-white/[0.06] mt-4">
+                  <Button variant="outline" onClick={handleExportFilesList} disabled={loading || exporting} className="rounded-full">
                     {exporting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <FileText className="w-4 h-4 mr-1" />}
                     导出列表
                   </Button>
-                  <Button onClick={handleExportFilesWithDownload} disabled={loading || exporting}>
+                  <Button onClick={handleExportFilesWithDownload} disabled={loading || exporting} className="rounded-full">
                     {exporting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Download className="w-4 h-4 mr-1" />}
                     下载全部
                   </Button>
@@ -410,8 +411,8 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
           </div>
         </div>
 
-        <div className="px-6 py-3 border-t flex justify-end">
-          <Button variant="outline" onClick={onClose}>关闭</Button>
+        <div className="px-6 py-3 border-t border-black/[0.06] dark:border-white/[0.06] flex justify-end">
+          <Button variant="outline" onClick={onClose} className="rounded-full">关闭</Button>
         </div>
       </DialogContent>
     </Dialog>

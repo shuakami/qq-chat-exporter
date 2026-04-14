@@ -142,25 +142,25 @@ export function ScheduledBackupMergeDialog({
           <div className="w-2/5 flex flex-col">
             <div className="mb-4">
               <h3 className="text-base font-medium mb-1">选择要合并的备份</h3>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">至少选择 2 个备份文件进行合并</p>
+              <p className="text-sm text-muted-foreground">至少选择 2 个备份文件进行合并</p>
             </div>
             
             <div className="flex-1 overflow-hidden">
               {scheduledTasks.length === 0 ? (
-                <div className="h-full flex items-center justify-center rounded-2xl border border-dashed border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800">
+                <div className="h-full flex items-center justify-center rounded-2xl border border-dashed border-black/[0.08] dark:border-white/[0.08] bg-muted/50">
                   <div className="text-center p-8">
-                    <AlertCircle className="w-12 h-12 mx-auto mb-3 text-neutral-400 dark:text-neutral-500" />
-                    <p className="text-base font-medium text-neutral-700 dark:text-neutral-300">暂无定时备份</p>
-                    <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">请先创建并运行定时导出任务</p>
+                    <AlertCircle className="w-12 h-12 mx-auto mb-3 text-muted-foreground/60" />
+                    <p className="text-base font-medium text-foreground/80">暂无定时备份</p>
+                    <p className="text-sm text-muted-foreground mt-1">请先创建并运行定时导出任务</p>
                   </div>
                 </div>
               ) : (
-                <ScrollArea className="h-full rounded-2xl border border-neutral-200 dark:border-neutral-700 p-2 bg-white/70 dark:bg-neutral-800/70">
+                <ScrollArea className="h-full rounded-2xl border border-black/[0.06] dark:border-white/[0.06] p-2 bg-card/70">
                   <div className="space-y-1">
                     {scheduledTasks.map(task => (
-                      <div key={task.taskName} className="rounded-xl bg-white dark:bg-neutral-800 overflow-hidden">
+                      <div key={task.taskName} className="rounded-xl bg-card overflow-hidden">
                         {/* 任务头部 */}
-                        <div className="flex items-center gap-3 p-3 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors">
+                        <div className="flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors">
                           <Checkbox
                             checked={isTaskFullySelected(task)}
                             onCheckedChange={(checked) => handleSelectAllInTask(task, checked)}
@@ -174,20 +174,20 @@ export function ScheduledBackupMergeDialog({
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="min-w-0">
-                                <p className="font-medium text-sm text-neutral-900 truncate">{task.taskName}</p>
+                                <p className="font-medium text-sm text-foreground truncate">{task.taskName}</p>
                                 <div className="flex items-center gap-2 mt-0.5">
                                   <Badge variant="secondary" className="text-xs">
                                     {task.backupCount} 个备份
                                   </Badge>
-                                  <span className="text-xs text-neutral-500 truncate">
+                                  <span className="text-xs text-muted-foreground truncate">
                                     {formatTimestamp(task.latestBackup.timestamp)}
                                   </span>
                                 </div>
                               </div>
                               {expandedTasks.has(task.taskName) ? (
-                                <ChevronDown className="w-4 h-4 text-neutral-500 flex-shrink-0" />
+                                <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                               ) : (
-                                <ChevronRight className="w-4 h-4 text-neutral-500 flex-shrink-0" />
+                                <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                               )}
                             </div>
                           </button>
@@ -195,25 +195,25 @@ export function ScheduledBackupMergeDialog({
 
                         {/* 备份列表 */}
                         {expandedTasks.has(task.taskName) && (
-                          <div className="border-t border-neutral-100 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/50">
+                          <div className="border-t border-black/[0.06] dark:border-white/[0.06] bg-muted/30">
                             {task.backups.map(backup => (
                               <div
                                 key={backup.fileName}
-                                className="flex items-center gap-3 p-3 pl-11 hover:bg-white dark:hover:bg-neutral-700 transition-colors"
+                                className="flex items-center gap-3 p-3 pl-11 hover:bg-card transition-colors"
                               >
                                 <Checkbox
                                   checked={selectedBackups.has(backup.fileName)}
                                   onCheckedChange={(checked) => handleBackupSelection(backup.fileName, checked)}
                                 />
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                                  <p className="text-sm font-medium text-foreground">
                                     {formatTimestamp(backup.timestamp)}
                                   </p>
                                   <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                                    <span className="text-xs text-muted-foreground">
                                       {formatFileSize(backup.fileSize)}
                                     </span>
-                                    <span className="text-xs text-neutral-400 truncate">
+                                    <span className="text-xs text-muted-foreground/60 truncate">
                                       {backup.fileName}
                                     </span>
                                   </div>
@@ -236,7 +236,7 @@ export function ScheduledBackupMergeDialog({
           <div className="w-3/5 flex flex-col">
             <div className="mb-4">
               <h3 className="text-base font-medium mb-1">配置合并选项</h3>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">设置如何处理合并后的文件</p>
+              <p className="text-sm text-muted-foreground">设置如何处理合并后的文件</p>
             </div>
             
             <div className="flex-1 overflow-y-auto pr-1 space-y-6">
@@ -244,13 +244,13 @@ export function ScheduledBackupMergeDialog({
               <div className="space-y-3">
                 <div>
                   <Label className="text-base font-medium">消息处理</Label>
-                  <p className="text-sm text-neutral-600 mt-1">选择如何处理重复的消息</p>
+                  <p className="text-sm text-muted-foreground mt-1">选择如何处理重复的消息</p>
                 </div>
 
                 <div
                   className={[
                     "relative cursor-pointer rounded-2xl border p-4 transition-all",
-                    deduplicateMessages ? "border-neutral-300 dark:border-neutral-600 bg-neutral-50/50 dark:bg-neutral-800/50" : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600",
+                    deduplicateMessages ? "border-black/[0.08] dark:border-white/[0.08] bg-muted/30" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]",
                     merging ? "opacity-50 cursor-not-allowed" : ""
                   ].join(" ")}
                   onClick={() => !merging && setDeduplicateMessages(!deduplicateMessages)}
@@ -261,7 +261,7 @@ export function ScheduledBackupMergeDialog({
                         "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
                         deduplicateMessages 
                           ? "border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100" 
-                          : "border-neutral-300 dark:border-neutral-600 hover:border-neutral-400 dark:hover:border-neutral-500"
+                          : "border-black/[0.08] dark:border-white/[0.08] hover:border-black/[0.12] dark:hover:border-white/[0.12]"
                       ].join(" ")}>
                         {deduplicateMessages && (
                           <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -271,8 +271,8 @@ export function ScheduledBackupMergeDialog({
                       </div>
                     </div>
                     <div className="flex-1">
-                      <h4 className="font-medium text-neutral-900 text-sm">去除重复消息</h4>
-                      <p className="text-neutral-600 text-sm mt-1 leading-relaxed">
+                      <h4 className="font-medium text-foreground text-sm">去除重复消息</h4>
+                      <p className="text-muted-foreground text-sm mt-1 leading-relaxed">
                         自动识别并去除重复的消息内容，保持聊天记录整洁
                       </p>
                     </div>
@@ -284,13 +284,13 @@ export function ScheduledBackupMergeDialog({
               <div className="space-y-3">
                 <div>
                   <Label className="text-base font-medium text-red-700">危险操作</Label>
-                  <p className="text-sm text-neutral-600 mt-1">请谨慎选择以下选项</p>
+                  <p className="text-sm text-muted-foreground mt-1">请谨慎选择以下选项</p>
                 </div>
 
                 <div
                   className={[
                     "relative cursor-pointer rounded-2xl border-2 p-4 transition-all",
-                    deleteSourceFiles ? "border-red-500 bg-red-50/50" : "border-red-200 hover:border-red-300",
+                    deleteSourceFiles ? "border-red-500 bg-red-50/50 dark:bg-red-950/30" : "border-red-200 dark:border-red-800 hover:border-red-300 dark:hover:border-red-700",
                     merging ? "opacity-50 cursor-not-allowed" : ""
                   ].join(" ")}
                   onClick={() => !merging && setDeleteSourceFiles(!deleteSourceFiles)}
@@ -301,7 +301,7 @@ export function ScheduledBackupMergeDialog({
                         "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
                         deleteSourceFiles 
                           ? "border-red-600 bg-red-600" 
-                          : "border-red-300 hover:border-red-400"
+                          : "border-red-300 dark:border-red-700 hover:border-red-400 dark:hover:border-red-600"
                       ].join(" ")}>
                         {deleteSourceFiles && (
                           <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -311,8 +311,8 @@ export function ScheduledBackupMergeDialog({
                       </div>
                     </div>
                     <div className="flex-1">
-                      <h4 className="font-medium text-red-900 text-sm">合并后删除源文件</h4>
-                      <p className="text-red-700 text-sm mt-1 leading-relaxed">
+                      <h4 className="font-medium text-red-900 dark:text-red-400 text-sm">合并后删除源文件</h4>
+                      <p className="text-red-700 dark:text-red-500 text-sm mt-1 leading-relaxed">
                         合并完成后自动删除原始备份文件，此操作不可撤销，请谨慎选择
                       </p>
                     </div>
@@ -324,8 +324,8 @@ export function ScheduledBackupMergeDialog({
         </div>
 
         {/* 底部操作栏 */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-neutral-200 dark:border-neutral-700">
-          <div className="text-sm text-neutral-500 dark:text-neutral-400">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-black/[0.06] dark:border-white/[0.06]">
+          <div className="text-sm text-muted-foreground">
             {merging ? (
               <span className="text-blue-600">
                 正在合并 {selectedBackups.size} 个备份文件...

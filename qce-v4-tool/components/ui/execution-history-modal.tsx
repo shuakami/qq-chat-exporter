@@ -85,29 +85,29 @@ export function ExecutionHistoryModal({
           
           {/* Modal */}
           <motion.div
-            className="relative w-full max-w-2xl max-h-[85vh] mx-4 bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+            className="relative w-full max-w-2xl max-h-[85vh] mx-4 bg-card rounded-2xl shadow-2xl overflow-hidden flex flex-col"
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: "spring", duration: 0.3 }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-100 dark:border-neutral-800">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-black/[0.06] dark:border-white/[0.06]">
               <div>
-                <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">执行历史</h2>
-                <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">{taskName}</p>
+                <h2 className="text-lg font-semibold text-foreground">执行历史</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">{taskName}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={loadHistory}
                   disabled={loading}
-                  className="p-2 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50"
+                  className="p-2 rounded-full text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
                 >
                   <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                 </button>
                 <button
                   onClick={onClose}
-                  className="p-2 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                  className="p-2 rounded-full text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -118,38 +118,38 @@ export function ExecutionHistoryModal({
             <div className="flex-1 overflow-y-auto p-4">
               {loading ? (
                 <div className="flex items-center justify-center py-16">
-                  <RefreshCw className="w-6 h-6 text-neutral-300 dark:text-neutral-600 animate-spin" />
+                  <RefreshCw className="w-6 h-6 text-muted-foreground/60 animate-spin" />
                 </div>
               ) : history.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16">
-                  <FileText className="w-10 h-10 text-neutral-200 dark:text-neutral-700 mb-3" />
-                  <p className="text-neutral-500 dark:text-neutral-400">暂无执行记录</p>
+                  <FileText className="w-10 h-10 text-muted-foreground/30 mb-3" />
+                  <p className="text-muted-foreground">暂无执行记录</p>
                 </div>
               ) : (
                 <div className="space-y-2">
                   {history.map((item) => (
                     <motion.div
                       key={item.id}
-                      className="rounded-xl border border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-800/50 overflow-hidden"
+                      className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] bg-muted/30 overflow-hidden"
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
                     >
                       {/* Main Row */}
                       <button
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-100/50 dark:hover:bg-neutral-700/50 transition-colors"
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/50 transition-colors"
                         onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
                       >
                         {/* Status Indicator */}
                         <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                          item.status === 'success' ? 'bg-neutral-400 dark:bg-neutral-500' :
-                          item.status === 'failed' ? 'bg-neutral-800 dark:bg-neutral-300' :
-                          'bg-neutral-300 dark:bg-neutral-600'
+                          item.status === 'success' ? 'bg-muted-foreground/60' :
+                          item.status === 'failed' ? 'bg-foreground' :
+                          'bg-muted-foreground/40'
                         }`} />
                         
                         {/* Info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 text-sm">
-                            <span className="text-neutral-900 dark:text-neutral-100 font-medium">
+                            <span className="text-foreground font-medium">
                               {new Date(item.executedAt).toLocaleDateString('zh-CN', {
                                 month: 'numeric',
                                 day: 'numeric',
@@ -157,12 +157,12 @@ export function ExecutionHistoryModal({
                                 minute: '2-digit'
                               })}
                             </span>
-                            <span className="text-neutral-400 dark:text-neutral-500">·</span>
-                            <span className="text-neutral-500 dark:text-neutral-400">{formatDuration(item.duration)}</span>
+                            <span className="text-muted-foreground/60">·</span>
+                            <span className="text-muted-foreground">{formatDuration(item.duration)}</span>
                             {item.messageCount !== undefined && item.messageCount > 0 && (
                               <>
-                                <span className="text-neutral-400 dark:text-neutral-500">·</span>
-                                <span className="text-neutral-500 dark:text-neutral-400">{item.messageCount.toLocaleString()} 条</span>
+                                <span className="text-muted-foreground/60">·</span>
+                                <span className="text-muted-foreground">{item.messageCount.toLocaleString()} 条</span>
                               </>
                             )}
                           </div>
@@ -170,14 +170,14 @@ export function ExecutionHistoryModal({
 
                         {/* Status Text */}
                         <span className={`text-xs px-2 py-0.5 rounded ${
-                          item.status === 'success' ? 'bg-neutral-100 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300' :
-                          item.status === 'failed' ? 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300' :
-                          'bg-neutral-100 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'
+                          item.status === 'success' ? 'bg-muted text-muted-foreground' :
+                          item.status === 'failed' ? 'bg-muted text-foreground/80' :
+                          'bg-muted text-muted-foreground'
                         }`}>
                           {item.status === 'success' ? '成功' : item.status === 'failed' ? '失败' : '部分'}
                         </span>
 
-                        <ChevronRight className={`w-4 h-4 text-neutral-300 dark:text-neutral-600 transition-transform ${
+                        <ChevronRight className={`w-4 h-4 text-muted-foreground/40 transition-transform ${
                           expandedId === item.id ? 'rotate-90' : ''
                         }`} />
                       </button>
@@ -192,25 +192,25 @@ export function ExecutionHistoryModal({
                             transition={{ duration: 0.2 }}
                             className="overflow-hidden"
                           >
-                            <div className="px-4 pb-3 pt-1 space-y-2 text-sm border-t border-neutral-100 dark:border-neutral-700">
+                            <div className="px-4 pb-3 pt-1 space-y-2 text-sm border-t border-black/[0.06] dark:border-white/[0.06]">
                               {item.fileSize && (
-                                <div className="flex justify-between text-neutral-600 dark:text-neutral-400">
+                                <div className="flex justify-between text-muted-foreground">
                                   <span>文件大小</span>
                                   <span>{formatFileSize(item.fileSize)}</span>
                                 </div>
                               )}
                               {item.filePath && (
-                                <div className="text-neutral-600 dark:text-neutral-400">
+                                <div className="text-muted-foreground">
                                   <span className="block mb-1">文件路径</span>
-                                  <code className="block text-xs bg-neutral-100 dark:bg-neutral-800 px-2 py-1.5 rounded font-mono break-all select-all">
+                                  <code className="block text-xs bg-muted px-2 py-1.5 rounded font-mono break-all select-all">
                                     {item.filePath}
                                   </code>
                                 </div>
                               )}
                               {item.error && (
-                                <div className="text-neutral-700 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 px-3 py-2 rounded">
+                                <div className="text-foreground/80 bg-muted px-3 py-2 rounded">
                                   <div className="flex items-start gap-2">
-                                    <AlertCircle className="w-4 h-4 text-neutral-500 dark:text-neutral-400 flex-shrink-0 mt-0.5" />
+                                    <AlertCircle className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                                     <span className="break-all text-xs">{item.error}</span>
                                   </div>
                                 </div>
@@ -226,14 +226,14 @@ export function ExecutionHistoryModal({
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-4 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-800/50">
+            <div className="px-6 py-4 border-t border-black/[0.06] dark:border-white/[0.06] bg-muted/30">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-neutral-500 dark:text-neutral-400">
+                <span className="text-sm text-muted-foreground">
                   共 {history.length} 条记录
                 </span>
                 <button
                   onClick={onClose}
-                  className="px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded-lg transition-colors"
+                  className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors"
                 >
                   关闭
                 </button>

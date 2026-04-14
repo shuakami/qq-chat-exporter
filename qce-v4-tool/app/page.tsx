@@ -58,6 +58,11 @@ import {
   HardDrive,
   Database,
   HelpCircle,
+  Activity,
+  Settings,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ChevronRight,
 } from "lucide-react"
 import type { CreateTaskForm, CreateScheduledExportForm } from "@/types/api"
 import { useQCE } from "@/hooks/use-qce"
@@ -69,7 +74,7 @@ import { useResourceIndex } from "@/hooks/use-resource-index"
 import { ThemeToggle } from "@/components/qce-dashboard/theme-toggle"
 
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
-import { EASE, DUR, makeStagger, hoverLift, fadeSlide, statusPulse } from "@/components/qce-dashboard/animations"
+import { DUR, EASE, makeStagger } from "@/components/qce-dashboard/animations"
 
 export default function QCEDashboard() {
   const [activeTab, setActiveTabState] = useState("overview")
@@ -133,6 +138,11 @@ export default function QCEDashboard() {
   // 新手引导状态
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [onboardingStep, setOnboardingStep] = useState(0)
+  const [highlightedNav, setHighlightedNav] = useState<string | null>(null)
+  
+  // 侧边栏状态
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false)
   
   const tasksLoadedRef = useRef(false)
   const scheduledExportsLoadedRef = useRef(false)
@@ -147,12 +157,14 @@ export default function QCEDashboard() {
     if (typeof window !== "undefined") {
       localStorage.setItem("qce-active-tab", tabId)
     }
+    // On mobile, close sidebar when navigating
+    setSidebarMobileOpen(false)
   }
 
   useEffect(() => {
       if (typeof window !== "undefined") {
         const savedTab = localStorage.getItem("qce-active-tab")
-        if (savedTab && ["overview", "sessions", "tasks", "scheduled", "history", "stickers", "about"].includes(savedTab)) {
+        if (savedTab && ["overview", "sessions", "tasks", "scheduled", "history", "stickers", "settings", "about"].includes(savedTab)) {
           setActiveTabState(savedTab)
         }
         // 检查是否需要显示新手引导
@@ -160,8 +172,24 @@ export default function QCEDashboard() {
         if (!hasSeenOnboarding) {
           setShowOnboarding(true)
         }
+        // Restore sidebar state
+        const savedSidebar = localStorage.getItem("qce-sidebar-open")
+        if (savedSidebar !== null) {
+          setSidebarOpen(savedSidebar === "true")
+        }
+        // Detect mobile
+        if (window.innerWidth < 768) {
+          setSidebarOpen(false)
+        }
       }
   }, [])
+
+  // Save sidebar state
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("qce-sidebar-open", String(sidebarOpen))
+    }
+  }, [sidebarOpen])
 
   // 监听大规模导出帮助模态框事件
   useEffect(() => {
@@ -332,7 +360,8 @@ export default function QCEDashboard() {
       
       const data = await response.json()
       if (!data.success) {
-        addNotification('error', '打开失败', data.error || '未知错误')
+        const msg = typeof data.error === 'string' ? data.error : data.error?.message || '未知错误'
+        addNotification('error', '打开失败', msg)
       }
     } catch (error) {
       console.error('[QCE] Open file location error:', error)
@@ -350,7 +379,8 @@ export default function QCEDashboard() {
       
       const data = await response.json()
       if (!data.success) {
-        addNotification('error', '打开失败', data.error || '未知错误')
+        const msg = typeof data.error === 'string' ? data.error : data.error?.message || '未知错误'
+        addNotification('error', '打开失败', msg)
       }
     } catch (error) {
       console.error('[QCE] Open export directory error:', error)
@@ -928,398 +958,559 @@ export default function QCEDashboard() {
   // 对于大列表（超过50项），禁用 stagger 动画以提升性能
   const hasLargeList = groups.length > 50 || friends.length > 50
   const STAG = useMemo(() => makeStagger(reduceMotion || hasLargeList ? 0 : 0.06, reduceMotion || hasLargeList), [reduceMotion, hasLargeList])
+  const SIDEBAR_WIDTH = 240
+  const sidebarTransition = useMemo(
+    () => reduceMotion
+      ? { duration: DUR.fast, ease: EASE.out }
+      : { type: "spring" as const, stiffness: 260, damping: 30, mass: 0.9 },
+    [reduceMotion],
+  )
+  const sidebarContentTransition = useMemo(
+    () => reduceMotion
+      ? { duration: DUR.fast, ease: EASE.out }
+      : { type: "spring" as const, stiffness: 320, damping: 32, mass: 0.82, delay: 0.03 },
+    [reduceMotion],
+  )
+  const onboardingTransition = useMemo(
+    () => reduceMotion
+      ? { duration: DUR.fast, ease: EASE.out }
+      : { type: "spring" as const, stiffness: 340, damping: 28, mass: 0.84 },
+    [reduceMotion],
+  )
+
+  const getAnchoredOnboardingPosition = useCallback((targetId: string, width: number) => {
+    if (typeof window === "undefined") return null
+    const targetEl = document.getElementById(targetId)
+    if (!targetEl) return null
+
+    const rect = targetEl.getBoundingClientRect()
+    const gutter = 16
+    const left = Math.min(
+      Math.max(rect.right + 16, gutter),
+      window.innerWidth - width - gutter,
+    )
+    const top = Math.min(
+      Math.max(rect.top + rect.height / 2 - 64, gutter),
+      window.innerHeight - 164,
+    )
+
+    return { left, top }
+  }, [])
+
+  const getBottomOnboardingPosition = useCallback((width: number) => {
+    if (typeof window === "undefined") return null
+    const gutter = 16
+    return {
+      left: Math.max((window.innerWidth - width) / 2, gutter),
+      top: Math.max(window.innerHeight - 168, gutter),
+    }
+  }, [])
+
+  // Navigation items configuration
+  const navItems = [
+    { id: "overview", label: "概览", icon: Activity },
+    { id: "sessions", label: "会话", icon: MessageCircle },
+    { id: "tasks", label: "任务", icon: Zap },
+    { id: "scheduled", label: "定时导出", icon: Clock },
+    { id: "history", label: "聊天记录", icon: History },
+    { id: "stickers", label: "表情包", icon: Smile },
+  ]
+
+  const navItemsBottom = [
+    { id: "settings", label: "设置", icon: Settings },
+    { id: "about", label: "关于", icon: HelpCircle },
+  ]
+
+  // Page titles mapping
+  const pageTitles: Record<string, string> = {
+    overview: "概览",
+    sessions: "会话",
+    tasks: "任务",
+    scheduled: "定时导出",
+    history: "聊天记录",
+    stickers: "表情包",
+    settings: "设置",
+    about: "关于",
+  }
+  const onboardingPanelClass = "relative overflow-hidden rounded-[24px] border border-black/[0.08] bg-background/95 px-5 py-4 text-foreground shadow-[0_24px_80px_rgba(15,23,42,0.22)] backdrop-blur-2xl dark:border-white/[0.08]"
+  const onboardingPrimaryButtonClass = "w-full rounded-full border border-black/[0.08] bg-foreground px-4 py-2.5 text-sm font-medium text-background transition-colors hover:bg-foreground/88 dark:border-white/[0.08]"
+  const onboardingSecondaryButtonClass = "w-full rounded-full px-4 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sidebar to-background dark:bg-background dark:from-background dark:to-background">
-      {/* Header */}
-      <motion.div
-        className="sticky top-0 z-50 bg-background/90 backdrop-blur border-b border-border"
-        initial={{ y: -12, opacity: 0 }}
-        animate={{ y: 0, opacity: 1, transition: { duration: DUR.normal, ease: EASE.out } }}
-      >
-        <div className="max-w-5xl mx-auto flex items-center justify-between h-16">
-          {/* Navigation */}
-          <nav className="flex gap-8">
-            {[
-              ["overview", "概览"],
-              ["sessions", "会话"],
-              ["tasks", "任务"],
-              ["scheduled", "定时"],
-              ["history", "聊天记录"],
-              ["stickers", "表情包"],
-              ["settings", "设置"],
-              ["about", "关于"]
-            ].map(([id, label]) => (
-              <motion.button
-                key={id}
-                id={`nav-${id}`}
-                onClick={() => setActiveTab(id)}
-                className={`text-sm transition-all duration-300 ${
-                  activeTab === id
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-                whileTap={{ scale: 0.98, transition: { duration: DUR.fast, ease: EASE.inOut } }}
-              >
-                <span
-                  className={`inline-block pb-1 border-b ${
-                    activeTab === id ? "border-foreground" : "border-transparent"
-                  } transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]`}
-                >
-                  {label}
-                </span>
-              </motion.button>
-            ))}
-            <motion.a
-              href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-muted-foreground hover:text-foreground transition-all duration-300 flex items-center gap-1"
-              whileTap={{ scale: 0.98, transition: { duration: DUR.fast, ease: EASE.inOut } }}
-            >
-              <span className="inline-block pb-1 border-b border-transparent">
-                文档
-              </span>
-            </motion.a>
-          </nav>
-          
-          {/* GitHub Star */}
-                    <div className="flex items-center gap-2">
-            <ThemeToggle />
-            <motion.a
-            href="https://github.com/shuakami/qq-chat-exporter"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-sm"
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+    <div className="flex h-screen w-full bg-background font-sans antialiased overflow-hidden">
+      {/* Mobile sidebar overlay */}
+      <AnimatePresence>
+        {sidebarMobileOpen && (
+          <motion.div
+            initial={{ opacity: 0, backdropFilter: "blur(0px)" }}
+            animate={{ opacity: 1, backdropFilter: "blur(10px)" }}
+            exit={{ opacity: 0, backdropFilter: "blur(0px)" }}
+            transition={sidebarTransition}
+            className="fixed inset-0 z-40 bg-black/24 md:hidden"
+            onClick={() => setSidebarMobileOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Sidebar */}
+      <AnimatePresence initial={false}>
+        {(sidebarOpen || sidebarMobileOpen) && (
+          <motion.div
+            initial={{ width: 0, opacity: 0, x: reduceMotion ? 0 : -18, scaleX: 0.985, filter: "blur(10px)" }}
+            animate={{ width: SIDEBAR_WIDTH, opacity: 1, x: 0, scaleX: 1, filter: "blur(0px)" }}
+            exit={{ width: 0, opacity: 0, x: reduceMotion ? 0 : -24, scaleX: 0.98, filter: "blur(12px)" }}
+            transition={sidebarTransition}
+            className={`h-full flex flex-col flex-shrink-0 overflow-hidden select-none ${
+              sidebarMobileOpen ? 'fixed left-0 top-0 z-50 bg-background/95 shadow-[0_24px_80px_rgba(15,23,42,0.22)] backdrop-blur-2xl' : 'relative'
+            }`}
           >
-            <svg className="w-4 h-4 text-primary-foreground" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-            </svg>
-            <span className="text-primary-foreground font-medium">
-              {githubStars !== null ? (githubStars >= 1000 ? `${(githubStars / 1000).toFixed(1)}k` : githubStars) : 'Star'}
-            </span>
-          </motion.a>
+            <motion.div
+              initial={{ opacity: 0, x: reduceMotion ? 0 : -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: reduceMotion ? 0 : -12 }}
+              transition={sidebarContentTransition}
+              className="w-[240px] h-full flex flex-col"
+            >
+              {/* Sidebar header */}
+              <div className="flex items-center px-4 h-14 flex-shrink-0">
+                {systemInfo?.napcat.selfInfo ? (
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Avatar className="w-7 h-7 flex-shrink-0 rounded-full">
+                      <AvatarImage src={`http://q.qlogo.cn/g?b=qq&nk=${systemInfo.napcat.selfInfo.uin}&s=100`} className="rounded-full" />
+                      <AvatarFallback className="text-[11px] rounded-full">{systemInfo.napcat.selfInfo.nick?.[0] || 'Q'}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-[13px] font-semibold text-foreground truncate">{systemInfo.napcat.selfInfo.nick}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-full bg-black/[0.04] dark:bg-white/[0.06] animate-pulse" />
+                    <div className="w-20 h-3.5 bg-black/[0.04] dark:bg-white/[0.06] rounded animate-pulse" />
+                  </div>
+                )}
+              </div>
+
+              {/* Main nav */}
+              <motion.div
+                className="flex-1 overflow-y-auto px-2 py-1"
+                variants={STAG.container}
+                initial="initial"
+                animate="animate"
+              >
+                <div className="space-y-0.5">
+                  {navItems.map((item) => {
+                    const isActive = activeTab === item.id
+                    const Icon = item.icon
+                    return (
+                      <motion.button
+                        key={item.id}
+                        variants={STAG.item}
+                        id={`nav-${item.id}`}
+                        onClick={() => setActiveTab(item.id)}
+                        className={`w-full flex items-center gap-2.5 px-2 py-[6px] text-[13px] font-medium rounded-md transition-colors ${
+                          isActive 
+                            ? "text-foreground bg-black/[0.05] dark:bg-white/[0.05]" 
+                            : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
+                        } ${highlightedNav === item.id ? "ring-2 ring-black/10 dark:ring-white/14 ring-offset-2 ring-offset-background" : ""}`}
+                      >
+                        <Icon className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">{item.label}</span>
+                        {item.id === "tasks" && getTaskStats().running > 0 && (
+                          <span className="ml-auto text-[11px] text-blue-600 dark:text-blue-400 font-medium tabular-nums">
+                            {getTaskStats().running}
+                          </span>
+                        )}
+                      </motion.button>
+                    )
+                  })}
+                </div>
+
+                <div className="mt-4 mb-1 px-2">
+                  <span className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider">系统</span>
+                </div>
+                <div className="space-y-0.5">
+                  {navItemsBottom.map((item) => {
+                    const isActive = activeTab === item.id
+                    const Icon = item.icon
+                    return (
+                      <motion.button
+                        key={item.id}
+                        variants={STAG.item}
+                        id={`nav-${item.id}`}
+                        onClick={() => setActiveTab(item.id)}
+                        className={`w-full flex items-center gap-2.5 px-2 py-[6px] text-[13px] font-medium rounded-md transition-colors ${
+                          isActive 
+                            ? "text-foreground bg-black/[0.05] dark:bg-white/[0.05]" 
+                            : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
+                        }`}
+                      >
+                        <Icon className="w-4 h-4 flex-shrink-0" />
+                        <span className="truncate">{item.label}</span>
+                      </motion.button>
+                    )
+                  })}
+                </div>
+              </motion.div>
+
+              {/* Sidebar footer */}
+              <div className="flex-shrink-0 px-2 pb-2 space-y-1">
+                <div className="flex items-center justify-between px-2 py-1">
+                  <a
+                    href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[12px] text-muted-foreground/60 hover:text-muted-foreground transition-colors flex items-center gap-1"
+                  >
+                    文档
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                  <div className="flex items-center gap-1.5">
+                    <ThemeToggle />
+                    <a
+                      href="https://github.com/shuakami/qq-chat-exporter"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-[12px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                      </svg>
+                      {githubStars !== null ? (githubStars >= 1000 ? `${(githubStars / 1000).toFixed(1)}k` : githubStars) : ''}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden sm:m-2 sm:rounded-xl sm:border sm:border-black/[0.05] sm:shadow-[0_2px_8px_rgba(0,0,0,0.015)] bg-card dark:border-white/[0.06]">
+        {/* Page header bar */}
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-black/[0.06] dark:border-white/[0.06] px-4 h-12">
+          <div className="flex items-center gap-2 text-[14px]">
+            <button
+              onClick={() => {
+                if (window.innerWidth < 768) {
+                  setSidebarMobileOpen(!sidebarMobileOpen)
+                } else {
+                  setSidebarOpen(!sidebarOpen)
+                }
+              }}
+              className="p-1 -ml-1 rounded-md text-muted-foreground/60 hover:text-muted-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+            >
+              {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+            </button>
+            <span className="font-medium text-muted-foreground">QCE</span>
+            <span className="text-muted-foreground/30">/</span>
+            <span className="font-semibold text-foreground">{pageTitles[activeTab] || activeTab}</span>
           </div>
-        </div>
-      </motion.div>
+          <div className="flex items-center gap-2">
+            {/* Page-specific actions */}
 
-      {/* Main */}
-      <main className="px-6 pb-16">
-        <div className="max-w-5xl mx-auto">
-          {/* 使用 AnimatePresence 做 Tab 内容的进出场 */}
-          <AnimatePresence mode="wait">
-            {activeTab === "overview" && (
-              <motion.div key="tab-overview" {...fadeSlide} className="space-y-10 pt-10">
-                {/* Hero */}
-                <section className="space-y-4">
-                  <motion.h1
-                    className="text-4xl md:text-5xl font-semibold tracking-tight text-foreground"
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+            {activeTab === "sessions" && (
+              <>
+                <Button size="sm" variant="ghost" className="h-8 text-[13px] rounded-full px-2" onClick={loadChatData} disabled={isLoading}>
+                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                </Button>
+                {!batchMode && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 text-[13px] rounded-full px-2.5"
+                    onClick={handleToggleBatchMode}
                   >
-                    QQ 聊天记录导出工具
-                  </motion.h1>
-                  <motion.p
-                    className="text-muted-foreground text-lg"
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut, delay: 0.05 } }}
+                    批量导出
+                  </Button>
+                )}
+              </>
+            )}
+            {activeTab === "tasks" && (
+              <>
+                <div className="relative">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 text-[13px] rounded-full px-2"
+                    onClick={() => setShowExportHelpMenu(!showExportHelpMenu)}
                   >
-                    轻松备份群聊与好友的珍贵对话，支持多种格式导出
-                  </motion.p>
-                  <motion.div
-                    className="flex flex-wrap gap-3 pt-2"
-                    initial="initial"
-                    animate="animate"
-                    variants={STAG.container}
-                  >
-                    {[
-                      { key: "new", text: "新建任务", onClick: () => handleOpenTaskWizard(), variant: undefined },
-                      { key: "browse", text: "浏览会话", onClick: () => setActiveTab("sessions"), variant: "outline" as const },
-                      { key: "view", text: "查看任务", onClick: () => setActiveTab("tasks"), variant: "outline" as const },
-                    ].map((b, i) => (
-                      <motion.div key={b.key} variants={STAG.item}>
-                        <Button
-                          className="rounded-full transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
-                          onClick={b.onClick}
-                          variant={b.variant}
-                        >
-                          {b.text}
-                        </Button>
-                      </motion.div>
-                    ))}
-                  </motion.div>
-                </section>
-
-                {/* Status Row - 简洁的状态卡片 */}
-                <motion.section
-                  className="rounded-2xl border border-border bg-background/80 backdrop-blur px-5 py-4"
-                  variants={STAG.container}
-                  initial="initial"
-                  animate="animate"
-                >
-                  <div className="flex items-center justify-between">
-                    {/* 左侧：用户信息 */}
-                    <div className="flex items-center gap-4">
-                      {systemInfo?.napcat.selfInfo ? (
+                    <HelpCircle className="w-4 h-4" />
+                  </Button>
+                  <AnimatePresence>
+                    {showExportHelpMenu && (
+                      <>
                         <motion.div
-                          className="flex items-center gap-3"
-                          initial={{ opacity: 0, x: -8 }}
-                          animate={{ opacity: 1, x: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="fixed inset-0 z-40"
+                          onClick={() => setShowExportHelpMenu(false)}
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                          transition={{ duration: 0.12 }}
+                          className="absolute right-0 top-full mt-1 w-56 bg-card rounded-lg border border-black/[0.06] dark:border-white/[0.06] shadow-lg z-50 overflow-hidden"
                         >
-                          <Avatar className="w-10 h-10 border border-border">
-                            <AvatarImage src={`http://q.qlogo.cn/g?b=qq&nk=${systemInfo.napcat.selfInfo.uin}&s=100`} />
-                            <AvatarFallback className="text-sm">{systemInfo.napcat.selfInfo.nick?.[0] || 'Q'}</AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="text-sm font-medium text-foreground">{systemInfo.napcat.selfInfo.nick}</p>
-                            <p className="text-xs text-muted-foreground">QQ {systemInfo.napcat.selfInfo.uin}</p>
+                          <div className="p-1">
+                            <button
+                              className="w-full px-3 py-2 text-left text-[13px] rounded-lg hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                              onClick={() => { setShowExportHelpMenu(false); setShowHtmlHelp(true); }}
+                            >
+                              <div className="font-medium text-foreground">HTML 导出</div>
+                              <div className="text-[11px] text-muted-foreground/60">可视化聊天记录</div>
+                            </button>
+                            <button
+                              className="w-full px-3 py-2 text-left text-[13px] rounded-lg hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                              onClick={() => { setShowExportHelpMenu(false); setShowJsonHelp(true); }}
+                            >
+                              <div className="font-medium text-foreground">JSON 导出</div>
+                              <div className="text-[11px] text-muted-foreground/60">结构化数据格式</div>
+                            </button>
+                            <div className="my-0.5 border-t border-black/[0.04] dark:border-white/[0.04]" />
+                            <button
+                              className="w-full px-3 py-2 text-left text-[13px] rounded-lg hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                              onClick={() => { setShowExportHelpMenu(false); setShowStreamingZipHelp(true); }}
+                            >
+                              <div className="font-medium text-foreground">流式 ZIP</div>
+                              <div className="text-[11px] text-muted-foreground/60">大规模 HTML 分块打包</div>
+                            </button>
+                            <button
+                              className="w-full px-3 py-2 text-left text-[13px] rounded-lg hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                              onClick={() => { setShowExportHelpMenu(false); setShowJsonlHelp(true); }}
+                            >
+                              <div className="font-medium text-foreground">JSONL 分块</div>
+                              <div className="text-[11px] text-muted-foreground/60">大规模数据处理</div>
+                            </button>
                           </div>
                         </motion.div>
-                      ) : (
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-muted animate-pulse" />
-                          <div className="space-y-1.5">
-                            <div className="w-20 h-4 bg-muted rounded animate-pulse" />
-                            <div className="w-16 h-3 bg-muted rounded animate-pulse" />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* 右侧：状态指示器 */}
-                    <div className="flex items-center gap-6">
-                      {/* 运行模式指示器 */}
-                      {systemInfo?.napcat.workingEnv && (
-                        <div className="flex items-center gap-2" title={systemInfo.napcat.workingEnvLabel || ''}>
-                          <span className={`w-2 h-2 rounded-full ${
-                            systemInfo.napcat.workingEnv === 'framework' 
-                              ? 'bg-purple-500' 
-                              : systemInfo.napcat.workingEnv === 'shell' 
-                                ? 'bg-blue-500' 
-                                : 'bg-gray-400'
-                          }`} />
-                          <span className="text-sm text-muted-foreground">
-                            {systemInfo.napcat.workingEnv === 'framework' ? 'Framework' : systemInfo.napcat.workingEnv === 'shell' ? 'Shell' : '未知'}
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <motion.span
-                          className={`w-2 h-2 rounded-full ${wsConnected ? "bg-neutral-900" : "bg-red-400"}`}
-                          {...(wsConnected ? {} : statusPulse)}
-                        />
-                        <span className="text-sm text-muted-foreground">{wsConnected ? "已连接" : "未连接"}</span>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+                <Button size="sm" variant="ghost" className="h-8 text-[13px] rounded-full px-2" onClick={handleLoadTasks} disabled={isLoading}>
+                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                </Button>
+                <Button size="sm" className="h-8 text-[13px] rounded-full px-2.5" onClick={() => handleOpenTaskWizard()}>
+                  新建任务
+                </Button>
+              </>
+            )}
+            {activeTab === "scheduled" && (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-[13px] rounded-full px-2"
+                  onClick={handleLoadScheduledExports}
+                  disabled={scheduledLoading}
+                >
+                  <RefreshCw className={`w-4 h-4 ${scheduledLoading ? 'animate-spin' : ''}`} />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-[13px] rounded-full px-2.5"
+                  onClick={handleOpenScheduledMergeDialog}
+                  disabled={loadingScheduledTasks}
+                >
+                  <Combine className="w-4 h-4 mr-1" />
+                  合并
+                </Button>
+                <Button size="sm" className="h-8 text-[13px] rounded-full px-2.5" onClick={() => handleOpenScheduledExportWizard()}>
+                  新建定时任务
+                </Button>
+              </>
+            )}
+            {activeTab === "history" && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 text-[13px] rounded-full px-2"
+                onClick={async () => {
+                  chatHistoryLoadedRef.current = false
+                  resourceIndexLoadedRef.current = false
+                  await Promise.all([handleLoadChatHistory(), loadResourceIndex()])
+                  chatHistoryLoadedRef.current = true
+                  resourceIndexLoadedRef.current = true
+                }}
+                disabled={chatHistoryLoading || resourceIndexLoading}
+              >
+                <RefreshCw className={`w-4 h-4 ${(chatHistoryLoading || resourceIndexLoading) ? 'animate-spin' : ''}`} />
+              </Button>
+            )}
+            {activeTab === "stickers" && (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-[13px] rounded-full px-2"
+                  onClick={async () => {
+                    stickerPacksLoadedRef.current = false
+                    try {
+                      await Promise.all([loadStickerPacks(), loadStickerExportRecords()])
+                      stickerPacksLoadedRef.current = true
+                    } catch (error) {
+                      console.error('[QCE] 刷新表情包失败:', error)
+                      stickerPacksLoadedRef.current = false
+                    }
+                  }}
+                  disabled={stickerPacksLoading}
+                >
+                  <RefreshCw className={`w-4 h-4 ${stickerPacksLoading ? 'animate-spin' : ''}`} />
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 text-[13px] rounded-full px-2.5"
+                  onClick={handleExportAllStickerPacks}
+                  disabled={stickerPacksLoading || stickerPacks.length === 0}
+                >
+                  <Download className="w-4 h-4 mr-1" />
+                  导出所有
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Content area */}
+        <div className="flex-1 overflow-auto">
+          <>
+            {/* ==================== OVERVIEW ==================== */}
+            {activeTab === "overview" && (
+              <div className="p-6 space-y-6">
+                {/* User info card */}
+                {systemInfo?.napcat.selfInfo && (
+                  <div className="flex items-center gap-4">
+                    <Avatar className="w-12 h-12 rounded-full">
+                      <AvatarImage src={`http://q.qlogo.cn/g?b=qq&nk=${systemInfo.napcat.selfInfo.uin}&s=100`} className="rounded-full" />
+                      <AvatarFallback className="rounded-full text-sm">{systemInfo.napcat.selfInfo.nick?.[0] || 'Q'}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <h2 className="text-lg font-semibold text-foreground">{systemInfo.napcat.selfInfo.nick}</h2>
+                      <div className="flex items-center gap-2 mt-0.5 text-sm text-muted-foreground">
+                        <span>QQ {systemInfo.napcat.selfInfo.uin}</span>
+                        <span className="text-muted-foreground/30">·</span>
+                        {systemInfo?.napcat.workingEnv && (
+                          <>
+                            <span>{systemInfo.napcat.workingEnv === 'framework' ? 'Framework' : systemInfo.napcat.workingEnv === 'shell' ? 'Shell' : '未知'}</span>
+                            <span className="text-muted-foreground/30">·</span>
+                          </>
+                        )}
+                        <span>{wsConnected ? "已连接" : "未连接"}</span>
+                        <span className="text-muted-foreground/30">·</span>
+                        <span>{systemInfo?.napcat.online ? "QQ在线" : "QQ离线"}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <motion.span
-                          className={`w-2 h-2 rounded-full ${systemInfo?.napcat.online ? "bg-neutral-900" : "bg-amber-400"}`}
-                          {...(systemInfo?.napcat.online ? {} : statusPulse)}
-                        />
-                        <span className="text-sm text-muted-foreground">{systemInfo?.napcat.online ? "QQ在线" : "QQ离线"}</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground/70 font-mono">v5.0.0</span>
                     </div>
                   </div>
-                </motion.section>
+                )}
 
-                {/* Quick stats */}
-                <motion.section
-                  className="grid grid-cols-1 sm:grid-cols-3 gap-3"
-                  variants={STAG.container}
-                  initial="initial"
-                  animate="animate"
-                >
-                  {[
-                    {
-                      title: "导出任务",
-                      value: getTaskStats().total,
-                      sub: `进行中 ${getTaskStats().running} · 完成 ${getTaskStats().completed}`,
-                    },
-                    { title: "群组", value: groups.length },
-                    { title: "好友", value: friends.length },
-                  ].map((s, idx) => (
-                    <motion.div
-                      key={idx}
-                      className="rounded-2xl border border-border bg-background/60 p-4"
-                      variants={STAG.item}
-                      {...hoverLift}
-                    >
-                      <p className="text-sm text-muted-foreground">{s.title}</p>
-                      <div className="mt-2 flex items-baseline gap-3">
-                        <span className="text-2xl font-semibold">{s.value}</span>
-                        {s.sub && <span className="text-xs text-muted-foreground">{s.sub}</span>}
-                      </div>
-                    </motion.div>
-                  ))}
-                </motion.section>
-
-                {/* Recent tasks preview */}
-                {tasks.length > 0 && (
-                  <section className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-base font-medium text-foreground">最近任务</h3>
-                      <motion.div whileTap={{ scale: 0.98 }}>
-                        <Button
-                          variant="ghost"
-                          className="rounded-full"
-                          onClick={() => setActiveTab("tasks")}
-                        >
-                          查看全部
-                        </Button>
-                      </motion.div>
+                {/* Stats row */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] p-4">
+                    <div className="text-sm text-muted-foreground">导出任务</div>
+                    <div className="text-2xl font-semibold tracking-tight mt-1">{getTaskStats().total}</div>
+                    <div className="text-xs text-muted-foreground/60 mt-1">
+                      进行中 {getTaskStats().running} · 完成 {getTaskStats().completed}
                     </div>
-                    <motion.div
-                      className="space-y-2"
-                      variants={STAG.container}
-                      initial="initial"
-                      animate="animate"
-                      exit="exit"
-                    >
-                      {tasks.slice(0, 3).map((task) => (
-                        <motion.div
+                  </div>
+                  <div className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] p-4">
+                    <div className="text-sm text-muted-foreground">群组</div>
+                    <div className="text-2xl font-semibold tracking-tight mt-1">{groups.length}</div>
+                  </div>
+                  <div className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] p-4">
+                    <div className="text-sm text-muted-foreground">好友</div>
+                    <div className="text-2xl font-semibold tracking-tight mt-1">{friends.length}</div>
+                  </div>
+                </div>
+
+                {/* Quick actions */}
+                <div className="flex items-center gap-3">
+                  <Button onClick={() => handleOpenTaskWizard()} className="rounded-full">
+                    新建任务
+                  </Button>
+                  <Button variant="outline" onClick={() => setActiveTab("sessions")} className="rounded-full">
+                    浏览会话
+                  </Button>
+                  <Button variant="outline" onClick={() => setActiveTab("tasks")} className="rounded-full">
+                    查看任务
+                  </Button>
+                </div>
+
+                {/* Recent tasks */}
+                {tasks.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-medium text-foreground">最近任务</h3>
+                      <button
+                        onClick={() => setActiveTab("tasks")}
+                        className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        查看全部
+                      </button>
+                    </div>
+                    <div className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] divide-y divide-black/[0.04] dark:divide-white/[0.04] overflow-hidden">
+                      {tasks.slice(0, 5).map((task) => (
+                        <div
                           key={task.id}
-                          className="flex items-center justify-between rounded-2xl border border-border bg-background/70 px-4 py-3 hover:bg-background transition"
-                          variants={STAG.item}
-                          {...hoverLift}
+                          className="flex items-center justify-between px-4 py-3 hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors"
                         >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="truncate font-medium text-foreground">{task.sessionName}</p>
-                              <Badge
-                                variant="outline"
-                                className={
-                                  task.status === "completed"
-                                    ? "rounded-full text-green-700 border-green-200 bg-green-50 dark:text-green-200 dark:border-green-900 dark:bg-green-950/40"
-                                    : task.status === "running"
-                                    ? "rounded-full text-blue-700 border-blue-200 bg-blue-50 dark:text-blue-200 dark:border-blue-900 dark:bg-blue-950/40"
-                                    : task.status === "failed"
-                                    ? "rounded-full text-red-700 border-red-200 bg-red-50 dark:text-red-200 dark:border-red-900 dark:bg-red-950/40"
-                                    : "rounded-full"
-                                }
-                              >
-                                {getStatusText(task.status)}
-                              </Badge>
-                            </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                              <span>{task.format}</span>
-                              <span>{new Date(task.createdAt).toLocaleDateString()}</span>
-                              {task.messageCount !== undefined && task.messageCount > 0 && (
-                                <motion.span
-                                  key={task.messageCount}
-                                  initial={{ opacity: 0.5 }}
-                                  animate={{ opacity: 1 }}
-                                >
-                                  {task.messageCount.toLocaleString()} 条
-                                </motion.span>
-                              )}
-                              {task.status === "running" && task.progressMessage && (
-                                <motion.span
-                                  key={task.progressMessage}
-                                  className="text-muted-foreground/70"
-                                  initial={{ opacity: 0 }}
-                                  animate={{ opacity: 1 }}
-                                >
-                                  {task.progressMessage}
-                                </motion.span>
-                              )}
-                            </div>
+                          <div className="min-w-0 flex-1 flex items-center gap-3">
+                            <span className="text-sm font-medium text-foreground truncate">{task.sessionName}</span>
+                            <Badge
+                              className={`text-[11px] px-1.5 py-0 rounded-full border-0 ${
+                                task.status === "completed"
+                                  ? "text-green-700 bg-green-50 dark:text-green-300 dark:bg-green-950/40"
+                                  : task.status === "running"
+                                  ? "text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/40"
+                                  : task.status === "failed"
+                                  ? "text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/40"
+                                  : ""
+                              }`}
+                            >
+                              {getStatusText(task.status)}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">{task.format}</span>
+                            <span className="text-xs text-muted-foreground">{new Date(task.createdAt).toLocaleDateString()}</span>
+                            {task.messageCount !== undefined && task.messageCount > 0 && (
+                              <span className="text-xs text-muted-foreground">{task.messageCount.toLocaleString()} 条</span>
+                            )}
                           </div>
-                          <div className="ml-4 flex items-center gap-2">
+                          <div className="ml-4 flex items-center gap-2 flex-shrink-0">
                             {task.status === "running" && (
                               <>
-                                {/* 进度条 & 数字同步缓动 */}
-                                <div className="w-24">
-                                  <Progress
-                                    value={task.progress}
-                                    shimmer={true}
-                                    className="w-24 h-1.5 rounded-full transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
-                                  />
-                                </div>
-                                <motion.span
-                                  key={task.progress}
-                                  className="text-xs text-muted-foreground font-medium min-w-[2.5rem] text-right"
-                                  initial={{ opacity: 0, y: 2 }}
-                                  animate={{ opacity: 1, y: 0, transition: { duration: DUR.fast, ease: EASE.out } }}
-                                >
-                                  {task.progress}%
-                                </motion.span>
+                                <Progress value={task.progress} shimmer={true} className="w-20 h-1.5 rounded-full" />
+                                <span className="text-xs text-muted-foreground font-medium tabular-nums">{task.progress}%</span>
                               </>
                             )}
                             {task.status === "completed" && (
                               <>
-                                <motion.div whileTap={{ scale: 0.98 }}>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 rounded-full"
-                                    onClick={() => openFileLocation(task.filePath)}
-                                    title="打开文件位置"
-                                  >
-                                    <FolderOpen className="w-3 h-3" />
-                                  </Button>
-                                </motion.div>
-                                <motion.div whileTap={{ scale: 0.98 }}>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 rounded-full"
-                                    onClick={() => downloadTask(task)}
-                                    title={isJsonlExport(task) ? "JSONL 为目录格式，将打开文件夹" : "下载文件"}
-                                  >
-                                    {isJsonlExport(task) ? (
-                                      <>
-                                        <FolderOpen className="w-3 h-3 mr-1" />
-                                        打开
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Download className="w-3 h-3 mr-1" />
-                                        下载
-                                      </>
-                                    )}
-                                  </Button>
-                                </motion.div>
+                                <Button size="sm" variant="ghost" className="h-8 rounded-lg px-2" onClick={() => openFileLocation(task.filePath)} title="打开文件位置">
+                                  <FolderOpen className="w-4 h-4" />
+                                </Button>
+                                <Button size="sm" variant="ghost" className="h-8 rounded-lg px-2" onClick={() => downloadTask(task)} title={isJsonlExport(task) ? "打开文件夹" : "下载"}>
+                                  {isJsonlExport(task) ? <FolderOpen className="w-4 h-4" /> : <Download className="w-4 h-4" />}
+                                </Button>
                               </>
                             )}
                           </div>
-                        </motion.div>
+                        </div>
                       ))}
-                    </motion.div>
-                  </section>
+                    </div>
+                  </div>
                 )}
-              </motion.div>
+              </div>
             )}
 
+            {/* ==================== SESSIONS ==================== */}
             {activeTab === "sessions" && (
-              <motion.div key="tab-sessions" {...fadeSlide} className="space-y-6 pt-10">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-2xl font-semibold tracking-tight text-foreground">会话管理</h2>
-                    <p className="text-muted-foreground mt-1">
-                      {batchMode ? `已选择 ${selectedItems.size} 个会话` : '浏览群组与好友，选择要导出的聊天记录'}
-                    </p>
+              <div className="p-5 space-y-4">
+                {batchMode && (
+                  <div className="text-[13px] text-muted-foreground px-1">
+                    已选择 {selectedItems.size} 个会话
                   </div>
-                  <div className="flex items-center gap-2">
-                    <motion.div whileTap={{ scale: 0.98 }}>
-                      <Button onClick={loadChatData} disabled={isLoading} variant="outline" className="rounded-full">
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        {isLoading ? "加载中..." : "刷新列表"}
-                      </Button>
-                    </motion.div>
-                    <motion.div whileTap={{ scale: 0.98 }}>
-                      <Button 
-                        onClick={handleToggleBatchMode} 
-                        variant={batchMode ? "default" : "outline"} 
-                        className="rounded-full"
-                      >
-                        {batchMode ? "退出批量模式" : "批量导出"}
-                      </Button>
-                    </motion.div>
-                  </div>
-                </div>
-
+                )}
                 <SessionList
                   groups={groups}
                   friends={friends}
@@ -1339,306 +1530,154 @@ export default function QCEDashboard() {
                   onOpenEssenceModal={handleOpenEssenceModal}
                   onOpenGroupFilesModal={handleOpenGroupFilesModal}
                 />
-              </motion.div>
+              </div>
             )}
 
+            {/* ==================== TASKS ==================== */}
             {activeTab === "tasks" && (
-              <motion.div key="tab-tasks" {...fadeSlide} className="space-y-10 pt-10">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-2xl font-semibold tracking-tight text-foreground">导出任务</h2>
-                    <p className="text-muted-foreground mt-1">查看与管理任务，下载完成文件</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <motion.div whileTap={{ scale: 0.98 }} className="relative">
-                      <Button 
-                        variant="ghost" 
-                        className="rounded-full text-muted-foreground hover:text-foreground"
-                        onClick={() => setShowExportHelpMenu(!showExportHelpMenu)}
-                      >
-                        <HelpCircle className="w-4 h-4 mr-2" />
-                        使用帮助
-                      </Button>
-                      <AnimatePresence>
-                        {showExportHelpMenu && (
-                          <>
-                            <motion.div
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 1 }}
-                              exit={{ opacity: 0 }}
-                              className="fixed inset-0 z-40"
-                              onClick={() => setShowExportHelpMenu(false)}
-                            />
-                            <motion.div
-                              initial={{ opacity: 0, y: -8, scale: 0.95 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              exit={{ opacity: 0, y: -8, scale: 0.95 }}
-                              transition={{ duration: 0.15 }}
-                              className="absolute right-0 top-full mt-2 w-64 bg-background rounded-xl border border-border shadow-lg z-50 overflow-hidden"
-                            >
-                              <div className="p-2">
-                                <button
-                                  className="w-full px-3 py-2.5 text-left text-sm rounded-lg hover:bg-muted transition-colors flex items-center gap-3"
-                                  onClick={() => { setShowExportHelpMenu(false); setShowHtmlHelp(true); }}
-                                >
-                                  <FileText className="w-4 h-4 text-muted-foreground/70" />
-                                  <div>
-                                    <div className="font-medium text-foreground">HTML 导出</div>
-                                    <div className="text-xs text-muted-foreground/70">可视化聊天记录</div>
-                                  </div>
-                                </button>
-                                <button
-                                  className="w-full px-3 py-2.5 text-left text-sm rounded-lg hover:bg-muted transition-colors flex items-center gap-3"
-                                  onClick={() => { setShowExportHelpMenu(false); setShowJsonHelp(true); }}
-                                >
-                                  <Database className="w-4 h-4 text-muted-foreground/70" />
-                                  <div>
-                                    <div className="font-medium text-foreground">JSON 导出</div>
-                                    <div className="text-xs text-muted-foreground/70">结构化数据格式</div>
-                                  </div>
-                                </button>
-                                <div className="my-1 border-t border-border" />
-                                <button
-                                  className="w-full px-3 py-2.5 text-left text-sm rounded-lg hover:bg-muted transition-colors flex items-center gap-3"
-                                  onClick={() => { setShowExportHelpMenu(false); setShowStreamingZipHelp(true); }}
-                                >
-                                  <Package className="w-4 h-4 text-muted-foreground/70" />
-                                  <div>
-                                    <div className="font-medium text-foreground">流式 ZIP</div>
-                                    <div className="text-xs text-muted-foreground/70">大规模 HTML 分块打包</div>
-                                  </div>
-                                </button>
-                                <button
-                                  className="w-full px-3 py-2.5 text-left text-sm rounded-lg hover:bg-muted transition-colors flex items-center gap-3"
-                                  onClick={() => { setShowExportHelpMenu(false); setShowJsonlHelp(true); }}
-                                >
-                                  <Database className="w-4 h-4 text-muted-foreground/70" />
-                                  <div>
-                                    <div className="font-medium text-foreground">JSONL 分块</div>
-                                    <div className="text-xs text-muted-foreground/70">大规模数据处理</div>
-                                  </div>
-                                </button>
-                              </div>
-                            </motion.div>
-                          </>
-                        )}
-                      </AnimatePresence>
-                    </motion.div>
-                    <motion.div whileTap={{ scale: 0.98 }}>
-                      <Button onClick={handleLoadTasks} disabled={isLoading} variant="outline" className="rounded-full">
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        {isLoading ? "加载中..." : "刷新列表"}
-                      </Button>
-                    </motion.div>
-                    <motion.div whileTap={{ scale: 0.98 }}>
-                      <Button onClick={() => handleOpenTaskWizard()} className="rounded-full">
-                        新建任务
-                      </Button>
-                    </motion.div>
-                  </div>
-                </div>
-
+              <div className="p-6 space-y-1">
                 {tasks.length === 0 ? (
-                  <motion.div
-                    className="rounded-2xl border border-dashed border-border bg-background/60 py-14 text-center"
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
-                  >
-                    <p className="text-foreground">暂无导出任务</p>
-                    <p className="text-muted-foreground mt-1">从「会话」中选择一个会话来创建任务，或点击右上角「新建任务」</p>
-                  </motion.div>
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <Zap className="w-8 h-8 text-muted-foreground/20 mb-3" />
+                    <p className="text-sm text-foreground font-medium">暂无导出任务</p>
+                    <p className="text-xs text-muted-foreground/60 mt-1">从「会话」中选择一个会话来创建任务</p>
+                  </div>
                 ) : (
-                  <motion.div
-                    className="space-y-3"
-                    variants={STAG.container}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                  >
-                    {tasks.map((task) => (
-                      <motion.div
-                        key={task.id}
-                        className="rounded-2xl border border-border bg-background/70 px-5 py-4 hover:bg-background transition"
-                        variants={STAG.item}
-                        {...hoverLift}
-                      >
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <h3 className="truncate font-medium text-foreground">{task.sessionName}</h3>
-                              <Badge
-                                variant="outline"
-                                className={
-                                  task.status === "completed"
-                                    ? "rounded-full text-green-700 border-green-200 bg-green-50 dark:text-green-200 dark:border-green-900 dark:bg-green-950/40"
-                                    : task.status === "running"
-                                    ? "rounded-full text-blue-700 border-blue-200 bg-blue-50 dark:text-blue-200 dark:border-blue-900 dark:bg-blue-950/40"
-                                    : task.status === "failed"
-                                    ? "rounded-full text-red-700 border-red-200 bg-red-50 dark:text-red-200 dark:border-red-900 dark:bg-red-950/40"
-                                    : "rounded-full"
-                                }
-                              >
-                                {getStatusText(task.status)}
-                              </Badge>
-                            </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                              <span className="font-mono">{task.peer?.peerUid}</span>
-                              <span>{task.format}</span>
-                              <span>{new Date(task.createdAt).toLocaleDateString()}</span>
-                              {task.messageCount !== undefined && task.messageCount > 0 && (
-                                <motion.span
-                                  key={task.messageCount}
-                                  initial={{ opacity: 0.5 }}
-                                  animate={{ opacity: 1 }}
-                                >
-                                  {task.messageCount.toLocaleString()} 条消息
-                                </motion.span>
-                              )}
-                              {(task.startTime || task.endTime) && (
-                                <span className="font-medium">
-                                  {task.startTime && task.endTime
-                                    ? `${new Date(task.startTime * 1000).toLocaleDateString()} ~ ${new Date(task.endTime * 1000).toLocaleDateString()}`
-                                    : task.startTime
-                                    ? `从 ${new Date(task.startTime * 1000).toLocaleDateString()}`
-                                    : `到 ${new Date(task.endTime! * 1000).toLocaleDateString()}`}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            {task.status === "completed" && (
-                              <>
-                                <motion.div whileTap={{ scale: 0.98 }}>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 rounded-full"
-                                    onClick={() => openFileLocation(task.filePath)}
-                                    title="打开文件位置"
-                                  >
-                                    <FolderOpen className="w-3 h-3" />
-                                  </Button>
-                                </motion.div>
-                                <motion.div whileTap={{ scale: 0.98 }}>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-8 rounded-full"
-                                    onClick={() => downloadTask(task)}
-                                    title={isJsonlExport(task) ? "JSONL 为目录格式，将打开文件夹" : "下载文件"}
-                                  >
-                                    {isJsonlExport(task) ? (
-                                      <>
-                                        <FolderOpen className="w-3 h-3 mr-1" />
-                                        打开
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Download className="w-3 h-3 mr-1" />
-                                        下载
-                                      </>
-                                    )}
-                                  </Button>
-                                </motion.div>
-                              </>
-                            )}
-                            {(task.status === "completed" || task.status === "failed") && (
-                              <motion.div whileTap={{ scale: 0.96 }}>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-8 rounded-full text-red-600 hover:text-red-700 hover:border-red-300 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
-                                  onClick={async () => {
-                                    if (confirm("确定要删除这个任务吗？")) {
-                                      const success = await deleteTask(task.id)
-                                      if (success) {
-                                        tasksLoadedRef.current = false
-                                      }
-                                    }
-                                  }}
-                                  title="删除"
-                                >
-                                  <X className="w-3 h-3" />
-                                </Button>
-                              </motion.div>
-                            )}
-                          </div>
+                  tasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="flex items-center justify-between px-4 py-3.5 text-sm rounded-lg hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors group"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-foreground truncate">{task.sessionName}</span>
+                          <Badge
+                            className={`text-[11px] px-1.5 py-0 rounded-full border-0 ${
+                              task.status === "completed"
+                                ? "text-green-700 bg-green-50 dark:text-green-300 dark:bg-green-950/40"
+                                : task.status === "running"
+                                ? "text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/40"
+                                : task.status === "failed"
+                                ? "text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/40"
+                                : ""
+                            }`}
+                          >
+                            {getStatusText(task.status)}
+                          </Badge>
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground/50">
+                          <span className="font-mono">{task.peer?.peerUid}</span>
+                          <span>{task.format}</span>
+                          <span>{new Date(task.createdAt).toLocaleDateString()}</span>
+                          {task.messageCount !== undefined && task.messageCount > 0 && (
+                            <span>{task.messageCount.toLocaleString()} 条消息</span>
+                          )}
+                          {(task.startTime || task.endTime) && (
+                            <span className="font-medium">
+                              {task.startTime && task.endTime
+                                ? `${new Date(task.startTime * 1000).toLocaleDateString()} ~ ${new Date(task.endTime * 1000).toLocaleDateString()}`
+                                : task.startTime
+                                ? `从 ${new Date(task.startTime * 1000).toLocaleDateString()}`
+                                : `到 ${new Date(task.endTime! * 1000).toLocaleDateString()}`}
+                            </span>
+                          )}
+                          {task.status === "running" && task.progressMessage && (
+                            <span className="text-muted-foreground/40">{task.progressMessage}</span>
+                          )}
                         </div>
 
+                        {/* Running progress inline */}
                         {task.status === "running" && (
-                          <div className="mt-3 space-y-2">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="text-muted-foreground">
-                                {task.progressMessage || '准备中...'}
-                              </span>
-                              <motion.span
-                                key={task.progress}
-                                className="font-medium text-muted-foreground"
-                                initial={{ opacity: 0, y: 2 }}
-                                animate={{ opacity: 1, y: 0, transition: { duration: DUR.fast, ease: EASE.out } }}
-                              >
-                                {task.progress}%
-                              </motion.span>
-                            </div>
+                          <div className="mt-1.5 flex items-center gap-2">
                             <Progress
                               value={task.progress}
                               shimmer={true}
-                              className="h-1.5 rounded-full transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                              className="h-1.5 rounded-full flex-1 max-w-[240px]"
                             />
+                            <span className="text-xs font-medium text-muted-foreground/50 tabular-nums">{task.progress}%</span>
                           </div>
                         )}
 
+                        {/* Error */}
                         {task.error && (
-                          <motion.div
-                            className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1, transition: { duration: DUR.normal, ease: EASE.inOut } }}
-                          >
+                          <div className="mt-1.5 text-xs text-red-600 dark:text-red-400">
                             {task.error}
-                          </motion.div>
+                          </div>
                         )}
-                      </motion.div>
-                    ))}
-                  </motion.div>
+                      </div>
+
+                      <div className="ml-3 flex items-center gap-1.5 flex-shrink-0">
+                        {task.status === "completed" && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 rounded-full p-0"
+                              onClick={() => openFileLocation(task.filePath)}
+                              title="打开文件位置"
+                            >
+                              <FolderOpen className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 rounded-full p-0"
+                              onClick={() => downloadTask(task)}
+                              title={isJsonlExport(task) ? "打开文件夹" : "下载"}
+                            >
+                              {isJsonlExport(task) ? <FolderOpen className="w-4 h-4" /> : <Download className="w-4 h-4" />}
+                            </Button>
+                          </>
+                        )}
+                        {(task.status === "completed" || task.status === "failed") && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 rounded-full p-0 text-muted-foreground/50 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                            onClick={() => {
+                              toast.error(`删除任务「${task.sessionName}」？`, {
+                                description: "此操作不可撤销",
+                                actions: [
+                                  {
+                                    label: "确认删除",
+                                    onClick: () => {
+                                      toast.promise(
+                                        (async () => {
+                                          const success = await deleteTask(task.id)
+                                          if (!success) throw new Error("删除失败")
+                                          tasksLoadedRef.current = false
+                                          return success
+                                        })(),
+                                        {
+                                          loading: "正在删除...",
+                                          success: "已删除",
+                                          error: "删除失败"
+                                        }
+                                      )
+                                    },
+                                    variant: "destructive"
+                                  }
+                                ]
+                              })
+                            }}
+                            title="删除"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))
                 )}
-              </motion.div>
+              </div>
             )}
 
+            {/* ==================== SCHEDULED ==================== */}
             {activeTab === "scheduled" && (
-              <motion.div key="tab-scheduled" {...fadeSlide} className="space-y-6 pt-10">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-2xl font-semibold tracking-tight text-foreground">定时导出</h2>
-                    <p className="text-muted-foreground mt-1">管理自动化的定时导出任务</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <motion.button
-                      onClick={handleLoadScheduledExports}
-                      disabled={scheduledLoading}
-                      className="p-2 rounded-full text-muted-foreground/70 hover:text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
-                      whileTap={{ rotate: -20, scale: 0.95 }}
-                    >
-                      <RefreshCw className={`w-4 h-4 ${scheduledLoading ? 'animate-spin' : ''}`} />
-                    </motion.button>
-                    <Button 
-                      onClick={handleOpenScheduledMergeDialog}
-                      disabled={loadingScheduledTasks}
-                      variant="outline" 
-                      className="rounded-full"
-                    >
-                      <Combine className="w-4 h-4 mr-2" />
-                      合并备份
-                    </Button>
-                    <Button onClick={() => handleOpenScheduledExportWizard()} className="rounded-full">
-                      新建定时任务
-                    </Button>
-                  </div>
-                </div>
-
+              <div className="p-5 space-y-4">
                 {/* Filter Tabs */}
                 {scheduledExports.length > 0 && (
-                  <div className="flex items-center gap-1 p-1 bg-muted/80 rounded-full w-fit">
+                  <div className="flex items-center gap-0.5 px-1">
                     {[
                       { id: 'all', label: `全部 ${getScheduledStats().total}` },
                       { id: 'enabled', label: `启用 ${getScheduledStats().enabled}` },
@@ -1646,18 +1685,17 @@ export default function QCEDashboard() {
                     ].map(tab => {
                       const isActive = scheduledFilter === tab.id;
                       return (
-                        <motion.button
+                        <button
                           key={tab.id}
                           onClick={() => setScheduledFilter(tab.id as typeof scheduledFilter)}
-                          className={`px-4 py-1.5 rounded-full text-sm transition-all ${
+                          className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
                             isActive 
-                              ? 'bg-background text-foreground shadow-sm' 
-                              : 'text-muted-foreground hover:text-foreground'
+                              ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium' 
+                              : 'text-muted-foreground/60 hover:text-muted-foreground'
                           }`}
-                          whileTap={{ scale: 0.98 }}
                         >
                           {tab.label}
-                        </motion.button>
+                        </button>
                       );
                     })}
                   </div>
@@ -1665,353 +1703,325 @@ export default function QCEDashboard() {
 
                 {/* List */}
                 {scheduledExports.length === 0 ? (
-                  <motion.div
-                    className="rounded-2xl border border-dashed border-border bg-muted/50 py-14 text-center"
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                  >
-                    <Clock className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
-                    <p className="text-muted-foreground font-medium">暂无定时导出任务</p>
-                    <p className="text-muted-foreground/70 text-sm mt-1">点击右上角「新建定时任务」开始</p>
-                  </motion.div>
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <Clock className="w-8 h-8 text-muted-foreground/20 mb-3" />
+                    <p className="text-[13px] text-foreground font-medium">暂无定时导出任务</p>
+                    <p className="text-[12px] text-muted-foreground/60 mt-1">点击右上角「新建定时任务」开始</p>
+                  </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="space-y-0.5">
                     {scheduledExports
                       .filter(se => scheduledFilter === 'all' || (scheduledFilter === 'enabled' ? se.enabled : !se.enabled))
                       .map((scheduledExport) => (
                       <div
                         key={scheduledExport.id}
-                        className="group relative rounded-xl border border-border bg-background hover:border-border transition-all overflow-hidden"
+                        className="group flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors"
                       >
-                        <div className="p-4">
-                          {/* Header */}
-                          <div className="flex items-start gap-3">
-                            <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
-                              scheduledExport.enabled ? 'bg-neutral-900' : 'bg-neutral-300'
-                            }`} />
-                            <div className="min-w-0 flex-1">
-                              <h3 className="font-medium text-foreground truncate text-sm">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                            scheduledExport.enabled ? 'bg-blue-500' : 'bg-neutral-300 dark:bg-neutral-600'
+                          }`} />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[13px] font-medium text-foreground truncate">
                                 {scheduledExport.name}
-                              </h3>
-                              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                <span className="text-xs text-muted-foreground">
-                                  {scheduledExport.scheduleType === "daily" && "每天"}
-                                  {scheduledExport.scheduleType === "weekly" && "每周"}
-                                  {scheduledExport.scheduleType === "monthly" && "每月"}
-                                  {scheduledExport.scheduleType === "custom" && "自定义"}
-                                </span>
-                                <span className="text-neutral-200">·</span>
-                                <span className="text-xs text-muted-foreground">
-                                  {scheduledExport.scheduleType === "custom" && scheduledExport.cronExpression
-                                    ? scheduledExport.cronExpression
-                                    : scheduledExport.executeTime}
-                                </span>
-                              </div>
+                              </span>
+                              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                                scheduledExport.enabled 
+                                  ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' 
+                                  : 'bg-black/[0.04] dark:bg-white/[0.04] text-muted-foreground/50'
+                              }`}>
+                                {scheduledExport.enabled ? "启用" : "禁用"}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground/50">
+                              <span>
+                                {scheduledExport.scheduleType === "daily" && "每天"}
+                                {scheduledExport.scheduleType === "weekly" && "每周"}
+                                {scheduledExport.scheduleType === "monthly" && "每月"}
+                                {scheduledExport.scheduleType === "custom" && "自定义"}
+                              </span>
+                              <span className="text-muted-foreground/20">·</span>
+                              <span>
+                                {scheduledExport.scheduleType === "custom" && scheduledExport.cronExpression
+                                  ? scheduledExport.cronExpression
+                                  : scheduledExport.executeTime}
+                              </span>
                               {scheduledExport.nextRun && (
-                                <p className="text-xs text-muted-foreground/70 mt-1">
-                                  下次 {new Date(scheduledExport.nextRun).toLocaleString("zh-CN", {
-                                    month: "numeric",
-                                    day: "numeric",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </p>
+                                <>
+                                  <span className="text-muted-foreground/20">·</span>
+                                  <span>
+                                    下次 {new Date(scheduledExport.nextRun).toLocaleString("zh-CN", {
+                                      month: "numeric",
+                                      day: "numeric",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                  </span>
+                                </>
                               )}
                             </div>
-                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                              scheduledExport.enabled 
-                                ? 'bg-muted text-muted-foreground' 
-                                : 'bg-muted text-muted-foreground/70'
-                            }`}>
-                              {scheduledExport.enabled ? "启用" : "禁用"}
-                            </span>
-                          </div>
-
-                          {/* Actions */}
-                          <div className="flex items-center gap-1 mt-3 pt-3 border-t border-border">
-                            <button
-                              className="flex-1 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                              onClick={() => toggleScheduledExport(scheduledExport.id, !scheduledExport.enabled)}
-                            >
-                              {scheduledExport.enabled ? "禁用" : "启用"}
-                            </button>
-                            <button
-                              className="flex-1 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                              onClick={() => triggerScheduledExport(scheduledExport.id)}
-                            >
-                              执行
-                            </button>
-                            <button
-                              className="flex-1 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                              onClick={() => handleOpenHistoryModal(scheduledExport.id, scheduledExport.name)}
-                            >
-                              历史
-                            </button>
                           </div>
                         </div>
-                        
-                        {/* Delete button */}
-                        <button
-                          className="absolute top-2 right-2 p-1.5 rounded-full bg-background/80 text-muted-foreground/70 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
-                          onClick={async () => {
-                            if (confirm(`确定要删除定时任务"${scheduledExport.name}"吗？`)) {
-                              const success = await deleteScheduledExport(scheduledExport.id)
-                              if (success) await loadScheduledExports()
-                            }
-                          }}
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+
+                        <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            className="px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-foreground rounded-md hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                            onClick={() => toggleScheduledExport(scheduledExport.id, !scheduledExport.enabled)}
+                          >
+                            {scheduledExport.enabled ? "禁用" : "启用"}
+                          </button>
+                          <button
+                            className="px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-foreground rounded-md hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                            onClick={() => triggerScheduledExport(scheduledExport.id)}
+                          >
+                            执行
+                          </button>
+                          <button
+                            className="px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-foreground rounded-md hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                            onClick={() => handleOpenHistoryModal(scheduledExport.id, scheduledExport.name)}
+                          >
+                            历史
+                          </button>
+                          <button
+                            className="p-1 text-muted-foreground/30 hover:text-red-500 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                            onClick={() => {
+                              toast.error(`删除定时任务「${scheduledExport.name}」？`, {
+                                description: "此操作不可撤销",
+                                actions: [
+                                  {
+                                    label: "确认删除",
+                                    onClick: () => {
+                                      toast.promise(
+                                        (async () => {
+                                          const success = await deleteScheduledExport(scheduledExport.id)
+                                          if (!success) throw new Error("删除失败")
+                                          await loadScheduledExports()
+                                          return success
+                                        })(),
+                                        {
+                                          loading: "正在删除...",
+                                          success: "已删除",
+                                          error: "删除失败"
+                                        }
+                                      )
+                                    },
+                                    variant: "destructive"
+                                  }
+                                ]
+                              })
+                            }}
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
                 )}
-              </motion.div>
+              </div>
             )}
 
+            {/* ==================== HISTORY ==================== */}
             {activeTab === "history" && (
-              <motion.div key="tab-history" {...fadeSlide} className="space-y-6 pt-10">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-2xl font-semibold tracking-tight text-foreground">聊天记录</h2>
-                    <p className="text-muted-foreground text-sm mt-0.5">
-                      {getChatHistoryStats().total} 个文件
-                      {resourceIndex && ` · ${resourceIndex.summary.totalResources.toLocaleString()} 资源 · ${formatResourceSize(resourceIndex.summary.totalSize)}`}
-                    </p>
-                  </div>
-                  <motion.button
-                    onClick={async () => {
-                      chatHistoryLoadedRef.current = false
-                      resourceIndexLoadedRef.current = false
-                      await Promise.all([handleLoadChatHistory(), loadResourceIndex()])
-                      chatHistoryLoadedRef.current = true
-                      resourceIndexLoadedRef.current = true
-                    }}
-                    disabled={chatHistoryLoading || resourceIndexLoading}
-                    className="p-2 rounded-full text-muted-foreground/70 hover:text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
-                    whileTap={{ rotate: -20, scale: 0.95 }}
-                  >
-                    <RefreshCw className={`w-4 h-4 ${(chatHistoryLoading || resourceIndexLoading) ? 'animate-spin' : ''}`} />
-                  </motion.button>
+              <div className="p-5 space-y-4">
+                {/* Stats line */}
+                <div className="text-[12px] text-muted-foreground/50 px-1">
+                  {getChatHistoryStats().total} 个文件
+                  {resourceIndex && ` · ${resourceIndex.summary.totalResources.toLocaleString()} 资源 · ${formatResourceSize(resourceIndex.summary.totalSize)}`}
                 </div>
 
-                {/* Sub Tabs: Records / Gallery */}
-                <div className="flex items-center gap-1 p-1 bg-muted/80 rounded-full w-fit">
-                  <motion.button
+                {/* Sub Tabs */}
+                <div className="flex items-center gap-0.5 px-1">
+                  <button
                     onClick={() => setHistorySubTab('records')}
-                    className={`px-4 py-1.5 rounded-full text-sm transition-all ${
+                    className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
                       historySubTab === 'records'
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
+                        ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium'
+                        : 'text-muted-foreground/60 hover:text-muted-foreground'
                     }`}
-                    whileTap={{ scale: 0.98 }}
                   >
                     记录列表
-                  </motion.button>
-                  <motion.button
+                  </button>
+                  <button
                     onClick={() => {
                       setHistorySubTab('gallery')
                       if (resourceFiles.length === 0) {
                         loadResourceFiles(galleryType, 1, 50)
                       }
                     }}
-                    className={`px-4 py-1.5 rounded-full text-sm transition-all ${
+                    className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
                       historySubTab === 'gallery'
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
+                        ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium'
+                        : 'text-muted-foreground/60 hover:text-muted-foreground'
                     }`}
-                    whileTap={{ scale: 0.98 }}
                   >
                     资源画廊
-                  </motion.button>
+                  </button>
                 </div>
 
                 {/* Records View */}
                 {historySubTab === 'records' && (
                   <>
-                {/* Filters Row */}
-                {chatHistoryFiles.length > 0 && (
-                  <div className="flex items-center justify-between gap-4 flex-wrap">
-                    {/* Type Filter */}
-                    <div className="flex items-center gap-1 p-1 bg-muted/80 rounded-full">
-                      {[
-                        { id: 'all', label: '全部' },
-                        { id: 'group', label: '群组' },
-                        { id: 'friend', label: '好友' },
-                      ].map(tab => {
-                        const isActive = (historyFilter || 'all') === tab.id;
-                        return (
-                          <motion.button
-                            key={tab.id}
-                            onClick={() => setHistoryFilter(tab.id as 'all' | 'group' | 'friend')}
-                            className={`px-3 py-1 rounded-full text-xs transition-all ${
-                              isActive 
-                                ? 'bg-background text-foreground shadow-sm' 
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                            whileTap={{ scale: 0.98 }}
-                          >
-                            {tab.label}
-                          </motion.button>
-                        );
-                      })}
-                    </div>
+                    {/* Filters Row */}
+                    {chatHistoryFiles.length > 0 && (
+                      <div className="flex items-center justify-between gap-4 flex-wrap px-1">
+                        <div className="flex items-center gap-0.5">
+                          {[
+                            { id: 'all', label: '全部' },
+                            { id: 'group', label: '群组' },
+                            { id: 'friend', label: '好友' },
+                          ].map(tab => {
+                            const isActive = (historyFilter || 'all') === tab.id;
+                            return (
+                              <button
+                                key={tab.id}
+                                onClick={() => setHistoryFilter(tab.id as 'all' | 'group' | 'friend')}
+                                className={`px-2 py-0.5 rounded-md text-[11px] transition-colors ${
+                                  isActive 
+                                    ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium' 
+                                    : 'text-muted-foreground/50 hover:text-muted-foreground'
+                                }`}
+                              >
+                                {tab.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center gap-0.5">
+                          {[
+                            { id: 'all', label: '全部格式' },
+                            { id: 'html', label: 'HTML' },
+                            { id: 'json', label: 'JSON' },
+                            { id: 'zip', label: 'ZIP' },
+                            { id: 'jsonl', label: 'JSONL' },
+                          ].map(tab => {
+                            const isActive = (historyFormatFilter || 'all') === tab.id;
+                            return (
+                              <button
+                                key={tab.id}
+                                onClick={() => setHistoryFormatFilter(tab.id as 'all' | 'html' | 'json' | 'zip' | 'jsonl')}
+                                className={`px-2 py-0.5 rounded-md text-[11px] transition-colors ${
+                                  isActive 
+                                    ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium' 
+                                    : 'text-muted-foreground/50 hover:text-muted-foreground'
+                                }`}
+                              >
+                                {tab.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
-                    {/* Format Filter */}
-                    <div className="flex items-center gap-1 p-1 bg-muted/80 rounded-full">
-                      {[
-                        { id: 'all', label: '全部格式' },
-                        { id: 'html', label: 'HTML' },
-                        { id: 'json', label: 'JSON' },
-                        { id: 'zip', label: 'ZIP' },
-                        { id: 'jsonl', label: 'JSONL' },
-                      ].map(tab => {
-                        const isActive = (historyFormatFilter || 'all') === tab.id;
-                        return (
-                          <motion.button
-                            key={tab.id}
-                            onClick={() => setHistoryFormatFilter(tab.id as 'all' | 'html' | 'json' | 'zip' | 'jsonl')}
-                            className={`px-3 py-1 rounded-full text-xs transition-all ${
-                              isActive 
-                                ? 'bg-background text-foreground shadow-sm' 
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                            whileTap={{ scale: 0.98 }}
-                          >
-                            {tab.label}
-                          </motion.button>
-                        );
-                      })}
-                    </div>
-
-                  </div>
-                )}
-
-                {/* Empty State */}
-                {chatHistoryFiles.length === 0 ? (
-                  <motion.div
-                    className="rounded-2xl border border-dashed border-border bg-muted/50 py-16 text-center"
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                  >
-                    <MessageCircle className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
-                    <p className="text-muted-foreground font-medium">暂无聊天记录</p>
-                    <p className="text-muted-foreground/70 text-sm mt-1">完成导出任务后，记录将在此处显示</p>
-                  </motion.div>
-                ) : (
-                  /* File Grid */
-                  <motion.div
-                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
-                    variants={STAG.container}
-                    initial="initial"
-                    animate="animate"
-                  >
-                    {chatHistoryFiles
-                      .filter(file => {
-                        // Type filter
-                        if (historyFilter === 'group' && file.chatType !== 'group') return false;
-                        if (historyFilter === 'friend' && file.chatType === 'group') return false;
-                        
-                        // Format filter
-                        if (historyFormatFilter && historyFormatFilter !== 'all') {
-                          const ext = file.fileName.toLowerCase().split('.').pop();
-                          const isHtml = ext === 'html' || ext === 'htm';
-                          const isJson = ext === 'json';
-                          const isZip = ext === 'zip';
-                          const isJsonl = file.fileName.includes('_chunked_jsonl');
-                          
-                          if (historyFormatFilter === 'html' && !isHtml) return false;
-                          if (historyFormatFilter === 'json' && !isJson) return false;
-                          if (historyFormatFilter === 'zip' && !isZip) return false;
-                          if (historyFormatFilter === 'jsonl' && !isJsonl) return false;
-                        }
-                        
-                        return true;
-                      })
-                      .map((file) => {
-                        const avatarUrl = file.chatType === 'group' 
-                          ? `https://p.qlogo.cn/gh/${file.chatId}/${file.chatId}/640/`
-                          : `https://q1.qlogo.cn/g?b=qq&nk=${file.chatId}&s=640`;
-                        
-                        const ext = file.fileName.toLowerCase().split('.').pop();
-                        const isJsonl = file.fileName.includes('_chunked_jsonl');
-                        const formatLabel = isJsonl ? 'JSONL' : ext === 'html' || ext === 'htm' ? 'HTML' : ext === 'json' ? 'JSON' : ext === 'zip' ? 'ZIP' : ext?.toUpperCase();
-                        
-                        // Find resource info for this file
-                        const resourceInfo = resourceIndex?.exports.find(e => 
-                          e.fileName === file.fileName || 
-                          e.fileName === file.fileName.replace(/\.(html|json)$/i, '')
-                        );
-                        
-                        return (
-                          <motion.div
-                            key={file.fileName}
-                            className="group relative rounded-xl border border-border bg-background hover:border-border hover:shadow-sm transition-all cursor-pointer"
-                            variants={STAG.item}
-                            whileHover={{ y: -2 }}
-                            whileTap={{ scale: 0.99 }}
-                            onClick={() => handleOpenFilePathModal(file.filePath, file.displayName || file.sessionName || file.chatId, file.fileName, file.size)}
-                          >
-                            <div className="p-4">
-                              <div className="flex items-start gap-3">
-                                <Avatar className="w-10 h-10 rounded-lg border border-border flex-shrink-0">
-                                  <AvatarImage src={avatarUrl} />
-                                  <AvatarFallback className="rounded-lg bg-muted text-muted-foreground/70">
-                                    {file.chatType === 'group' ? <Users className="w-5 h-5" /> : <User className="w-5 h-5" />}
+                    {/* Empty State */}
+                    {chatHistoryFiles.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-20 text-center">
+                        <MessageCircle className="w-8 h-8 text-muted-foreground/20 mb-3" />
+                        <p className="text-[13px] text-foreground font-medium">暂无聊天记录</p>
+                        <p className="text-[12px] text-muted-foreground/60 mt-1">完成导出任务后，记录将在此处显示</p>
+                      </div>
+                    ) : (
+                      /* Flat file list */
+                      <div className="space-y-0.5">
+                        {chatHistoryFiles
+                          .filter(file => {
+                            if (historyFilter === 'group' && file.chatType !== 'group') return false;
+                            if (historyFilter === 'friend' && file.chatType === 'group') return false;
+                            if (historyFormatFilter && historyFormatFilter !== 'all') {
+                              const ext = file.fileName.toLowerCase().split('.').pop();
+                              const isHtml = ext === 'html' || ext === 'htm';
+                              const isJson = ext === 'json';
+                              const isZip = ext === 'zip';
+                              const isJsonl = file.fileName.includes('_chunked_jsonl');
+                              if (historyFormatFilter === 'html' && !isHtml) return false;
+                              if (historyFormatFilter === 'json' && !isJson) return false;
+                              if (historyFormatFilter === 'zip' && !isZip) return false;
+                              if (historyFormatFilter === 'jsonl' && !isJsonl) return false;
+                            }
+                            return true;
+                          })
+                          .map((file) => {
+                            const avatarUrl = file.chatType === 'group' 
+                              ? `https://p.qlogo.cn/gh/${file.chatId}/${file.chatId}/640/`
+                              : `https://q1.qlogo.cn/g?b=qq&nk=${file.chatId}&s=640`;
+                            
+                            const ext = file.fileName.toLowerCase().split('.').pop();
+                            const isJsonl = file.fileName.includes('_chunked_jsonl');
+                            const formatLabel = isJsonl ? 'JSONL' : ext === 'html' || ext === 'htm' ? 'HTML' : ext === 'json' ? 'JSON' : ext === 'zip' ? 'ZIP' : ext?.toUpperCase();
+                            
+                            const resourceInfo = resourceIndex?.exports.find(e => 
+                              e.fileName === file.fileName || 
+                              e.fileName === file.fileName.replace(/\.(html|json)$/i, '')
+                            );
+                            
+                            return (
+                              <div
+                                key={file.fileName}
+                                className="group flex items-center px-3 py-3 rounded-lg hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors cursor-pointer"
+                                onClick={() => handleOpenFilePathModal(file.filePath, file.displayName || file.sessionName || file.chatId, file.fileName, file.size)}
+                              >
+                                <Avatar className="w-9 h-9 rounded-full border border-black/[0.04] dark:border-white/[0.04] flex-shrink-0 mr-3">
+                                  <AvatarImage src={avatarUrl} className="rounded-full" />
+                                  <AvatarFallback className="rounded-full bg-black/[0.02] dark:bg-white/[0.04] text-muted-foreground/40">
+                                    {file.chatType === 'group' ? <Users className="w-4 h-4" /> : <User className="w-4 h-4" />}
                                   </AvatarFallback>
                                 </Avatar>
                                 <div className="min-w-0 flex-1">
-                                  <h3 className="font-medium text-foreground truncate text-sm">
+                                  <span className="text-[13px] font-medium text-foreground truncate block">
                                     {file.displayName || file.sessionName || file.chatId}
-                                  </h3>
-                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                    {file.messageCount !== undefined && file.messageCount > 0 && (
-                                      <>
-                                        <span className="text-xs text-muted-foreground/70">
-                                          {file.messageCount} 条
-                                        </span>
-                                        <span className="text-neutral-200">·</span>
-                                      </>
-                                    )}
-                                    {resourceInfo && resourceInfo.resourceCount > 0 && (
-                                      <>
-                                        <span className="text-xs text-muted-foreground/70">
-                                          {resourceInfo.resourceCount} 资源
-                                        </span>
-                                        <span className="text-neutral-200">·</span>
-                                      </>
-                                    )}
-                                    <span className="text-xs text-muted-foreground/70">
-                                      {new Date(file.createTime).toLocaleDateString()}
-                                    </span>
-                                  </div>
+                                  </span>
                                 </div>
-                                <span className="text-[10px] font-medium text-muted-foreground/70 bg-muted px-1.5 py-0.5 rounded">
-                                  {formatLabel}
-                                </span>
+                                <div className="flex items-center gap-3 ml-3 flex-shrink-0 text-[11px] text-muted-foreground/40">
+                                  {file.messageCount !== undefined && file.messageCount > 0 && (
+                                    <span>{file.messageCount} 条</span>
+                                  )}
+                                  {resourceInfo && resourceInfo.resourceCount > 0 && (
+                                    <span>{resourceInfo.resourceCount} 资源</span>
+                                  )}
+                                  <span>{new Date(file.createTime).toLocaleDateString()}</span>
+                                  <span className="text-[10px] font-medium bg-black/[0.04] dark:bg-white/[0.04] px-1.5 py-0.5 rounded text-muted-foreground/50">
+                                    {formatLabel}
+                                  </span>
+                                </div>
+                                <button
+                                  className="p-1 ml-1 rounded-md text-muted-foreground/20 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 opacity-0 group-hover:opacity-100 transition-all"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toast.error(`删除这条记录？`, {
+                                      description: file.displayName || file.sessionName || file.chatId,
+                                      actions: [
+                                        {
+                                          label: "确认删除",
+                                          onClick: () => {
+                                            toast.promise(
+                                              (async () => {
+                                                const success = await deleteChatHistoryFile(file.fileName);
+                                                if (!success) throw new Error("删除失败");
+                                                chatHistoryLoadedRef.current = false;
+                                                return success;
+                                              })(),
+                                              {
+                                                loading: "正在删除...",
+                                                success: "已删除",
+                                                error: "删除失败"
+                                              }
+                                            )
+                                          },
+                                          variant: "destructive"
+                                        }
+                                      ]
+                                    })
+                                  }}
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
                               </div>
-                            </div>
-                            
-                            {/* Delete button */}
-                            <motion.button
-                              className="absolute top-2 right-2 p-1.5 rounded-full bg-background/80 text-muted-foreground/70 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                if (confirm(`确定要删除这条记录吗？`)) {
-                                  const success = await deleteChatHistoryFile(file.fileName);
-                                  if (success) chatHistoryLoadedRef.current = false;
-                                }
-                              }}
-                              whileTap={{ scale: 0.9 }}
-                            >
-                              <X className="w-3 h-3" />
-                            </motion.button>
-                          </motion.div>
-                        );
-                      })}
-                  </motion.div>
-                )}
+                            );
+                          })}
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -2019,7 +2029,7 @@ export default function QCEDashboard() {
                 {historySubTab === 'gallery' && (
                   <div className="space-y-4">
                     {/* Gallery Type Filter */}
-                    <div className="flex items-center gap-1 p-1 bg-muted/80 rounded-full w-fit">
+                    <div className="flex items-center gap-0.5 px-1">
                       {[
                         { id: 'all', label: '全部' },
                         { id: 'images', label: '图片' },
@@ -2029,25 +2039,24 @@ export default function QCEDashboard() {
                       ].map(tab => {
                         const isActive = galleryType === tab.id;
                         return (
-                          <motion.button
+                          <button
                             key={tab.id}
                             onClick={() => {
                               setGalleryType(tab.id as typeof galleryType)
                               setGalleryPage(1)
                               loadResourceFiles(tab.id as typeof galleryType, 1, 50)
                             }}
-                            className={`px-3 py-1 rounded-full text-xs transition-all ${
+                            className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
                               isActive 
-                                ? 'bg-background text-foreground shadow-sm' 
-                                : 'text-muted-foreground hover:text-foreground'
+                                ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium' 
+                                : 'text-muted-foreground/60 hover:text-muted-foreground'
                             }`}
-                            whileTap={{ scale: 0.98 }}
                           >
                             {tab.label}
-                          </motion.button>
+                          </button>
                         );
                       })}
-                      <span className="text-xs text-muted-foreground/70 ml-2">
+                      <span className="text-[11px] text-muted-foreground/40 ml-2">
                         {resourceFilesTotal} 个
                       </span>
                     </div>
@@ -2055,8 +2064,8 @@ export default function QCEDashboard() {
                     {/* Loading */}
                     {resourceFilesLoading && resourceFiles.length === 0 && (
                       <div className="flex items-center justify-center py-20">
-                        <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground/70" />
-                        <span className="ml-2 text-muted-foreground text-sm">加载中...</span>
+                        <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground/40" />
+                        <span className="ml-2 text-muted-foreground/50 text-[13px]">加载中...</span>
                       </div>
                     )}
 
@@ -2064,11 +2073,9 @@ export default function QCEDashboard() {
                     {resourceFiles.length > 0 && (
                       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
                         {resourceFiles.map((file, idx) => (
-                          <motion.div
+                          <div
                             key={`${file.fileName}-${idx}`}
-                            className="relative aspect-square rounded-lg overflow-hidden bg-muted cursor-pointer group"
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
+                            className="relative aspect-square rounded-lg overflow-hidden bg-black/[0.02] dark:bg-white/[0.02] cursor-pointer group hover:ring-2 hover:ring-black/[0.08] dark:hover:ring-white/[0.08] transition-all"
                             onClick={() => setPreviewResource({ type: file.type, url: file.url, name: file.fileName })}
                           >
                             {file.type === 'image' ? (
@@ -2083,27 +2090,27 @@ export default function QCEDashboard() {
                                 <Video className="w-8 h-8 text-white/60" />
                               </div>
                             ) : file.type === 'audio' ? (
-                              <div className="w-full h-full flex items-center justify-center bg-muted">
-                                <Music className="w-8 h-8 text-muted-foreground/70" />
+                              <div className="w-full h-full flex items-center justify-center">
+                                <Music className="w-8 h-8 text-muted-foreground/30" />
                               </div>
                             ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-muted">
-                                <File className="w-8 h-8 text-muted-foreground/70" />
+                              <div className="w-full h-full flex items-center justify-center">
+                                <File className="w-8 h-8 text-muted-foreground/30" />
                               </div>
                             )}
-                            {/* Overlay */}
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
-                          </motion.div>
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                          </div>
                         ))}
                       </div>
                     )}
 
                     {/* Load More */}
                     {resourceFilesHasMore && (
-                      <div className="flex justify-center pt-4">
+                      <div className="flex justify-center pt-2">
                         <Button
-                          variant="outline"
+                          variant="ghost"
                           size="sm"
+                          className="h-7 text-[12px] rounded-md"
                           onClick={() => {
                             const nextPage = galleryPage + 1
                             setGalleryPage(nextPage)
@@ -2118,16 +2125,16 @@ export default function QCEDashboard() {
 
                     {/* Empty */}
                     {!resourceFilesLoading && resourceFiles.length === 0 && (
-                      <div className="text-center py-16">
-                        <Image className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
-                        <p className="text-muted-foreground">暂无资源</p>
-                        <p className="text-muted-foreground/70 text-sm mt-1">导出聊天记录后，资源将显示在这里</p>
+                      <div className="flex flex-col items-center justify-center py-16 text-center">
+                        <Image className="w-8 h-8 text-muted-foreground/20 mb-3" />
+                        <p className="text-[13px] text-foreground font-medium">暂无资源</p>
+                        <p className="text-[12px] text-muted-foreground/60 mt-1">导出聊天记录后，资源将显示在这里</p>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* Resource Preview Modal - Full Screen with Animation */}
+                {/* Resource Preview Modal */}
                 <AnimatePresence>
                   {previewResource && (
                     <motion.div 
@@ -2138,7 +2145,6 @@ export default function QCEDashboard() {
                       className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
                       onClick={() => setPreviewResource(null)}
                     >
-                      {/* Top Bar */}
                       <motion.div 
                         initial={{ opacity: 0, y: -20 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -2181,7 +2187,6 @@ export default function QCEDashboard() {
                         </div>
                       </motion.div>
 
-                      {/* Content */}
                       <motion.div 
                         initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
@@ -2243,7 +2248,6 @@ export default function QCEDashboard() {
                         )}
                       </motion.div>
 
-                      {/* Bottom hint */}
                       <motion.p 
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
@@ -2255,48 +2259,15 @@ export default function QCEDashboard() {
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </motion.div>
+              </div>
             )}
 
+            {/* ==================== STICKERS ==================== */}
             {activeTab === "stickers" && (
-              <motion.div key="tab-stickers" {...fadeSlide} className="space-y-6 pt-10">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-2xl font-semibold tracking-tight text-foreground">表情包管理</h2>
-                    <p className="text-muted-foreground mt-1">导出收藏的表情、市场表情包和系统表情包</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <motion.button
-                      onClick={async () => {
-                        stickerPacksLoadedRef.current = false
-                        try {
-                          await Promise.all([loadStickerPacks(), loadStickerExportRecords()])
-                          stickerPacksLoadedRef.current = true
-                        } catch (error) {
-                          console.error('[QCE] 刷新表情包失败:', error)
-                          stickerPacksLoadedRef.current = false
-                        }
-                      }}
-                      disabled={stickerPacksLoading}
-                      className="p-2 rounded-full text-muted-foreground/70 hover:text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
-                      whileTap={{ rotate: -20, scale: 0.95 }}
-                    >
-                      <RefreshCw className={`w-4 h-4 ${stickerPacksLoading ? 'animate-spin' : ''}`} />
-                    </motion.button>
-                    <Button
-                      onClick={handleExportAllStickerPacks}
-                      disabled={stickerPacksLoading || stickerPacks.length === 0}
-                      className="rounded-full"
-                    >
-                      <Download className="w-4 h-4 mr-2" />
-                      导出所有
-                    </Button>
-                  </div>
-                </div>
-
+              <div className="p-5 space-y-4">
                 {/* Filter Tabs */}
                 {stickerPacks.length > 0 && (
-                  <div className="flex items-center gap-1 p-1 bg-muted/80 rounded-full w-fit">
+                  <div className="flex items-center gap-0.5 px-1">
                     {[
                       { id: 'all', label: `全部 ${getStickerPacksStats().total}` },
                       { id: 'favorite', label: `收藏 ${getStickerPacksStats().favorite_emoji}` },
@@ -2305,18 +2276,17 @@ export default function QCEDashboard() {
                     ].map(tab => {
                       const isActive = stickerFilter === tab.id;
                       return (
-                        <motion.button
+                        <button
                           key={tab.id}
                           onClick={() => setStickerFilter(tab.id as typeof stickerFilter)}
-                          className={`px-4 py-1.5 rounded-full text-sm transition-all ${
+                          className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
                             isActive 
-                              ? 'bg-background text-foreground shadow-sm' 
-                              : 'text-muted-foreground hover:text-foreground'
+                              ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium' 
+                              : 'text-muted-foreground/60 hover:text-muted-foreground'
                           }`}
-                          whileTap={{ scale: 0.98 }}
                         >
                           {tab.label}
-                        </motion.button>
+                        </button>
                       );
                     })}
                   </div>
@@ -2324,17 +2294,13 @@ export default function QCEDashboard() {
 
                 {/* Sticker Packs List */}
                 {stickerPacks.length === 0 ? (
-                  <motion.div
-                    className="rounded-2xl border border-dashed border-border bg-muted/50 py-14 text-center"
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                  >
-                    <Smile className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
-                    <p className="text-muted-foreground font-medium">暂无表情包</p>
-                    <p className="text-muted-foreground/70 text-sm mt-1">点击刷新按钮加载表情包数据</p>
-                  </motion.div>
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <Smile className="w-8 h-8 text-muted-foreground/20 mb-3" />
+                    <p className="text-[13px] text-foreground font-medium">暂无表情包</p>
+                    <p className="text-[12px] text-muted-foreground/60 mt-1">点击刷新按钮加载表情包数据</p>
+                  </div>
                 ) : (
-                  <div className="rounded-xl border border-border bg-background divide-y divide-border overflow-hidden">
+                  <div className="space-y-0.5">
                     {stickerPacks
                       .filter(pack => {
                         if (stickerFilter === 'all') return true;
@@ -2346,22 +2312,22 @@ export default function QCEDashboard() {
                       .map((pack) => (
                         <div
                           key={pack.packId}
-                          className="flex items-center justify-between px-4 py-3 hover:bg-muted transition-colors"
+                          className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors group"
                         >
                           <div className="flex items-center gap-3 min-w-0 flex-1">
-                            <span className="font-medium text-foreground truncate">
+                            <span className="text-[13px] font-medium text-foreground truncate">
                               {pack.packName}
                             </span>
-                            <span className="text-xs text-muted-foreground/70 flex-shrink-0">
+                            <span className="text-[11px] text-muted-foreground/40 flex-shrink-0">
                               {pack.stickerCount} 个
                             </span>
-                            <span className="text-[10px] text-muted-foreground/70 bg-muted px-1.5 py-0.5 rounded flex-shrink-0">
+                            <span className="text-[10px] text-muted-foreground/40 bg-black/[0.03] dark:bg-white/[0.03] px-1.5 py-0.5 rounded flex-shrink-0">
                               {pack.packType === 'favorite_emoji' ? '收藏' : 
                                pack.packType === 'market_pack' ? '市场' : '系统'}
                             </span>
                           </div>
                           <button
-                            className="text-xs text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 ml-4"
+                            className="text-[11px] text-muted-foreground/40 hover:text-foreground transition-colors flex-shrink-0 ml-4 opacity-0 group-hover:opacity-100"
                             onClick={() => handleExportStickerPack(pack.packId, pack.packName)}
                             disabled={stickerPacksLoading}
                           >
@@ -2374,34 +2340,34 @@ export default function QCEDashboard() {
 
                 {/* Export History */}
                 {stickerExportRecords.length > 0 && (
-                  <motion.section className="space-y-4">
-                    <h3 className="text-sm font-medium text-muted-foreground">导出记录</h3>
-                    <div className="space-y-2">
+                  <div id="sticker-export-history" className="space-y-2 pt-2">
+                    <h3 className="text-[12px] font-medium text-muted-foreground/50 px-1">导出记录</h3>
+                    <div className="space-y-0.5">
                       {stickerExportRecords.slice(0, 5).map((record) => (
                         <div
                           key={record.id}
-                          className="flex items-center justify-between px-4 py-3 rounded-xl border border-border bg-muted/50"
+                          className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors group"
                         >
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-foreground truncate">
+                              <span className="text-[13px] font-medium text-foreground truncate">
                                 {record.packName || '全部导出'}
                               </span>
                               {!record.success && (
-                                <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                <span className="text-[10px] text-red-500 bg-red-50 dark:bg-red-950/30 px-1.5 py-0.5 rounded">
                                   失败
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground/40">
                               <span>{record.stickerCount} 个表情</span>
-                              <span className="text-neutral-200">·</span>
+                              <span className="text-muted-foreground/20">·</span>
                               <span>{new Date(record.exportTime).toLocaleDateString()}</span>
                             </div>
                           </div>
                           {record.success && record.exportPath && (
                             <button
-                              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                              className="text-[11px] text-muted-foreground/40 hover:text-foreground transition-colors opacity-0 group-hover:opacity-100"
                               onClick={() => {
                                 navigator.clipboard.writeText(record.exportPath)
                                 addNotification('success', '已复制', '路径已复制到剪贴板')
@@ -2413,106 +2379,82 @@ export default function QCEDashboard() {
                         </div>
                       ))}
                     </div>
-                  </motion.section>
+                  </div>
                 )}
-              </motion.div>
+              </div>
             )}
 
+            {/* ==================== SETTINGS ==================== */}
             {activeTab === "settings" && (
               <SettingsPanel />
             )}
 
+            {/* ==================== ABOUT ==================== */}
             {activeTab === "about" && (
-              <motion.div key="tab-about" {...fadeSlide} className="min-h-[80vh] flex flex-col items-center justify-center space-y-16 pt-20 pb-20">
-                {/* Hero Section */}
-                <div className="text-center space-y-8 max-w-4xl">
-                  <div className="space-y-6">
-                    <div className="space-y-3">
-                      <div className="text-xs font-medium text-muted-foreground/70 tracking-wider uppercase">
-                        About
-                      </div>
-                      <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-foreground">
-                        QQ 聊天记录导出工具
-                      </h1>
-                    </div>
-                    <p className="text-muted-foreground leading-relaxed max-w-2xl mx-auto">
-                      简单高效的聊天记录导出解决方案
+              <div className="p-6 max-w-2xl space-y-8">
+                <div className="space-y-4">
+                  <div>
+                    <h1 className="text-xl font-semibold tracking-tight text-foreground">QQ 聊天记录导出工具</h1>
+                  </div>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    简单高效的聊天记录导出解决方案
+                  </p>
+                </div>
+
+                {/* NapCat Tribute */}
+                <div className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] p-5 flex items-start gap-6">
+                  <div className="space-y-3 flex-1">
+                    <h2 className="text-base font-medium text-foreground">致谢 NapCat</h2>
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      感谢 NapCat 提供了访问 QQ 客户端数据的能力，让我们能够读取和导出聊天记录。
                     </p>
                   </div>
-
-                  {/* NapCat Tribute */}
-                  <div className="pt-12 pb-8">
-                    <div className="flex items-center justify-center gap-8">
-                      <div className="text-left space-y-4 max-w-md">
-                        <h2 className="text-2xl font-medium text-foreground">致谢 NapCat</h2>
-                        <p className="text-muted-foreground leading-relaxed">
-                          感谢 NapCat 提供了访问 QQ 客户端数据的能力，让我们能够读取和导出聊天记录。
-                        </p>
-                      </div>
-                      <motion.div
-                        className="flex-shrink-0"
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
-                      >
-                        <img 
-                          src="https://napneko.github.io/assets/logos/napcat_8.png" 
-                          alt="NapCat" 
-                          className="w-32 h-48 object-contain"
-                        />
-                      </motion.div>
-                    </div>
-                  </div>
+                  <img 
+                    src="https://napneko.github.io/assets/logos/napcat_8.png" 
+                    alt="NapCat" 
+                    className="w-24 h-36 object-contain flex-shrink-0"
+                  />
                 </div>
 
                 {/* Actions */}
-                <div className="flex justify-center">
-                  <div className="flex items-center gap-4">
-                    <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.98 }}>
-                      <Button 
-                        onClick={() => window.open('https://github.com/shuakami/qq-chat-exporter', '_blank')}
-                        className="rounded-full bg-neutral-900 hover:bg-neutral-800 text-white"
-                      >
-                        <Star className="w-4 h-4 mr-2" />
-                        Star on GitHub
-                      </Button>
-                    </motion.div>
-                    <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.98 }}>
-                      <Button 
-                        onClick={() => window.open('https://napneko.github.io/', '_blank')}
-                        variant="outline"
-                        className="rounded-full"
-                      >
-                        <ExternalLink className="w-4 h-4 mr-2" />
-                        了解 NapCat
-                      </Button>
-                    </motion.div>
-                  </div>
+                <div className="flex items-center gap-3">
+                  <Button 
+                    onClick={() => window.open('https://github.com/shuakami/qq-chat-exporter', '_blank')}
+                    className="rounded-full"
+                  >
+                    <Star className="w-4 h-4 mr-1.5" />
+                    Star on GitHub
+                  </Button>
+                  <Button 
+                    onClick={() => window.open('https://napneko.github.io/', '_blank')}
+                    variant="outline"
+                    className="rounded-full"
+                  >
+                    <ExternalLink className="w-4 h-4 mr-1.5" />
+                    了解 NapCat
+                  </Button>
                 </div>
 
-                {/* Legal Notice */}
-                <motion.div
-                  className="text-center space-y-4 pt-12 w-full"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0, transition: { duration: DUR.normal, ease: EASE.inOut } }}
-                >
-                  <h3 className="text-lg font-medium text-foreground">使用声明</h3>
-                  <div className="space-y-3 text-sm text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+                {/* Legal */}
+                <div className="space-y-3 pt-5 border-t border-black/[0.06] dark:border-white/[0.06]">
+                  <h3 className="text-base font-medium text-foreground">使用声明</h3>
+                  <div className="space-y-2.5 text-sm leading-relaxed text-muted-foreground">
                     <p>
                       本工具仅供学习和个人使用，请勿用于商业用途。请遵守相关法律法规和平台服务条款。
                     </p>
                     <p>
                       <strong>反倒卖声明：</strong>本项目完全开源免费，任何个人或组织不得将此工具进行商业销售或倒卖。
                     </p>
-                    <p>
+                    <p className="text-muted-foreground/60">
                       如果这个工具对你有帮助，请在 GitHub 上给我们一个 Star ⭐
                     </p>
                   </div>
-                </motion.div>
-              </motion.div>
+                </div>
+              </div>
             )}
-          </AnimatePresence>
+          </>
         </div>
-      </main>
+      </div>
 
       {/* Modals */}
       <TaskWizard
@@ -2617,8 +2559,7 @@ export default function QCEDashboard() {
           const isZip = fileName.endsWith('.zip')
           const isJsonl = fileName.includes('_chunked_jsonl') || fileName.includes('jsonl')
           const fileSize = selectedFile.size || 0
-          const isLargeFile = fileSize > 15 * 1024 * 1024 // 15MB
-          // HTML 和 JSON（小于15MB）可以预览
+          const isLargeFile = fileSize > 15 * 1024 * 1024
           const canPreview = (isHtml || isJson) && !isLargeFile && !isZip && !isJsonl
           
           const formatSize = (bytes: number) => {
@@ -2638,7 +2579,6 @@ export default function QCEDashboard() {
                 onClick={() => setIsFilePathModalOpen(false)}
               />
               {canPreview ? (
-                // 可预览的 HTML 文件 - 全屏预览
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -2683,7 +2623,6 @@ export default function QCEDashboard() {
                   </div>
                 </motion.div>
               ) : (
-                // 不可预览的文件 - 显示友好提示
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -2793,14 +2732,9 @@ export default function QCEDashboard() {
               className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-background rounded-2xl shadow-xl z-50 overflow-hidden"
             >
               <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                    <FileText className="w-5 h-5 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-foreground">HTML 导出</h3>
-                    <p className="text-xs text-muted-foreground">可视化聊天记录</p>
-                  </div>
+                <div>
+                  <h3 className="font-medium text-foreground">HTML 导出</h3>
+                  <p className="text-xs text-muted-foreground">可视化聊天记录</p>
                 </div>
                 <button
                   onClick={() => setShowHtmlHelp(false)}
@@ -2872,14 +2806,9 @@ export default function QCEDashboard() {
               className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-background rounded-2xl shadow-xl z-50 overflow-hidden"
             >
               <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                    <Database className="w-5 h-5 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-foreground">JSON 导出</h3>
-                    <p className="text-xs text-muted-foreground">结构化数据格式</p>
-                  </div>
+                <div>
+                  <h3 className="font-medium text-foreground">JSON 导出</h3>
+                  <p className="text-xs text-muted-foreground">结构化数据格式</p>
                 </div>
                 <button
                   onClick={() => setShowJsonHelp(false)}
@@ -2955,14 +2884,9 @@ export default function QCEDashboard() {
               className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-background rounded-2xl shadow-xl z-50 overflow-hidden"
             >
               <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                    <Database className="w-5 h-5 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-foreground">JSONL 分块导出</h3>
-                    <p className="text-xs text-muted-foreground">适合大规模数据处理</p>
-                  </div>
+                <div>
+                  <h3 className="font-medium text-foreground">JSONL 分块导出</h3>
+                  <p className="text-xs text-muted-foreground">适合大规模数据处理</p>
                 </div>
                 <button
                   onClick={() => setShowJsonlHelp(false)}
@@ -3062,14 +2986,9 @@ export default function QCEDashboard() {
               className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-background rounded-2xl shadow-xl z-50 overflow-hidden"
             >
               <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                    <Package className="w-5 h-5 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-foreground">流式 HTML ZIP 导出</h3>
-                    <p className="text-xs text-muted-foreground">分块 HTML + 资源打包</p>
-                  </div>
+                <div>
+                  <h3 className="font-medium text-foreground">流式 HTML ZIP 导出</h3>
+                  <p className="text-xs text-muted-foreground">分块 HTML + 资源打包</p>
                 </div>
                 <button
                   onClick={() => setShowStreamingZipHelp(false)}
@@ -3169,13 +3088,14 @@ export default function QCEDashboard() {
               <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="fixed inset-0 bg-black/40 z-[100]" 
+                transition={onboardingTransition}
+                className="fixed inset-0 z-[100] bg-black/34 backdrop-blur-md" 
               />
               <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[101] w-full max-w-sm bg-background rounded-2xl shadow-xl p-6"
+                initial={{ opacity: 0, scale: 0.96, y: 18, filter: "blur(16px)" }}
+                animate={{ opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
+                transition={onboardingTransition}
+                className="fixed left-1/2 top-1/2 z-[101] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[28px] border border-black/[0.08] bg-background/95 p-6 shadow-[0_28px_110px_rgba(15,23,42,0.28)] backdrop-blur-2xl dark:border-white/[0.08]"
               >
                 <h2 className="text-xl font-medium text-foreground mb-2">欢迎使用</h2>
                 <p className="text-muted-foreground text-sm mb-6">
@@ -3187,14 +3107,15 @@ export default function QCEDashboard() {
                     onClick={() => {
                       localStorage.setItem("qce-onboarding-completed", "true")
                       setShowOnboarding(false)
+                      setHighlightedNav(null)
                     }}
                     className="flex-1 py-2.5 text-sm text-muted-foreground hover:text-foreground"
                   >
                     跳过
                   </button>
                   <button
-                    onClick={() => setOnboardingStep(1)}
-                    className="flex-1 py-2.5 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600"
+                    onClick={() => { setOnboardingStep(1); setHighlightedNav("sessions"); }}
+                    className="flex-1 rounded-full border border-black/[0.08] bg-foreground py-2.5 text-sm font-medium text-background transition-colors hover:bg-foreground/88 dark:border-white/[0.08]"
                   >
                     开始
                   </button>
@@ -3206,32 +3127,27 @@ export default function QCEDashboard() {
         
         // 指向「会话」
         if (onboardingStep === 1) {
+          const position = getAnchoredOnboardingPosition('nav-sessions', 280)
           const targetEl = typeof document !== 'undefined' ? document.getElementById('nav-sessions') : null
-          const rect = targetEl?.getBoundingClientRect()
-          if (!rect) return null
-          
-          const tooltipWidth = 260
-          let left = rect.left + rect.width / 2 - tooltipWidth / 2
-          left = Math.max(12, Math.min(left, window.innerWidth - tooltipWidth - 12))
+          if (!position || !targetEl) return null
           
           return (
-            <div 
-              className="fixed z-[100] animate-in fade-in slide-in-from-top-2 duration-200" 
-              style={{ left, top: rect.bottom + 12 }}
+            <motion.div 
+              className="fixed z-[100]"
+              initial={{ opacity: 0, scale: 0.96, y: 12, filter: "blur(12px)" }}
+              animate={{ left: position.left, top: position.top, opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
+              transition={onboardingTransition}
             >
-              <div 
-                className="absolute -top-[6px] w-3 h-3 bg-blue-500 rotate-45"
-                style={{ left: rect.left + rect.width / 2 - left - 6 }}
-              />
-              <div className="relative bg-blue-500 text-white rounded-xl p-4 shadow-lg" style={{ width: tooltipWidth }}>
+              <div className={onboardingPanelClass} style={{ width: 280 }}>
                 <p className="text-sm font-medium mb-1">第 1 步：打开会话列表</p>
-                <p className="text-blue-100 text-xs mb-3">点击「会话」查看所有群聊和好友</p>
+                <p className="text-muted-foreground text-xs mb-3">点击「会话」查看所有群聊和好友</p>
                 <button
                   onClick={() => {
                     targetEl?.click()
                     setOnboardingStep(2)
+                    setHighlightedNav(null)
                   }}
-                  className="w-full py-2 bg-white dark:bg-blue-600 text-blue-500 dark:text-white rounded-lg text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-700"
+                  className={onboardingPrimaryButtonClass}
                 >
                   点击前往
                 </button>
@@ -3239,74 +3155,77 @@ export default function QCEDashboard() {
                   onClick={() => {
                     localStorage.setItem("qce-onboarding-completed", "true")
                     setShowOnboarding(false)
+                    setHighlightedNav(null)
                   }}
-                  className="w-full mt-2 text-xs text-blue-200 hover:text-white"
+                  className={`${onboardingSecondaryButtonClass} mt-2`}
                 >
                   跳过引导
                 </button>
               </div>
-            </div>
+            </motion.div>
           )
         }
         
         // 在会话页，提示点击导出
         if (onboardingStep === 2 && activeTab === 'sessions') {
+          const position = getBottomOnboardingPosition(340)
+          if (!position) return null
+
           return (
-            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-bottom-2 duration-200">
-              <div className="bg-blue-500 text-white rounded-xl px-5 py-4 shadow-lg max-w-sm">
+            <motion.div
+              className="fixed z-[100]"
+              initial={{ opacity: 0, scale: 0.96, y: 18, filter: "blur(12px)" }}
+              animate={{ left: position.left, top: position.top, opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
+              transition={onboardingTransition}
+            >
+              <div className={onboardingPanelClass} style={{ width: 340 }}>
                 <p className="text-sm font-medium mb-1">第 2 步：选择并导出</p>
-                <p className="text-blue-100 text-xs mb-3">
+                <p className="text-muted-foreground text-xs mb-3">
                   在列表中找到想导出的群聊或好友，点击右侧的「导出」按钮
                 </p>
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
                       localStorage.setItem("qce-onboarding-completed", "true")
-                      setShowOnboarding(false)
-                    }}
-                    className="flex-1 py-2 text-xs text-blue-200 hover:text-white"
+                    setShowOnboarding(false)
+                    setHighlightedNav(null)
+                  }}
+                    className="flex-1 rounded-full px-4 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
                   >
                     我知道了
                   </button>
                   <button
-                    onClick={() => setOnboardingStep(3)}
-                    className="flex-1 py-2 bg-white dark:bg-blue-600 text-blue-500 dark:text-white rounded-lg text-xs font-medium hover:bg-blue-50 dark:hover:bg-blue-700"
+                    onClick={() => { setOnboardingStep(3); setHighlightedNav("tasks"); }}
+                    className="flex-1 rounded-full border border-black/[0.08] bg-foreground px-4 py-2 text-xs font-medium text-background transition-colors hover:bg-foreground/88 dark:border-white/[0.08]"
                   >
                     下一步
                   </button>
                 </div>
               </div>
-            </div>
+            </motion.div>
           )
         }
         
         // 指向「任务」看进度
         if (onboardingStep === 3) {
-          const targetEl = typeof document !== 'undefined' ? document.getElementById('nav-tasks') : null
-          const rect = targetEl?.getBoundingClientRect()
-          if (!rect) return null
-          
-          const tooltipWidth = 260
-          let left = rect.left + rect.width / 2 - tooltipWidth / 2
-          left = Math.max(12, Math.min(left, window.innerWidth - tooltipWidth - 12))
+          const position = getAnchoredOnboardingPosition('nav-tasks', 280)
+          if (!position) return null
           
           return (
-            <div 
-              className="fixed z-[100] animate-in fade-in slide-in-from-top-2 duration-200" 
-              style={{ left, top: rect.bottom + 12 }}
+            <motion.div 
+              className="fixed z-[100]"
+              initial={{ opacity: 0, scale: 0.96, y: 12, filter: "blur(12px)" }}
+              animate={{ left: position.left, top: position.top, opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
+              transition={onboardingTransition}
             >
-              <div 
-                className="absolute -top-[6px] w-3 h-3 bg-blue-500 rotate-45"
-                style={{ left: rect.left + rect.width / 2 - left - 6 }}
-              />
-              <div className="relative bg-blue-500 text-white rounded-xl p-4 shadow-lg" style={{ width: tooltipWidth }}>
+              <div className={onboardingPanelClass} style={{ width: 280 }}>
                 <p className="text-sm font-medium mb-1">第 3 步：查看导出进度</p>
-                <p className="text-blue-100 text-xs mb-3">
+                <p className="text-muted-foreground text-xs mb-3">
                   在「任务」页面可以看到导出进度和状态
                 </p>
                 <button
-                  onClick={() => setOnboardingStep(4)}
-                  className="w-full py-2 bg-white dark:bg-blue-600 text-blue-500 dark:text-white rounded-lg text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-700"
+                  onClick={() => { setOnboardingStep(4); setHighlightedNav("history"); }}
+                  className={onboardingPrimaryButtonClass}
                 >
                   下一步
                 </button>
@@ -3314,51 +3233,46 @@ export default function QCEDashboard() {
                   onClick={() => {
                     localStorage.setItem("qce-onboarding-completed", "true")
                     setShowOnboarding(false)
+                    setHighlightedNav(null)
                   }}
-                  className="w-full mt-2 text-xs text-blue-200 hover:text-white"
+                  className={`${onboardingSecondaryButtonClass} mt-2`}
                 >
                   跳过引导
                 </button>
               </div>
-            </div>
+            </motion.div>
           )
         }
         
         // 指向「聊天记录」查看文件
         if (onboardingStep === 4) {
-          const targetEl = typeof document !== 'undefined' ? document.getElementById('nav-history') : null
-          const rect = targetEl?.getBoundingClientRect()
-          if (!rect) return null
-          
-          const tooltipWidth = 280
-          let left = rect.left + rect.width / 2 - tooltipWidth / 2
-          left = Math.max(12, Math.min(left, window.innerWidth - tooltipWidth - 12))
+          const position = getAnchoredOnboardingPosition('nav-history', 300)
+          if (!position) return null
           
           return (
-            <div 
-              className="fixed z-[100] animate-in fade-in slide-in-from-top-2 duration-200" 
-              style={{ left, top: rect.bottom + 12 }}
+            <motion.div 
+              className="fixed z-[100]"
+              initial={{ opacity: 0, scale: 0.96, y: 12, filter: "blur(12px)" }}
+              animate={{ left: position.left, top: position.top, opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
+              transition={onboardingTransition}
             >
-              <div 
-                className="absolute -top-[6px] w-3 h-3 bg-blue-500 rotate-45"
-                style={{ left: rect.left + rect.width / 2 - left - 6 }}
-              />
-              <div className="relative bg-blue-500 text-white rounded-xl p-4 shadow-lg" style={{ width: tooltipWidth }}>
+              <div className={onboardingPanelClass} style={{ width: 300 }}>
                 <p className="text-sm font-medium mb-1">第 4 步：查看导出文件</p>
-                <p className="text-blue-100 text-xs mb-3">
+                <p className="text-muted-foreground text-xs mb-3">
                   导出完成后，在「聊天记录」可以查看、下载、预览所有文件
                 </p>
                 <button
                   onClick={() => {
                     localStorage.setItem("qce-onboarding-completed", "true")
                     setShowOnboarding(false)
+                    setHighlightedNav(null)
                   }}
-                  className="w-full py-2 bg-white dark:bg-blue-600 text-blue-500 dark:text-white rounded-lg text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-700"
+                  className={onboardingPrimaryButtonClass}
                 >
                   完成
                 </button>
               </div>
-            </div>
+            </motion.div>
           )
         }
         

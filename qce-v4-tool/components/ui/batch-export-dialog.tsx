@@ -222,11 +222,11 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
           <div className="w-2/5 flex flex-col">
             <div className="mb-4">
               <h3 className="text-base font-medium mb-1">选中的会话</h3>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">已选择 {items.length} 个会话进行批量导出</p>
+              <p className="text-sm text-muted-foreground">已选择 {items.length} 个会话进行批量导出</p>
             </div>
             
             <div className="flex-1 overflow-hidden">
-              <ScrollArea className="h-full rounded-2xl border border-neutral-200 dark:border-neutral-700 p-2 bg-white/70 dark:bg-neutral-800/70">
+              <ScrollArea className="h-full rounded-2xl border border-black/[0.06] dark:border-white/[0.06] p-2 bg-card/70">
                 <div className="space-y-1">
                   {items.map((item, idx) => (
                     <div 
@@ -235,13 +235,13 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                         "flex items-center gap-3 p-3 rounded-xl transition-all",
                         progress.current === idx && progress.status === 'running' 
                           ? "bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700" 
-                          : "hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                          : "hover:bg-muted/50"
                       ].join(" ")}
                     >
                       {/* 状态图标 */}
                       <div className="flex-shrink-0">
                         {progress.status === 'idle' ? (
-                          <div className="w-6 h-6 rounded-full bg-neutral-100 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                          <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground">
                             {idx + 1}
                           </div>
                         ) : progress.results[idx]?.status === 'success' ? (
@@ -251,7 +251,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                         ) : progress.current === idx && progress.status === 'running' ? (
                           <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
                         ) : (
-                          <div className="w-6 h-6 rounded-full bg-neutral-100 dark:bg-neutral-700 flex items-center justify-center text-xs font-medium text-neutral-400 dark:text-neutral-500">
+                          <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground/60">
                             {idx + 1}
                           </div>
                         )}
@@ -271,7 +271,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                         </div>
                         <p className={[
                           "font-medium text-sm truncate",
-                          progress.current === idx && progress.status === 'running' ? 'text-blue-900 dark:text-blue-100' : 'text-neutral-900 dark:text-neutral-100'
+                          progress.current === idx && progress.status === 'running' ? 'text-blue-900 dark:text-blue-100' : 'text-foreground'
                         ].join(" ")}>
                           {item.name}
                         </p>
@@ -292,7 +292,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
           <div className="w-3/5 flex flex-col">
             <div className="mb-4">
               <h3 className="text-base font-medium mb-1">配置导出选项</h3>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">设置导出格式、时间范围和其他选项</p>
+              <p className="text-sm text-muted-foreground">设置导出格式、时间范围和其他选项</p>
             </div>
             
             <div className="flex-1 overflow-y-auto pr-1 space-y-6">
@@ -300,24 +300,24 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
               <div className="space-y-3">
                 <div>
                   <Label className="text-base font-medium">导出格式</Label>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">选择最适合您需求的格式</p>
+                  <p className="text-sm text-muted-foreground mt-1">选择最适合您需求的格式</p>
                 </div>
                 <div className="space-y-3">
                   {(["JSON", "HTML", "TXT", "EXCEL"] as const).map((fmt) => {
                     const desc = fmt === "JSON" ? "结构化数据，保留完整信息" : fmt === "HTML" ? "网页格式，适合直接查看与打印" : fmt === "EXCEL" ? "Excel格式，便于数据分析" : "纯文本，兼容性最好"
                     const chip = fmt === "JSON" ? "结构化" : fmt === "HTML" ? "推荐" : fmt === "EXCEL" ? "数据分析" : "兼容"
-                    const chipClass = fmt === "JSON" ? "bg-neutral-100 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300" : fmt === "HTML" ? "bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400" : fmt === "EXCEL" ? "bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400" : "bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-400"
+                    const chipClass = fmt === "JSON" ? "bg-muted text-muted-foreground" : fmt === "HTML" ? "bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400" : fmt === "EXCEL" ? "bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400" : "bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-400"
                     const active = format === fmt
                     return (
-                      <div key={fmt} className={["relative cursor-pointer rounded-2xl border-2 p-4 transition-all", active ? "border-blue-500 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-900/30 shadow-sm" : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600", isExporting ? "opacity-50 cursor-not-allowed" : ""].join(" ")} onClick={() => !isExporting && setFormat(fmt)}>
+                      <div key={fmt} className={["relative cursor-pointer rounded-2xl border-2 p-4 transition-all", active ? "border-blue-500 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-900/30 shadow-sm" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]", isExporting ? "opacity-50 cursor-not-allowed" : ""].join(" ")} onClick={() => !isExporting && setFormat(fmt)}>
                         <div className="flex items-start gap-3">
-                          <div className={active ? "text-blue-600 dark:text-blue-400" : "text-neutral-500 dark:text-neutral-400"}><FileText className="w-5 h-5" /></div>
+                          <div className={active ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}><FileText className="w-5 h-5" /></div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <h3 className="font-medium text-neutral-900 dark:text-neutral-100">{fmt}</h3>
+                              <h3 className="font-medium text-foreground">{fmt}</h3>
                               <span className={`text-xs px-2 py-0.5 rounded ${chipClass}`}>{chip}</span>
                             </div>
-                            <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">{desc}</p>
+                            <p className="text-sm text-muted-foreground mt-1">{desc}</p>
                           </div>
                           {active && <div className="w-2 h-2 bg-blue-600 dark:bg-blue-500 rounded-full" />}
                         </div>
@@ -332,7 +332,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
               <div className="space-y-3">
                 <div>
                   <Label className="text-base font-medium">时间范围（可选）</Label>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">选择要导出的时间范围</p>
+                  <p className="text-sm text-muted-foreground mt-1">选择要导出的时间范围</p>
                 </div>
                 <div className="space-y-3">
                   {[
@@ -342,12 +342,12 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                   ].map((option) => {
                     const active = timeRange === option.value
                     return (
-                      <div key={option.value} className={["relative cursor-pointer rounded-2xl border-2 p-4 transition-all", active ? "border-blue-500 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-900/30 shadow-sm" : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600", isExporting ? "opacity-50 cursor-not-allowed" : ""].join(" ")} onClick={() => !isExporting && setTimeRange(option.value as 'all' | 'recent' | 'custom')}>
+                      <div key={option.value} className={["relative cursor-pointer rounded-2xl border-2 p-4 transition-all", active ? "border-blue-500 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-900/30 shadow-sm" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]", isExporting ? "opacity-50 cursor-not-allowed" : ""].join(" ")} onClick={() => !isExporting && setTimeRange(option.value as 'all' | 'recent' | 'custom')}>
                         <div className="flex items-start gap-3">
-                          <div className={active ? "text-blue-600 dark:text-blue-400" : "text-neutral-500 dark:text-neutral-400"}><Calendar className="w-5 h-5" /></div>
+                          <div className={active ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}><Calendar className="w-5 h-5" /></div>
                           <div className="flex-1">
-                            <h3 className="font-medium text-neutral-900 dark:text-neutral-100">{option.label}</h3>
-                            <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">{option.desc}</p>
+                            <h3 className="font-medium text-foreground">{option.label}</h3>
+                            <p className="text-sm text-muted-foreground mt-1">{option.desc}</p>
                           </div>
                           {active && <div className="w-2 h-2 bg-blue-600 dark:bg-blue-500 rounded-full" />}
                         </div>
@@ -375,7 +375,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
               <div className="space-y-3">
                 <div>
                   <Label className="text-base font-medium">高级选项</Label>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">自定义导出内容的详细设置</p>
+                  <p className="text-sm text-muted-foreground mt-1">自定义导出内容的详细设置</p>
                 </div>
 
                 {/* 自定义导出路径 */}
@@ -385,7 +385,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                     <Input id="batch-output-dir" placeholder="留空使用默认路径，或输入自定义路径如 D:\exports" value={outputDir} onChange={(e) => setOutputDir(e.target.value)} disabled={isExporting} className="rounded-xl font-mono text-sm flex-1" />
                     <Button variant="outline" size="icon" disabled={isExporting} className="rounded-xl shrink-0" title="选择文件夹"><FolderOpen className="w-4 h-4" /></Button>
                   </div>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400">默认保存到用户目录下的 .qq-chat-exporter/exports 文件夹</p>
+                  <p className="text-xs text-muted-foreground">默认保存到用户目录下的 .qq-chat-exporter/exports 文件夹</p>
                 </div>
 
                 {/* 关键词过滤 */}
@@ -410,16 +410,16 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                     { id: "exportAsZip", checked: exportAsZip, set: setExportAsZip, title: "导出为ZIP压缩包", desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）", visible: format === "HTML" && !streamingZipMode, highlight: false },
                     { id: "embedAvatarsAsBase64", checked: embedAvatarsAsBase64, set: setEmbedAvatarsAsBase64, title: "嵌入头像为Base64", desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）", visible: format === "JSON", highlight: false }
                   ].filter((opt) => opt.visible).map((opt) => (
-                    <div key={opt.id} className={["relative cursor-pointer rounded-2xl border p-4 transition-all", opt.highlight && opt.checked ? "border-orange-400 dark:border-orange-600 bg-orange-50/50 dark:bg-orange-950/30 ring-1 ring-orange-200 dark:ring-orange-800" : opt.highlight ? "border-orange-200 dark:border-orange-800 bg-orange-50/30 dark:bg-orange-950/20 hover:border-orange-300 dark:hover:border-orange-700" : opt.checked ? "border-neutral-300 dark:border-neutral-600 bg-neutral-50/50 dark:bg-neutral-800/50" : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600", isExporting ? "opacity-50 cursor-not-allowed" : ""].join(" ")} onClick={() => !isExporting && opt.set(!opt.checked)}>
+                    <div key={opt.id} className={["relative cursor-pointer rounded-2xl border p-4 transition-all", opt.highlight && opt.checked ? "border-orange-400 dark:border-orange-600 bg-orange-50/50 dark:bg-orange-950/30 ring-1 ring-orange-200 dark:ring-orange-800" : opt.highlight ? "border-orange-200 dark:border-orange-800 bg-orange-50/30 dark:bg-orange-950/20 hover:border-orange-300 dark:hover:border-orange-700" : opt.checked ? "border-black/[0.08] dark:border-white/[0.08] bg-muted/30" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]", isExporting ? "opacity-50 cursor-not-allowed" : ""].join(" ")} onClick={() => !isExporting && opt.set(!opt.checked)}>
                       <div className="flex items-start gap-4">
                         <div className="flex-shrink-0 pt-0.5">
-                          <div className={["w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all", opt.checked ? (opt.highlight ? "border-orange-500 bg-orange-500" : "border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100") : (opt.highlight ? "border-orange-300 dark:border-orange-600" : "border-neutral-300 dark:border-neutral-600")].join(" ")}>
+                          <div className={["w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all", opt.checked ? (opt.highlight ? "border-orange-500 bg-orange-500" : "border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100") : (opt.highlight ? "border-orange-300 dark:border-orange-600" : "border-black/[0.08] dark:border-white/[0.08]")].join(" ")}>
                             {opt.checked && <svg className={`w-3 h-3 ${opt.highlight ? 'text-white' : 'text-white dark:text-neutral-900'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
                           </div>
                         </div>
                         <div className="flex-1">
-                          <h4 className={`font-medium text-sm ${opt.highlight ? 'text-orange-700 dark:text-orange-400' : 'text-neutral-900 dark:text-neutral-100'}`}>{opt.title}</h4>
-                          <p className={`text-sm mt-1 leading-relaxed ${opt.highlight ? 'text-orange-600 dark:text-orange-500' : 'text-neutral-600 dark:text-neutral-400'}`}>{opt.desc}</p>
+                          <h4 className={`font-medium text-sm ${opt.highlight ? 'text-orange-700 dark:text-orange-400' : 'text-foreground'}`}>{opt.title}</h4>
+                          <p className={`text-sm mt-1 leading-relaxed ${opt.highlight ? 'text-orange-600 dark:text-orange-500' : 'text-muted-foreground'}`}>{opt.desc}</p>
                         </div>
                       </div>
                     </div>
@@ -455,14 +455,14 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
 
 
         {/* 底部操作栏 */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-neutral-200 dark:border-neutral-700">
-          <div className="text-sm text-neutral-500 dark:text-neutral-400">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-black/[0.06] dark:border-white/[0.06]">
+          <div className="text-sm text-muted-foreground">
             {progress.status === 'running' ? (
-              <span className="text-blue-600 dark:text-blue-400">⏳ 正在导出 {progress.current + 1}/{progress.total} 个会话...</span>
+              <span className="text-blue-600 dark:text-blue-400">正在导出 {progress.current + 1}/{progress.total} 个会话...</span>
             ) : progress.status === 'completed' ? (
-              <span className="text-green-600 dark:text-green-400">✓ 导出完成</span>
+              <span className="text-green-600 dark:text-green-400">导出完成</span>
             ) : (
-              <span className="text-green-600 dark:text-green-400">✓ 准备就绪，将导出 {items.length} 个会话</span>
+              <span className="text-green-600 dark:text-green-400">准备就绪，将导出 {items.length} 个会话</span>
             )}
           </div>
           <div className="flex gap-3">

@@ -98,29 +98,29 @@ export function GroupEssenceModal({
           />
           
           <motion.div
-            className="relative w-full max-w-3xl max-h-[85vh] mx-4 bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+            className="relative w-full max-w-3xl max-h-[85vh] mx-4 bg-card rounded-2xl shadow-2xl overflow-hidden flex flex-col"
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: "spring", duration: 0.3 }}
           >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-100 dark:border-neutral-800">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-black/[0.06] dark:border-white/[0.06]">
               <div>
-                <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">群精华消息</h2>
-                <p className="text-sm text-neutral-500 dark:text-neutral-400">{groupName}</p>
+                <h2 className="text-lg font-semibold text-foreground">群精华消息</h2>
+                <p className="text-sm text-muted-foreground">{groupName}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => loadEssenceMessages(groupCode)}
                   disabled={loading}
-                  className="p-2 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50"
+                  className="p-2 rounded-full text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
                   title="刷新"
                 >
                   <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                 </button>
                 <button
                   onClick={onClose}
-                  className="p-2 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                  className="p-2 rounded-full text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -130,17 +130,17 @@ export function GroupEssenceModal({
             <div className="flex-1 overflow-y-auto p-4">
               {loading ? (
                 <div className="flex items-center justify-center py-16">
-                  <RefreshCw className="w-6 h-6 text-neutral-300 dark:text-neutral-600 animate-spin" />
+                  <RefreshCw className="w-6 h-6 text-muted-foreground/60 animate-spin" />
                 </div>
               ) : error ? (
                 <div className="flex flex-col items-center justify-center py-16">
                   <div className="text-red-500 mb-2">加载失败</div>
-                  <p className="text-neutral-500 dark:text-neutral-400 text-sm">{error}</p>
+                  <p className="text-muted-foreground text-sm">{error}</p>
                 </div>
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16">
-                  <Star className="w-10 h-10 text-neutral-200 dark:text-neutral-700 mb-3" />
-                  <p className="text-neutral-500 dark:text-neutral-400">该群暂无精华消息</p>
+                  <Star className="w-10 h-10 text-muted-foreground/30 mb-3" />
+                  <p className="text-muted-foreground">该群暂无精华消息</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -156,16 +156,16 @@ export function GroupEssenceModal({
               )}
             </div>
 
-            <div className="px-6 py-4 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-800/50">
+            <div className="px-6 py-4 border-t border-black/[0.06] dark:border-white/[0.06] bg-muted/30">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <span className="text-sm text-neutral-500 dark:text-neutral-400">
+                  <span className="text-sm text-muted-foreground">
                     共 {messages.length} 条
                   </span>
                   <select
                     value={exportFormat}
                     onChange={(e) => setExportFormat(e.target.value as 'json' | 'html')}
-                    className="text-sm px-2 py-1 rounded border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
+                    className="text-sm px-2 py-1 rounded border border-black/[0.06] dark:border-white/[0.06] bg-card text-foreground/80"
                   >
                     <option value="html">HTML</option>
                     <option value="json">JSON</option>
@@ -174,14 +174,14 @@ export function GroupEssenceModal({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={onClose}
-                    className="px-4 py-2 text-sm text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 rounded-lg transition-colors"
+                    className="px-4 py-2 text-sm text-muted-foreground hover:bg-muted rounded-full transition-colors"
                   >
                     关闭
                   </button>
                   <button
                     onClick={handleExport}
                     disabled={exporting || messages.length === 0}
-                    className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-neutral-900 dark:bg-neutral-100 dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200 rounded-lg transition-colors disabled:opacity-50"
+                    className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-neutral-900 dark:bg-neutral-100 dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200 rounded-full transition-colors disabled:opacity-50"
                   >
                     {exporting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                     导出
@@ -226,12 +226,12 @@ interface EssenceMessageCardProps {
 function EssenceMessageCard({ message, formatTime, onImageClick }: EssenceMessageCardProps) {
   return (
     <motion.div
-      className="rounded-xl border border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-800/50 overflow-hidden"
+      className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] bg-card overflow-hidden"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
     >
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-neutral-50 dark:border-neutral-700/50">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-black/[0.04] dark:border-white/[0.04]">
         <img
           src={`https://q1.qlogo.cn/g?b=qq&nk=${message.senderUin}&s=40`}
           alt="头像"
@@ -239,14 +239,14 @@ function EssenceMessageCard({ message, formatTime, onImageClick }: EssenceMessag
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-neutral-900 dark:text-neutral-100 truncate">
+            <span className="font-medium text-foreground truncate">
               {message.senderNick}
             </span>
-            <span className="text-xs text-neutral-400 dark:text-neutral-500">
+            <span className="text-xs text-muted-foreground/60">
               ({message.senderUin})
             </span>
           </div>
-          <div className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <Clock className="w-3 h-3" />
             <span>{formatTime(message.senderTime)}</span>
           </div>
@@ -258,7 +258,7 @@ function EssenceMessageCard({ message, formatTime, onImageClick }: EssenceMessag
         {message.content.map((item, idx) => {
           if (item.type === 'text' && item.text) {
             return (
-              <p key={idx} className="text-neutral-700 dark:text-neutral-300 whitespace-pre-wrap break-words">
+              <p key={idx} className="text-foreground/80 whitespace-pre-wrap break-words">
                 {item.text}
               </p>
             )
@@ -279,7 +279,7 @@ function EssenceMessageCard({ message, formatTime, onImageClick }: EssenceMessag
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-4 py-2 bg-neutral-50 dark:bg-neutral-800/80 text-xs text-neutral-500 dark:text-neutral-400">
+      <div className="flex items-center justify-between px-4 py-2 bg-muted/50 text-xs text-muted-foreground">
         <div className="flex items-center gap-1">
           <Star className="w-3 h-3 text-amber-500" />
           <span>由 {message.addDigestNick} 设为精华</span>

@@ -420,7 +420,7 @@ export function TaskWizard({
 
         {/* 手动输入QQ号面板（Issue #226） */}
         {manualInputMode ? (
-          <div className="space-y-3 p-4 border border-blue-200 dark:border-blue-800 rounded-2xl bg-blue-50/50 dark:bg-blue-950/30">
+          <div className="space-y-3 p-4 border border-black/[0.08] dark:border-white/[0.08] rounded-2xl bg-muted/50">
             <div className="space-y-2">
               <Label htmlFor="manualQQ" className="text-sm">QQ号码</Label>
               <Input
@@ -450,7 +450,7 @@ export function TaskWizard({
               <CheckCircle className="w-4 h-4 mr-2" />
               确认
             </Button>
-            <p className="text-xs text-blue-600 dark:text-blue-400">
+            <p className="text-xs text-muted-foreground">
               适用于好友列表中未显示的用户，如超过1000人限制的好友
             </p>
           </div>
@@ -472,11 +472,11 @@ export function TaskWizard({
               {s.loading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
               加载{form.chatType === 1 ? "好友" : "群组"}
             </Button>
-            {s.allData.length > 0 && <span className="text-xs text-neutral-500 dark:text-neutral-400">已加载 {s.allData.length} 个</span>}
+            {s.allData.length > 0 && <span className="text-xs text-muted-foreground">已加载 {s.allData.length} 个</span>}
           </div>
 
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 dark:text-neutral-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
             <Input
               placeholder={form.chatType === 1 ? "搜索好友昵称、备注..." : "搜索群组名称、群号..."}
               value={searchTerm}
@@ -489,11 +489,11 @@ export function TaskWizard({
         {/* 列表 */}
         <div
           ref={listRef}
-          className="max-h-96 overflow-y-auto space-y-1 border border-neutral-200 dark:border-neutral-700 rounded-2xl p-2 bg-white/70 dark:bg-neutral-900/70"
+          className="max-h-96 overflow-y-auto space-y-1 border border-black/[0.06] dark:border-white/[0.06] rounded-2xl p-2 bg-card/70"
           onScroll={handleScroll}
         >
           {s.loading && displayTargets.length === 0 && (
-            <div className="text-center py-10 text-neutral-500 dark:text-neutral-400">
+            <div className="text-center py-10 text-muted-foreground">
               <Loader2 className="w-6 h-6 mx-auto animate-spin mb-2" />
               <p className="text-sm">搜索中...</p>
             </div>
@@ -506,12 +506,12 @@ export function TaskWizard({
           )}
 
           {!s.loading && !s.error && displayTargets.length === 0 && (
-            <div className="text-center py-10 text-neutral-500 dark:text-neutral-400">
+            <div className="text-center py-10 text-muted-foreground">
               <div className="mb-2">
                 {form.chatType === 1 ? (
-                  <User className="w-8 h-8 mx-auto text-neutral-300 dark:text-neutral-600" />
+                  <User className="w-8 h-8 mx-auto text-muted-foreground/40" />
                 ) : (
-                  <Users className="w-8 h-8 mx-auto text-neutral-300 dark:text-neutral-600" />
+                  <Users className="w-8 h-8 mx-auto text-muted-foreground/40" />
                 )}
               </div>
               <p className="text-sm">
@@ -520,7 +520,7 @@ export function TaskWizard({
                   : `暂无${form.chatType === 1 ? "好友" : "群组"}数据`}
               </p>
               {!searchTerm.trim() && s.allData.length === 0 && (
-                <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">点击上方按钮加载数据</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">点击上方按钮加载数据</p>
               )}
             </div>
           )}
@@ -542,17 +542,17 @@ export function TaskWizard({
                 className={[
                   "flex items-center gap-2 p-2 rounded-xl cursor-pointer transition",
                   "border border-transparent",
-                  isSelected ? "ring-1 ring-neutral-300 dark:ring-neutral-600 bg-neutral-50 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700" : "hover:bg-neutral-50 dark:hover:bg-neutral-800"
+                  isSelected ? "ring-1 ring-foreground/20 bg-muted border-black/[0.06] dark:border-white/[0.06]" : "hover:bg-muted"
                 ].join(" ")}
                 onClick={() => handleSelectTarget(target)}
               >
-                <Avatar className="w-7 h-7 rounded-xl">
+                <Avatar className="w-7 h-7 rounded-full">
                   <AvatarImage src={avatarUrl} alt={name} />
-                  <AvatarFallback className="rounded-xl text-xs">{name[0]}</AvatarFallback>
+                  <AvatarFallback className="rounded-full text-xs">{name[0]}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm truncate">{name}</p>
-                  <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     {isGroup ? (
                       <>
                         <Users className="w-3 h-3" />
@@ -562,7 +562,7 @@ export function TaskWizard({
                       <>
                         <span
                           className={`inline-block w-2 h-2 rounded-full ${
-                            (target as Friend).isOnline ? "bg-green-500" : "bg-neutral-300"
+                            (target as Friend).isOnline ? "bg-green-500" : "bg-muted-foreground/30"
                           }`}
                         />
                         <span>{(target as Friend).isOnline ? "在线" : "离线"}</span>
@@ -578,12 +578,12 @@ export function TaskWizard({
           {s.allData.length > 0 && s.hasMore && (
             <div className="text-center py-2">
               {s.loading ? (
-                <div className="flex items-center justify-center gap-2 text-neutral-500 dark:text-neutral-400">
+                <div className="flex items-center justify-center gap-2 text-muted-foreground">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span className="text-sm">加载更多...</span>
                 </div>
               ) : (
-                <div className="flex items-center justify-center gap-1 text-neutral-400 dark:text-neutral-500">
+                <div className="flex items-center justify-center gap-1 text-muted-foreground/60">
                   <ChevronDown className="w-4 h-4" />
                   <span className="text-sm">向下滚动加载更多</span>
                 </div>
@@ -592,7 +592,7 @@ export function TaskWizard({
           )}
 
           {s.allData.length > 0 && displayTargets.length > 0 && (
-            <div className="text-center py-2 text-xs text-neutral-500 dark:text-neutral-400 border-t dark:border-neutral-700">
+            <div className="text-center py-2 text-xs text-muted-foreground border-t border-black/[0.06] dark:border-white/[0.06]">
               {searchTerm.trim() ? (
                 <>
                   搜索结果：{displayTargets.length} 个
@@ -617,18 +617,18 @@ export function TaskWizard({
     return (
       <div className="space-y-6">
         {selectedTarget && (
-          <div className="p-4 rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white/70 dark:bg-neutral-900/70">
+          <div className="p-4 rounded-2xl border border-black/[0.06] dark:border-white/[0.06] bg-card/70">
             <div className="flex items-start gap-3">
               <CheckCircle className="w-5 h-5 text-blue-600 dark:text-blue-500 mt-0.5" />
               <div className="flex-1">
-                <h3 className="font-medium text-neutral-900 dark:text-neutral-100 mb-2">已选择 {form.chatType === 1 ? "好友" : "群组"}</h3>
+                <h3 className="font-medium text-foreground mb-2">已选择 {form.chatType === 1 ? "好友" : "群组"}</h3>
                 <div className="flex items-center gap-3">
-                  <Avatar className="w-8 h-8 rounded-xl">
+                  <Avatar className="w-8 h-8 rounded-full">
                     <AvatarImage
                       src={selectedTarget.avatarUrl}
                       alt={"groupName" in selectedTarget ? selectedTarget.groupName : selectedTarget.nick}
                     />
-                    <AvatarFallback className="rounded-xl text-sm">
+                    <AvatarFallback className="rounded-full text-sm">
                       {("groupName" in selectedTarget ? selectedTarget.groupName : selectedTarget.nick)[0]}
                     </AvatarFallback>
                   </Avatar>
@@ -638,7 +638,7 @@ export function TaskWizard({
                         ? selectedTarget.groupName
                         : selectedTarget.remark || selectedTarget.nick}
                     </p>
-                    <p className="text-xs text-neutral-600 dark:text-neutral-400">
+                    <p className="text-xs text-muted-foreground">
                       {"groupName" in selectedTarget
                         ? `${selectedTarget.memberCount}/${selectedTarget.maxMember} 成员`
                         : `${selectedTarget.isOnline ? "在线" : "离线"}`}
@@ -704,7 +704,7 @@ export function TaskWizard({
         <div className="space-y-3">
           <div>
             <Label className="text-base font-medium">导出格式</Label>
-            <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">选择最适合您需求的格式</p>
+            <p className="text-sm text-muted-foreground mt-1">选择最适合您需求的格式</p>
           </div>
 
           <div className="space-y-3">
@@ -719,28 +719,27 @@ export function TaskWizard({
                   : "纯文本，兼容性最好"
               const chip =
                 fmt === "JSON" ? "结构化" : fmt === "HTML" ? "推荐" : fmt === "EXCEL" ? "数据分析" : "兼容"
-              const chipClass =
-                fmt === "JSON" ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300" : fmt === "HTML" ? "bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400" : fmt === "EXCEL" ? "bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400" : "bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-400"
+              const chipClass = "bg-muted text-muted-foreground"
               const active = form.format === fmt
               return (
                 <div
                   key={fmt}
                   className={[
                     "relative cursor-pointer rounded-2xl border-2 p-4 transition-all",
-                    active ? "border-blue-500 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-950/30 shadow-sm" : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600"
+                    active ? "border-blue-500 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-950/30 shadow-sm" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.12] dark:hover:border-white/[0.12]"
                   ].join(" ")}
                   onClick={() => setForm((p) => ({ ...p, format: fmt }))}
                 >
                   <div className="flex items-start gap-3">
-                    <div className={active ? "text-blue-600 dark:text-blue-500" : "text-neutral-500 dark:text-neutral-400"}>
+                    <div className={active ? "text-blue-600 dark:text-blue-500" : "text-muted-foreground"}>
                       <FileText className="w-5 h-5" />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-medium text-neutral-900 dark:text-neutral-100">{fmt}</h3>
+                        <h3 className="font-medium text-foreground">{fmt}</h3>
                         <span className={`text-xs px-2 py-0.5 rounded ${chipClass}`}>{chip}</span>
                       </div>
-                      <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">{desc}</p>
+                      <p className="text-sm text-muted-foreground mt-1">{desc}</p>
                     </div>
                     {active && <div className="w-2 h-2 bg-blue-600 dark:bg-blue-500 rounded-full" />}
                   </div>
@@ -754,7 +753,7 @@ export function TaskWizard({
         <div className="space-y-3">
           <div>
             <Label className="text-base font-medium">时间范围（可选）</Label>
-            <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">留空则导出全部历史记录</p>
+            <p className="text-sm text-muted-foreground mt-1">留空则导出全部历史记录</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -817,20 +816,20 @@ export function TaskWizard({
           
           {/* 折叠式群成员选择器 */}
           <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showMemberSelector ? "max-h-[350px] opacity-100" : "max-h-0 opacity-0"}`}>
-            <div className="border dark:border-neutral-700 rounded-xl p-3 space-y-2 bg-neutral-50/50 dark:bg-neutral-900/50">
+            <div className="border border-black/[0.06] dark:border-white/[0.06] rounded-xl p-3 space-y-2 bg-muted/50">
               {/* 搜索框 */}
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 dark:text-neutral-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
                 <Input
                   placeholder="搜索昵称、群名片或QQ号..."
                   value={memberSearchTerm}
                   onChange={(e) => setMemberSearchTerm(e.target.value)}
-                  className="pl-9 h-8 text-sm rounded-full bg-white dark:bg-neutral-800"
+                  className="pl-9 h-8 text-sm rounded-full bg-card"
                 />
               </div>
               
               {/* 已选数量 */}
-              <div className="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>已选择 {selectedMemberUins.size} 个成员</span>
                 {selectedMemberUins.size > 0 && (
                   <Button
@@ -845,17 +844,17 @@ export function TaskWizard({
               </div>
               
               {/* 成员列表 */}
-              <div className="max-h-[180px] overflow-y-auto border dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-800">
+              <div className="max-h-[180px] overflow-y-auto border border-black/[0.06] dark:border-white/[0.06] rounded-lg bg-card">
                 {membersLoading ? (
                   <div className="flex items-center justify-center h-20">
-                    <Loader2 className="w-5 h-5 animate-spin text-neutral-400 dark:text-neutral-500" />
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/60" />
                   </div>
                 ) : filteredMembers.length === 0 ? (
-                  <div className="flex items-center justify-center h-20 text-neutral-500 dark:text-neutral-400 text-xs">
+                  <div className="flex items-center justify-center h-20 text-muted-foreground text-xs">
                     {memberSearchTerm ? "没有找到匹配的成员" : "暂无群成员数据"}
                   </div>
                 ) : (
-                  <div className="divide-y dark:divide-neutral-700">
+                  <div className="divide-y divide-black/[0.06] dark:divide-white/[0.06]">
                     {filteredMembers.slice(0, 50).map((member) => {
                       const uin = member.uin || member.uid
                       const isSelected = selectedMemberUins.has(uin)
@@ -868,12 +867,12 @@ export function TaskWizard({
                         <div
                           key={uin}
                           onClick={() => toggleMemberSelection(uin)}
-                          className={`flex items-center gap-2 p-2 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors ${
+                          className={`flex items-center gap-2 p-2 cursor-pointer hover:bg-muted transition-colors ${
                             isSelected ? "bg-blue-50 dark:bg-blue-950/50" : ""
                           }`}
                         >
                           <Checkbox checked={isSelected} className="w-4 h-4" />
-                          <Avatar className="w-6 h-6">
+                          <Avatar className="w-6 h-6 rounded-full">
                             <AvatarImage src={member.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=100`} />
                             <AvatarFallback className="text-xs">{displayName[0]}</AvatarFallback>
                           </Avatar>
@@ -883,7 +882,7 @@ export function TaskWizard({
                               {isOwner && <Badge variant="secondary" className="text-[10px] px-1 py-0">群主</Badge>}
                               {isAdmin && <Badge variant="secondary" className="text-[10px] px-1 py-0">管理</Badge>}
                             </p>
-                            <p className="text-[10px] text-neutral-400 dark:text-neutral-500 truncate">
+                            <p className="text-[10px] text-muted-foreground/60 truncate">
                               {uin}
                             </p>
                           </div>
@@ -892,7 +891,7 @@ export function TaskWizard({
                       )
                     })}
                     {filteredMembers.length > 50 && (
-                      <div className="p-2 text-center text-xs text-neutral-400 dark:text-neutral-500">
+                      <div className="p-2 text-center text-xs text-muted-foreground/60">
                         仅显示前50个结果，请使用搜索缩小范围
                       </div>
                     )}
@@ -920,7 +919,7 @@ export function TaskWizard({
             className="rounded-2xl"
           />
           {form.excludeUserUins && (
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            <p className="text-xs text-muted-foreground">
               已选择 {form.excludeUserUins.split(',').filter(s => s.trim()).length} 个用户
             </p>
           )}
@@ -930,7 +929,7 @@ export function TaskWizard({
         <div className="space-y-3">
           <div>
             <Label className="text-base font-medium">高级选项</Label>
-            <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">自定义导出内容的详细设置</p>
+            <p className="text-sm text-muted-foreground mt-1">自定义导出内容的详细设置</p>
           </div>
 
           {/* Issue #192: 自定义导出路径 */}
@@ -943,7 +942,7 @@ export function TaskWizard({
               onChange={(e) => setForm((p) => ({ ...p, outputDir: e.target.value }))}
               className="rounded-xl font-mono text-sm"
             />
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            <p className="text-xs text-muted-foreground">
               默认保存到用户目录下的 .qq-chat-exporter/exports 文件夹
             </p>
           </div>
@@ -1007,12 +1006,12 @@ export function TaskWizard({
                 className={[
                   "relative cursor-pointer rounded-2xl border p-4 transition-all",
                   (opt as any).highlight && opt.checked 
-                    ? "border-orange-400 dark:border-orange-600 bg-orange-50/50 dark:bg-orange-950/30 ring-1 ring-orange-200 dark:ring-orange-800" 
+                    ? "border-blue-400 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-950/30 ring-1 ring-blue-200 dark:ring-blue-800" 
                     : (opt as any).highlight 
-                      ? "border-orange-200 dark:border-orange-800 bg-orange-50/30 dark:bg-orange-950/20 hover:border-orange-300 dark:hover:border-orange-700"
+                      ? "border-black/[0.08] dark:border-white/[0.08] bg-muted/30 hover:border-blue-300 dark:hover:border-blue-700"
                       : opt.checked 
-                        ? "border-neutral-300 dark:border-neutral-600 bg-neutral-50/50 dark:bg-neutral-800/50" 
-                        : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600"
+                        ? "border-foreground/20 bg-muted" 
+                        : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.12] dark:hover:border-white/[0.12]"
                 ].join(" ")}
                 onClick={() => opt.set(!opt.checked)}
               >
@@ -1021,19 +1020,19 @@ export function TaskWizard({
                     <div className={[
                       "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
                       opt.checked 
-                        ? (opt as any).highlight ? "border-orange-500 bg-orange-500" : "border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100"
-                        : (opt as any).highlight ? "border-orange-300 dark:border-orange-600 hover:border-orange-400 dark:hover:border-orange-500" : "border-neutral-300 dark:border-neutral-600 hover:border-neutral-400 dark:hover:border-neutral-500"
+                        ? (opt as any).highlight ? "border-blue-500 bg-blue-500" : "border-foreground bg-foreground"
+                        : (opt as any).highlight ? "border-muted-foreground/40 hover:border-muted-foreground/60" : "border-muted-foreground/40 hover:border-muted-foreground/60"
                     ].join(" ")}>
                       {opt.checked && (
-                        <svg className={`w-3 h-3 ${(opt as any).highlight ? 'text-white' : 'text-white dark:text-neutral-900'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className={`w-3 h-3 ${(opt as any).highlight ? 'text-white' : 'text-background'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                       )}
                     </div>
                   </div>
                   <div className="flex-1">
-                    <h4 className={`font-medium text-sm ${(opt as any).highlight ? 'text-orange-700 dark:text-orange-400' : 'text-neutral-900 dark:text-neutral-100'}`}>{opt.title}</h4>
-                    <p className={`text-sm mt-1 leading-relaxed ${(opt as any).highlight ? 'text-orange-600 dark:text-orange-500' : 'text-neutral-600 dark:text-neutral-400'}`}>{opt.desc}</p>
+                    <h4 className={`font-medium text-sm ${(opt as any).highlight ? 'text-blue-700 dark:text-blue-400' : 'text-foreground'}`}>{opt.title}</h4>
+                    <p className={`text-sm mt-1 leading-relaxed ${(opt as any).highlight ? 'text-blue-600 dark:text-blue-500' : 'text-muted-foreground'}`}>{opt.desc}</p>
                   </div>
                 </div>
               </div>
@@ -1049,7 +1048,7 @@ export function TaskWizard({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
         fullScreen
-        overlayClassName="bg-white/60 dark:bg-neutral-950/60 backdrop-blur-xl"
+        overlayClassName="bg-background/60 backdrop-blur-xl"
         className="flex flex-col h-full p-0"
       >
         <DialogHeader>
@@ -1064,7 +1063,7 @@ export function TaskWizard({
           <div className="w-2/5 flex flex-col">
             <div className="mb-4">
               <h3 className="text-base font-medium mb-1">选择导出目标</h3>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">选择要导出聊天记录的群组或好友</p>
+              <p className="text-sm text-muted-foreground">选择要导出聊天记录的群组或好友</p>
             </div>
             <div className="flex-1 overflow-hidden">
               {showTargetSelector || !selectedTarget ? (
@@ -1072,8 +1071,8 @@ export function TaskWizard({
               ) : (
                 <div className="flex items-center justify-center h-full">
                   <div className="text-center">
-                    <CheckCircle className="w-12 h-12 mx-auto text-green-600 dark:text-green-500 mb-3" />
-                    <p className="text-sm text-neutral-600 dark:text-neutral-400">已选择目标，请在右侧配置导出选项</p>
+                    <CheckCircle className="w-12 h-12 mx-auto text-blue-500 mb-3" />
+                    <p className="text-sm text-muted-foreground">已选择目标，请在右侧配置导出选项</p>
                     <Button variant="outline" size="sm" onClick={handleChangeTarget} className="mt-2 rounded-full">
                       <RefreshCw className="w-3 h-3 mr-1" />
                       重新选择
@@ -1090,12 +1089,12 @@ export function TaskWizard({
           <div className="w-3/5 flex flex-col">
             <div className="mb-4">
               <h3 className="text-base font-medium mb-1">配置导出选项</h3>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">设置导出格式、时间范围和过滤条件</p>
+              <p className="text-sm text-muted-foreground">设置导出格式、时间范围和过滤条件</p>
             </div>
             <div className="flex-1 overflow-y-auto pr-1">{selectedTarget ? renderConfigPanel() : (
               <div className="flex items-center justify-center h-full">
-                <div className="text-center text-neutral-500 dark:text-neutral-400">
-                  <FileText className="w-12 h-12 mx-auto text-neutral-300 dark:text-neutral-600 mb-3" />
+                <div className="text-center text-muted-foreground">
+                  <FileText className="w-12 h-12 mx-auto text-muted-foreground/40 mb-3" />
                   <p className="text-sm">请先在左侧选择要导出的群组或好友</p>
                 </div>
               </div>
@@ -1104,9 +1103,9 @@ export function TaskWizard({
         </div>
 
         {/* 底部 */}
-        <div className="flex items-center justify-between px-6 py-4 border-t dark:border-neutral-800">
-          <div className="text-sm text-neutral-500 dark:text-neutral-400">
-            {canSubmit() ? <span className="text-green-600 dark:text-green-500">✓ 准备就绪，可以创建任务</span> : <span>请完成所有必填项</span>}
+        <div className="flex items-center justify-between px-6 py-4 border-t border-black/[0.06] dark:border-white/[0.06]">
+          <div className="text-sm text-muted-foreground">
+            {canSubmit() ? <span className="text-foreground">准备就绪</span> : <span>请完成所有必填项</span>}
           </div>
           <div className="flex gap-3">
             <Button variant="outline" onClick={onClose} className="rounded-full">取消</Button>
