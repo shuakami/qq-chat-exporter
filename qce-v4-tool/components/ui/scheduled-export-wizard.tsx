@@ -344,8 +344,8 @@ export function ScheduledExportWizard({
           {/* 左侧 - 目标选择 */}
           <div className="w-2/5 flex flex-col">
             <div className="mb-4">
-              <h3 className="text-base font-medium mb-1 dark:text-neutral-100">选择导出目标</h3>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">选择要创建定时任务的群组或好友</p>
+              <h3 className="text-base font-medium mb-1 text-foreground">选择导出目标</h3>
+              <p className="text-sm text-muted-foreground">选择要创建定时任务的群组或好友</p>
             </div>
             
             {showTargetSelector ? (
@@ -405,14 +405,14 @@ export function ScheduledExportWizard({
                       加载{currentChatType === 1 ? "好友" : "群组"}
                     </Button>
                     {(currentChatType === 2 ? groupSearch : friendSearch).allData.length > 0 && (
-                      <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                      <span className="text-xs text-muted-foreground">
                         已加载 {(currentChatType === 2 ? groupSearch : friendSearch).allData.length} 个
                       </span>
                     )}
                   </div>
 
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 dark:text-neutral-500" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
                     <Input
                       placeholder={currentChatType === 1 ? "搜索好友昵称、备注..." : "搜索群组名称、群号..."}
                       value={searchTerm}
@@ -425,23 +425,23 @@ export function ScheduledExportWizard({
                 {/* 列表 */}
                 <div
                   ref={listRef}
-                  className="max-h-96 overflow-y-auto space-y-1 border border-neutral-200 dark:border-neutral-700 rounded-2xl p-2 bg-white/70 dark:bg-neutral-800/70"
+                  className="max-h-96 overflow-y-auto space-y-1 border border-black/[0.06] dark:border-white/[0.06] rounded-2xl p-2 bg-card/70"
                   onScroll={handleScroll}
                 >
                   {(currentChatType === 2 ? groupSearch : friendSearch).loading && getDisplayTargets().length === 0 && (
-                    <div className="text-center py-10 text-neutral-500 dark:text-neutral-400">
+                    <div className="text-center py-10 text-muted-foreground">
                       <Loader2 className="w-6 h-6 mx-auto animate-spin mb-2" />
                       <p className="text-sm">搜索中...</p>
                     </div>
                   )}
 
                   {!((currentChatType === 2 ? groupSearch : friendSearch).loading) && getDisplayTargets().length === 0 && (
-                    <div className="text-center py-10 text-neutral-500 dark:text-neutral-400">
+                    <div className="text-center py-10 text-muted-foreground">
                       <div className="mb-2">
                         {currentChatType === 1 ? (
-                          <User className="w-8 h-8 mx-auto text-neutral-300 dark:text-neutral-600" />
+                          <User className="w-8 h-8 mx-auto text-muted-foreground/30" />
                         ) : (
-                          <Users className="w-8 h-8 mx-auto text-neutral-300 dark:text-neutral-600" />
+                          <Users className="w-8 h-8 mx-auto text-muted-foreground/30" />
                         )}
                       </div>
                       <p className="text-sm">
@@ -450,7 +450,7 @@ export function ScheduledExportWizard({
                           : `暂无${currentChatType === 1 ? "好友" : "群组"}数据`}
                       </p>
                       {!searchTerm.trim() && (currentChatType === 2 ? groupSearch : friendSearch).allData.length === 0 && (
-                        <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">点击上方按钮加载数据</p>
+                        <p className="text-xs text-muted-foreground/60 mt-1">点击上方按钮加载数据</p>
                       )}
                     </div>
                   )}
@@ -468,7 +468,7 @@ export function ScheduledExportWizard({
                         className={[
                           "flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all",
                           "border border-transparent mt-2",
-                          isSelected ? "bg-blue-50/50 dark:bg-blue-900/30" : "hover:bg-neutral-50 dark:hover:bg-neutral-700/50"
+                          isSelected ? "bg-blue-50/50 dark:bg-blue-900/30" : "hover:bg-muted/50"
                         ].join(" ")}
                         onClick={() => handleToggleTarget(target)}
                       >
@@ -482,8 +482,8 @@ export function ScheduledExportWizard({
                           <AvatarFallback className="rounded-xl text-xs">{name[0]}</AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate dark:text-neutral-100">{name}</p>
-                          <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+                          <p className="font-medium text-sm truncate text-foreground">{name}</p>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             {isGroup ? (
                               <>
                                 <Users className="w-3 h-3" />
@@ -493,7 +493,7 @@ export function ScheduledExportWizard({
                               <>
                                 <span
                                   className={`inline-block w-2 h-2 rounded-full ${
-                                    (target as Friend).isOnline ? "bg-green-500" : "bg-neutral-300 dark:bg-neutral-600"
+                                    (target as Friend).isOnline ? "bg-green-500" : "bg-muted-foreground/30"
                                   }`}
                                 />
                                 <span>{(target as Friend).isOnline ? "在线" : "离线"}</span>
@@ -508,7 +508,7 @@ export function ScheduledExportWizard({
 
                 {selectedTargets.length > 0 && (
                   <div className="flex justify-between items-center pt-2">
-                    <span className="text-sm text-neutral-600 dark:text-neutral-400">
+                    <span className="text-sm text-muted-foreground">
                       已选择 {selectedTargets.length} 个会话
                     </span>
                     <Button
@@ -524,7 +524,7 @@ export function ScheduledExportWizard({
               </div>
             ) : (
               <div className="flex-1 overflow-hidden">
-                <div className="h-full overflow-y-auto space-y-1 rounded-2xl border border-neutral-200 dark:border-neutral-700 p-2 bg-white/70 dark:bg-neutral-800/70">
+                <div className="h-full overflow-y-auto space-y-1 rounded-2xl border border-black/[0.06] dark:border-white/[0.06] p-2 bg-card/70">
                     {selectedTargets.map((target, idx) => (
                       <div 
                         key={`${target.type}_${target.id}`} 
@@ -581,7 +581,7 @@ export function ScheduledExportWizard({
                   >
                     重新选择
                   </Button>
-                  <span className="text-sm text-neutral-600 dark:text-neutral-400">
+                  <span className="text-sm text-muted-foreground">
                     共 {selectedTargets.length} 个会话
                   </span>
                 </div>
@@ -589,13 +589,13 @@ export function ScheduledExportWizard({
             )}
           </div>
 
-          <Separator orientation="vertical" className="h-full dark:bg-neutral-700" />
+          <Separator orientation="vertical" className="h-full" />
 
           {/* 右侧 - 配置选项 */}
           <div className="w-3/5 flex flex-col">
             <div className="mb-4">
-              <h3 className="text-base font-medium mb-1 dark:text-neutral-100">配置定时任务</h3>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">设置调度规则、导出格式和其他选项</p>
+              <h3 className="text-base font-medium mb-1 text-foreground">配置定时任务</h3>
+              <p className="text-sm text-muted-foreground">设置调度规则、导出格式和其他选项</p>
             </div>
             
             <div className="flex-1 overflow-y-auto pr-1 space-y-6">
@@ -609,7 +609,7 @@ export function ScheduledExportWizard({
                   onChange={(e) => setBaseForm(p => ({ ...p, namePrefix: e.target.value }))}
                   className="rounded-xl"
                 />
-                <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                <p className="text-xs text-muted-foreground">
                   {selectedTargets.length > 1 
                     ? `将为每个会话创建任务，格式：${baseForm.namePrefix || "任务名称"}-会话名称`
                     : "留空则使用会话名称作为任务名称"
@@ -620,8 +620,8 @@ export function ScheduledExportWizard({
               {/* 调度设置 */}
               <div className="space-y-3">
                 <div>
-                  <Label className="text-base font-medium dark:text-neutral-100">调度设置</Label>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">设置任务执行的时间规则</p>
+                  <Label className="text-base font-medium text-foreground">调度设置</Label>
+                  <p className="text-sm text-muted-foreground mt-1">设置任务执行的时间规则</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -677,8 +677,8 @@ export function ScheduledExportWizard({
               {/* 导出设置 */}
               <div className="space-y-3">
                 <div>
-                  <Label className="text-base font-medium dark:text-neutral-100">导出设置</Label>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">设置导出格式和时间范围</p>
+                  <Label className="text-base font-medium text-foreground">导出设置</Label>
+                  <p className="text-sm text-muted-foreground mt-1">设置导出格式和时间范围</p>
                 </div>
 
                 <div className="space-y-3">
@@ -687,7 +687,7 @@ export function ScheduledExportWizard({
                     const active = baseForm.format === fmt
                     const chip =
                       fmt === "HTML" ? { txt: "推荐", cls: "bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300" } :
-                      fmt === "JSON" ? { txt: "结构化", cls: "bg-neutral-100 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300" } :
+                      fmt === "JSON" ? { txt: "结构化", cls: "bg-muted text-muted-foreground" } :
                       fmt === "EXCEL" ? { txt: "数据分析", cls: "bg-purple-100 dark:bg-purple-900 text-purple-600 dark:text-purple-300" } :
                       { txt: "兼容", cls: "bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-300" }
                     const desc =
@@ -700,20 +700,20 @@ export function ScheduledExportWizard({
                         key={fmt}
                         className={[
                           "relative cursor-pointer rounded-2xl border-2 p-3 transition-all",
-                          active ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/30 shadow-sm" : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600"
+                          active ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/30 shadow-sm" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]"
                         ].join(" ")}
                         onClick={() => setBaseForm(p => ({ ...p, format: fmt }))}
                       >
                         <div className="flex items-start gap-3">
-                          <div className={active ? "text-blue-600 dark:text-blue-400" : "text-neutral-500 dark:text-neutral-400"}>
+                          <div className={active ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}>
                             <FileText className="w-4 h-4" />
                           </div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <h4 className="font-medium text-neutral-900 dark:text-neutral-100 text-sm">{fmt}</h4>
+                              <h4 className="font-medium text-foreground text-sm">{fmt}</h4>
                               <span className={`text-xs px-2 py-0.5 rounded ${chip.cls}`}>{chip.txt}</span>
                             </div>
-                            <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">{desc}</p>
+                            <p className="text-xs text-muted-foreground mt-1">{desc}</p>
                           </div>
                           {active && <div className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full" />}
                         </div>
@@ -791,8 +791,8 @@ export function ScheduledExportWizard({
               {/* 高级选项 */}
               <div className="space-y-3">
                 <div>
-                  <Label className="text-base font-medium dark:text-neutral-100">高级选项</Label>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">自定义导出内容的详细设置</p>
+                  <Label className="text-base font-medium text-foreground">高级选项</Label>
+                  <p className="text-sm text-muted-foreground mt-1">自定义导出内容的详细设置</p>
                 </div>
 
                 <div className="space-y-3">
@@ -823,7 +823,7 @@ export function ScheduledExportWizard({
                       key={opt.id}
                       className={[
                         "relative cursor-pointer rounded-2xl border p-4 transition-all",
-                        opt.checked ? "border-neutral-300 dark:border-neutral-600 bg-neutral-50/50 dark:bg-neutral-800/50" : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600"
+                        opt.checked ? "border-black/[0.08] dark:border-white/[0.08] bg-muted/30" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]"
                       ].join(" ")}
                       onClick={() => opt.set(!opt.checked)}
                     >
@@ -833,7 +833,7 @@ export function ScheduledExportWizard({
                             "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
                             opt.checked 
                               ? "border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100" 
-                              : "border-neutral-300 dark:border-neutral-600 hover:border-neutral-400 dark:hover:border-neutral-500"
+                              : "border-black/[0.08] dark:border-white/[0.08] hover:border-black/[0.12] dark:hover:border-white/[0.12]"
                           ].join(" ")}>
                             {opt.checked && (
                               <svg className="w-3 h-3 text-white dark:text-neutral-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -843,8 +843,8 @@ export function ScheduledExportWizard({
                           </div>
                         </div>
                         <div className="flex-1">
-                          <h4 className="font-medium text-neutral-900 dark:text-neutral-100 text-sm">{opt.title}</h4>
-                          <p className="text-neutral-600 dark:text-neutral-400 text-sm mt-1 leading-relaxed">{opt.desc}</p>
+                          <h4 className="font-medium text-foreground text-sm">{opt.title}</h4>
+                          <p className="text-muted-foreground text-sm mt-1 leading-relaxed">{opt.desc}</p>
                         </div>
                       </div>
                     </div>
@@ -883,8 +883,8 @@ export function ScheduledExportWizard({
         </div>
 
         {/* 底部操作栏 */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-neutral-200 dark:border-neutral-700">
-          <div className="text-sm text-neutral-500 dark:text-neutral-400">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-black/[0.06] dark:border-white/[0.06]">
+          <div className="text-sm text-muted-foreground">
             {canSubmit() ? (
               <span className="text-green-600 dark:text-green-400 flex items-center gap-2">
                 <CheckCircle className="w-4 h-4" />

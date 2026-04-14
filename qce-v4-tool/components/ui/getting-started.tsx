@@ -77,18 +77,18 @@ export function GettingStarted({
           <div className="flex items-center gap-2">
             {wsConnected ? (
               qqOnline ? (
-                <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
+                <Badge variant="outline" className="text-blue-600 border-blue-200/50 bg-blue-50/50 dark:text-blue-400 dark:border-blue-800 dark:bg-blue-950/40">
                   <Wifi className="w-3 h-3 mr-1" />
                   已连接
                 </Badge>
               ) : (
-                <Badge variant="outline" className="text-yellow-600 border-yellow-200 bg-yellow-50">
+                <Badge variant="outline" className="text-amber-600 border-amber-200/50 bg-amber-50/50 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950/40">
                   <AlertCircle className="w-3 h-3 mr-1" />
                   QQ离线
                 </Badge>
               )
             ) : (
-              <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50">
+              <Badge variant="outline" className="text-red-600 border-red-200/50 bg-red-50/50 dark:text-red-400 dark:border-red-800 dark:bg-red-950/40">
                 <AlertCircle className="w-3 h-3 mr-1" />
                 未连接
               </Badge>
@@ -100,33 +100,33 @@ export function GettingStarted({
         {steps.map((step, index) => (
           <div
             key={step.id}
-            className={`flex items-center gap-4 p-4 rounded-lg border transition-colors ${
+            className={`flex items-center gap-4 p-4 rounded-xl border transition-colors ${
               step.completed 
-                ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800" 
-                : "bg-neutral-50 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700"
+                ? "bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800" 
+                : "bg-muted/50 border-black/[0.06] dark:border-white/[0.06]"
             }`}
           >
             <div className="flex-shrink-0">
               {step.completed ? (
-                <CheckCircle className="w-5 h-5 text-green-600" />
+                <CheckCircle className="w-5 h-5 text-blue-500" />
               ) : (
-                <Circle className="w-5 h-5 text-neutral-400 dark:text-neutral-500" />
+                <Circle className="w-5 h-5 text-muted-foreground/60" />
               )}
             </div>
             
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
+                <span className="text-sm font-medium text-muted-foreground">
                   步骤 {index + 1}
                 </span>
                 {step.completed && (
                   <Badge variant="secondary" className="text-xs">完成</Badge>
                 )}
               </div>
-              <h3 className="font-medium text-neutral-900 mt-1">
+              <h3 className="font-medium text-foreground mt-1">
                 {step.title}
               </h3>
-              <p className="text-sm text-neutral-600 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 {step.description}
               </p>
             </div>
@@ -136,7 +136,7 @@ export function GettingStarted({
                 onClick={step.action}
                 variant="outline"
                 size="sm"
-                className="flex-shrink-0"
+                className="flex-shrink-0 rounded-full"
               >
                 {step.actionText}
                 <ArrowRight className="w-4 h-4 ml-1" />
@@ -146,12 +146,12 @@ export function GettingStarted({
         ))}
         
         {allCompleted && (
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-xl">
             <div className="flex items-start gap-3">
               <CheckCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
               <div>
-                <h3 className="font-medium text-blue-900">准备就绪</h3>
-                <p className="text-sm text-blue-700 mt-1">
+                <h3 className="font-medium text-foreground">准备就绪</h3>
+                <p className="text-sm text-muted-foreground mt-1">
                   您现在可以在"会话管理"中选择要导出的群组或好友，或在"导出任务"中查看和管理您的导出任务。
                 </p>
               </div>
