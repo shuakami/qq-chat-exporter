@@ -235,7 +235,21 @@ export function SessionList({
         </div>
 
         {!batchMode && (
-          <div className="grid grid-cols-[72px_64px_32px] items-center gap-1 flex-shrink-0">
+          <div className="grid grid-cols-[64px_72px_32px] items-center gap-1 flex-shrink-0">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 w-full px-0 text-xs rounded-full justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={(e: React.MouseEvent) => {
+                e.stopPropagation()
+                onPreviewChat?.(item.type, item.id, item.name, { 
+                  chatType: isGroup ? 2 : 1, 
+                  peerUid: item.id 
+                })
+              }}
+            >
+              预览
+            </Button>
             <Button
               size="sm"
               variant="outline"
@@ -250,20 +264,6 @@ export function SessionList({
               }}
             >
               导出
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 w-full px-0 text-xs rounded-full justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={(e: React.MouseEvent) => {
-                e.stopPropagation()
-                onPreviewChat?.(item.type, item.id, item.name, { 
-                  chatType: isGroup ? 2 : 1, 
-                  peerUid: item.id 
-                })
-              }}
-            >
-              预览
             </Button>
             {isGroup && group ? (
               <div className="relative h-8 w-8">
