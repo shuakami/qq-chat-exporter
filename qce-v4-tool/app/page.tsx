@@ -74,7 +74,7 @@ import { useResourceIndex } from "@/hooks/use-resource-index"
 import { ThemeToggle } from "@/components/qce-dashboard/theme-toggle"
 
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
-import { EASE, DUR, makeStagger, hoverLift, fadeSlide, statusPulse } from "@/components/qce-dashboard/animations"
+import { makeStagger } from "@/components/qce-dashboard/animations"
 
 export default function QCEDashboard() {
   const [activeTab, setActiveTabState] = useState("overview")
@@ -138,6 +138,7 @@ export default function QCEDashboard() {
   // 新手引导状态
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [onboardingStep, setOnboardingStep] = useState(0)
+  const [highlightedNav, setHighlightedNav] = useState<string | null>(null)
   
   // 侧边栏状态
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -1012,19 +1013,14 @@ export default function QCEDashboard() {
           >
             <div className="w-[240px] h-full flex flex-col">
               {/* Sidebar header */}
-              <div className="flex items-center gap-3 px-4 h-14 flex-shrink-0">
+              <div className="flex items-center px-4 h-14 flex-shrink-0">
                 {systemInfo?.napcat.selfInfo ? (
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <Avatar className="w-7 h-7 flex-shrink-0 border border-black/[0.06] dark:border-white/[0.06]">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Avatar className="w-7 h-7 flex-shrink-0">
                       <AvatarImage src={`http://q.qlogo.cn/g?b=qq&nk=${systemInfo.napcat.selfInfo.uin}&s=100`} />
                       <AvatarFallback className="text-[11px]">{systemInfo.napcat.selfInfo.nick?.[0] || 'Q'}</AvatarFallback>
                     </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold text-foreground truncate leading-tight">{systemInfo.napcat.selfInfo.nick}</p>
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? "bg-green-500" : "bg-red-400"}`} />
-                    </div>
+                    <span className="text-[13px] font-semibold text-foreground truncate">{systemInfo.napcat.selfInfo.nick}</span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2.5">
@@ -1049,7 +1045,7 @@ export default function QCEDashboard() {
                           isActive 
                             ? "text-foreground bg-black/[0.05] dark:bg-white/[0.05]" 
                             : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
-                        }`}
+                        } ${highlightedNav === item.id ? "ring-2 ring-blue-500/50 ring-offset-1 ring-offset-background" : ""}`}
                       >
                         <Icon className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">{item.label}</span>
@@ -1328,10 +1324,10 @@ export default function QCEDashboard() {
 
         {/* Content area */}
         <div className="flex-1 overflow-auto">
-          <AnimatePresence mode="wait">
+          <>
             {/* ==================== OVERVIEW ==================== */}
             {activeTab === "overview" && (
-              <motion.div key="tab-overview" {...fadeSlide} className="p-5 space-y-5">
+              <div className="p-5 space-y-5">
                 {/* Compact inline stats bar */}
                 <div className="flex items-center rounded-lg border border-black/[0.06] dark:border-white/[0.06] bg-card">
                   <div className="flex-1 border-r border-black/[0.04] dark:border-white/[0.06] px-4 py-3">
@@ -1351,60 +1347,26 @@ export default function QCEDashboard() {
                   </div>
                 </div>
 
-                {/* Connection & user info compact row */}
-                <div className="flex items-center justify-between px-1">
-                  <div className="flex items-center gap-4">
-                    {systemInfo?.napcat.selfInfo && (
-                      <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-                        <span className="text-foreground font-medium">{systemInfo.napcat.selfInfo.nick}</span>
-                        <span className="text-muted-foreground/50">QQ {systemInfo.napcat.selfInfo.uin}</span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-4 text-[12px]">
-                    {systemInfo?.napcat.workingEnv && (
-                      <div className="flex items-center gap-1.5">
-                        <span className={`w-1.5 h-1.5 rounded-full ${
-                          systemInfo.napcat.workingEnv === 'framework' 
-                            ? 'bg-purple-500' 
-                            : systemInfo.napcat.workingEnv === 'shell' 
-                              ? 'bg-blue-500' 
-                              : 'bg-gray-400'
-                        }`} />
-                        <span className="text-muted-foreground/60">
-                          {systemInfo.napcat.workingEnv === 'framework' ? 'Framework' : systemInfo.napcat.workingEnv === 'shell' ? 'Shell' : '未知'}
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-1.5">
-                      <motion.span
-                        className={`w-1.5 h-1.5 rounded-full ${wsConnected ? "bg-green-500" : "bg-red-400"}`}
-                        {...(wsConnected ? {} : statusPulse)}
-                      />
-                      <span className="text-muted-foreground/60">{wsConnected ? "已连接" : "未连接"}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <motion.span
-                        className={`w-1.5 h-1.5 rounded-full ${systemInfo?.napcat.online ? "bg-green-500" : "bg-amber-400"}`}
-                        {...(systemInfo?.napcat.online ? {} : statusPulse)}
-                      />
-                      <span className="text-muted-foreground/60">{systemInfo?.napcat.online ? "QQ在线" : "QQ离线"}</span>
-                    </div>
-                    <span className="text-muted-foreground/40 font-mono text-[11px]">v5.0.0</span>
-                  </div>
-                </div>
-
-                {/* Quick actions row */}
-                <div className="flex items-center gap-2">
-                  <Button size="sm" className="h-7 text-[12px] rounded-md px-2.5" onClick={() => handleOpenTaskWizard()}>
-                    新建任务
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-7 text-[12px] rounded-md px-2.5 border-black/[0.08] dark:border-white/[0.08]" onClick={() => setActiveTab("sessions")}>
-                    浏览会话
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-7 text-[12px] rounded-md px-2.5 border-black/[0.08] dark:border-white/[0.08]" onClick={() => setActiveTab("tasks")}>
-                    查看任务
-                  </Button>
+                {/* Status row */}
+                <div className="flex items-center gap-3 px-1 text-[12px] text-muted-foreground/60">
+                  {systemInfo?.napcat.selfInfo && (
+                    <>
+                      <span className="text-foreground font-medium">{systemInfo.napcat.selfInfo.nick}</span>
+                      <span>QQ {systemInfo.napcat.selfInfo.uin}</span>
+                      <span className="text-muted-foreground/30">·</span>
+                    </>
+                  )}
+                  {systemInfo?.napcat.workingEnv && (
+                    <>
+                      <span>{systemInfo.napcat.workingEnv === 'framework' ? 'Framework' : systemInfo.napcat.workingEnv === 'shell' ? 'Shell' : '未知'}</span>
+                      <span className="text-muted-foreground/30">·</span>
+                    </>
+                  )}
+                  <span>{wsConnected ? "已连接" : "未连接"}</span>
+                  <span className="text-muted-foreground/30">·</span>
+                  <span>{systemInfo?.napcat.online ? "QQ在线" : "QQ离线"}</span>
+                  <span className="text-muted-foreground/30">·</span>
+                  <span className="font-mono text-[11px]">v5.0.0</span>
                 </div>
 
                 {/* Recent tasks - flat list */}
@@ -1482,12 +1444,12 @@ export default function QCEDashboard() {
                     ))}
                   </div>
                 )}
-              </motion.div>
+              </div>
             )}
 
             {/* ==================== SESSIONS ==================== */}
             {activeTab === "sessions" && (
-              <motion.div key="tab-sessions" {...fadeSlide} className="p-5 space-y-4">
+              <div className="p-5 space-y-4">
                 {batchMode && (
                   <div className="text-[13px] text-muted-foreground px-1">
                     已选择 {selectedItems.size} 个会话
@@ -1512,12 +1474,12 @@ export default function QCEDashboard() {
                   onOpenEssenceModal={handleOpenEssenceModal}
                   onOpenGroupFilesModal={handleOpenGroupFilesModal}
                 />
-              </motion.div>
+              </div>
             )}
 
             {/* ==================== TASKS ==================== */}
             {activeTab === "tasks" && (
-              <motion.div key="tab-tasks" {...fadeSlide} className="p-5 space-y-1">
+              <div className="p-5 space-y-1">
                 {tasks.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center">
                     <Zap className="w-8 h-8 text-muted-foreground/20 mb-3" />
@@ -1628,12 +1590,12 @@ export default function QCEDashboard() {
                     </div>
                   ))
                 )}
-              </motion.div>
+              </div>
             )}
 
             {/* ==================== SCHEDULED ==================== */}
             {activeTab === "scheduled" && (
-              <motion.div key="tab-scheduled" {...fadeSlide} className="p-5 space-y-4">
+              <div className="p-5 space-y-4">
                 {/* Filter Tabs */}
                 {scheduledExports.length > 0 && (
                   <div className="flex items-center gap-0.5 px-1">
@@ -1758,12 +1720,12 @@ export default function QCEDashboard() {
                     ))}
                   </div>
                 )}
-              </motion.div>
+              </div>
             )}
 
             {/* ==================== HISTORY ==================== */}
             {activeTab === "history" && (
-              <motion.div key="tab-history" {...fadeSlide} className="p-5 space-y-4">
+              <div className="p-5 space-y-4">
                 {/* Stats line */}
                 <div className="text-[12px] text-muted-foreground/50 px-1">
                   {getChatHistoryStats().total} 个文件
@@ -2178,12 +2140,12 @@ export default function QCEDashboard() {
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </motion.div>
+              </div>
             )}
 
             {/* ==================== STICKERS ==================== */}
             {activeTab === "stickers" && (
-              <motion.div key="tab-stickers" {...fadeSlide} className="p-5 space-y-4">
+              <div className="p-5 space-y-4">
                 {/* Filter Tabs */}
                 {stickerPacks.length > 0 && (
                   <div className="flex items-center gap-0.5 px-1">
@@ -2300,7 +2262,7 @@ export default function QCEDashboard() {
                     </div>
                   </div>
                 )}
-              </motion.div>
+              </div>
             )}
 
             {/* ==================== SETTINGS ==================== */}
@@ -2310,7 +2272,7 @@ export default function QCEDashboard() {
 
             {/* ==================== ABOUT ==================== */}
             {activeTab === "about" && (
-              <motion.div key="tab-about" {...fadeSlide} className="p-5 max-w-2xl space-y-8">
+              <div className="p-5 max-w-2xl space-y-8">
                 <div className="space-y-4">
                   <div>
                     <div className="text-[11px] font-medium text-muted-foreground/40 uppercase tracking-wider mb-1">About</div>
@@ -2372,9 +2334,9 @@ export default function QCEDashboard() {
                     </p>
                   </div>
                 </div>
-              </motion.div>
+              </div>
             )}
-          </AnimatePresence>
+          </>
         </div>
       </div>
 
@@ -3048,13 +3010,14 @@ export default function QCEDashboard() {
                     onClick={() => {
                       localStorage.setItem("qce-onboarding-completed", "true")
                       setShowOnboarding(false)
+                      setHighlightedNav(null)
                     }}
                     className="flex-1 py-2.5 text-sm text-muted-foreground hover:text-foreground"
                   >
                     跳过
                   </button>
                   <button
-                    onClick={() => setOnboardingStep(1)}
+                    onClick={() => { setOnboardingStep(1); setHighlightedNav("sessions"); }}
                     className="flex-1 py-2.5 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600"
                   >
                     开始
@@ -3087,6 +3050,7 @@ export default function QCEDashboard() {
                   onClick={() => {
                     targetEl?.click()
                     setOnboardingStep(2)
+                    setHighlightedNav(null)
                   }}
                   className="w-full py-2 bg-white dark:bg-blue-600 text-blue-500 dark:text-white rounded-lg text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-700"
                 >
@@ -3096,6 +3060,7 @@ export default function QCEDashboard() {
                   onClick={() => {
                     localStorage.setItem("qce-onboarding-completed", "true")
                     setShowOnboarding(false)
+                    setHighlightedNav(null)
                   }}
                   className="w-full mt-2 text-xs text-blue-200 hover:text-white"
                 >
@@ -3120,13 +3085,14 @@ export default function QCEDashboard() {
                     onClick={() => {
                       localStorage.setItem("qce-onboarding-completed", "true")
                       setShowOnboarding(false)
+                      setHighlightedNav(null)
                     }}
                     className="flex-1 py-2 text-xs text-blue-200 hover:text-white"
                   >
                     我知道了
                   </button>
                   <button
-                    onClick={() => setOnboardingStep(3)}
+                    onClick={() => { setOnboardingStep(3); setHighlightedNav("tasks"); }}
                     className="flex-1 py-2 bg-white dark:bg-blue-600 text-blue-500 dark:text-white rounded-lg text-xs font-medium hover:bg-blue-50 dark:hover:bg-blue-700"
                   >
                     下一步
@@ -3158,7 +3124,7 @@ export default function QCEDashboard() {
                   在「任务」页面可以看到导出进度和状态
                 </p>
                 <button
-                  onClick={() => setOnboardingStep(4)}
+                  onClick={() => { setOnboardingStep(4); setHighlightedNav("history"); }}
                   className="w-full py-2 bg-white dark:bg-blue-600 text-blue-500 dark:text-white rounded-lg text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-700"
                 >
                   下一步
@@ -3167,6 +3133,7 @@ export default function QCEDashboard() {
                   onClick={() => {
                     localStorage.setItem("qce-onboarding-completed", "true")
                     setShowOnboarding(false)
+                    setHighlightedNav(null)
                   }}
                   className="w-full mt-2 text-xs text-blue-200 hover:text-white"
                 >
@@ -3201,6 +3168,7 @@ export default function QCEDashboard() {
                   onClick={() => {
                     localStorage.setItem("qce-onboarding-completed", "true")
                     setShowOnboarding(false)
+                    setHighlightedNav(null)
                   }}
                   className="w-full py-2 bg-white dark:bg-blue-600 text-blue-500 dark:text-white rounded-lg text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-700"
                 >
