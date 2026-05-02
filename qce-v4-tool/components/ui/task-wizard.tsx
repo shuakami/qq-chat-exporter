@@ -1002,6 +1002,22 @@ export function TaskWizard({
                 visible: true
               },
               {
+                id: "skipFileDownloadOnly",
+                checked: !!form.skipDownloadResourceTypes?.includes('file'),
+                set: (v: boolean) => setForm((p) => {
+                  const current = new Set(p.skipDownloadResourceTypes || []);
+                  if (v) {
+                    current.add('file');
+                  } else {
+                    current.delete('file');
+                  }
+                  return { ...p, skipDownloadResourceTypes: Array.from(current) };
+                }),
+                title: "仅保留文件元数据，不下载文件",
+                desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。适合不需要本地副本的备份场景。",
+                visible: !form.filterPureImageMessages
+              },
+              {
                 id: "preferGroupMemberName",
                 checked: form.preferGroupMemberName ?? true,
                 set: (v: boolean) => setForm((p) => ({ ...p, preferGroupMemberName: v })),

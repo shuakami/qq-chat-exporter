@@ -40,10 +40,11 @@ import { resolvePeerUid } from './peerResolution.js';
 
 // 导入类型定义
 import type { RawMessage } from 'NapCatQQ/src/core/types.js';
-import type { 
+import type {
     SystemErrorData,
     ExportTaskConfig,
-    ExportTaskState
+    ExportTaskState,
+    ResourceType
 } from '../types/index.js';
 import { 
     ErrorType,
@@ -3697,6 +3698,21 @@ export class QQChatExporterApiServer {
                     });
                 });
 
+                // Issue #341: 用户可指定跳过下载的资源类型（仅保留元数据），
+                // 优先读取细粒度的 skipDownloadResourceTypes，未提供时再回退到
+                // 旧的 skipFileDownload 布尔开关。
+                const requestedSkipTypes: string[] = Array.isArray(options?.skipDownloadResourceTypes)
+                    ? options!.skipDownloadResourceTypes!
+                    : (options?.skipFileDownload ? ['file'] : []);
+                const allowedSkipTypes: ResourceType[] = ['image', 'video', 'audio', 'file'];
+                const normalizedSkipTypes = requestedSkipTypes
+                    .map(t => String(t).toLowerCase())
+                    .filter((t): t is ResourceType => allowedSkipTypes.includes(t as ResourceType));
+                if (normalizedSkipTypes.length > 0) {
+                    taskResourceHandler.setSkipDownloadTypes(normalizedSkipTypes);
+                    console.info(`[ApiServer] 跳过下载的资源类型: ${normalizedSkipTypes.join(', ')}`);
+                }
+
                 // 下载和处理资源（使用过滤后的消息列表）
                 resourceMap = await taskResourceHandler.processMessageResources(filteredMessages);
                 
@@ -4153,7 +4169,20 @@ export class QQChatExporterApiServer {
         // 为此任务创建独立的 ResourceHandler
         const taskResourceHandler = new ResourceHandler(this.core, this.dbManager);
         this.taskResourceHandlers.set(taskId, taskResourceHandler);
-        
+
+        // Issue #341: 流式分块导出路径同样支持按资源类型跳过下载。
+        const requestedSkipTypes: string[] = Array.isArray(options?.skipDownloadResourceTypes)
+            ? options!.skipDownloadResourceTypes!
+            : (options?.skipFileDownload ? ['file'] : []);
+        const allowedSkipTypes: ResourceType[] = ['image', 'video', 'audio', 'file'];
+        const normalizedSkipTypes = requestedSkipTypes
+            .map((t: string) => String(t).toLowerCase())
+            .filter((t: string): t is ResourceType => allowedSkipTypes.includes(t as ResourceType));
+        if (normalizedSkipTypes.length > 0) {
+            taskResourceHandler.setSkipDownloadTypes(normalizedSkipTypes);
+            console.info(`[ApiServer] (流式) 跳过下载的资源类型: ${normalizedSkipTypes.join(', ')}`);
+        }
+
         try {
 
             // 更新任务状态

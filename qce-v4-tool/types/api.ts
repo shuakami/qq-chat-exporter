@@ -190,6 +190,11 @@ export interface CreateTaskForm {
   useNameInFileName?: boolean
   /** 群聊导出时优先使用群成员名称（Issue #358） */
   preferGroupMemberName?: boolean
+  /**
+   * 仅保留元数据、跳过下载的资源类型（Issue #341）。
+   * 'image' | 'video' | 'audio' | 'file'
+   */
+  skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
 }
 
 export interface CreateTaskRequest {
@@ -221,6 +226,8 @@ export interface CreateTaskRequest {
     useNameInFileName?: boolean
     /** 群聊导出时优先使用群成员名称（Issue #358） */
     preferGroupMemberName?: boolean
+    /** 仅保留元数据、跳过下载的资源类型（Issue #341） */
+    skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
   }
 }
 
@@ -309,6 +316,8 @@ export interface ScheduledExport {
     filterPureImageMessages?: boolean
     prettyFormat?: boolean
     preferGroupMemberName?: boolean
+    /** Issue #341: 仅保留元数据、跳过下载的资源类型 */
+    skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
   }
   outputDir?: string
   enabled: boolean
@@ -351,6 +360,8 @@ export interface CreateScheduledExportForm {
   includeSystemMessages?: boolean
   filterPureImageMessages?: boolean
   preferGroupMemberName?: boolean
+  /** Issue #341: 仅保留元数据、跳过下载的资源类型 */
+  skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
 }
 
 export interface ScheduledExportsResponse {

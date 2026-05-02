@@ -103,6 +103,9 @@ export function useScheduledExports() {
                     filterPureImageMessages: formData.filterPureImageMessages ?? false,
                     prettyFormat: true,
                     preferGroupMemberName: formData.preferGroupMemberName ?? true,
+                    ...(Array.isArray(formData.skipDownloadResourceTypes) && formData.skipDownloadResourceTypes.length > 0 && {
+                        skipDownloadResourceTypes: formData.skipDownloadResourceTypes,
+                    }),
                 },
                 ...(formData.outputDir?.trim() && { outputDir: formData.outputDir.trim() }),
                 enabled: formData.enabled,

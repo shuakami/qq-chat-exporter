@@ -301,12 +301,19 @@ export class ResourceHandler {
     private isProcessing: boolean = false;
     private isHealthCheckRunning: boolean = false;
     private healthCheckTimer: NodeJS.Timeout | null = null;
-    
+
     // 进度回调
     private progressCallback: ResourceProgressCallback | null = null;
     private totalResourcesForProgress: number = 0;
     private completedResourcesForProgress: number = 0;
     private failedResourcesForProgress: number = 0;
+
+    /**
+     * 跳过下载的资源类型集合（Issue #341）。
+     * 命中的资源仍会保留元数据（fileName / fileSize / md5 / mimeType / 可恢复的 originalUrl）
+     * 写入数据库与导出结果，但不会被加入下载队列，状态被标记为 SKIPPED。
+     */
+    private skipDownloadTypes: Set<ResourceType> = new Set();
 
     constructor(core: NapCatCore, dbManager: DatabaseManager, config: Partial<ResourceHandlerConfig> = {}) {
         this.core = core;
@@ -341,6 +348,19 @@ export class ResourceHandler {
      */
     setProgressCallback(callback: ResourceProgressCallback | null): void {
         this.progressCallback = callback;
+    }
+
+    /**
+     * 配置需要跳过下载的资源类型（Issue #341）。
+     *
+     * 适用场景：导出聊天记录时仅需要文件名 / 大小等元数据，不需要本地副本，
+     * 例如群文件下载占用磁盘大且 QQ 自身已缓存的场景。命中的资源仍会被解析、
+     * 写入数据库并出现在导出文件中，只是不会触发实际网络下载。
+     *
+     * 传入 null 或空数组即恢复默认行为（不跳过任何类型）。
+     */
+    setSkipDownloadTypes(types: ResourceType[] | null | undefined): void {
+        this.skipDownloadTypes = new Set(types || []);
     }
 
     /**
@@ -386,7 +406,8 @@ export class ResourceHandler {
                         if (resourceInfo) {
                             resources.push(resourceInfo);
                             totalResources++;
-                            if (!resourceInfo.accessible) {
+                            // Issue #341: 被跳过下载的资源不计入下载进度，避免进度永远卡住。
+                            if (!resourceInfo.accessible && resourceInfo.status !== ResourceStatus.SKIPPED) {
                                 resourcesNeedingDownload++;
                             }
                         }
@@ -449,10 +470,17 @@ export class ResourceHandler {
         
         // 如果资源不健康或不存在，添加到下载队列并等待下载完成
         if (!isHealthy) {
-            resourceInfo.status = ResourceStatus.PENDING;
-            await this.enqueueDownload(message, element, resourceInfo);
-            // 注意：enqueueDownload只是添加到队列，实际下载是异步的
-            // 我们在processMessageResources的最后统一等待所有下载完成
+            // Issue #341: 命中跳过类型的资源不入下载队列，仅保留元数据。
+            if (this.skipDownloadTypes.has(resourceInfo.type)) {
+                resourceInfo.status = ResourceStatus.SKIPPED;
+                resourceInfo.accessible = false;
+                resourceInfo.localPath = '';
+            } else {
+                resourceInfo.status = ResourceStatus.PENDING;
+                await this.enqueueDownload(message, element, resourceInfo);
+                // 注意：enqueueDownload只是添加到队列，实际下载是异步的
+                // 我们在processMessageResources的最后统一等待所有下载完成
+            }
         }
         
         // 更新数据库
