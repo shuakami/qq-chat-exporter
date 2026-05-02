@@ -36,6 +36,7 @@ import { ZipExporter } from '../utils/ZipExporter.js';
 import { StreamingZipExporter } from '../utils/StreamingZipExporter.js';
 import { VERSION, APP_INFO } from '../version.js';
 import { PathManager } from '../utils/PathManager.js';
+import { resolvePeerUid } from './peerResolution.js';
 
 // 导入类型定义
 import type { RawMessage } from 'NapCatQQ/src/core/types.js';
@@ -1873,16 +1874,9 @@ export class QQChatExporterApiServer {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, 'peer参数不完整', 'INVALID_PEER');
                 }
 
-                // Issue #226: 支持通过QQ号导出，自动转换为uid
-                let actualPeerUid = peer.peerUid;
-                if (peer.chatType === 1 && /^\d+$/.test(peer.peerUid)) {
-                    // 私聊且peerUid是纯数字（QQ号），尝试转换为uid
-                    const uid = await this.core.apis.UserApi.getUidByUinV2(peer.peerUid);
-                    if (uid) {
-                        actualPeerUid = uid;
-                        this.core.context.logger.log(`[QCE] QQ号 ${peer.peerUid} 转换为 uid: ${uid}`);
-                    }
-                }
+                // Issue #226 / #353: 支持通过 QQ 号导出，自动转换为 uid。
+                // 旧版 NapCat 上 getUidByUinV2 不存在，resolvePeerUid 会安全降级到原始 peerUid。
+                const actualPeerUid = await resolvePeerUid(peer, this.core.apis?.UserApi, this.core.context.logger);
                 const actualPeer = { ...peer, peerUid: actualPeerUid };
 
                 // 生成任务ID
@@ -2011,15 +2005,8 @@ export class QQChatExporterApiServer {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, 'peer参数不完整', 'INVALID_PEER');
                 }
 
-                // Issue #226: 支持通过QQ号导出，自动转换为uid
-                let actualPeerUid = peer.peerUid;
-                if (peer.chatType === 1 && /^\d+$/.test(peer.peerUid)) {
-                    const uid = await this.core.apis.UserApi.getUidByUinV2(peer.peerUid);
-                    if (uid) {
-                        actualPeerUid = uid;
-                        this.core.context.logger.log(`[QCE] QQ号 ${peer.peerUid} 转换为 uid: ${uid}`);
-                    }
-                }
+                // Issue #226 / #353: 支持通过 QQ 号导出，自动转换为 uid（兼容缺失 getUidByUinV2 的运行时）。
+                const actualPeerUid = await resolvePeerUid(peer, this.core.apis?.UserApi, this.core.context.logger);
                 const actualPeer = { ...peer, peerUid: actualPeerUid };
 
                 // 生成任务ID
@@ -2135,15 +2122,8 @@ export class QQChatExporterApiServer {
                     throw new SystemError(ErrorType.VALIDATION_ERROR, 'peer参数不完整', 'INVALID_PEER');
                 }
 
-                // Issue #226: 支持通过QQ号导出，自动转换为uid
-                let actualPeerUid = peer.peerUid;
-                if (peer.chatType === 1 && /^\d+$/.test(peer.peerUid)) {
-                    const uid = await this.core.apis.UserApi.getUidByUinV2(peer.peerUid);
-                    if (uid) {
-                        actualPeerUid = uid;
-                        this.core.context.logger.log(`[QCE] QQ号 ${peer.peerUid} 转换为 uid: ${uid}`);
-                    }
-                }
+                // Issue #226 / #353: 支持通过 QQ 号导出，自动转换为 uid（兼容缺失 getUidByUinV2 的运行时）。
+                const actualPeerUid = await resolvePeerUid(peer, this.core.apis?.UserApi, this.core.context.logger);
                 const actualPeer = { ...peer, peerUid: actualPeerUid };
 
                 // 生成任务ID
