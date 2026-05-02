@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="QCE Testing Group的聊天记录导出文件">
+    <meta name="generator" content="<GENERATOR>">
+    <title>QCE Testing Group - 聊天记录</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            background-color: #ffffff;
+            color: #262626;
+            line-height: 1.6;
+            
+            font-size: 14px;
+            @media (max-width: 768px) {
+                font-size: 12px;
+            }
+        }
+
+        .chat-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            
+            @media (max-width: 768px) {
+                padding: 10px;
+            }
+        }
+
+        .chat-header {
+            text-align: center;
+            padding: 30px 0;
+            border-bottom: 2px solid #f0f2f5;
+            margin-bottom: 30px;
+        }
+
+        .chat-title {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #1890ff;
+            margin-bottom: 10px;
+        }
+
+        .chat-info {
+            font-size: 1.1em;
+            color: #262626;
+            opacity: 0.8;
+        }
+
+        .chat-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            background: #f0f2f5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2em;
+        }
+
+        .statistics {
+            background: #f0f2f5;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 30px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #1890ff;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+
+        .search-bar {
+            margin-bottom: 20px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 12px 20px;
+            border: 2px solid #f0f2f5;
+            border-radius: 25px;
+            font-size: 1em;
+            background: #ffffff;
+            color: #262626;
+            transition: border-color 0.3s;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #1890ff;
+        }
+
+        .messages-container {
+            margin-bottom: 50px;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 12px;
+            background: #e6f7ff;
+            position: relative;
+            word-wrap: break-word;
+            
+            @media (max-width: 768px) {
+                padding: 12px;
+                margin-bottom: 15px;
+            }
+        }
+
+        .message.system {
+            text-align: center;
+            background: #f0f2f5;
+            font-style: italic;
+            opacity: 0.8;
+        }
+
+        .message-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            gap: 10px;
+        }
+
+        .message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #1890ff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 0.8em;
+        }
+
+        .message-sender {
+            font-weight: bold;
+            color: #1890ff;
+            flex-grow: 1;
+        }
+
+        .message-time {
+            font-size: 0.85em;
+            opacity: 0.6;
+            
+            @media (max-width: 768px) {
+                display: none;
+            }
+        }
+
+        .message-content {
+            margin-left: 46px;
+            
+            @media (max-width: 768px) {
+                margin-left: 0;
+            }
+        }
+
+        .reply-content {
+            background: #f0f2f5;
+            padding: 8px 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            border-left: 3px solid #1890ff;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .mention {
+            color: #1890ff;
+            font-weight: bold;
+            text-decoration: none;
+        }
+
+        .mention:hover {
+            text-decoration: underline;
+        }
+
+        .emoji {
+            font-size: 1.2em;
+        }
+
+        .message-image, .message-video {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 8px;
+            margin: 8px 0;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .message-image:hover, .message-video:hover {
+            transform: scale(1.02);
+        }
+
+        .message-audio {
+            width: 100%;
+            margin: 8px 0;
+        }
+
+        .message-file {
+            display: inline-flex;
+            align-items: center;
+            padding: 8px 12px;
+            background: #f0f2f5;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #262626;
+            margin: 8px 0;
+            transition: background-color 0.2s;
+        }
+
+        .message-file:hover {
+            background: #1890ff;
+            color: white;
+        }
+
+        .resource-placeholder {
+            display: inline-block;
+            padding: 4px 8px;
+            background: #f0f2f5;
+            border-radius: 4px;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .resources-list {
+            margin-top: 8px;
+            padding: 8px;
+            background: #f0f2f5;
+            border-radius: 6px;
+            font-size: 0.9em;
+        }
+
+        .resource-item {
+            margin: 4px 0;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+        }
+
+        .resource-item:last-child {
+            border-bottom: none;
+        }
+
+        .chat-footer {
+            text-align: center;
+            padding: 30px 0;
+            border-top: 2px solid #f0f2f5;
+            font-size: 0.9em;
+            opacity: 0.6;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            opacity: 0.6;
+        }
+
+        /* 响应式设计 */
+        
+        @media (max-width: 768px) {
+            .chat-title {
+                font-size: 1.8em;
+            }
+            
+            .statistics {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+                padding: 15px;
+            }
+            
+            .stat-number {
+                font-size: 1.5em;
+            }
+            
+            .message-header {
+                flex-wrap: wrap;
+            }
+            
+            .message-time {
+                width: 100%;
+                margin-top: 5px;
+                margin-left: 46px;
+            }
+        }
+
+        /* 打印样式 */
+        @media print {
+            .search-bar, .chat-footer {
+                display: none;
+            }
+            
+            .message {
+                break-inside: avoid;
+                margin-bottom: 10px;
+            }
+            
+            .message-image, .message-video {
+                max-height: 200px;
+            }
+        }
+
+        /* 暗色主题适配 */
+        @media (prefers-color-scheme: dark) {
+            
+            body {
+                background-color: #1f1f1f;
+                color: #ffffff;
+            }
+            
+            .message {
+                background: #3a3a3a;
+            }
+            
+            .statistics {
+                background: #2f2f2f;
+            }
+        }
+
+        /* 动画效果 */
+        .message {
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f0f2f5;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #1890ff;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #1890ffCC;
+        }
+        </style>
+    
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='20' font-size='20'>💬</text></svg>">
+</head>
+<body>
+    <div class="chat-container">
+        
+        <div class="chat-header">
+            
+            <div class="chat-avatar">
+                👥
+            </div>
+            <h1 class="chat-title">QCE Testing Group</h1>
+            <div class="chat-info">
+                <div>群聊</div>
+                <div>参与人数: 4</div>
+                <div>导出时间: <TIMESTAMP></div>
+                <div>时间范围: 2024-01-01 00:01:40 至 2024-01-01 00:05:00</div>
+            </div>
+        </div>
+        
+        <div class="statistics">
+            <div class="stat-item">
+                <div class="stat-number">7</div>
+                <div class="stat-label">总消息数</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number">3</div>
+                <div class="stat-label">参与者</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number">3</div>
+                <div class="stat-label">资源文件</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number">1</div>
+                <div class="stat-label">时间跨度(天)</div>
+            </div>
+        </div>
+        
+        <div class="messages-container" id="messagesContainer">
+            
+        <div class="message" data-message-id="m_1">
+            <div class="message-header">
+                
+                <div class="message-avatar">
+                    A
+                </div>
+                <span class="message-sender">Alice</span>
+                
+                <span class="message-time">2024-01-01 00:01:40</span>
+            </div>
+            <div class="message-content">
+                
+                Anyone seen the build break?
+                
+            </div>
+        </div>
+
+        <div class="message" data-message-id="m_2">
+            <div class="message-header">
+                
+                <div class="message-avatar">
+                    B
+                </div>
+                <span class="message-sender">Bob</span>
+                
+                <span class="message-time">2024-01-01 00:02:40</span>
+            </div>
+            <div class="message-content">
+                
+                Looking now [[微笑]]
+                
+            </div>
+        </div>
+
+        <div class="message" data-message-id="m_3">
+            <div class="message-header">
+                
+                <div class="message-avatar">
+                    B
+                </div>
+                <span class="message-sender">Bob</span>
+                
+                <span class="message-time">2024-01-01 00:02:45</span>
+            </div>
+            <div class="message-content">
+                
+                [图片: screenshot.png]
+                <img src="https://multimedia.nt.qq.com.cn/screenshot.png" alt="screenshot.png" class="message-image" loading="lazy">
+            </div>
+        </div>
+
+        <div class="message" data-message-id="m_4">
+            <div class="message-header">
+                
+                <div class="message-avatar">
+                    C
+                </div>
+                <span class="message-sender">Charlie</span>
+                
+                <span class="message-time">2024-01-01 00:03:20</span>
+            </div>
+            <div class="message-content">
+                
+                @Alice sentry has the trace, sending now
+                
+            </div>
+        </div>
+
+        <div class="message" data-message-id="m_5">
+            <div class="message-header">
+                
+                <div class="message-avatar">
+                    C
+                </div>
+                <span class="message-sender">Charlie</span>
+                
+                <span class="message-time">2024-01-01 00:03:30</span>
+            </div>
+            <div class="message-content">
+                
+                [文件: trace.json]
+                <span class="resource-placeholder">[文件: trace.json]</span>
+            </div>
+        </div>
+
+        <div class="message" data-message-id="m_6">
+            <div class="message-header">
+                
+                <div class="message-avatar">
+                    A
+                </div>
+                <span class="message-sender">Alice</span>
+                
+                <span class="message-time">2024-01-01 00:04:00</span>
+            </div>
+            <div class="message-content">
+                
+        <div class="reply-content">
+            <strong>用户:</strong>
+            Anyone seen the build break?
+        </div>
+                [回复 : Anyone seen the build break?]<br>thanks team, fix incoming
+                
+            </div>
+        </div>
+
+        <div class="message" data-message-id="m_7">
+            <div class="message-header">
+                
+                <div class="message-avatar">
+                    A
+                </div>
+                <span class="message-sender">Alice</span>
+                
+                <span class="message-time">2024-01-01 00:05:00</span>
+            </div>
+            <div class="message-content">
+                
+                [语音 7秒]
+                <span class="resource-placeholder">[语音: voice_msg.silk]</span>
+            </div>
+        </div>
+        </div>
+        
+        <div class="chat-footer">
+            <p>由 <strong>QQ聊天记录导出工具</strong> 生成</p>
+            <p>导出时间: <TIMESTAMP></p>
+        </div>
+    </div>
+    
+        <script>
+        (function() {
+            // 搜索功能
+            
+
+            // 图片点击放大
+            document.addEventListener('click', function(e) {
+                if (e.target.classList.contains('message-image')) {
+                    const img = e.target;
+                    const overlay = document.createElement('div');
+                    overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; display: flex; align-items: center; justify-content: center; cursor: pointer;';
+                    
+                    const enlargedImg = img.cloneNode();
+                    enlargedImg.style.cssText = 'max-width: 90%; max-height: 90%; object-fit: contain;';
+                    
+                    overlay.appendChild(enlargedImg);
+                    document.body.appendChild(overlay);
+                    
+                    overlay.addEventListener('click', () => {
+                        document.body.removeChild(overlay);
+                    });
+                }
+            });
+
+            // 懒加载实现
+            
+            if ('IntersectionObserver' in window) {
+                const imageObserver = new IntersectionObserver((entries, observer) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            const img = entry.target;
+                            if (img.dataset.src) {
+                                img.src = img.dataset.src;
+                                img.removeAttribute('data-src');
+                                observer.unobserve(img);
+                            }
+                        }
+                    });
+                });
+
+                document.querySelectorAll('img[data-src]').forEach(img => {
+                    imageObserver.observe(img);
+                });
+            }
+
+            // 平滑滚动到锚点
+            document.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A' && e.target.hash) {
+                    e.preventDefault();
+                    const target = document.querySelector(e.target.hash);
+                    if (target) {
+                        target.scrollIntoView({ behavior: 'smooth' });
+                    }
+                }
+            });
+
+            // 自定义JavaScript
+            
+
+            console.log('QQ聊天记录导出工具 - HTML页面已加载完成');
+        })();
+        </script>
+</body>
+</html>

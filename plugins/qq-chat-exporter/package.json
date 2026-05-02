@@ -7,8 +7,14 @@
   "scripts": {
     "gen:overlay": "node tools/gen-overlay.cjs && node tools/create-overlay-runtime.cjs",
     "fix:imports": "node tools/fix-imports.cjs && node tools/fix-ts-imports.cjs",
-    "test": "node test-plugin.mjs",
-    "test:full": "node test-plugin-full.mjs"
+    "pretest": "node __tests__/scripts/ensure-platform-esbuild.mjs",
+    "test": "node __tests__/scripts/run-tests.mjs \"__tests__/**/*.test.ts\"",
+    "test:legacy": "node test-plugin.mjs",
+    "test:legacy:full": "node test-plugin-full.mjs",
+    "test:unit": "node __tests__/scripts/run-tests.mjs \"__tests__/unit/**/*.test.ts\" \"__tests__/smoke.test.ts\"",
+    "test:integration": "node __tests__/scripts/run-tests.mjs \"__tests__/integration/**/*.test.ts\"",
+    "test:update-snapshots": "node __tests__/scripts/run-tests.mjs --update-snapshots \"__tests__/integration/**/*.test.ts\"",
+    "mock:server": "node __tests__/scripts/mock-server.mjs"
   },
   "keywords": [
     "napcat",

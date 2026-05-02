@@ -44,3 +44,8 @@ next-env.d.ts
 .DS_Store
 *.tgz
 *.tar.gz
+
+# playwright
+/playwright-report/
+/test-results/
+/playwright/.cache/

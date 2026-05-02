@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "../dist-tests",
+    "noEmit": true,
+    "verbatimModuleSyntax": false,
+    "isolatedModules": true,
+    "types": ["node"],
+    "lib": ["ES2022"]
+  },
+  "include": [
+    "**/*.ts"
+  ]
+}
