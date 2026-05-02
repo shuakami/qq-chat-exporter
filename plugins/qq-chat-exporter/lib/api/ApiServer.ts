@@ -1074,8 +1074,9 @@ export class QQChatExporterApiServer {
                         this.pathManager.setCustomOutputDir(null);
                     } else {
                         try {
-                            this.pathManager.setCustomOutputDir(customOutputDir.trim());
-                            config.customOutputDir = customOutputDir.trim();
+                            const sanitizedOutputDir = PathManager.sanitizePath(customOutputDir);
+                            this.pathManager.setCustomOutputDir(sanitizedOutputDir);
+                            config.customOutputDir = sanitizedOutputDir;
                         } catch (error) {
                             const errorMsg = error instanceof Error ? error.message : '路径验证失败';
                             return this.sendErrorResponse(res, new SystemError(ErrorType.VALIDATION_ERROR, errorMsg, 'INVALID_PATH'), (req as any).requestId, 400);
@@ -1089,8 +1090,9 @@ export class QQChatExporterApiServer {
                         this.pathManager.setCustomScheduledExportDir(null);
                     } else {
                         try {
-                            this.pathManager.setCustomScheduledExportDir(customScheduledExportDir.trim());
-                            config.customScheduledExportDir = customScheduledExportDir.trim();
+                            const sanitizedScheduledDir = PathManager.sanitizePath(customScheduledExportDir);
+                            this.pathManager.setCustomScheduledExportDir(sanitizedScheduledDir);
+                            config.customScheduledExportDir = sanitizedScheduledDir;
                         } catch (error) {
                             const errorMsg = error instanceof Error ? error.message : '路径验证失败';
                             return this.sendErrorResponse(res, new SystemError(ErrorType.VALIDATION_ERROR, errorMsg, 'INVALID_PATH'), (req as any).requestId, 400);
@@ -1893,7 +1895,7 @@ export class QQChatExporterApiServer {
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`; // 221008
                 
                 // Issue #192: 根据是否使用自定义路径生成不同的下载URL
-                const customOutputDir = options?.outputDir?.trim();
+                const customOutputDir = PathManager.sanitizePath(options?.outputDir || '');
                 const defaultOutputDir = this.pathManager.getExportsDir();
                 const outputDir = customOutputDir || defaultOutputDir;
                 
@@ -2015,7 +2017,7 @@ export class QQChatExporterApiServer {
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
                 
                 // Issue #192: 根据是否使用自定义路径生成不同的下载URL
-                const customOutputDir = options?.outputDir?.trim();
+                const customOutputDir = PathManager.sanitizePath(options?.outputDir || '');
                 const defaultOutputDir = this.pathManager.getExportsDir();
                 const outputDir = customOutputDir || defaultOutputDir;
 
@@ -2132,7 +2134,7 @@ export class QQChatExporterApiServer {
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
                 
                 // Issue #192: 根据是否使用自定义路径生成不同的下载URL
-                const customOutputDir = options?.outputDir?.trim();
+                const customOutputDir = PathManager.sanitizePath(options?.outputDir || '');
                 const defaultOutputDir = this.pathManager.getExportsDir();
                 const outputDir = customOutputDir || defaultOutputDir;
 
@@ -5079,7 +5081,7 @@ export class QQChatExporterApiServer {
                     includeRecalled: task.filter?.includeRecalled || false
                 },
                 // Issue #192: 保存实际使用的输出目录（可能是自定义路径）
-                outputDir: task.options?.outputDir?.trim() || this.pathManager.getExportsDir(),
+                outputDir: task.PathManager.sanitizePath(options?.outputDir || '') || this.pathManager.getExportsDir(),
                 includeResourceLinks: task.options?.includeResourceLinks || true,
                 batchSize: task.options?.batchSize || 5000,
                 timeout: 30000,
