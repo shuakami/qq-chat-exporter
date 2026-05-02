@@ -82,6 +82,7 @@ export function TaskWizard({
     streamingZipMode: false, // 流式ZIP导出模式
     outputDir: "", // Issue #192: 自定义导出路径
     useNameInFileName: false, // Issue #216: 文件名包含聊天名称
+    preferGroupMemberName: true, // Issue #358: 群聊优先使用群成员名称
   })
 
   const { groupSearch, friendSearch } = useSearch()
@@ -122,6 +123,7 @@ export function TaskWizard({
         streamingZipMode: prefilledData.streamingZipMode || false,
         outputDir: prefilledData.outputDir || "",  // Issue #192
         useNameInFileName: prefilledData.useNameInFileName || false,  // Issue #216
+        preferGroupMemberName: prefilledData.preferGroupMemberName !== undefined ? prefilledData.preferGroupMemberName : true,
       })
     }
   }, [prefilledData, isOpen])
@@ -197,6 +199,7 @@ export function TaskWizard({
         streamingZipMode: false,
         outputDir: "", // Issue #192: 重置自定义导出路径
         useNameInFileName: false, // Issue #216: 重置文件名包含聊天名称
+        preferGroupMemberName: true, // Issue #358: 重置群成员名称选项
       })
     }
   }, [isOpen])
@@ -975,6 +978,14 @@ export function TaskWizard({
                 title: "快速导出（跳过资源下载）",
                 desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度",
                 visible: true
+              },
+              {
+                id: "preferGroupMemberName",
+                checked: form.preferGroupMemberName ?? true,
+                set: (v: boolean) => setForm((p) => ({ ...p, preferGroupMemberName: v })),
+                title: "优先使用群成员名称",
+                desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。",
+                visible: form.chatType === 2
               },
               {
                 id: "exportAsZip",

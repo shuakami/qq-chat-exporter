@@ -13,17 +13,17 @@
 时间范围: 2024-01-01 00:01:40 - 2024-01-01 00:05:00
 
 
-Alice:
+Alice (PM):
 时间: 2024-01-01 00:01:40
 内容: Anyone seen the build break?
 
 
-Bob:
+Bob (Eng):
 时间: 2024-01-01 00:02:40
 内容: Looking now [[微笑]]
 
 
-Bob:
+Bob (Eng):
 时间: 2024-01-01 00:02:45
 内容: [图片: screenshot.png]
 资源: 1 个文件
@@ -43,14 +43,14 @@ Charlie:
   - file: trace.json
 
 
-Alice:
+Alice (PM):
 时间: 2024-01-01 00:04:00
 内容: [回复 : Anyone seen the build break?]
 thanks team, fix incoming
 回复:  - Anyone seen the build break?
 
 
-Alice:
+Alice (PM):
 时间: 2024-01-01 00:05:00
 内容: [语音 7秒]
 资源: 1 个文件

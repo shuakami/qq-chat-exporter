@@ -229,6 +229,7 @@ export interface SimpleParserOptions {
   progressEvery?: number;
   yieldEvery?: number;
   html?: 'full' | 'none';
+  preferGroupMemberName?: boolean;
   onProgress?: (processed: number, total: number) => void;
 }
 
@@ -236,7 +237,8 @@ const DEFAULT_SIMPLE_OPTIONS: Required<Omit<SimpleParserOptions, 'onProgress'>> 
   concurrency: resolveConcurrency(),
   progressEvery: 100,
   yieldEvery: 1000,
-  html: 'full'
+  html: 'full',
+  preferGroupMemberName: true
 };
 
 /* ---------------------------------- 主类 ---------------------------------- */
@@ -369,21 +371,7 @@ export class SimpleMessageParser {
   private async parseMessage(message: RawMessage): Promise<CleanMessage> {
     const tsMs = millisFromUnixSeconds(message.msgTime as any);
     const timestamp = tsMs > 0 ? tsMs : Date.now();
-
-    // 提取所有可用的名称信息
-    const groupCard = message.sendMemberName && message.sendMemberName.trim() || undefined;
-    const remark = message.sendRemarkName && message.sendRemarkName.trim() || undefined;
-    const nickname = message.sendNickName && message.sendNickName.trim() || undefined;
-    
-    // 群名片 > 好友备注 > 昵称 > QQ号 > UID
-    const senderName = (
-      groupCard ||
-      remark ||
-      nickname ||
-      (message.senderUin && String(message.senderUin)) ||
-      (message.senderUid && String(message.senderUid)) ||
-      '未知用户'
-    ).trim();
+    const senderInfo = this.getSenderDisplayInfo(message);
 
     const content = await this.parseMessageContent(message);
 
@@ -396,10 +384,10 @@ export class SimpleMessageParser {
       sender: {
         uid: message.senderUid || '未知',
         uin: message.senderUin,
-        name: senderName,
-        nickname: nickname,
-        groupCard: groupCard,
-        remark: remark
+        name: senderInfo.name,
+        nickname: senderInfo.nickname,
+        groupCard: senderInfo.groupCard,
+        remark: senderInfo.remark
       },
       type: this.getMessageTypeString(message.msgType),
       content,
@@ -980,21 +968,7 @@ export class SimpleMessageParser {
   private createErrorMessage(message: RawMessage, error: any): CleanMessage {
     const tsMs = millisFromUnixSeconds(message.msgTime as any);
     const timestamp = tsMs > 0 ? tsMs : Date.now();
-
-    // 提取所有可用的名称信息
-    const groupCard = message.sendMemberName && message.sendMemberName.trim() || undefined;
-    const remark = message.sendRemarkName && message.sendRemarkName.trim() || undefined;
-    const nickname = message.sendNickName && message.sendNickName.trim() || undefined;
-    
-    // 群名片 > 好友备注 > 昵称 > QQ号 > UID
-    const senderName = (
-      groupCard ||
-      remark ||
-      nickname ||
-      (message.senderUin && String(message.senderUin)) ||
-      (message.senderUid && String(message.senderUid)) ||
-      '未知用户'
-    ).trim();
+    const senderInfo = this.getSenderDisplayInfo(message);
 
     const errMsg = (error && (error.message || error.toString?.())) || 'Unknown';
     return {
@@ -1005,10 +979,10 @@ export class SimpleMessageParser {
       sender: {
         uid: message.senderUid || '未知',
         uin: message.senderUin,
-        name: senderName,
-        nickname: nickname,
-        groupCard: groupCard,
-        remark: remark
+        name: senderInfo.name,
+        nickname: senderInfo.nickname,
+        groupCard: senderInfo.groupCard,
+        remark: senderInfo.remark
       },
       type: 'error',
       content: {
@@ -1020,6 +994,38 @@ export class SimpleMessageParser {
       },
       recalled: false,
       system: false
+    };
+  }
+
+  private getTrimmedText(value: unknown): string | undefined {
+    if (value === null || value === undefined) return undefined;
+    const text = String(value).trim();
+    return text || undefined;
+  }
+
+  private getSenderDisplayInfo(message: RawMessage): {
+    name: string;
+    nickname: string | undefined;
+    groupCard: string | undefined;
+    remark: string | undefined;
+  } {
+    const groupCard = this.getTrimmedText(message.sendMemberName);
+    const remark = this.getTrimmedText(message.sendRemarkName);
+    const nickname = this.getTrimmedText(message.sendNickName);
+    const isGroupChat = message.chatType === 2;
+    const preferGroupMemberName = isGroupChat && this.options.preferGroupMemberName !== false;
+
+    const name = (
+      isGroupChat
+        ? (preferGroupMemberName ? groupCard || remark || nickname : nickname)
+        : remark || nickname
+    ) || this.getTrimmedText(message.senderUin) || this.getTrimmedText(message.senderUid) || '未知用户';
+
+    return {
+      name,
+      nickname,
+      groupCard,
+      remark
     };
   }
 

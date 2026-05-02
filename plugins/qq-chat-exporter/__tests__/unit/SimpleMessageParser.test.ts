@@ -47,7 +47,7 @@ test('parses plain text messages', async () => {
 test('uses group card name in preference to nickname', async () => {
     const { SimpleMessageParser } = await loadParser();
     const parser = new SimpleMessageParser({ html: 'none' });
-    const m = msg()
+    const m = msg({ chatType: 2 })
         .sender({ uid: 'u_alice', uin: '11111', nick: 'Alice', card: 'Alice (PM)', remark: 'A.Pm' })
         .text('hi')
         .build();
@@ -56,6 +56,28 @@ test('uses group card name in preference to nickname', async () => {
     assert.equal(parsed.sender.groupCard, 'Alice (PM)');
     assert.equal(parsed.sender.remark, 'A.Pm');
     assert.equal(parsed.sender.nickname, 'Alice');
+});
+
+test('private chat ignores group card and uses remark first', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const m = msg({ chatType: 1 })
+        .sender({ uid: 'u_alice', uin: '11111', nick: 'Alice', card: 'Alice (PM)', remark: 'A.Pm' })
+        .text('hi')
+        .build();
+    const [parsed] = await parser.parseMessages([m]);
+    assert.equal(parsed.sender.name, 'A.Pm');
+});
+
+test('group chat with preferGroupMemberName=false falls back to nickname', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none', preferGroupMemberName: false });
+    const m = msg({ chatType: 2 })
+        .sender({ uid: 'u_alice', uin: '11111', nick: 'Alice', card: 'Alice (PM)' })
+        .text('hi')
+        .build();
+    const [parsed] = await parser.parseMessages([m]);
+    assert.equal(parsed.sender.name, 'Alice');
 });
 
 test('parses @everyone and @user mentions', async () => {

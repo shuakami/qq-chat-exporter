@@ -39,6 +39,8 @@ export interface ExportOptions {
     encoding: string;
     /** 分块大小（大文件分块输出） */
     chunkSize?: number;
+    /** 群聊导出时是否优先使用群成员名称 */
+    preferGroupMemberName?: boolean;
 }
 
 /**
@@ -80,7 +82,8 @@ export abstract class BaseExporter {
             prettyFormat: options.prettyFormat ?? true,
             encoding: options.encoding || 'utf-8',
             customCss: options.customCss,
-            chunkSize: options.chunkSize
+            chunkSize: options.chunkSize,
+            preferGroupMemberName: options.preferGroupMemberName ?? true
         };
         
         this.cancelled = false;
@@ -196,7 +199,8 @@ export abstract class BaseExporter {
             progressEvery: 100,
             yieldEvery: 1000,
             suppressFallbackWarn: true,
-            stopOnAbort: true
+            stopOnAbort: true,
+            preferGroupMemberName: this.options.preferGroupMemberName ?? true
         };
         
         return new MessageParser(core, config);

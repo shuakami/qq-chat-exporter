@@ -902,7 +902,9 @@ export class JsonExporter extends BaseExporter {
      * 使用SimpleMessageParser作为fallback解析器
      */
     private async useFallbackParser(messages: RawMessage[]): Promise<CleanMessage[]> {
-        const simpleParser = new SimpleMessageParser();
+        const simpleParser = new SimpleMessageParser({
+            preferGroupMemberName: this.options.preferGroupMemberName
+        });
         return await simpleParser.parseMessages(messages);
     }
 
@@ -1265,6 +1267,7 @@ export class JsonExporter extends BaseExporter {
             options: {
                 includeResourceLinks: this.options.includeResourceLinks,
                 includeSystemMessages: this.options.includeSystemMessages,
+                preferGroupMemberName: this.options.preferGroupMemberName ?? true,
                 timeFormat: this.options.timeFormat,
                 encoding: this.options.encoding
             }
