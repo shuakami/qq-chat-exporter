@@ -735,7 +735,8 @@ export class QQChatExporterApiServer {
                     ],
                     '好友管理': [
                         'GET /api/friends?page=1&limit=999 - 获取所有好友（支持分页）',
-                        'GET /api/friends/:uid?no_cache=false - 获取好友详情'
+                        'GET /api/friends/:uid?no_cache=false - 获取好友详情',
+                        'GET /api/recent-contacts?limit=100&includeAll=false - 获取最近联系人中不属于好友/群聊的会话（QQ Bot、服务号等）'
                     ],
                     '消息处理': [
                         'POST /api/messages/fetch - 批量获取消息',
@@ -1528,6 +1529,110 @@ export class QQChatExporterApiServer {
                 
                 const friendDetail = await this.core.apis.UserApi.getUserDetailInfo(uid, no_cache);
                 this.sendSuccessResponse(res, friendDetail, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // 获取最近联系人中不属于好友 / 群聊的会话（QQ 官方 Bot、服务号、临时会话等，Issue #364）。
+        this.app.get('/api/recent-contacts', async (req, res) => {
+            try {
+                const limit = Math.min(parseInt(req.query['limit'] as string) || 100, 500);
+                const includeAll = req.query['includeAll'] === 'true';
+
+                const userApi = this.core.apis.UserApi as any;
+                if (typeof userApi?.getRecentContactListSnapShot !== 'function') {
+                    throw new SystemError(
+                        ErrorType.API_ERROR,
+                        '当前 NapCat 版本未提供 getRecentContactListSnapShot，无法读取最近联系人',
+                        'API_UNAVAILABLE'
+                    );
+                }
+
+                const recentResult = await userApi.getRecentContactListSnapShot(limit);
+                const errCode = recentResult?.info?.errCode;
+                if (errCode !== undefined && errCode !== 0) {
+                    throw new SystemError(
+                        ErrorType.API_ERROR,
+                        `获取最近联系人失败: ${recentResult?.info?.errMsg || 'unknown'}`,
+                        'RECENT_CONTACTS_FAILED'
+                    );
+                }
+
+                const changedList: any[] = recentResult?.info?.changedList || [];
+
+                let friendUidSet = new Set<string>();
+                let groupCodeSet = new Set<string>();
+                if (!includeAll) {
+                    try {
+                        const categories = await this.core.apis.FriendApi.getBuddyV2ExWithCate();
+                        const allFriends = categories.flatMap((cat: any) => cat.buddyList);
+                        friendUidSet = new Set<string>(
+                            allFriends
+                                .map((f: any) => String(f.uid || f.coreInfo?.uid || ''))
+                                .filter((s: string) => s.length > 0)
+                        );
+                    } catch (e) {
+                        this.core.context.logger.logWarn(
+                            '[ApiServer] /api/recent-contacts: 获取好友列表失败，跳过去重',
+                            e
+                        );
+                    }
+                    try {
+                        const groups = await this.core.apis.GroupApi.getGroups(false);
+                        groupCodeSet = new Set<string>(
+                            (groups || []).map((g: any) => String(g.groupCode || ''))
+                        );
+                    } catch (e) {
+                        this.core.context.logger.logWarn(
+                            '[ApiServer] /api/recent-contacts: 获取群组列表失败，跳过去重',
+                            e
+                        );
+                    }
+                }
+
+                const contacts = changedList
+                    .filter(c => c?.peerUid && c?.chatType !== undefined && c?.chatType !== null)
+                    .map(c => {
+                        const chatType = Number(c.chatType);
+                        const peerUid = String(c.peerUid);
+                        const isFriend = chatType === 1 && friendUidSet.has(peerUid);
+                        const isGroup = chatType === 2 && groupCodeSet.has(peerUid);
+                        return {
+                            chatType,
+                            peerUid,
+                            peerUin: c.peerUin ? String(c.peerUin) : undefined,
+                            name: c.peerName || c.sendNickName || c.sendMemberName || `${peerUid}`,
+                            sendNickName: c.sendNickName || undefined,
+                            sendMemberName: c.sendMemberName || undefined,
+                            avatarUrl: c.peerUin
+                                ? `https://q1.qlogo.cn/g?b=qq&nk=${c.peerUin}&s=640`
+                                : undefined,
+                            lastMsgId: c.msgId ? String(c.msgId) : undefined,
+                            lastMsgTime: c.msgTime
+                                ? new Date(parseInt(c.msgTime, 10) * 1000).toISOString()
+                                : undefined,
+                            classification: isFriend
+                                ? 'friend'
+                                : isGroup
+                                ? 'group'
+                                : chatType === 1
+                                ? 'private'
+                                : chatType === 2
+                                ? 'group'
+                                : 'special'
+                        };
+                    });
+
+                const filtered = includeAll
+                    ? contacts
+                    : contacts.filter(c => c.classification === 'special' || c.classification === 'private');
+
+                this.sendSuccessResponse(res, {
+                    contacts: filtered,
+                    totalCount: filtered.length,
+                    rawCount: changedList.length
+                }, (req as any).requestId);
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }

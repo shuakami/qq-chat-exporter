@@ -1,6 +1,36 @@
 import { useState, useCallback } from "react"
-import type { Group, Friend, GroupsResponse, FriendsResponse } from "@/types/api"
+import type { Group, Friend, GroupsResponse, FriendsResponse, RecentContactsResponse } from "@/types/api"
 import { useApi } from "./use-api"
+
+/**
+ * 将 NTQQ ChatType 数值映射为人类可读的细分类别（Issue #364）。
+ * 仅覆盖最近联系人列表里常见的非好友 / 非群聊会话。
+ */
+function classifySpecialChatType(chatType: number): string {
+  switch (chatType) {
+    case 99:
+    case 100:
+    case 101:
+    case 102:
+    case 103:
+    case 111:
+    case 117:
+    case 119:
+      return "temp"
+    case 118:
+    case 201:
+      return "service"
+    case 132:
+    case 133:
+    case 134:
+      return "notify"
+    case 9:
+    case 16:
+      return "guild"
+    default:
+      return "other"
+  }
+}
 
 export interface AvatarExportResult {
   success: boolean
@@ -102,6 +132,39 @@ export function useChatData() {
         } else {
           break
         }
+      }
+
+      // Issue #364: 把最近联系人中既不在好友列表也不在群组列表的会话（QQ Bot、
+      // 服务号、临时会话等）合并到 friends 数组里。这些会话保留原始 chatType，
+      // 上层导出 / 定时任务在选中时会把 chatType 透传给后端，避免被强制归为
+      // 普通好友（chatType=1）。失败时静默跳过，不影响普通好友加载。
+      try {
+        const recentResp = await apiCall<RecentContactsResponse>("/api/recent-contacts?limit=200")
+        if (recentResp.success && recentResp.data) {
+          const existingUids = new Set(allFriends.map((f) => f.uid))
+          const specialFriends: Friend[] = recentResp.data.contacts
+            .filter((c) => c.classification === "special" && !existingUids.has(c.peerUid))
+            .map((c) => ({
+              uid: c.peerUid,
+              uin: c.peerUin ? Number(c.peerUin) : 0,
+              nick: c.name,
+              remark: undefined,
+              avatarUrl: c.avatarUrl,
+              isOnline: false,
+              status: 0,
+              categoryId: 0,
+              chatType: c.chatType,
+              isSpecial: true,
+              specialKind: classifySpecialChatType(c.chatType),
+            }))
+
+          if (specialFriends.length > 0) {
+            allFriends.push(...specialFriends)
+            console.log(`[QCE] 合并 ${specialFriends.length} 个特殊会话（Bot / 服务号 / 临时会话）`)
+          }
+        }
+      } catch (recentErr) {
+        console.warn("[QCE] 加载最近联系人失败，跳过特殊会话合并:", recentErr)
       }
 
       setFriends(allFriends)

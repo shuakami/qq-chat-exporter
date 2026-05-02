@@ -210,7 +210,14 @@ export function TaskWizard({
     if ("groupCode" in target) {
       setForm((p) => ({ ...p, chatType: 2, peerUid: target.groupCode, sessionName: target.groupName }))
     } else {
-      setForm((p) => ({ ...p, chatType: 1, peerUid: target.uid, sessionName: target.remark || target.nick }))
+      // Issue #364: 合并自最近联系人的特殊会话（QQ Bot / 服务号 / 临时会话）会
+      // 携带原始 chatType，按其透传，避免被覆写为普通好友（chatType=1）。
+      setForm((p) => ({
+        ...p,
+        chatType: target.chatType ?? 1,
+        peerUid: target.uid,
+        sessionName: target.remark || target.nick,
+      }))
     }
   }
 
@@ -560,6 +567,21 @@ export function TaskWizard({
                       <>
                         <Users className="w-3 h-3" />
                         <span>{(target as Group).memberCount} 成员</span>
+                      </>
+                    ) : (target as Friend).isSpecial ? (
+                      <>
+                        <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                          {(target as Friend).specialKind === "service"
+                            ? "服务号"
+                            : (target as Friend).specialKind === "temp"
+                              ? "临时会话"
+                              : (target as Friend).specialKind === "notify"
+                                ? "通知"
+                                : "其他"}
+                        </span>
+                        <span className="text-muted-foreground/70">
+                          chatType={(target as Friend).chatType}
+                        </span>
                       </>
                     ) : (
                       <>

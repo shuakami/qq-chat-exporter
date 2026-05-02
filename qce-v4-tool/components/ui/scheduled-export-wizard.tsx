@@ -271,12 +271,15 @@ export function ScheduledExportWizard({
     const isGroup = "groupCode" in target
     const id = isGroup ? target.groupCode : target.uid
     const name = isGroup ? target.groupName : target.remark || target.nick
-    
+
+    // Issue #364: 来自最近联系人合并的特殊会话（QQ Bot / 服务号 / 临时会话）
+    // 携带原始 chatType，按其透传，避免被覆写为普通好友（chatType=1）。
+    const friendChatType = !isGroup ? (target as Friend).chatType ?? 1 : 1
     const selectedTarget: SelectedTarget = {
       type: isGroup ? 'group' : 'friend',
       id,
       name,
-      chatType: isGroup ? 2 : 1,
+      chatType: isGroup ? 2 : friendChatType,
       peerUid: id,
       avatarUrl: target.avatarUrl,
     }
@@ -492,6 +495,21 @@ export function ScheduledExportWizard({
                               <>
                                 <Users className="w-3 h-3" />
                                 <span>{(target as Group).memberCount} 成员</span>
+                              </>
+                            ) : (target as Friend).isSpecial ? (
+                              <>
+                                <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                  {(target as Friend).specialKind === "service"
+                                    ? "服务号"
+                                    : (target as Friend).specialKind === "temp"
+                                      ? "临时会话"
+                                      : (target as Friend).specialKind === "notify"
+                                        ? "通知"
+                                        : "其他"}
+                                </span>
+                                <span className="text-muted-foreground/70">
+                                  chatType={(target as Friend).chatType}
+                                </span>
                               </>
                             ) : (
                               <>

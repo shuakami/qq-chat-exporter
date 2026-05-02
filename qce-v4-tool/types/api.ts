@@ -92,6 +92,15 @@ export interface Friend {
   isOnline?: boolean
   status?: number
   categoryId?: number
+  /**
+   * NTQQ ChatType（默认 1=好友）。来自最近联系人合并的会话（QQ Bot、服务号、临时会话等）
+   * 会保留原始 chatType（例如 118），导出时直接传给后端，避免被错误归类为普通好友。
+   */
+  chatType?: number
+  /** 来自 /api/recent-contacts 合并的特殊会话标记（Issue #364） */
+  isSpecial?: boolean
+  /** 当 isSpecial 为 true 时的细分（service / temp / public_account / unknown 等） */
+  specialKind?: string
 }
 
 export interface FriendsResponse {
@@ -101,6 +110,30 @@ export interface FriendsResponse {
   totalPages: number
   hasNext: boolean
   hasPrev: boolean
+}
+
+/** 最近联系人中无法归类为好友 / 群聊的会话（QQ Bot、服务号、临时会话等，Issue #364） */
+export interface RecentContact {
+  /** NTQQ ChatType 原值（1=好友, 2=群聊, 100=临时, 118=服务助手等） */
+  chatType: number
+  peerUid: string
+  peerUin?: string
+  /** 显示名（peerName / sendNickName / sendMemberName，按可用性回退） */
+  name: string
+  sendNickName?: string
+  sendMemberName?: string
+  avatarUrl?: string
+  lastMsgId?: string
+  /** ISO 时间戳 */
+  lastMsgTime?: string
+  /** 后端分类：special 表示既不在好友列表也不在群组列表 */
+  classification: 'friend' | 'group' | 'private' | 'special'
+}
+
+export interface RecentContactsResponse {
+  contacts: RecentContact[]
+  totalCount: number
+  rawCount: number
 }
 
 // Task Types
