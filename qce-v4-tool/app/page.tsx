@@ -708,11 +708,15 @@ export default function QCEDashboard() {
     }
   }
 
-  const handleSelectAll = () => {
-    const allIds = new Set<string>()
-    groups.forEach(g => allIds.add(`group_${g.groupCode}`))
-    friends.forEach(f => allIds.add(`friend_${f.uid}`))
-    setSelectedItems(allIds)
+  const handleSelectAll = (filteredIds?: Set<string>) => {
+    if (filteredIds) {
+      setSelectedItems(filteredIds)
+    } else {
+      const allIds = new Set<string>()
+      groups.forEach(g => allIds.add(`group_${g.groupCode}`))
+      friends.forEach(f => allIds.add(`friend_${f.uid}`))
+      setSelectedItems(allIds)
+    }
   }
 
   const handleClearSelection = () => {
