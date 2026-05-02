@@ -1,0 +1,10 @@
+# Platform-specific esbuild binaries (installed by __tests__/scripts/ensure-platform-esbuild.mjs)
+node_modules/@esbuild/linux-x64/
+node_modules/@esbuild/linux-arm64/
+node_modules/@esbuild/darwin-x64/
+node_modules/@esbuild/darwin-arm64/
+
+# Test artifacts
+playwright-report/
+test-results/
+
