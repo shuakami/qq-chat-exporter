@@ -678,15 +678,15 @@ export const MODERN_CSS = `
         }
         
         .virtual-scroll-spacer {
-            position: absolute;
-            top: 0;
-            left: 0;
             width: 1px;
             pointer-events: none;
         }
         
         .virtual-scroll-content {
-            position: relative;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
             will-change: transform;
         }
         
@@ -1498,6 +1498,7 @@ export const MODERN_SINGLE_APP_JS = `
             updateItems(items) {
                 this.allItems = items;
                 this.totalHeight = items.length * this.options.itemHeight;
+                this.spacer.style.height = this.totalHeight + 'px';
                 // 更新后重新计算滚动位置
                 this.scrollTop = window.pageYOffset || document.documentElement.scrollTop;
                 // 强制完整更新
