@@ -210,6 +210,103 @@ export class StickerPackExporter {
         });
     }
 
+    /**
+     * issue #313：根据文件头 magic bytes 判定真实图片格式。
+     *
+     * QQ 收藏表情在本地缓存里常以 `.jfif` / 无扩展名 / 错的 `.jpg` 落盘，但实际
+     * 字节是 GIF/PNG/WebP。直接拿源路径的 `path.extname` 作为目标扩展名会把
+     * 动图误标成 `.jpg`，下游软件按 jpg 解码就显示为「损坏」。
+     *
+     * 这里只读前 12 个字节即可覆盖 GIF / PNG / JPEG / WebP / BMP / APNG 等
+     * QQ 表情常用格式，识别失败时返回 null，调用侧再回退原扩展名或 `.gif`。
+     */
+    private detectFileExtensionByMagic(filePath: string): string | null {
+        let fd: number | null = null;
+        try {
+            fd = fs.openSync(filePath, 'r');
+            const buf = Buffer.alloc(12);
+            const n = fs.readSync(fd, buf, 0, 12, 0);
+            if (n < 4) return null;
+
+            // GIF87a / GIF89a：47 49 46 38
+            if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) {
+                return '.gif';
+            }
+            // PNG：89 50 4E 47
+            if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) {
+                return '.png';
+            }
+            // JPEG：FF D8 FF
+            if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) {
+                return '.jpg';
+            }
+            // WebP：RIFF .... WEBP
+            if (
+                n >= 12 &&
+                buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+                buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50
+            ) {
+                return '.webp';
+            }
+            // BMP：42 4D
+            if (buf[0] === 0x42 && buf[1] === 0x4D) {
+                return '.bmp';
+            }
+            return null;
+        } catch {
+            return null;
+        } finally {
+            if (fd !== null) {
+                try { fs.closeSync(fd); } catch {}
+            }
+        }
+    }
+
+    /**
+     * issue #313：把已经下载/复制好的 sticker 文件按真实格式重命名扩展名。
+     * 仅当真实扩展名与当前扩展名不一致时才 rename，且会把同名目标先删除以
+     * 避免 Windows 下 EEXIST。
+     */
+    private async normalizeStickerExtension(currentPath: string): Promise<string> {
+        if (!fs.existsSync(currentPath)) return currentPath;
+        const detected = this.detectFileExtensionByMagic(currentPath);
+        if (!detected) return currentPath;
+        const currentExt = path.extname(currentPath).toLowerCase();
+        if (currentExt === detected) return currentPath;
+        const baseNoExt = currentPath.slice(0, currentPath.length - currentExt.length);
+        const targetPath = `${baseNoExt}${detected}`;
+        try {
+            if (fs.existsSync(targetPath)) {
+                fs.unlinkSync(targetPath);
+            }
+            fs.renameSync(currentPath, targetPath);
+            return targetPath;
+        } catch (err) {
+            console.warn(`[StickerPackExporter] 修正扩展名失败 ${currentPath} → ${targetPath}:`, err);
+            return currentPath;
+        }
+    }
+
+    /**
+     * issue #313：先按源路径或 URL 推一个候选扩展名（仅用作临时落盘文件名），
+     * 真正的扩展名在文件就绪后由 normalizeStickerExtension 校正。
+     */
+    private guessInitialStickerExtension(source: string): string {
+        try {
+            if (source.startsWith('http://') || source.startsWith('https://')) {
+                const u = new URL(source);
+                const ext = path.extname(u.pathname);
+                if (ext) return ext;
+            } else {
+                const ext = path.extname(source);
+                if (ext) return ext;
+            }
+        } catch {
+            // ignore
+        }
+        return '.gif';
+    }
+
     private getMsgService(): any {
         return this.core.context.session.getMsgService();
     }
@@ -621,19 +718,25 @@ export class StickerPackExporter {
                     try {
                         if (!sticker.path) return false;
 
-                        const ext = path.extname(sticker.path) || '.gif';
+                        // issue #313：先用源路径/URL 推一个临时扩展名，落盘后再
+                        // 按真实 magic bytes 校正，避免动图被误标为 .jpg 而损坏。
+                        const initialExt = this.guessInitialStickerExtension(sticker.path);
                         const destPath = path.join(
                             stickersDir,
-                            `${sticker.stickerId}_${sticker.name.replace(/[\/\\:*?"<>|]/g, '_')}${ext}`
+                            `${sticker.stickerId}_${sticker.name.replace(/[\/\\:*?"<>|]/g, '_')}${initialExt}`
                         );
-                        
+
+                        let ok = false;
                         if (sticker.path.startsWith('http://') || sticker.path.startsWith('https://')) {
-                            return await this.downloadFile(sticker.path, destPath);
+                            ok = await this.downloadFile(sticker.path, destPath);
                         } else if (fs.existsSync(sticker.path)) {
                             fs.copyFileSync(sticker.path, destPath);
-                            return true;
+                            ok = true;
                         }
-                        return false;
+                        if (ok) {
+                            await this.normalizeStickerExtension(destPath);
+                        }
+                        return ok;
                     } catch (error) {
                         return false;
                     }
@@ -737,19 +840,25 @@ export class StickerPackExporter {
                             try {
                                 if (!sticker.path) return false;
 
-                                const ext = path.extname(sticker.path) || '.gif';
+                                // issue #313：先用源路径/URL 推个临时扩展名，落盘后由
+                                // normalizeStickerExtension 按真实 magic bytes 校正。
+                                const initialExt = this.guessInitialStickerExtension(sticker.path);
                                 const destPath = path.join(
                                     stickersDir,
-                                    `${sticker.stickerId}_${sticker.name.replace(/[\/\\:*?"<>|]/g, '_')}${ext}`
+                                    `${sticker.stickerId}_${sticker.name.replace(/[\/\\:*?"<>|]/g, '_')}${initialExt}`
                                 );
-                                
+
+                                let ok = false;
                                 if (sticker.path.startsWith('http://') || sticker.path.startsWith('https://')) {
-                                    return await this.downloadFile(sticker.path, destPath);
+                                    ok = await this.downloadFile(sticker.path, destPath);
                                 } else if (fs.existsSync(sticker.path)) {
                                     fs.copyFileSync(sticker.path, destPath);
-                                    return true;
+                                    ok = true;
                                 }
-                                return false;
+                                if (ok) {
+                                    await this.normalizeStickerExtension(destPath);
+                                }
+                                return ok;
                             } catch (error) {
                                 return false;
                             }
