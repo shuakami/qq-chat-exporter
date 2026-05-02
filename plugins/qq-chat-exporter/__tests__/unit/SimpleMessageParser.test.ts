@@ -223,6 +223,105 @@ test('reply element resolves referenced content via global map', async () => {
     assert.equal(replyEl!.data.senderName, 'Bob');
 });
 
+test('reply falls back to senderUin (QQ number) when referenced message is outside the batch (#289)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const reply = msg({ chatType: 2 })
+        .sender({ uid: 'u_alice', uin: '11111', nick: 'Alice' })
+        .reply({
+            sourceMsgId: '7777777777777777777',
+            senderUin: '22222',
+            senderUid: 'u_bob',
+            senderUidStr: 'u_bob',
+            msgSeq: '999',
+            content: '原消息文本'
+        })
+        .text('回复一下')
+        .at_time(T + 60)
+        .build();
+    const [parsed] = await parser.parseMessages([reply]);
+    const replyEl = parsed.content.elements.find((e) => e.type === 'reply');
+    assert.ok(replyEl, 'expected a reply element');
+    assert.equal(replyEl!.data.senderName, '22222');
+    assert.notEqual(replyEl!.data.senderName, 'u_bob');
+});
+
+test('reply uses replyElement.senderMemberName before senderNick in group chats (#289)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const reply = msg({ chatType: 2 })
+        .sender({ uid: 'u_alice', uin: '11111', nick: 'Alice' })
+        .reply({
+            sourceMsgId: '7777777777777777777',
+            senderUin: '22222',
+            senderUid: 'u_bob',
+            senderUidStr: 'u_bob',
+            senderNick: 'Bob',
+            senderMemberName: 'Bob (PM)',
+            content: '原消息文本'
+        })
+        .text('收到')
+        .at_time(T + 60)
+        .build();
+    const [parsed] = await parser.parseMessages([reply]);
+    const replyEl = parsed.content.elements.find((e) => e.type === 'reply');
+    assert.ok(replyEl);
+    assert.equal(replyEl!.data.senderName, 'Bob (PM)');
+});
+
+test('reply borrows cached sender name from sibling messages when reply element is bare (#289)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const sibling = msg({ chatType: 2 })
+        .sender({ uid: 'u_bob', uin: '22222', nick: 'Bob', card: 'Bob (PM)' })
+        .text('上一条 Bob 自己发的')
+        .at_time(T + 0)
+        .build();
+    const reply = msg({ chatType: 2 })
+        .sender({ uid: 'u_alice', uin: '11111', nick: 'Alice' })
+        .reply({
+            sourceMsgId: '7777777777777777777',
+            senderUin: '22222',
+            senderUid: 'u_bob',
+            senderUidStr: 'u_bob',
+            content: '原消息文本'
+        })
+        .text('谢谢')
+        .at_time(T + 60)
+        .build();
+    const parsed = await parser.parseMessages([sibling, reply]);
+    const replyEl = parsed[1].content.elements.find((e) => e.type === 'reply');
+    assert.ok(replyEl);
+    assert.equal(replyEl!.data.senderName, 'Bob (PM)');
+});
+
+test('reply uses group card from referenced message even when replyElement carries only nickname (#289)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const original = msg({ chatType: 2 })
+        .sender({ uid: 'u_bob', uin: '22222', nick: 'Bob', card: 'Bob (PM)' })
+        .text('the question')
+        .at_time(T + 0)
+        .build();
+    const reply = msg({ chatType: 2 })
+        .sender({ uid: 'u_alice', uin: '11111', nick: 'Alice', card: 'Alice (Lead)' })
+        .reply({
+            sourceMsgId: original.msgId,
+            senderUin: '22222',
+            senderUid: 'u_bob',
+            senderNick: 'Bob',
+            msgSeq: original.msgSeq,
+            msgTime: Number(original.msgTime)
+        })
+        .text('the answer')
+        .at_time(T + 60)
+        .build();
+    const parsed = await parser.parseMessages([original, reply]);
+    const replyEl = parsed[1].content.elements.find((e) => e.type === 'reply');
+    assert.ok(replyEl);
+    assert.equal(replyEl!.data.senderName, 'Bob (PM)');
+});
+
 test('forward element preserves resId and surfaces records via map', async () => {
     const { SimpleMessageParser } = await loadParser();
     const parser = new SimpleMessageParser({ html: 'none' });
