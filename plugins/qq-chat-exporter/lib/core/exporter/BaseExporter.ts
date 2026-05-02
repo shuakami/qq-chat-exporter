@@ -46,6 +46,14 @@ export interface ExportOptions {
      * 仅在群聊（chatType=2）上被调用。返回空字符串或 undefined 代表“无头衔”。
      */
     senderTitleResolver?: SenderTitleResolver;
+    /**
+     * issue #277：消息资源映射 (msgId → resources[])，由 ApiServer 在导出前
+     * 通过 ResourceHandler.processMessageResources 预先下载资源后构造。
+     * JSON / JSONL / Excel / TXT 等导出器据此把每条消息引用的资源路径写到
+     * 输出里，并在导出完成后把资源文件复制到 `<outputDir>/resources/<type>/`。
+     * 不传或传空 Map 时回退到原有行为（不写资源路径，不拷贝资源）。
+     */
+    resourceMap?: Map<string, any[]>;
 }
 
 /**
@@ -89,7 +97,8 @@ export abstract class BaseExporter {
             customCss: options.customCss,
             chunkSize: options.chunkSize,
             preferGroupMemberName: options.preferGroupMemberName ?? true,
-            senderTitleResolver: options.senderTitleResolver
+            senderTitleResolver: options.senderTitleResolver,
+            resourceMap: options.resourceMap
         };
         
         this.cancelled = false;
@@ -180,6 +189,75 @@ export abstract class BaseExporter {
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
+    }
+
+    /**
+     * issue #277：把 resourceMap 中已下载的资源文件复制到导出目录的
+     * `resources/<typeDir>/<fileName>` 下，与 HTML 导出器保持目录布局一致，
+     * 这样 JSON / JSONL / TXT / Excel 输出引用的相对路径都能落地到真实文件。
+     *
+     * - 重复文件按目标路径存在性跳过；
+     * - 单个资源拷贝失败仅 logWarn，不中断导出；
+     * - resourceMap 为空 / 未配置时直接 no-op。
+     */
+    protected async copyResourcesAlongsideExport(outputDir: string): Promise<number> {
+        const map = this.options.resourceMap;
+        if (!map || map.size === 0) return 0;
+
+        const stream = await import('stream/promises');
+        const typeOf = (t: string) => {
+            switch (t) {
+                case 'image': return 'images';
+                case 'video': return 'videos';
+                case 'audio': return 'audios';
+                case 'file':  return 'files';
+                default:      return 'files';
+            }
+        };
+
+        let copied = 0;
+        const seen = new Set<string>();
+        for (const resources of map.values()) {
+            if (!Array.isArray(resources)) continue;
+            for (const r of resources) {
+                if (!r || typeof r !== 'object') continue;
+                const localPath: string | undefined = r.localPath;
+                if (!localPath || typeof localPath !== 'string' || localPath.trim() === '') continue;
+                if (!fs.existsSync(localPath)) continue;
+                try {
+                    const stat = fs.statSync(localPath);
+                    if (!stat.isFile()) continue;
+                } catch {
+                    continue;
+                }
+
+                const fileName = path.basename(localPath);
+                const typeDir = typeOf(String(r.type || 'file'));
+                const targetDir = path.join(outputDir, 'resources', typeDir);
+                const targetPath = path.join(targetDir, fileName);
+                if (seen.has(targetPath)) continue;
+                seen.add(targetPath);
+
+                if (fs.existsSync(targetPath)) {
+                    copied++;
+                    continue;
+                }
+                try {
+                    fs.mkdirSync(targetDir, { recursive: true });
+                    await stream.pipeline(
+                        fs.createReadStream(localPath),
+                        fs.createWriteStream(targetPath)
+                    );
+                    copied++;
+                } catch (err) {
+                    console.warn(`[${this.format}Exporter] 拷贝资源失败 ${localPath} → ${targetPath}:`, err);
+                }
+            }
+        }
+        if (copied > 0) {
+            console.log(`[${this.format}Exporter] 已复制 ${copied} 个资源文件到 ${path.join(outputDir, 'resources')}`);
+        }
+        return copied;
     }
 
     /**
