@@ -761,11 +761,13 @@ export default function QCEDashboard() {
       } else if (type === 'friend') {
         const friend = friends.find(f => f.uid === id)
         if (friend) {
+          // Issue #364: 合并自最近联系人的特殊会话（QQ Bot / 服务号 / 临时会话）
+          // 会带上原始 chatType，避免在导出请求里被强制覆写为 1。
           items.push({
             type: 'friend',
             id: friend.uid,
             name: friend.remark || friend.nick,
-            chatType: 1,
+            chatType: friend.chatType ?? 1,
             peerUid: friend.uid
           })
         }
