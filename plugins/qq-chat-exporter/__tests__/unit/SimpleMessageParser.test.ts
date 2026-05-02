@@ -335,3 +335,87 @@ test('forward element preserves resId and surfaces records via map', async () =>
     assert.equal(fw.type, 'forward');
     assert.equal(fw.data.resId, 'fw_001');
 });
+
+test('senderTitleResolver populates sender.title in group chats (#331)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const titleMap = new Map<string, string>([
+        ['u_owner', '群主'],
+        ['11111', '管理员']
+    ]);
+    const parser = new SimpleMessageParser({
+        html: 'none',
+        senderTitleResolver: (uid, uin) => (uid && titleMap.get(uid)) || (uin && titleMap.get(uin)) || undefined
+    });
+    const ownerMsg = msg({ chatType: 2 })
+        .sender({ uid: 'u_owner', uin: '99999', nick: 'OwnerNick', card: 'OwnerCard' })
+        .text('owner says hi')
+        .at_time(T + 0)
+        .build();
+    const adminMsg = msg({ chatType: 2 })
+        .sender({ uid: 'u_admin', uin: '11111', nick: 'AdminNick', card: 'AdminCard' })
+        .text('admin says hi')
+        .at_time(T + 60)
+        .build();
+    const memberMsg = msg({ chatType: 2 })
+        .sender({ uid: 'u_member', uin: '22222', nick: 'MemberNick' })
+        .text('member says hi')
+        .at_time(T + 120)
+        .build();
+    const parsed = await parser.parseMessages([ownerMsg, adminMsg, memberMsg]);
+    assert.equal(parsed[0].sender.title, '群主');
+    assert.equal(parsed[1].sender.title, '管理员');
+    assert.equal(parsed[2].sender.title, undefined);
+});
+
+test('senderTitleResolver is not invoked for private chats (#331)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    let calls = 0;
+    const parser = new SimpleMessageParser({
+        html: 'none',
+        senderTitleResolver: () => {
+            calls++;
+            return '不该出现';
+        }
+    });
+    const m = msg({ chatType: 1 })
+        .sender({ uid: 'u_friend', uin: '12345', nick: 'Friend' })
+        .text('hi')
+        .build();
+    const [parsed] = await parser.parseMessages([m]);
+    assert.equal(calls, 0);
+    assert.equal(parsed.sender.title, undefined);
+});
+
+test('senderTitleResolver swallows errors and yields undefined (#331)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({
+        html: 'none',
+        senderTitleResolver: () => {
+            throw new Error('boom');
+        }
+    });
+    const m = msg({ chatType: 2 })
+        .sender({ uid: 'u_x', uin: '67890', nick: 'X', card: 'X (PM)' })
+        .text('hi')
+        .build();
+    const [parsed] = await parser.parseMessages([m]);
+    assert.equal(parsed.sender.title, undefined);
+    assert.equal(parsed.sender.name, 'X (PM)');
+});
+
+test('senderTitleResolver trims whitespace and treats empty as no title (#331)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({
+        html: 'none',
+        senderTitleResolver: (uid) => {
+            if (uid === 'u_pad') return '   长老   ';
+            if (uid === 'u_blank') return '   ';
+            return undefined;
+        }
+    });
+    const a = msg({ chatType: 2 }).sender({ uid: 'u_pad', uin: '1', nick: 'A' }).text('a').at_time(T).build();
+    const b = msg({ chatType: 2 }).sender({ uid: 'u_blank', uin: '2', nick: 'B' }).text('b').at_time(T + 1).build();
+    const parsed = await parser.parseMessages([a, b]);
+    assert.equal(parsed[0].sender.title, '长老');
+    assert.equal(parsed[1].sender.title, undefined);
+});

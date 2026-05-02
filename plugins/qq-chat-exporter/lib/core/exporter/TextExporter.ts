@@ -135,7 +135,8 @@ export class TextExporter extends BaseExporter {
      */
     private async useFallbackParser(messages: RawMessage[]): Promise<ParsedMessage[]> {
         const simpleParser = new SimpleMessageParser({
-            preferGroupMemberName: this.options.preferGroupMemberName
+            preferGroupMemberName: this.options.preferGroupMemberName,
+            senderTitleResolver: this.options.senderTitleResolver
         });
         const cleanMessages = await simpleParser.parseMessages(messages);
         
@@ -147,8 +148,9 @@ export class TextExporter extends BaseExporter {
             sender: {
                 uid: cleanMsg.sender.uid,
                 uin: cleanMsg.sender.uin,
-                name: cleanMsg.sender.name || cleanMsg.sender.uid
-            },
+                name: cleanMsg.sender.name || cleanMsg.sender.uid,
+                title: cleanMsg.sender.title
+            } as ParsedMessage['sender'],
             receiver: {
                 uid: 'unknown',
                 type: 'unknown' as 'group' | 'private'
@@ -266,7 +268,10 @@ export class TextExporter extends BaseExporter {
         // 发送者信息
         if (this.textOptions.showSender) {
             const senderName = message.sender.name || message.sender.uid;
-            lines.push(`${senderName}:`);
+            // 群头衔（issue #331）：当 senderTitleResolver 命中时，加在名字前
+            const title = (message.sender as { title?: string }).title;
+            const senderLabel = title ? `[${title}] ${senderName}` : senderName;
+            lines.push(`${senderLabel}:`);
         }
         
         // 时间戳

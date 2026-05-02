@@ -769,7 +769,21 @@ export const MODERN_CSS = `
             font-weight: 600;
             color: var(--text-primary);
         }
-        
+
+        /* 群头衔徽章（issue #331） */
+        .sender-title {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.4;
+            color: #fff;
+            background: linear-gradient(135deg, #ff7a59, #ff4d4f);
+            padding: 1px 6px;
+            border-radius: 4px;
+            margin-right: 6px;
+            white-space: nowrap;
+        }
+
         .time {
             font-size: var(--message-time-size);
             color: var(--text-secondary);

@@ -169,6 +169,7 @@ export interface CleanMessage {
     nickname?: string;     // QQ昵称（原始昵称）
     groupCard?: string;    // 群名片/群昵称
     remark?: string;       // 好友备注
+    title?: string;        // 群头衔（仅群聊）
   };
   type: string;
   content: MessageContent;
@@ -223,6 +224,12 @@ export interface MessageStatistics {
   };
 }
 
+/**
+ * 发件人群头衔解析器：根据 senderUid 或 senderUin 返回该发件人在当前群里的头衔。
+ * 调用侧（例如 ApiServer）负责在导出前预拉取群成员信息。
+ */
+export type SenderTitleResolver = (uid: string | undefined, uin: string | undefined) => string | undefined;
+
 /** 轻量解析器配置 */
 export interface SimpleParserOptions {
   concurrency?: number;
@@ -230,10 +237,12 @@ export interface SimpleParserOptions {
   yieldEvery?: number;
   html?: 'full' | 'none';
   preferGroupMemberName?: boolean;
+  /** 可选的发件人群头衔解析器，错误会被吞掉。返回空字符串或 undefined 代表“无头衔”。 */
+  senderTitleResolver?: SenderTitleResolver;
   onProgress?: (processed: number, total: number) => void;
 }
 
-const DEFAULT_SIMPLE_OPTIONS: Required<Omit<SimpleParserOptions, 'onProgress'>> = {
+const DEFAULT_SIMPLE_OPTIONS: Required<Omit<SimpleParserOptions, 'onProgress' | 'senderTitleResolver'>> = {
   concurrency: resolveConcurrency(),
   progressEvery: 100,
   yieldEvery: 1000,
@@ -244,7 +253,9 @@ const DEFAULT_SIMPLE_OPTIONS: Required<Omit<SimpleParserOptions, 'onProgress'>> 
 /* ---------------------------------- 主类 ---------------------------------- */
 
 export class SimpleMessageParser {
-  private readonly options: Required<Omit<SimpleParserOptions, 'onProgress'>>;
+  private readonly options: Required<Omit<SimpleParserOptions, 'onProgress' | 'senderTitleResolver'>> & {
+    senderTitleResolver?: SenderTitleResolver;
+  };
   private readonly onProgress?: (processed: number, total: number) => void;
 
   private readonly concurrency: number;
@@ -450,7 +461,8 @@ export class SimpleMessageParser {
         name: senderInfo.name,
         nickname: senderInfo.nickname,
         groupCard: senderInfo.groupCard,
-        remark: senderInfo.remark
+        remark: senderInfo.remark,
+        title: this.resolveSenderTitle(message)
       },
       type: this.getMessageTypeString(message.msgType),
       content,
@@ -459,6 +471,23 @@ export class SimpleMessageParser {
     };
 
     return cleanMessage;
+  }
+
+  /**
+   * 调用 senderTitleResolver 获取发件人头衔。仅群聊（chatType=2）生效。
+   * 解析器抛错不应该令整个解析流程走不下去，这里丝果干净地吞掉。
+   */
+  private resolveSenderTitle(message: RawMessage): string | undefined {
+    if (!this.options.senderTitleResolver) return undefined;
+    if (message.chatType !== 2) return undefined;
+    try {
+      const title = this.options.senderTitleResolver(message.senderUid, message.senderUin);
+      const trimmed = this.getTrimmedText(title);
+      return trimmed;
+    } catch (error) {
+      console.warn('[SimpleMessageParser] senderTitleResolver 抛出异常，已忽略:', error);
+      return undefined;
+    }
   }
 
   private getMessageTypeString(msgType: NTMsgType | number): string {
@@ -1045,7 +1074,8 @@ export class SimpleMessageParser {
         name: senderInfo.name,
         nickname: senderInfo.nickname,
         groupCard: senderInfo.groupCard,
-        remark: senderInfo.remark
+        remark: senderInfo.remark,
+        title: this.resolveSenderTitle(message)
       },
       type: 'error',
       content: {

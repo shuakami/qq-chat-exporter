@@ -3600,7 +3600,8 @@ export class QQChatExporterApiServer {
             
             // 消息收集完成
 
-            // 补全群消息的群昵称（sendMemberName）
+            // 补全群消息的群昵称（sendMemberName）+ 构建群头衔映射（issue #331）
+            let memberSpecialTitleMap: Map<string, string> | null = null;
 
             if (Number(peer.chatType) === 2 && allMessages.length > 0) {
                 try {
@@ -3608,7 +3609,7 @@ export class QQChatExporterApiServer {
                     if (groupMembers?.result?.infos) {
                         const memberMap = groupMembers.result.infos;
                         let filledCount = 0;
-                        
+
                         for (const message of allMessages) {
                             if (!message.sendMemberName || message.sendMemberName.trim() === '') {
                                 const member = memberMap.get(message.senderUid);
@@ -3618,11 +3619,12 @@ export class QQChatExporterApiServer {
                                 }
                             }
                         }
-                        
                     }
                 } catch (error) {
                     console.warn(`[ApiServer] 获取群成员信息失败，跳过群昵称补全:`, error);
                 }
+
+                memberSpecialTitleMap = await this.fetchGroupMemberTitleMap(peer.peerUid, peer.chatType);
             }
 
             // 注意：filterPureImageMessages只是跳过资源下载，不过滤消息
@@ -3756,6 +3758,9 @@ export class QQChatExporterApiServer {
 
             const filePath = path.join(outputDir, fileName);
 
+            // issue #331：群头衔解析器。私聊或映射为空时为 undefined，由各 exporter 走原有路径。
+            const senderTitleResolver = this.buildSenderTitleResolver(memberSpecialTitleMap);
+
             // 选择导出器
             let exporter: any;
             const exportOptions = {
@@ -3766,7 +3771,8 @@ export class QQChatExporterApiServer {
                 prettyFormat: options?.prettyFormat ?? true,
                 preferGroupMemberName: options?.preferGroupMemberName ?? true,
                 timeFormat: 'YYYY-MM-DD HH:mm:ss',
-                encoding: 'utf-8'
+                encoding: 'utf-8',
+                senderTitleResolver
             };
 
             // 对消息按时间戳排序，确保时间顺序正确
@@ -3823,7 +3829,8 @@ export class QQChatExporterApiServer {
                 case 'HTML':
                     // HTML流式导出：使用异步生成器，实现全程低内存占用
                     const parser = new SimpleMessageParser({
-                        preferGroupMemberName: options?.preferGroupMemberName
+                        preferGroupMemberName: options?.preferGroupMemberName,
+                        senderTitleResolver
                     });
                     
                     const htmlExporter = new ModernHtmlExporter({
@@ -4004,6 +4011,75 @@ export class QQChatExporterApiServer {
         }
 
         return String(a?.id || '').localeCompare(String(b?.id || ''));
+    }
+
+    /**
+     * issue #331：根据群号拉取群成员的「群头衔」，构造一个 (uid|uin) → title 的映射。
+     * 私聊（chatType !== 2）直接返回 null，调用侧据此决定是否给 exporter 注入 senderTitleResolver。
+     * NTQQ 不同版本里成员对象的字段名不完全一致（memberSpecialTitle / specialTitle / title），这里宽松地依次尝试。
+     * 任何失败都被吞掉并返回 null，避免影响主导出流程。
+     */
+    private async fetchGroupMemberTitleMap(peerUid: string, chatType: number | string): Promise<Map<string, string> | null> {
+        if (Number(chatType) !== 2) return null;
+
+        const titleMap = new Map<string, string>();
+        try {
+            const groupMembers = await this.core.apis.GroupApi.getGroupMemberAll(peerUid, false);
+            const memberMap: Map<string, any> | undefined = groupMembers?.result?.infos;
+            if (memberMap) {
+                for (const [uid, member] of memberMap.entries()) {
+                    if (!member) continue;
+                    const m = member as Record<string, unknown>;
+                    const candidates = [m.memberSpecialTitle, m.specialTitle, m.title];
+                    const title = candidates.find(v => typeof v === 'string' && (v as string).trim().length > 0) as string | undefined;
+                    if (!title) continue;
+                    const trimmed = title.trim();
+                    if (uid) titleMap.set(uid, trimmed);
+                    const memberUin = (m.uin && String(m.uin)) || undefined;
+                    if (memberUin) titleMap.set(memberUin, trimmed);
+                }
+            }
+        } catch (error) {
+            console.warn(`[ApiServer] GroupApi.getGroupMemberAll 取头衔失败:`, error);
+        }
+
+        // 兜底：GroupApi 没返回头衔字段时再走 WebApi.getGroupMembers，它的 .title 字段比较稳。
+        if (titleMap.size === 0) {
+            try {
+                const webMembers = await (this.core.apis as any).WebApi?.getGroupMembers?.(peerUid);
+                if (Array.isArray(webMembers)) {
+                    for (const m of webMembers) {
+                        if (!m) continue;
+                        const title = typeof m.title === 'string' ? m.title.trim() : '';
+                        if (!title) continue;
+                        const memberUin = m.uin ? String(m.uin) : undefined;
+                        if (memberUin) titleMap.set(memberUin, title);
+                    }
+                }
+            } catch (webError) {
+                console.warn(`[ApiServer] WebApi.getGroupMembers 兜底取头衔失败:`, webError);
+            }
+        }
+
+        return titleMap.size > 0 ? titleMap : null;
+    }
+
+    /**
+     * 将 (uid|uin) → title 映射包装为 senderTitleResolver。
+     */
+    private buildSenderTitleResolver(titleMap: Map<string, string> | null): ((uid: string | undefined, uin: string | undefined) => string | undefined) | undefined {
+        if (!titleMap || titleMap.size === 0) return undefined;
+        return (uid, uin) => {
+            if (uid) {
+                const t = titleMap.get(uid);
+                if (t) return t;
+            }
+            if (uin) {
+                const t = titleMap.get(uin);
+                if (t) return t;
+            }
+            return undefined;
+        };
     }
 
     /**
@@ -4225,15 +4301,21 @@ export class QQChatExporterApiServer {
                 selfName: selfInfo?.nick
             };
 
+            // issue #331：群聊时拉群头衔，注入 senderTitleResolver。
+            const titleMap = await this.fetchGroupMemberTitleMap(peer.peerUid, peer.chatType);
+            const senderTitleResolver = this.buildSenderTitleResolver(titleMap);
+
             // 创建分块HTML导出器
             const parser = new SimpleMessageParser({
-                preferGroupMemberName: options?.preferGroupMemberName
+                preferGroupMemberName: options?.preferGroupMemberName,
+                senderTitleResolver
             });
             const htmlExporter = new ModernHtmlExporter({
                 outputPath: path.join(tempDir, 'index.html'),
                 includeResourceLinks: !options?.filterPureImageMessages,
                 includeSystemMessages: options?.includeSystemMessages ?? true,
-                encoding: 'utf-8'
+                encoding: 'utf-8',
+                senderTitleResolver
             });
 
             // 配置消息获取器
@@ -4517,10 +4599,12 @@ export class QQChatExporterApiServer {
                 fs.mkdirSync(chunksDir, { recursive: true });
             }
 
-            // 初始化解析器
+            // 初始化解析器（issue #331：群聊时注入头衔解析器）
             const { SimpleMessageParser } = await import('../core/parser/SimpleMessageParser.js');
+            const jsonlTitleMap = await this.fetchGroupMemberTitleMap(peer.peerUid, peer.chatType);
             const parser = new SimpleMessageParser({
-                preferGroupMemberName: options?.preferGroupMemberName
+                preferGroupMemberName: options?.preferGroupMemberName,
+                senderTitleResolver: this.buildSenderTitleResolver(jsonlTitleMap)
             });
 
             // 头像收集（如果启用了 embedAvatarsAsBase64）
