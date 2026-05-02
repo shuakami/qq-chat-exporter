@@ -80,6 +80,55 @@ test('group chat with preferGroupMemberName=false falls back to nickname', async
     assert.equal(parsed.sender.name, 'Alice');
 });
 
+test('group chat falls back to cached sender name when later message lacks all name fields (#274)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const named = msg({ chatType: 2 })
+        .sender({ uid: 'u_bob', uin: '22222', nick: 'Bob', card: 'Bob (PM)' })
+        .text('hello')
+        .at_time(T + 0)
+        .build();
+    const stripped = msg({
+        chatType: 2,
+        senderUid: 'u_bob',
+        senderUin: '22222',
+        sendNickName: '',
+        sendMemberName: '',
+        sendRemarkName: ''
+    })
+        .text('still me')
+        .at_time(T + 60)
+        .build();
+    const parsed = await parser.parseMessages([named, stripped]);
+    assert.equal(parsed[0].sender.name, 'Bob (PM)');
+    assert.equal(parsed[1].sender.name, 'Bob (PM)');
+    assert.equal(parsed[1].sender.groupCard, 'Bob (PM)');
+});
+
+test('group chat sender cache prefers earlier-seen group card over nickname-only later occurrence', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const withCard = msg({ chatType: 2 })
+        .sender({ uid: 'u_carol', uin: '33333', nick: 'Carol', card: 'Carol (Lead)' })
+        .text('first')
+        .at_time(T + 0)
+        .build();
+    const stripped = msg({
+        chatType: 2,
+        senderUid: 'u_carol',
+        senderUin: '33333',
+        sendNickName: '',
+        sendMemberName: '',
+        sendRemarkName: ''
+    })
+        .text('second')
+        .at_time(T + 120)
+        .build();
+    const [m1, m2] = await parser.parseMessages([withCard, stripped]);
+    assert.equal(m1.sender.name, 'Carol (Lead)');
+    assert.equal(m2.sender.name, 'Carol (Lead)');
+});
+
 test('parses @everyone and @user mentions', async () => {
     const { SimpleMessageParser } = await loadParser();
     const parser = new SimpleMessageParser({ html: 'none' });
