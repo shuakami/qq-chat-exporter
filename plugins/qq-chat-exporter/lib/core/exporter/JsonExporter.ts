@@ -331,6 +331,15 @@ export class JsonExporter extends BaseExporter {
                 avatarMap = await this.preDownloadAvatars(filteredMessages);
             }
 
+            // issue #277：如果 ApiServer 传入了 resourceMap（已下载的资源），
+            // 用一个临时的 SimpleMessageParser 实例复用它的资源路径覆写逻辑，
+            // 避免 JSON 输出里 content.resources[].localPath 为空、
+            // content.elements[].data.url 仍指向远程 url 的问题。
+            const resourceMap = this.options.resourceMap;
+            const resourcePathHelper = (resourceMap && resourceMap.size > 0)
+                ? new SimpleMessageParser({ html: 'none' })
+                : null;
+
             // 使用正确的 parseMessagesStream API（带 onBatch 回调）
             const batchSize = 20000;
 
@@ -357,6 +366,14 @@ export class JsonExporter extends BaseExporter {
 
                         // 转换为 CleanMessage 格式以保持字段一致性 (Issue #218)
                         const cleanMsg = this.convertParsedToClean(pm);
+
+                        // issue #277：把已下载资源的相对路径写到 cleanMsg
+                        if (resourcePathHelper && resourceMap) {
+                            const resources = resourceMap.get(cleanMsg.id);
+                            if (resources && resources.length > 0) {
+                                resourcePathHelper.updateSingleMessageResourcePaths(cleanMsg, resources);
+                            }
+                        }
 
                         // 写NDJSON：一条消息一行
                         await ndWrite(JSON.stringify(cleanMsg) + '\n');
@@ -455,6 +472,14 @@ export class JsonExporter extends BaseExporter {
                     fs.unlinkSync(tmpFile);
                 } catch {}
                 tmpFile = null;
+            }
+
+            // issue #277：把已下载的资源文件复制到 <outputDir>/resources/<typeDir>/，
+            // 与 JSON 里写入的相对路径对齐，让 Chatlab 等下游工具能加载到媒体。
+            try {
+                await this.copyResourcesAlongsideExport(path.dirname(this.options.outputPath));
+            } catch (copyErr) {
+                console.warn(`[JsonExporter] 拷贝资源到导出目录失败:`, copyErr);
             }
 
             console.log(`[JsonExporter] ========== 流式导出完成 ==========`); 
@@ -565,6 +590,12 @@ export class JsonExporter extends BaseExporter {
 
             let processed = 0;
 
+            // issue #277：chunked-jsonl 的资源路径覆写器（与单文件分支同源）
+            const resourceMap = this.options.resourceMap;
+            const resourcePathHelper = (resourceMap && resourceMap.size > 0)
+                ? new SimpleMessageParser({ html: 'none' })
+                : null;
+
             await parser.parseMessagesStream(filteredMessages, {
                 batchSize: chunkedOptions.parseBatchSize,
                 onBatch: async (batch: any[], batchIndex: number, batchCount: number) => {
@@ -584,6 +615,15 @@ export class JsonExporter extends BaseExporter {
 
                         // 转换为 CleanMessage 格式以保持字段一致性 (Issue #218)
                         const cleanMsg = this.convertParsedToClean(pm);
+
+                        // issue #277：把已下载资源的相对路径写到 cleanMsg
+                        if (resourcePathHelper && resourceMap) {
+                            const resources = resourceMap.get(cleanMsg.id);
+                            if (resources && resources.length > 0) {
+                                resourcePathHelper.updateSingleMessageResourcePaths(cleanMsg, resources);
+                            }
+                        }
+
                         const tsMs = cleanMsg.timestamp;
                         const line = JSON.stringify(cleanMsg);
 
@@ -657,6 +697,14 @@ export class JsonExporter extends BaseExporter {
                 try {
                     totalSize += fs.statSync(path.join(outputDir, avatarsRef.file)).size;
                 } catch {}
+            }
+
+            // issue #277：把已下载资源拷贝到 chunked-jsonl 输出目录的
+            // resources/<typeDir>/，让 manifest+chunks 的相对路径可定位
+            try {
+                await this.copyResourcesAlongsideExport(outputDir);
+            } catch (copyErr) {
+                console.warn(`[JsonExporter] [chunked-jsonl] 拷贝资源到导出目录失败:`, copyErr);
             }
 
             console.log(`[JsonExporter] ========== chunked-jsonl 导出完成 ==========`); 

@@ -1260,9 +1260,10 @@ export class SimpleMessageParser {
   }
 
   /**
-   * 更新单条消息的资源路径（私有方法，供批量和流式使用）
+   * 更新单条消息的资源路径（供批量、流式以及 JSON / TXT / Excel 等
+   * 非 HTML 导出器逐条调用）。issue #277。
    */
-  private updateSingleMessageResourcePaths(message: CleanMessage, resources: any[]): void {
+  public updateSingleMessageResourcePaths(message: CleanMessage, resources: any[]): void {
     console.log(`[SimpleMessageParser] 更新消息 ${message.id} 的资源路径，资源数量: ${resources.length}`);
     
     // 更新 message.content.resources
