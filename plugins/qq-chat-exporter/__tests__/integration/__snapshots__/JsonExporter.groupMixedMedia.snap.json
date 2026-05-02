@@ -24,13 +24,13 @@
     "senders": [
       {
         "uid": "u_alice",
-        "name": "Alice",
+        "name": "Alice (PM)",
         "messageCount": 3,
         "percentage": 42.86
       },
       {
         "uid": "u_bob",
-        "name": "Bob",
+        "name": "Bob (Eng)",
         "messageCount": 2,
         "percentage": 28.57
       },
@@ -59,7 +59,9 @@
       "sender": {
         "uid": "u_alice",
         "uin": "11111",
-        "name": "Alice"
+        "name": "Alice (PM)",
+        "nickname": "Alice",
+        "groupCard": "Alice (PM)"
       },
       "type": "type_1",
       "content": {
@@ -86,7 +88,9 @@
       "sender": {
         "uid": "u_bob",
         "uin": "22222",
-        "name": "Bob"
+        "name": "Bob (Eng)",
+        "nickname": "Bob",
+        "groupCard": "Bob (Eng)"
       },
       "type": "type_1",
       "content": {
@@ -120,7 +124,9 @@
       "sender": {
         "uid": "u_bob",
         "uin": "22222",
-        "name": "Bob"
+        "name": "Bob (Eng)",
+        "nickname": "Bob",
+        "groupCard": "Bob (Eng)"
       },
       "type": "type_1",
       "content": {
@@ -162,7 +168,8 @@
       "sender": {
         "uid": "u_charlie",
         "uin": "33333",
-        "name": "Charlie"
+        "name": "Charlie",
+        "nickname": "Charlie"
       },
       "type": "type_1",
       "content": {
@@ -202,7 +209,8 @@
       "sender": {
         "uid": "u_charlie",
         "uin": "33333",
-        "name": "Charlie"
+        "name": "Charlie",
+        "nickname": "Charlie"
       },
       "type": "type_8",
       "content": {
@@ -244,7 +252,9 @@
       "sender": {
         "uid": "u_alice",
         "uin": "11111",
-        "name": "Alice"
+        "name": "Alice (PM)",
+        "nickname": "Alice",
+        "groupCard": "Alice (PM)"
       },
       "type": "type_3",
       "content": {
@@ -280,7 +290,9 @@
       "sender": {
         "uid": "u_alice",
         "uin": "11111",
-        "name": "Alice"
+        "name": "Alice (PM)",
+        "nickname": "Alice",
+        "groupCard": "Alice (PM)"
       },
       "type": "type_6",
       "content": {
@@ -328,6 +340,7 @@
     "options": {
       "includeResourceLinks": true,
       "includeSystemMessages": true,
+      "preferGroupMemberName": true,
       "timeFormat": "YYYY-MM-DD HH:mm:ss",
       "encoding": "utf-8"
     }

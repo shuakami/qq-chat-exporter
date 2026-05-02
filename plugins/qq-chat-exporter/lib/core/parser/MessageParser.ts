@@ -344,6 +344,7 @@ export interface ParsedMessage {
 export interface MessageParserConfig {
   includeResourceLinks: boolean;
   includeSystemMessages: boolean;
+  preferGroupMemberName?: boolean;
   parseMarketFace: boolean;
   parseCardMessages: boolean;
   parseMultiForward: boolean;
@@ -381,6 +382,7 @@ export interface MessageParserConfig {
 const DEFAULT_PARSER_CONFIG: MessageParserConfig = {
   includeResourceLinks: true,
   includeSystemMessages: true,
+  preferGroupMemberName: false,
   parseMarketFace: true,
   parseCardMessages: true,
   parseMultiForward: true,
@@ -697,6 +699,8 @@ export class MessageParser {
       content.html = this.generateHtmlFromOB11(ob11Msg.message);
     }
 
+    const senderInfo = this.getSenderDisplayInfo(rawMsg);
+
     return {
       messageId: rawMsg.msgId,
       messageSeq: rawMsg.msgSeq,
@@ -705,14 +709,10 @@ export class MessageParser {
       sender: {
         uid: rawMsg.senderUid,
         uin: rawMsg.senderUin,
-        name: (rawMsg.sendMemberName && rawMsg.sendMemberName.trim()) ||
-              (rawMsg.sendRemarkName && rawMsg.sendRemarkName.trim()) ||
-              (rawMsg.sendNickName && rawMsg.sendNickName.trim()) ||
-              (rawMsg.senderUin && String(rawMsg.senderUin)) ||
-              undefined,
-        nickname: (rawMsg.sendNickName && rawMsg.sendNickName.trim()) || undefined,
-        groupCard: (rawMsg.sendMemberName && rawMsg.sendMemberName.trim()) || undefined,
-        remark: (rawMsg.sendRemarkName && rawMsg.sendRemarkName.trim()) || undefined,
+        name: senderInfo.name,
+        nickname: senderInfo.nickname,
+        groupCard: senderInfo.groupCard,
+        remark: senderInfo.remark,
         avatar: undefined,
         role: undefined
       },
@@ -1512,13 +1512,15 @@ export class MessageParser {
       }
     }
 
+    const senderInfo = this.getSenderDisplayInfo(message, userInfo);
+
     return {
       uid,
       uin: message.senderUin || userInfo?.uin,
-      name: (message.sendNickName && message.sendNickName.trim()) || 
-            userInfo?.nick || 
-            (message.senderUin && String(message.senderUin)) ||
-            undefined,
+      name: senderInfo.name,
+      nickname: senderInfo.nickname,
+      groupCard: senderInfo.groupCard,
+      remark: senderInfo.remark,
       avatar: userInfo?.avatarUrl,
       role: undefined
     };
@@ -1546,6 +1548,40 @@ export class MessageParser {
 
   private isTempMessage(message: RawMessage): boolean {
     return message.chatType === 100;
+  }
+
+  private normalizeDisplayText(value: unknown): string | undefined {
+    if (value === null || value === undefined) return undefined;
+    const text = String(value).trim();
+    return text || undefined;
+  }
+
+  private getSenderDisplayInfo(message: RawMessage, userInfo?: any): {
+    name: string | undefined;
+    nickname: string | undefined;
+    groupCard: string | undefined;
+    remark: string | undefined;
+  } {
+    const groupCard = this.normalizeDisplayText(message.sendMemberName);
+    const remark = this.normalizeDisplayText(message.sendRemarkName);
+    const nickname = this.normalizeDisplayText(message.sendNickName) || this.normalizeDisplayText(userInfo?.nick);
+    const fallbackUin = this.normalizeDisplayText(message.senderUin ?? userInfo?.uin);
+    const fallbackUid = this.normalizeDisplayText(message.senderUid || message.peerUid);
+    const isGroupChat = message.chatType === 2;
+    const preferGroupMemberName = isGroupChat && this.config.preferGroupMemberName === true;
+
+    const name = (
+      isGroupChat
+        ? (preferGroupMemberName ? groupCard || remark || nickname : nickname)
+        : remark || nickname
+    ) || fallbackUin || fallbackUid;
+
+    return {
+      name,
+      nickname,
+      groupCard,
+      remark
+    };
   }
 
   private extractReplyContent(replyElement: any, messageRef?: RawMessage): string {
@@ -1644,6 +1680,8 @@ export class MessageParser {
       }
     }
 
+    const senderInfo = this.getSenderDisplayInfo(message);
+
     return {
       messageId: message.msgId,
       messageSeq: message.msgSeq,
@@ -1652,14 +1690,10 @@ export class MessageParser {
       sender: {
         uid: message.senderUid || '0',
         uin: message.senderUin || '0',
-        name: (message.sendMemberName && message.sendMemberName.trim()) ||
-              (message.sendRemarkName && message.sendRemarkName.trim()) || 
-              (message.sendNickName && message.sendNickName.trim()) || 
-              (message.senderUin && String(message.senderUin)) ||
-              '未知用户',
-        nickname: (message.sendNickName && message.sendNickName.trim()) || undefined,
-        groupCard: (message.sendMemberName && message.sendMemberName.trim()) || undefined,
-        remark: (message.sendRemarkName && message.sendRemarkName.trim()) || undefined
+        name: senderInfo.name || '未知用户',
+        nickname: senderInfo.nickname,
+        groupCard: senderInfo.groupCard,
+        remark: senderInfo.remark
       },
       receiver: {
         uid: message.peerUid,
@@ -1689,15 +1723,19 @@ export class MessageParser {
   }
 
   private createErrorMessage(originalMessage: RawMessage, error: any): ParsedMessage {
+    const senderInfo = this.getSenderDisplayInfo(originalMessage);
+
     return {
       messageId: originalMessage.msgId,
       messageSeq: originalMessage.msgSeq,
       timestamp: dateFromUnixSeconds(originalMessage.msgTime),
       sender: {
         uid: originalMessage.senderUid || 'unknown',
-        name: (originalMessage.sendNickName && originalMessage.sendNickName.trim()) ||
-              (originalMessage.senderUin && String(originalMessage.senderUin)) ||
-              '未知用户'
+        uin: originalMessage.senderUin || undefined,
+        name: senderInfo.name || '未知用户',
+        nickname: senderInfo.nickname,
+        groupCard: senderInfo.groupCard,
+        remark: senderInfo.remark
       },
       messageType: originalMessage.msgType,
       isSystemMessage: false,

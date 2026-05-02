@@ -149,6 +149,7 @@ export interface ScheduledExportConfig {
         includeSystemMessages?: boolean;
         filterPureImageMessages?: boolean;
         prettyFormat?: boolean;
+        preferGroupMemberName?: boolean;
     };
     /** 备份模式（新增） */
     backupMode?: BackupMode;
@@ -563,7 +564,9 @@ export class ScheduledExportManager {
                 selfName: selfInfo?.nick
             };
 
-            const parser = new SimpleMessageParser();
+            const parser = new SimpleMessageParser({
+                preferGroupMemberName: task.options.preferGroupMemberName
+            });
 
             switch (task.format.toUpperCase()) {
                 case 'HTML':
@@ -584,6 +587,7 @@ export class ScheduledExportManager {
                         includeSystemMessages: task.options.includeSystemMessages ?? true,
                         filterPureImageMessages: task.options.filterPureImageMessages ?? false,
                         prettyFormat: task.options.prettyFormat ?? true,
+                        preferGroupMemberName: task.options.preferGroupMemberName ?? true,
                         timeFormat: 'YYYY-MM-DD HH:mm:ss',
                         encoding: 'utf-8'
                     }, {}, this.core);
@@ -596,6 +600,7 @@ export class ScheduledExportManager {
                         includeResourceLinks: task.options.includeResourceLinks ?? true,
                         includeSystemMessages: task.options.includeSystemMessages ?? true,
                         filterPureImageMessages: task.options.filterPureImageMessages ?? false,
+                        preferGroupMemberName: task.options.preferGroupMemberName ?? true,
                         timeFormat: 'YYYY-MM-DD HH:mm:ss',
                         prettyFormat: false,
                         encoding: 'utf-8'

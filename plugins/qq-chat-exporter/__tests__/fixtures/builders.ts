@@ -307,9 +307,12 @@ export class ConversationBuilder {
 
     add(...rawMessages: RawMessage[]): this {
         for (const m of rawMessages) {
-            // Stamp peer info if missing
-            if (!m.peerUid) m.peerUid = this.peer.peerUid;
-            if (!m.chatType) m.chatType = this.peer.chatType;
+            // Inherit peer info from the surrounding conversation. Messages
+            // built via msg() default to chatType=1 (private), but a builder
+            // that wraps a group peer should propagate chatType=2 so that
+            // downstream parsers receive consistent data.
+            m.peerUid = this.peer.peerUid;
+            m.chatType = this.peer.chatType;
             this.messages.push(m);
         }
         return this;

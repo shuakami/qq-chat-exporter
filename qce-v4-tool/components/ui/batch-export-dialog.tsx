@@ -38,6 +38,7 @@ export interface BatchExportConfig {
   embedAvatarsAsBase64: boolean
   includeSystemMessages: boolean
   filterPureImageMessages: boolean
+  preferGroupMemberName: boolean
   outputDir: string
   keywords: string
   excludeUserUins: string
@@ -71,6 +72,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
   const [embedAvatarsAsBase64, setEmbedAvatarsAsBase64] = useState(false)
   const [includeSystemMessages, setIncludeSystemMessages] = useState(true)
   const [filterPureImageMessages, setFilterPureImageMessages] = useState(false) // HTML默认false
+  const [preferGroupMemberName, setPreferGroupMemberName] = useState(true)
   const [outputDir, setOutputDir] = useState('')
   const [keywords, setKeywords] = useState('')
   const [excludeUserUins, setExcludeUserUins] = useState('')
@@ -98,6 +100,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
       setEmbedAvatarsAsBase64(false)
       setIncludeSystemMessages(true)
       setFilterPureImageMessages(false)
+      setPreferGroupMemberName(true)
       setOutputDir('')
       setKeywords('')
       setExcludeUserUins('')
@@ -184,6 +187,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
       embedAvatarsAsBase64,
       includeSystemMessages,
       filterPureImageMessages,
+      preferGroupMemberName,
       outputDir,
       keywords,
       excludeUserUins,
@@ -411,6 +415,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                     { id: "streamingZipMode", checked: streamingZipMode, set: setStreamingZipMode, title: "流式导出（超大消息量专用）", desc: format === "HTML" ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式。" : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式。", visible: format === "HTML" || format === "JSON", highlight: true },
                     { id: "includeSystemMessages", checked: includeSystemMessages, set: setIncludeSystemMessages, title: "包含系统消息", desc: "包含入群通知、撤回提示等系统提示消息", visible: true, highlight: false },
                     { id: "filterPureImageMessages", checked: filterPureImageMessages, set: setFilterPureImageMessages, title: "快速导出（跳过资源下载）", desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度", visible: true, highlight: false },
+                    { id: "preferGroupMemberName", checked: preferGroupMemberName, set: setPreferGroupMemberName, title: "优先使用群成员名称", desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。这个选项仅对群聊生效。", visible: true, highlight: false },
                     { id: "exportAsZip", checked: exportAsZip, set: setExportAsZip, title: "导出为ZIP压缩包", desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）", visible: format === "HTML" && !streamingZipMode, highlight: false },
                     { id: "useNameInFileName", checked: useNameInFileName, set: setUseNameInFileName, title: "文件名包含聊天名称", desc: "导出文件名中包含聊天对象的名称，方便识别", visible: true, highlight: false },
                     { id: "embedAvatarsAsBase64", checked: embedAvatarsAsBase64, set: setEmbedAvatarsAsBase64, title: "嵌入头像为Base64", desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）", visible: format === "JSON", highlight: false }

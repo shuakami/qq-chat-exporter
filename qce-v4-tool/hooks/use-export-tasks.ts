@@ -444,6 +444,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           prettyFormat: true,
           exportAsZip: form.exportAsZip,
           embedAvatarsAsBase64: form.embedAvatarsAsBase64,
+          preferGroupMemberName: form.preferGroupMemberName ?? true,
           ...(form.outputDir?.trim() && { outputDir: form.outputDir.trim() }),
           ...(form.useNameInFileName && { useNameInFileName: true }),
         },

@@ -819,6 +819,7 @@ export default function QCEDashboard() {
           streamingZipMode: config.streamingZipMode,
           exportAsZip: config.exportAsZip,
           embedAvatarsAsBase64: config.embedAvatarsAsBase64,
+          preferGroupMemberName: config.preferGroupMemberName,
           outputDir: config.outputDir,
           keywords: config.keywords,
           excludeUserUins: config.excludeUserUins,
