@@ -587,7 +587,7 @@ export class ScheduledExportManager {
                         includeSystemMessages: task.options.includeSystemMessages ?? true,
                         filterPureImageMessages: task.options.filterPureImageMessages ?? false,
                         prettyFormat: task.options.prettyFormat ?? true,
-                        preferGroupMemberName: task.options.preferGroupMemberName ?? false,
+                        preferGroupMemberName: task.options.preferGroupMemberName ?? true,
                         timeFormat: 'YYYY-MM-DD HH:mm:ss',
                         encoding: 'utf-8'
                     }, {}, this.core);
@@ -600,7 +600,7 @@ export class ScheduledExportManager {
                         includeResourceLinks: task.options.includeResourceLinks ?? true,
                         includeSystemMessages: task.options.includeSystemMessages ?? true,
                         filterPureImageMessages: task.options.filterPureImageMessages ?? false,
-                        preferGroupMemberName: task.options.preferGroupMemberName ?? false,
+                        preferGroupMemberName: task.options.preferGroupMemberName ?? true,
                         timeFormat: 'YYYY-MM-DD HH:mm:ss',
                         prettyFormat: false,
                         encoding: 'utf-8'

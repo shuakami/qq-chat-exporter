@@ -3643,7 +3643,7 @@ export class QQChatExporterApiServer {
                 includeSystemMessages: options?.includeSystemMessages ?? true,
                 filterPureImageMessages: options?.filterPureImageMessages ?? false,
                 prettyFormat: options?.prettyFormat ?? true,
-                preferGroupMemberName: options?.preferGroupMemberName ?? false,
+                preferGroupMemberName: options?.preferGroupMemberName ?? true,
                 timeFormat: 'YYYY-MM-DD HH:mm:ss',
                 encoding: 'utf-8'
             };

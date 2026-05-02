@@ -83,7 +83,7 @@ export abstract class BaseExporter {
             encoding: options.encoding || 'utf-8',
             customCss: options.customCss,
             chunkSize: options.chunkSize,
-            preferGroupMemberName: options.preferGroupMemberName ?? false
+            preferGroupMemberName: options.preferGroupMemberName ?? true
         };
         
         this.cancelled = false;
@@ -200,7 +200,7 @@ export abstract class BaseExporter {
             yieldEvery: 1000,
             suppressFallbackWarn: true,
             stopOnAbort: true,
-            preferGroupMemberName: this.options.preferGroupMemberName ?? false
+            preferGroupMemberName: this.options.preferGroupMemberName ?? true
         };
         
         return new MessageParser(core, config);

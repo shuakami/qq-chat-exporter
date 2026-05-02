@@ -1267,7 +1267,7 @@ export class JsonExporter extends BaseExporter {
             options: {
                 includeResourceLinks: this.options.includeResourceLinks,
                 includeSystemMessages: this.options.includeSystemMessages,
-                preferGroupMemberName: this.options.preferGroupMemberName ?? false,
+                preferGroupMemberName: this.options.preferGroupMemberName ?? true,
                 timeFormat: this.options.timeFormat,
                 encoding: this.options.encoding
             }
