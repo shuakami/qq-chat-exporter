@@ -1,0 +1,127 @@
+name: 测试 QCE 插件
+
+on:
+  push:
+    branches: [main, master, dev]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-and-integration:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }} / ${{ matrix.suite }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['20.x', '22.x']
+        suite: [unit, integration]
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install plugin dependencies
+        working-directory: plugins/qq-chat-exporter
+        run: |
+          # node_modules is committed for runtime; only platform-specific
+          # esbuild binaries need installing per-OS.
+          node __tests__/scripts/ensure-platform-esbuild.mjs
+
+      - name: Run ${{ matrix.suite }} tests
+        working-directory: plugins/qq-chat-exporter
+        run: npm run test:${{ matrix.suite }}
+
+      - name: Upload exporter snapshots on failure
+        if: failure() && matrix.suite == 'integration'
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshots-${{ matrix.os }}-node${{ matrix.node }}
+          path: plugins/qq-chat-exporter/__tests__/integration/__snapshots__/
+          retention-days: 7
+
+  api-e2e:
+    name: API smoke (Playwright)
+    runs-on: ubuntu-latest
+    needs: unit-and-integration
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('qce-v4-tool/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install plugin esbuild binary
+        working-directory: plugins/qq-chat-exporter
+        run: node __tests__/scripts/ensure-platform-esbuild.mjs
+
+      - name: Install frontend deps + Playwright browser
+        working-directory: qce-v4-tool
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+
+      - name: Start mock API server
+        working-directory: plugins/qq-chat-exporter
+        run: |
+          nohup node __tests__/scripts/mock-server.mjs > /tmp/mock-server.log 2>&1 &
+          # Wait for /health to become reachable
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:40653/health > /dev/null; then
+              echo "[ci] mock server ready"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:40653/health
+        env:
+          QCE_MOCK_TOKEN: qce_mock_token_for_tests
+
+      - name: Run Playwright API smoke tests
+        working-directory: qce-v4-tool
+        run: pnpm exec playwright test e2e/api-smoke.spec.ts
+        env:
+          E2E_API_URL: http://localhost:40653
+          QCE_MOCK_TOKEN: qce_mock_token_for_tests
+
+      - name: Mock server logs (always)
+        if: always()
+        run: |
+          echo '--- mock-server.log ---'
+          cat /tmp/mock-server.log || true
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: qce-v4-tool/playwright-report/
+          retention-days: 7

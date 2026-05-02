@@ -1,0 +1,335 @@
+{
+  "metadata": {
+    "name": "QQChatExporter V5 / https://github.com/shuakami/qq-chat-exporter",
+    "copyright": "本软件是免费的开源项目~ 如果您是买来的，请立即退款！如果有帮助到您，欢迎给我点个Star~"
+  },
+  "chatInfo": {
+    "name": "QCE Testing Group",
+    "type": "group",
+    "participantCount": 4
+  },
+  "statistics": {
+    "totalMessages": 7,
+    "timeRange": {
+      "start": "2024-01-01T00:01:40.000Z",
+      "end": "2024-01-01T00:05:00.000Z",
+      "durationDays": 1
+    },
+    "messageTypes": {
+      "text": 4,
+      "file": 1,
+      "reply": 1,
+      "audio": 1
+    },
+    "senders": [
+      {
+        "uid": "u_alice",
+        "name": "Alice",
+        "messageCount": 3,
+        "percentage": 42.86
+      },
+      {
+        "uid": "u_bob",
+        "name": "Bob",
+        "messageCount": 2,
+        "percentage": 28.57
+      },
+      {
+        "uid": "u_charlie",
+        "name": "Charlie",
+        "messageCount": 2,
+        "percentage": 28.57
+      }
+    ],
+    "resources": {
+      "total": 3,
+      "byType": {
+        "image": 1,
+        "file": 1,
+        "audio": 1
+      },
+      "totalSize": 64224
+    }
+  },
+  "messages": [
+    {
+      "seq": "1001",
+      "timestamp": 1704067300000,
+      "time": "2024-01-01 00:01:40",
+      "sender": {
+        "uid": "u_alice",
+        "uin": "11111",
+        "name": "Alice"
+      },
+      "type": "type_1",
+      "content": {
+        "text": "Anyone seen the build break?",
+        "html": "",
+        "elements": [
+          {
+            "type": "text",
+            "data": {
+              "text": "Anyone seen the build break?"
+            }
+          }
+        ],
+        "resources": [],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "seq": "1002",
+      "timestamp": 1704067360000,
+      "time": "2024-01-01 00:02:40",
+      "sender": {
+        "uid": "u_bob",
+        "uin": "22222",
+        "name": "Bob"
+      },
+      "type": "type_1",
+      "content": {
+        "text": "Looking now [[微笑]]",
+        "html": "",
+        "elements": [
+          {
+            "type": "text",
+            "data": {
+              "text": "Looking now [[微笑]]"
+            }
+          },
+          {
+            "type": "face",
+            "data": {
+              "id": "178",
+              "name": "[微笑]"
+            }
+          }
+        ],
+        "resources": [],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "seq": "1003",
+      "timestamp": 1704067365000,
+      "time": "2024-01-01 00:02:45",
+      "sender": {
+        "uid": "u_bob",
+        "uin": "22222",
+        "name": "Bob"
+      },
+      "type": "type_1",
+      "content": {
+        "text": "[图片: screenshot.png]",
+        "html": "",
+        "elements": [
+          {
+            "type": "text",
+            "data": {
+              "text": "[图片: screenshot.png]"
+            }
+          },
+          {
+            "type": "image",
+            "data": {
+              "filename": "screenshot.png",
+              "size": 1024,
+              "url": "https://multimedia.nt.qq.com.cn/screenshot.png"
+            }
+          }
+        ],
+        "resources": [
+          {
+            "type": "image",
+            "filename": "screenshot.png",
+            "size": 1024,
+            "url": "https://multimedia.nt.qq.com.cn/screenshot.png"
+          }
+        ],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "seq": "1004",
+      "timestamp": 1704067400000,
+      "time": "2024-01-01 00:03:20",
+      "sender": {
+        "uid": "u_charlie",
+        "uin": "33333",
+        "name": "Charlie"
+      },
+      "type": "type_1",
+      "content": {
+        "text": "@Alice sentry has the trace, sending now",
+        "html": "",
+        "elements": [
+          {
+            "type": "text",
+            "data": {
+              "text": "@Alice sentry has the trace, sending now"
+            }
+          },
+          {
+            "type": "at",
+            "data": {
+              "uid": "u_alice",
+              "name": "Alice"
+            }
+          }
+        ],
+        "resources": [],
+        "mentions": [
+          {
+            "uid": "u_alice",
+            "name": "Alice",
+            "type": "user"
+          }
+        ]
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "seq": "1005",
+      "timestamp": 1704067410000,
+      "time": "2024-01-01 00:03:30",
+      "sender": {
+        "uid": "u_charlie",
+        "uin": "33333",
+        "name": "Charlie"
+      },
+      "type": "type_8",
+      "content": {
+        "text": "[文件: trace.json]",
+        "html": "",
+        "elements": [
+          {
+            "type": "text",
+            "data": {
+              "text": "[文件: trace.json]"
+            }
+          },
+          {
+            "type": "file",
+            "data": {
+              "filename": "trace.json",
+              "size": 51200,
+              "url": ""
+            }
+          }
+        ],
+        "resources": [
+          {
+            "type": "file",
+            "filename": "trace.json",
+            "size": 51200,
+            "url": ""
+          }
+        ],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "seq": "1006",
+      "timestamp": 1704067440000,
+      "time": "2024-01-01 00:04:00",
+      "sender": {
+        "uid": "u_alice",
+        "uin": "11111",
+        "name": "Alice"
+      },
+      "type": "type_3",
+      "content": {
+        "text": "[回复 : Anyone seen the build break?]\nthanks team, fix incoming",
+        "html": "",
+        "elements": [
+          {
+            "type": "text",
+            "data": {
+              "text": "[回复 : Anyone seen the build break?]\nthanks team, fix incoming"
+            }
+          },
+          {
+            "type": "reply",
+            "data": {
+              "messageId": "m_1",
+              "referencedMessageId": "m_1",
+              "senderName": "",
+              "content": "Anyone seen the build break?"
+            }
+          }
+        ],
+        "resources": [],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    },
+    {
+      "seq": "1007",
+      "timestamp": 1704067500000,
+      "time": "2024-01-01 00:05:00",
+      "sender": {
+        "uid": "u_alice",
+        "uin": "11111",
+        "name": "Alice"
+      },
+      "type": "type_6",
+      "content": {
+        "text": "[语音 7秒]",
+        "html": "",
+        "elements": [
+          {
+            "type": "text",
+            "data": {
+              "text": "[语音 7秒]"
+            }
+          },
+          {
+            "type": "audio",
+            "data": {
+              "filename": "voice_msg.silk",
+              "size": 12000,
+              "url": ""
+            }
+          }
+        ],
+        "resources": [
+          {
+            "type": "audio",
+            "filename": "voice_msg.silk",
+            "size": 12000,
+            "url": ""
+          }
+        ],
+        "mentions": []
+      },
+      "recalled": false,
+      "system": false
+    }
+  ],
+  "exportOptions": {
+    "includedFields": [
+      "id",
+      "timestamp",
+      "sender",
+      "content",
+      "resources"
+    ],
+    "filters": {},
+    "options": {
+      "includeResourceLinks": true,
+      "includeSystemMessages": true,
+      "timeFormat": "YYYY-MM-DD HH:mm:ss",
+      "encoding": "utf-8"
+    }
+  }
+}
