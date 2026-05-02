@@ -41,6 +41,7 @@ export interface BatchExportConfig {
   outputDir: string
   keywords: string
   excludeUserUins: string
+  useNameInFileName: boolean
 }
 
 export interface BatchExportProgress {
@@ -73,6 +74,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
   const [outputDir, setOutputDir] = useState('')
   const [keywords, setKeywords] = useState('')
   const [excludeUserUins, setExcludeUserUins] = useState('')
+  const [useNameInFileName, setUseNameInFileName] = useState(true)
   
   const [progress, setProgress] = useState<BatchExportProgress>({
     current: 0,
@@ -99,6 +101,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
       setOutputDir('')
       setKeywords('')
       setExcludeUserUins('')
+      setUseNameInFileName(true)
       setProgress({
         current: 0,
         total: items.length,
@@ -183,7 +186,8 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
       filterPureImageMessages,
       outputDir,
       keywords,
-      excludeUserUins
+      excludeUserUins,
+      useNameInFileName
     }
 
     try {
@@ -408,6 +412,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                     { id: "includeSystemMessages", checked: includeSystemMessages, set: setIncludeSystemMessages, title: "包含系统消息", desc: "包含入群通知、撤回提示等系统提示消息", visible: true, highlight: false },
                     { id: "filterPureImageMessages", checked: filterPureImageMessages, set: setFilterPureImageMessages, title: "快速导出（跳过资源下载）", desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度", visible: true, highlight: false },
                     { id: "exportAsZip", checked: exportAsZip, set: setExportAsZip, title: "导出为ZIP压缩包", desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）", visible: format === "HTML" && !streamingZipMode, highlight: false },
+                    { id: "useNameInFileName", checked: useNameInFileName, set: setUseNameInFileName, title: "文件名包含聊天名称", desc: "导出文件名中包含聊天对象的名称，方便识别", visible: true, highlight: false },
                     { id: "embedAvatarsAsBase64", checked: embedAvatarsAsBase64, set: setEmbedAvatarsAsBase64, title: "嵌入头像为Base64", desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）", visible: format === "JSON", highlight: false }
                   ].filter((opt) => opt.visible).map((opt) => (
                     <div key={opt.id} className={["relative cursor-pointer rounded-2xl border p-4 transition-all", opt.highlight && opt.checked ? "border-orange-400 dark:border-orange-600 bg-orange-50/50 dark:bg-orange-950/30 ring-1 ring-orange-200 dark:ring-orange-800" : opt.highlight ? "border-orange-200 dark:border-orange-800 bg-orange-50/30 dark:bg-orange-950/20 hover:border-orange-300 dark:hover:border-orange-700" : opt.checked ? "border-black/[0.08] dark:border-white/[0.08] bg-muted/30" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]", isExporting ? "opacity-50 cursor-not-allowed" : ""].join(" ")} onClick={() => !isExporting && opt.set(!opt.checked)}>

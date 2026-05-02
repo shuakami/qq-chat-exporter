@@ -822,6 +822,7 @@ export default function QCEDashboard() {
           outputDir: config.outputDir,
           keywords: config.keywords,
           excludeUserUins: config.excludeUserUins,
+          useNameInFileName: config.useNameInFileName,
         }
 
         // 调用单个导出 API
