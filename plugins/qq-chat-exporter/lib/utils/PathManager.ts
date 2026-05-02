@@ -20,8 +20,18 @@ export class PathManager {
         return os.homedir();
     }
 
+    static sanitizePath(inputPath: string): string {
+        let cleaned = inputPath.trim();
+        // 用户从文件管理器复制路径时可能带有引号
+        if ((cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+            (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+            cleaned = cleaned.slice(1, -1).trim();
+        }
+        return cleaned;
+    }
+
     private validatePath(inputPath: string): string {
-        const resolved = path.resolve(inputPath);
+        const resolved = path.resolve(PathManager.sanitizePath(inputPath));
 
         // 只禁止系统关键目录，允许任意其他位置
         const dangerousPatterns = [
