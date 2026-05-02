@@ -41,15 +41,13 @@ export function useChatData() {
           const pageGroups = response.data.groups || []
           allGroups.push(...pageGroups)
 
-          // 更新进度
-          setLoadProgress({ current: allGroups.length, total: response.data.total || allGroups.length })
+          const totalCount = response.data.totalCount ?? allGroups.length
+          setLoadProgress({ current: allGroups.length, total: totalCount })
 
-          // 判断是否还有更多
-          hasMore = pageGroups.length === limit && allGroups.length < (response.data.total || 0)
+          hasMore = response.data.hasNext === true
 
           if (hasMore) {
             currentPage++
-            // 实时更新UI
             setGroups([...allGroups])
           } else {
             break
@@ -90,15 +88,13 @@ export function useChatData() {
           const pageFriends = response.data.friends || []
           allFriends.push(...pageFriends)
 
-          // 更新进度
-          setLoadProgress({ current: allFriends.length, total: response.data.total || allFriends.length })
+          const totalCount = response.data.totalCount ?? allFriends.length
+          setLoadProgress({ current: allFriends.length, total: totalCount })
 
-          // 判断是否还有更多
-          hasMore = pageFriends.length === limit && allFriends.length < (response.data.total || 0)
+          hasMore = response.data.hasNext === true
 
           if (hasMore) {
             currentPage++
-            // 实时更新UI
             setFriends([...allFriends])
           } else {
             break
