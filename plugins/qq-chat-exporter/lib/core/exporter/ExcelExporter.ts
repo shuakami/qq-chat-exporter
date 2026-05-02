@@ -134,24 +134,36 @@ export class ExcelExporter extends BaseExporter {
         messages: CleanMessage[],
         chatInfo: { name: string; type: string }
     ): void {
+        // 是否要添加群头衔列：仅当至少一条消息携带 sender.title 时插入此列。
+        // 这样私聊导出和未启用 senderTitleResolver 的群导出输出格式保持不变。
+        const hasTitleColumn = messages.some(m => Boolean(m.sender.title && m.sender.title.length > 0));
+
         // 准备表头
-        const headers = ['序号', '时间', '发送者', '发送者QQ号', '消息类型', '消息内容', '是否撤回', '资源数量'];
-        
+        const headers = hasTitleColumn
+            ? ['序号', '时间', '发送者', '发送者QQ号', '群头衔', '消息类型', '消息内容', '是否撤回', '资源数量']
+            : ['序号', '时间', '发送者', '发送者QQ号', '消息类型', '消息内容', '是否撤回', '资源数量'];
+
         // 准备数据行
         const rows = messages.map((msg, index) => {
             const resourceCount = msg.content.resources?.length || 0;
             const contentText = this.extractTextContent(msg);
-            
-            return [
+
+            const base: Array<string | number> = [
                 index + 1,
                 msg.time,
                 this.getSenderDisplayName(msg),
-                this.getSenderQqNumber(msg),
+                this.getSenderQqNumber(msg)
+            ];
+            if (hasTitleColumn) {
+                base.push(msg.sender.title || '');
+            }
+            base.push(
                 this.getMessageTypeLabel(msg.type),
                 contentText,
                 msg.recalled ? '是' : '否',
                 resourceCount
-            ];
+            );
+            return base;
         });
 
         // 合并表头和数据
@@ -161,16 +173,22 @@ export class ExcelExporter extends BaseExporter {
         const worksheet = XLSX.utils.aoa_to_sheet(data);
 
         // 设置列宽
-        worksheet['!cols'] = [
+        const cols: Array<{ wch: number }> = [
             { wch: 8 },  // 序号
             { wch: this.excelOptions.columnWidths.timestamp || 20 },  // 时间
             { wch: this.excelOptions.columnWidths.sender || 15 },     // 发送者
-            { wch: 16 }, // 发送者QQ号
+            { wch: 16 } // 发送者QQ号
+        ];
+        if (hasTitleColumn) {
+            cols.push({ wch: 14 }); // 群头衔
+        }
+        cols.push(
             { wch: this.excelOptions.columnWidths.type || 12 },       // 消息类型
             { wch: this.excelOptions.columnWidths.content || 60 },    // 消息内容
             { wch: 10 }, // 是否撤回
             { wch: 12 }  // 资源数量
-        ];
+        );
+        worksheet['!cols'] = cols;
 
         // 添加到工作簿
         XLSX.utils.book_append_sheet(workbook, worksheet, this.excelOptions.sheetName);
@@ -391,7 +409,8 @@ export class ExcelExporter extends BaseExporter {
      */
     private async useFallbackParser(messages: RawMessage[]): Promise<CleanMessage[]> {
         const simpleParser = new SimpleMessageParser({
-            preferGroupMemberName: this.options.preferGroupMemberName
+            preferGroupMemberName: this.options.preferGroupMemberName,
+            senderTitleResolver: this.options.senderTitleResolver
         });
         return await simpleParser.parseMessages(messages);
     }
@@ -417,7 +436,8 @@ export class ExcelExporter extends BaseExporter {
                 uid: parsedMsg.sender.uid,
                 uin: parsedMsg.sender.uin,
                 name: parsedMsg.sender.name || parsedMsg.sender.uid,
-                remark: undefined
+                remark: undefined,
+                title: parsedMsg.sender.title
             },
             type: this.getMessageTypeFromNTMsgType(parsedMsg.messageType),
             content: {
