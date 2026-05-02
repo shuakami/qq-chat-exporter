@@ -527,6 +527,17 @@ export class ScheduledExportManager {
                 return history;
             }
 
+            // 按时间升序排序（fetchAllMessagesInTimeRange 返回的是倒序）
+            allMessages.sort((a, b) => {
+                let timeA = parseInt(String(a.msgTime || '0'));
+                let timeB = parseInt(String(b.msgTime || '0'));
+                if (isNaN(timeA) || timeA <= 0) timeA = 0;
+                if (isNaN(timeB) || timeB <= 0) timeB = 0;
+                if (timeA > 1000000000 && timeA < 10000000000) timeA *= 1000;
+                if (timeB > 1000000000 && timeB < 10000000000) timeB *= 1000;
+                return timeA - timeB;
+            });
+
             // 下载资源
             const resourceMap = await this.resourceHandler.processMessageResources(allMessages);
 
