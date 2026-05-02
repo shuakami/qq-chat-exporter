@@ -29,19 +29,25 @@ function resolveSnapshotPath(opts: SnapshotOptions): string {
     return path.join(snapDir, `${opts.name}${opts.ext ?? '.snap.txt'}`);
 }
 
+/** Normalize CRLF -> LF so snapshots compare equal regardless of git's autocrlf. */
+function normalizeLineEndings(s: string): string {
+    return s.replace(/\r\n/g, '\n');
+}
+
 export function assertSnapshot(actual: string, opts: SnapshotOptions): void {
     const file = resolveSnapshotPath(opts);
+    const actualNorm = normalizeLineEndings(actual);
 
     if (process.env[UPDATE_ENV] || !fs.existsSync(file)) {
-        fs.writeFileSync(file, actual, 'utf8');
+        fs.writeFileSync(file, actualNorm, 'utf8');
         return;
     }
 
-    const expected = fs.readFileSync(file, 'utf8');
-    if (actual === expected) return;
+    const expected = normalizeLineEndings(fs.readFileSync(file, 'utf8'));
+    if (actualNorm === expected) return;
 
     const errorPath = `${file}.actual`;
-    fs.writeFileSync(errorPath, actual, 'utf8');
+    fs.writeFileSync(errorPath, actualNorm, 'utf8');
     assert.fail(
         `Snapshot mismatch for "${opts.name}".\n` +
         `  expected: ${file}\n` +
