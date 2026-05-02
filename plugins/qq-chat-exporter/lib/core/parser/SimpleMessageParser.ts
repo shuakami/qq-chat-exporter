@@ -251,7 +251,15 @@ export class SimpleMessageParser {
 
   // 全局消息映射，用于查找被引用的消息
   private messageMap: Map<string, RawMessage> = new Map();
-  
+
+  // 发件人显示信息缓存：senderUid / senderUin → { groupCard, remark, nickname }
+  // 用于在某条消息缺失全部昵称字段时，回退到同一发件人在其他消息上出现过的可读名字。
+  private senderInfoCache: Map<string, {
+    groupCard?: string;
+    remark?: string;
+    nickname?: string;
+  }> = new Map();
+
   // QQ表情映射表
   private faceMap: Map<string, string> = new Map();
 
@@ -271,14 +279,17 @@ export class SimpleMessageParser {
 
     // 先建立全局消息映射
     this.messageMap.clear();
+    this.senderInfoCache.clear();
     for (const msg of messages) {
       if (msg && msg.msgId) {
         this.messageMap.set(msg.msgId, msg);
+        this.cacheSenderInfo(msg);
         // 同时将 records 数组中的消息也添加到映射中
         if (msg.records && msg.records.length > 0) {
           for (const record of msg.records) {
             if (record && record.msgId) {
               this.messageMap.set(record.msgId, record);
+              this.cacheSenderInfo(record);
             }
           }
         }
@@ -309,8 +320,60 @@ export class SimpleMessageParser {
     
     // 清理映射
     this.messageMap.clear();
-    
+    this.senderInfoCache.clear();
+
     return results;
+  }
+
+  /**
+   * 把消息上的群名片 / 备注 / 昵称写入按 senderUid 与 senderUin 索引的缓存。
+   *
+   * 同一群成员的不同消息中，往往只有一部分会携带 sendMemberName / sendNickName，
+   * 单条消息都可能因为底层数据漏字段而显示为 QQ 号。这里在解析前先把所有出现过的
+   * 名字按发件人聚合，后续 getSenderDisplayInfo 在本地字段全空时会回退到这里查表。
+   */
+  private cacheSenderInfo(message: RawMessage): void {
+    const groupCard = this.getTrimmedText(message.sendMemberName);
+    const remark = this.getTrimmedText(message.sendRemarkName);
+    const nickname = this.getTrimmedText(message.sendNickName);
+    if (!groupCard && !remark && !nickname) return;
+
+    const keys: string[] = [];
+    const uid = this.getTrimmedText(message.senderUid);
+    if (uid) keys.push(uid);
+    const uin = this.getTrimmedText(message.senderUin);
+    if (uin) keys.push(uin);
+
+    for (const key of keys) {
+      const existing = this.senderInfoCache.get(key) ?? {};
+      this.senderInfoCache.set(key, {
+        groupCard: existing.groupCard ?? groupCard,
+        remark: existing.remark ?? remark,
+        nickname: existing.nickname ?? nickname
+      });
+    }
+  }
+
+  /**
+   * 在按 senderUid → senderUin 顺序查表，命中即返回。供 getSenderDisplayInfo 在
+   * 本条消息字段全空时使用，避免出现把 QQ 号当昵称的情况（参见 #274）。
+   */
+  private lookupCachedSenderInfo(message: RawMessage): {
+    groupCard?: string;
+    remark?: string;
+    nickname?: string;
+  } | undefined {
+    const uid = this.getTrimmedText(message.senderUid);
+    if (uid) {
+      const hit = this.senderInfoCache.get(uid);
+      if (hit) return hit;
+    }
+    const uin = this.getTrimmedText(message.senderUin);
+    if (uin) {
+      const hit = this.senderInfoCache.get(uin);
+      if (hit) return hit;
+    }
+    return undefined;
   }
 
   /**
@@ -1009,11 +1072,21 @@ export class SimpleMessageParser {
     groupCard: string | undefined;
     remark: string | undefined;
   } {
-    const groupCard = this.getTrimmedText(message.sendMemberName);
-    const remark = this.getTrimmedText(message.sendRemarkName);
-    const nickname = this.getTrimmedText(message.sendNickName);
+    let groupCard = this.getTrimmedText(message.sendMemberName);
+    let remark = this.getTrimmedText(message.sendRemarkName);
+    let nickname = this.getTrimmedText(message.sendNickName);
     const isGroupChat = message.chatType === 2;
     const preferGroupMemberName = isGroupChat && this.options.preferGroupMemberName !== false;
+
+    // #274：当本条消息没有任何可读名字时，回退到同发件人在其他消息上出现过的名字。
+    if (!groupCard && !remark && !nickname) {
+      const cached = this.lookupCachedSenderInfo(message);
+      if (cached) {
+        groupCard = cached.groupCard;
+        remark = cached.remark;
+        nickname = cached.nickname;
+      }
+    }
 
     const name = (
       isGroupChat
