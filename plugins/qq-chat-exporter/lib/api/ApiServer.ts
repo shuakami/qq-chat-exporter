@@ -174,11 +174,6 @@ export class QQChatExporterApiServer {
         this.groupFilesExporter = new GroupFilesExporter(core);
         
         this.pathManager = PathManager.getInstance();
-        this.loadUserConfig().then(() => {
-            this.pathManager.ensureAllDirectoriesExist().catch(err => {
-                console.error('[QCE] 创建目录失败:', err);
-            });
-        });
         
         this.setupMiddleware();
         this.setupRoutes();
@@ -277,11 +272,11 @@ export class QQChatExporterApiServer {
             return false;
         }
 
-        if (config.customOutputDir !== undefined && typeof config.customOutputDir !== 'string') {
+        if (config.customOutputDir !== undefined && config.customOutputDir !== null && typeof config.customOutputDir !== 'string') {
             return false;
         }
 
-        if (config.customScheduledExportDir !== undefined && typeof config.customScheduledExportDir !== 'string') {
+        if (config.customScheduledExportDir !== undefined && config.customScheduledExportDir !== null && typeof config.customScheduledExportDir !== 'string') {
             return false;
         }
 
@@ -4991,6 +4986,10 @@ export class QQChatExporterApiServer {
         try {
             // 初始化安全管理器（优先）
             await this.securityManager.initialize();
+
+            // 加载用户配置（导出路径等），确保在处理请求前完成
+            await this.loadUserConfig();
+            await this.pathManager.ensureAllDirectoriesExist();
             
             await this.dbManager.initialize();
             await this.loadExistingTasks();
