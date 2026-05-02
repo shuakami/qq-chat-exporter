@@ -1374,11 +1374,19 @@ export class SimpleMessageParser {
       }
     }
 
+    // #289：被引用消息发件人显示名解析。
+    // 历史上这里在很多分支会落到 senderUidStr (`u_xxxxxxxx` 形式) 或 senderUin（QQ 号）。
+    // 现在统一走 resolveReplySenderName：
+    //   - 找得到原消息：套用 getSenderDisplayInfo 的群名片 / 备注 / 昵称优先级；
+    //   - 找不到原消息：先用 replyElement 自带的字段，再回退到本批消息里同一发件人
+    //     已被 cacheSenderInfo 收录的可读名字；
+    //   - 全部失败时优先用 senderUin（QQ 号）而不是 senderUidStr（u_xxx）。
+    const senderName = this.resolveReplySenderName(replyElement, message, referencedMessage);
     const result = {
       messageId: sourceMsgId || replyElement.replayMsgId || replyElement.replayMsgSeq || '0',
       referencedMessageId: referencedMessageId || undefined,  // 确保不会是 "0"
-      senderUin: replyElement.senderUin || '',
-      senderName: replyElement.senderUidStr || '',
+      senderUin: replyElement.senderUin || (referencedMessage?.senderUin ?? ''),
+      senderName,
       content: '原消息',
       timestamp: 0
     };
@@ -1387,8 +1395,7 @@ export class SimpleMessageParser {
     if (referencedMessage) {
       // 保持messageId为sourceMsgId，referencedMessageId已经在前面设置
       result.senderUin = referencedMessage.senderUin;
-      result.senderName = referencedMessage.sendNickName || referencedMessage.senderUin;
-      
+
       // 提取被引用消息的文本内容
       if (referencedMessage.elements && referencedMessage.elements.length > 0) {
         const parts = [];
@@ -1439,10 +1446,58 @@ export class SimpleMessageParser {
       }
     }
 
-    if (replyElement.senderNick) result.senderName = replyElement.senderNick;
     if (replyElement.replayMsgTime) result.timestamp = replyElement.replayMsgTime;
 
     return result;
+  }
+
+  /**
+   * 把被引用消息（reply）发件人解析成一个尽量可读的名字。
+   *
+   * 解析顺序：
+   *  1. 命中 messageMap / records 的原消息：复用 getSenderDisplayInfo（群名片 > 备注 > 昵称）。
+   *  2. 否则用 replyElement 自带的 senderMemberName / senderNick 字段。
+   *  3. 否则按 senderUid / senderUin 查 senderInfoCache，取本批消息里同发件人的可读名字。
+   *  4. 最后退回 senderUin（QQ 号），再退回 senderUidStr（`u_xxx` 形式）。
+   *
+   * 历史代码会先把 senderName 设为 `replyElement.senderUidStr`，再有条件覆盖；当原消息
+   * 不在导出范围内、且 replyElement 也没有 senderNick 字段时就直接显示 `u_xxx`，
+   * 即 #289 报告的情况。
+   */
+  private resolveReplySenderName(
+    replyElement: any,
+    message: RawMessage,
+    referencedMessage: RawMessage | undefined
+  ): string {
+    if (referencedMessage) {
+      const display = this.getSenderDisplayInfo(referencedMessage);
+      if (display.name && display.name !== '未知用户') return display.name;
+    }
+
+    const senderMemberName = this.getTrimmedText(replyElement.senderMemberName);
+    const senderNick = this.getTrimmedText(replyElement.senderNick);
+    const isGroupChat = message.chatType === 2;
+    const preferGroupMemberName = isGroupChat && this.options.preferGroupMemberName !== false;
+    if (preferGroupMemberName && senderMemberName) return senderMemberName;
+    if (senderNick) return senderNick;
+    if (senderMemberName) return senderMemberName;
+
+    const cached = this.lookupCachedSenderInfo({
+      senderUid: replyElement.senderUid,
+      senderUin: replyElement.senderUin
+    } as RawMessage);
+    if (cached) {
+      const fromCache = preferGroupMemberName
+        ? (cached.groupCard || cached.remark || cached.nickname)
+        : (cached.remark || cached.nickname || cached.groupCard);
+      if (fromCache) return fromCache;
+    }
+
+    const senderUin = this.getTrimmedText(replyElement.senderUin);
+    if (senderUin) return senderUin;
+    const senderUidStr = this.getTrimmedText(replyElement.senderUidStr);
+    if (senderUidStr) return senderUidStr;
+    return '';
   }
 
   private generateMarketFaceUrl(emojiId: string): string {

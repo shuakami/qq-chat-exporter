@@ -201,22 +201,31 @@ export class MessageBuilder {
     reply(opts: {
         sourceMsgId: string;
         senderUin?: string;
+        senderUid?: string;
+        senderUidStr?: string;
+        senderNick?: string;
+        senderMemberName?: string;
         senderName?: string;
         content?: string;
         msgSeq?: string;
         msgTime?: number;
     }): this {
+        const replyElement: Record<string, unknown> = {
+            sourceMsgIdInRecords: opts.sourceMsgId,
+            replayMsgId: opts.sourceMsgId,
+            senderUin: opts.senderUin ?? '11111',
+            senderUinStr: opts.senderUin ?? '11111',
+            replayMsgSeq: opts.msgSeq ?? '999',
+            replyMsgTime: String(opts.msgTime ?? 1704067100),
+            sourceMsgTextElems: [{ textElemContent: opts.content ?? '' }]
+        };
+        if (opts.senderUid !== undefined) replyElement.senderUid = opts.senderUid;
+        if (opts.senderUidStr !== undefined) replyElement.senderUidStr = opts.senderUidStr;
+        if (opts.senderNick !== undefined) replyElement.senderNick = opts.senderNick;
+        if (opts.senderMemberName !== undefined) replyElement.senderMemberName = opts.senderMemberName;
         this.elements.push({
             elementType: 7,
-            replyElement: {
-                sourceMsgIdInRecords: opts.sourceMsgId,
-                replayMsgId: opts.sourceMsgId,
-                senderUin: opts.senderUin ?? '11111',
-                senderUinStr: opts.senderUin ?? '11111',
-                replayMsgSeq: opts.msgSeq ?? '999',
-                replyMsgTime: String(opts.msgTime ?? 1704067100),
-                sourceMsgTextElems: [{ textElemContent: opts.content ?? '' }]
-            }
+            replyElement
         } as unknown as MessageElement);
         this.msg.msgType = 9;
         return this;
