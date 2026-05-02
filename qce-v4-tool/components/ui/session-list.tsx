@@ -46,7 +46,7 @@ export interface SessionListProps {
   avatarExportLoading?: string | null
   onRefresh?: () => void
   onToggleBatchMode?: () => void
-  onSelectAll?: () => void
+  onSelectAll?: (filteredIds?: Set<string>) => void
   onClearSelection?: () => void
   onToggleItem?: (type: 'group' | 'friend', id: string) => void
   onOpenBatchExportDialog?: () => void
@@ -97,6 +97,7 @@ export function SessionList({
     setPage,
     setPageSize,
     resetFilters,
+    filteredItems,
     paginatedItems,
     totalItems,
     totalPages,
@@ -435,7 +436,13 @@ export function SessionList({
                 variant="outline"
                 size="sm"
                 className="rounded-full h-8 px-3 text-[12px]"
-                onClick={onSelectAll}
+                onClick={() => {
+                  const ids = new Set<string>()
+                  filteredItems.forEach(item => {
+                    ids.add(item.type === 'group' ? `group_${item.id}` : `friend_${item.id}`)
+                  })
+                  onSelectAll?.(ids)
+                }}
               >
                 全选当前
               </Button>
