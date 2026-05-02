@@ -186,7 +186,21 @@ const CurrentPath = path.dirname(__filename);
     # Update launcher scripts with portable QQ support (GUI file picker + path memory)
     print("[4.2/11] Updating launcher scripts with portable QQ support...")
     
-    # Common launcher logic for portable QQ support
+    # Common launcher logic for portable QQ support.
+    #
+    # Notes on `(x86)` paths (issue #291):
+    # When QQ is installed under "C:\Program Files (x86)\Tencent\QQNT\", any
+    # `%QQPath%` style expansion that happens *inside* a `( ... )` block will
+    # paste the literal `)` from `(x86)` into the parser stream and prematurely
+    # close the block, producing errors like
+    # `\Tencent\QQNT\QQ.exe was unexpected at this time`.
+    # We mitigate this by:
+    #   1) hoisting `%ProgramFiles(x86)%` to `!PFX86!` before the candidate-paths
+    #      `for ... in (...)` so the parser never sees a literal `(x86)` inside
+    #      parentheses;
+    #   2) reading `%QQPath%` / `%NAPCAT_QQ_PATH%` / `%QQ_PATH_CONFIG%` via
+    #      delayed expansion (`!var!`) inside any `( ... )` block, which expands
+    #      *after* CMD has finished parsing the block boundaries.
     launcher_common_logic = '''
 :resolve_qq_path
 rem Priority 1: Command line argument
@@ -203,18 +217,18 @@ if not "%~1"=="" (
 :try_env
 rem Priority 2: Environment variable
 if not "%NAPCAT_QQ_PATH%"=="" (
-    if exist "%NAPCAT_QQ_PATH%" (
-        set "QQPath=%NAPCAT_QQ_PATH%"
+    if exist "!NAPCAT_QQ_PATH!" (
+        set "QQPath=!NAPCAT_QQ_PATH!"
         goto :napcat_boot
     ) else (
-        echo [Warning] NAPCAT_QQ_PATH is set but invalid: %NAPCAT_QQ_PATH%
+        echo [Warning] NAPCAT_QQ_PATH is set but invalid: !NAPCAT_QQ_PATH!
     )
 )
 
 :try_saved
 rem Priority 3: Saved path from previous run
 if exist "%QQ_PATH_CONFIG%" (
-    set /p SavedPath=<"%QQ_PATH_CONFIG%"
+    set /p SavedPath=<"!QQ_PATH_CONFIG!"
     if exist "!SavedPath!" (
         set "QQPath=!SavedPath!"
         echo [Info] Using saved QQ path: !SavedPath!
@@ -233,9 +247,12 @@ for /f "tokens=2*" %%a in ('reg query "HKEY_LOCAL_MACHINE\\SOFTWARE\\WOW6432Node
 
 :try_common_paths
 rem Priority 5: Common installation paths
+rem Hoist %ProgramFiles(x86)% out of the for-list so the literal `(x86)` does
+rem not collide with the surrounding `for ... in (...)` parentheses (#291).
+set "PFX86=%ProgramFiles(x86)%"
 for %%p in (
     "%ProgramFiles%\\Tencent\\QQNT\\QQ.exe"
-    "%ProgramFiles(x86)%\\Tencent\\QQNT\\QQ.exe"
+    "!PFX86!\\Tencent\\QQNT\\QQ.exe"
     "%LocalAppData%\\Programs\\Tencent\\QQNT\\QQ.exe"
     "C:\\Program Files\\Tencent\\QQNT\\QQ.exe"
     "D:\\Program Files\\Tencent\\QQNT\\QQ.exe"
@@ -283,12 +300,12 @@ echo.
 set /p "QQPath=Enter full path to QQ.exe: "
 
 :validate_path
-if not exist "%QQPath%" (
-    echo [Error] File not found: %QQPath%
+if not exist "!QQPath!" (
+    echo [Error] File not found: !QQPath!
     goto :manual_select
 )
 
-for %%f in ("%QQPath%") do set "filename=%%~nxf"
+for %%f in ("!QQPath!") do set "filename=%%~nxf"
 if /i not "%filename%"=="QQ.exe" (
     echo [Warning] Selected file is not QQ.exe, continue anyway? (Y/N)
     set /p confirm="Confirm: "
@@ -297,12 +314,12 @@ if /i not "%filename%"=="QQ.exe" (
 
 :save_and_boot
 if not exist "%cd%\\config" mkdir "%cd%\\config"
-echo %QQPath%>"%QQ_PATH_CONFIG%"
+echo !QQPath!>"%QQ_PATH_CONFIG%"
 echo [Info] QQ path saved to config\\qq_path.txt
 
 :napcat_boot
 echo.
-echo [Info] Using QQ: "%QQPath%"
+echo [Info] Using QQ: "!QQPath!"
 
 rem Check if this is QQNT (required) vs old QQ
 set "isOldQQ="
@@ -316,7 +333,7 @@ if defined isOldQQ (
     echo The selected QQ appears to be the OLD version ^(QQ 9.x^).
     echo NapCat requires QQNT ^(QQ 9.9.x or later^).
     echo.
-    echo Your path: "%QQPath%"
+    echo Your path: "!QQPath!"
     echo.
     echo QQNT paths typically look like:
     echo   - C:\Program Files\Tencent\QQNT\QQ.exe
@@ -337,13 +354,13 @@ echo.
 set NAPCAT_MAIN_PATH=%NAPCAT_MAIN_PATH:\\=/%
 echo (async () =^> {await import("file:///%NAPCAT_MAIN_PATH%")})() > "%NAPCAT_LOAD_PATH%"
 
-"%NAPCAT_LAUNCHER_PATH%" "%QQPath%" "%NAPCAT_INJECT_PATH%" %*
+"%NAPCAT_LAUNCHER_PATH%" "!QQPath!" "%NAPCAT_INJECT_PATH%" %*
 goto :end_script
 
 :sync_patch_package
 set "QQPackageJson="
 set "QQDir="
-for %%f in ("%QQPath%") do set "QQDir=%%~dpf"
+for %%f in ("!QQPath!") do set "QQDir=%%~dpf"
 
 if exist "!QQDir!resources\\app\\package.json" (
     set "QQPackageJson=!QQDir!resources\\app\\package.json"
@@ -480,12 +497,12 @@ set QQ_PATH_CONFIG=%cd%\\config\\qq_path.txt
 
 if exist "%QQ_PATH_CONFIG%" (
     echo Current saved path:
-    type "%QQ_PATH_CONFIG%"
+    type "!QQ_PATH_CONFIG!"
     echo.
     echo.
     set /p confirm="Delete saved path and reconfigure? (Y/N): "
     if /i "!confirm!"=="Y" (
-        del "%QQ_PATH_CONFIG%"
+        del "!QQ_PATH_CONFIG!"
         echo [Info] Saved path deleted.
         echo [Info] Run launcher-user.bat to reconfigure.
     ) else (
