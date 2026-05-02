@@ -826,6 +826,10 @@ export default function QCEDashboard() {
           keywords: config.keywords,
           excludeUserUins: config.excludeUserUins,
           useNameInFileName: config.useNameInFileName,
+          // Issue #341
+          ...(Array.isArray(config.skipDownloadResourceTypes) && config.skipDownloadResourceTypes.length > 0 && {
+            skipDownloadResourceTypes: config.skipDownloadResourceTypes,
+          }),
         }
 
         // 调用单个导出 API
