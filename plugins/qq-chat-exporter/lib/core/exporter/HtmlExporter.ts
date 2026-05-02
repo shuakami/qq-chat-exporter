@@ -351,6 +351,21 @@ export class HtmlExporter extends BaseExporter {
             flex-grow: 1;
         }
 
+        /* 群头衔徽章（issue #331） */
+        .message-sender-title {
+            display: inline-block;
+            font-size: 0.75em;
+            font-weight: 600;
+            line-height: 1.4;
+            color: #fff;
+            background: linear-gradient(135deg, #ff7a59, #ff4d4f);
+            padding: 1px 6px;
+            border-radius: 4px;
+            margin-right: 6px;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+
         .message-time {
             font-size: 0.85em;
             opacity: 0.6;
@@ -684,7 +699,7 @@ export class HtmlExporter extends BaseExporter {
                         this.generateAvatarPlaceholder(message.sender.name || message.sender.uid)
                     }
                 </div>` : ''}
-                <span class="message-sender">${this.escapeHtml(message.sender.name || message.sender.uid)}</span>
+                ${(message.sender as { title?: string }).title ? `<span class="message-sender-title">${this.escapeHtml((message.sender as { title?: string }).title!)}</span>` : ''}<span class="message-sender">${this.escapeHtml(message.sender.name || message.sender.uid)}</span>
                 ${this.htmlOptions.showTimestamps ? `
                 <span class="message-time">${this.formatTimestamp(message.timestamp)}</span>` : ''}
             </div>

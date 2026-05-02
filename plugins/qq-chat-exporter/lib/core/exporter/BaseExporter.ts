@@ -13,7 +13,7 @@ import {
     SystemError, 
     ErrorType 
 } from '../../types/index.js';
-import { MessageParser, MessageParserConfig } from '../parser/MessageParser.js';
+import { MessageParser, MessageParserConfig, SenderTitleResolver } from '../parser/MessageParser.js';
 import { SimpleMessageParser } from '../parser/SimpleMessageParser.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 
@@ -41,6 +41,11 @@ export interface ExportOptions {
     chunkSize?: number;
     /** 群聊导出时是否优先使用群成员名称 */
     preferGroupMemberName?: boolean;
+    /**
+     * 可选：发件人群头衔解析器。调用侧需在导出前预拉取群成员信息。
+     * 仅在群聊（chatType=2）上被调用。返回空字符串或 undefined 代表“无头衔”。
+     */
+    senderTitleResolver?: SenderTitleResolver;
 }
 
 /**
@@ -83,7 +88,8 @@ export abstract class BaseExporter {
             encoding: options.encoding || 'utf-8',
             customCss: options.customCss,
             chunkSize: options.chunkSize,
-            preferGroupMemberName: options.preferGroupMemberName ?? true
+            preferGroupMemberName: options.preferGroupMemberName ?? true,
+            senderTitleResolver: options.senderTitleResolver
         };
         
         this.cancelled = false;
@@ -200,7 +206,8 @@ export abstract class BaseExporter {
             yieldEvery: 1000,
             suppressFallbackWarn: true,
             stopOnAbort: true,
-            preferGroupMemberName: this.options.preferGroupMemberName ?? true
+            preferGroupMemberName: this.options.preferGroupMemberName ?? true,
+            senderTitleResolver: this.options.senderTitleResolver
         };
         
         return new MessageParser(core, config);

@@ -1099,6 +1099,11 @@ export class ModernHtmlExporter {
 
         // 获取发送者 UID 用于筛选（支持同一用户不同群名片整合）
         const senderUid = (message as any)?.sender?.uid || (message as any)?.sender?.uin || '';
+        // 群头衔（issue #331）：当 senderTitleResolver 命中时，渲染为 sender 旁的小徽章
+        const senderTitle = (message as any)?.sender?.title;
+        const titleHtml = senderTitle
+            ? `<span class="sender-title">${this.escapeHtml(senderTitle)}</span>`
+            : '';
         return `
         <div class="message-block" data-date="${dateKey}">
             ${dateMarker}
@@ -1106,7 +1111,7 @@ export class ModernHtmlExporter {
                 <div class="avatar">${avatarContent}</div>
                 <div class="message-wrapper">
                     <div class="message-header">
-                        <span class="sender">${this.escapeHtml(this.getDisplayName(message))}</span>
+                        ${titleHtml}<span class="sender">${this.escapeHtml(this.getDisplayName(message))}</span>
                         <span class="time">${this.formatTime((message as any)?.time)}</span>
                     </div>
                     <div class="message-bubble">

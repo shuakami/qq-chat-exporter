@@ -316,6 +316,7 @@ export interface ParsedMessage {
     nickname?: string;      // QQ昵称
     groupCard?: string;     // 群昵称
     remark?: string;        // 好友备注
+    title?: string;         // 群头衔（仅群聊，需以调用侧提供的 senderTitleResolver 为准）
     avatar?: string;
     role?: 'owner' | 'admin' | 'member';
   };
@@ -339,6 +340,12 @@ export interface ParsedMessage {
 }
 
 /**
+ * 发件人群头衔解析器。调用侧（ApiServer / ScheduledExportManager）负责
+ * 在导出前预拉取群成员信息并在这里返回头衔。返回空字符串或 undefined 代表“无头衔”。
+ */
+export type SenderTitleResolver = (uid: string | undefined, uin: string | undefined) => string | undefined;
+
+/**
  * 消息解析器配置接口（扩展）
  */
 export interface MessageParserConfig {
@@ -352,6 +359,9 @@ export interface MessageParserConfig {
   timeFormat: string;
   maxTextLength: number;
   debugMode: boolean;
+
+  /** 可选的发件人群头衔解析器，仅在群聊（chatType=2）上调用。解析器抛错会被吞掉。 */
+  senderTitleResolver?: SenderTitleResolver;
 
   /** 新增：性能 & 行为开关 */
   concurrency?: number;                     // 并发覆盖（默认自动）
@@ -1521,9 +1531,27 @@ export class MessageParser {
       nickname: senderInfo.nickname,
       groupCard: senderInfo.groupCard,
       remark: senderInfo.remark,
+      title: this.resolveSenderTitle(message),
       avatar: userInfo?.avatarUrl,
       role: undefined
     };
+  }
+
+  /**
+   * 调用 senderTitleResolver 获取发件人头衔。仅群聊（chatType=2）生效。
+   * 解析器抛错会被以 warn 日志吞掉，不干扰主解析流程。
+   */
+  private resolveSenderTitle(message: RawMessage): string | undefined {
+    if (!this.config.senderTitleResolver) return undefined;
+    if (message.chatType !== 2) return undefined;
+    try {
+      const title = this.config.senderTitleResolver(message.senderUid, message.senderUin);
+      const trimmed = this.normalizeDisplayText(title);
+      return trimmed;
+    } catch (error) {
+      this.log(`senderTitleResolver 报错，已忽略: ${error}`, 'warn');
+      return undefined;
+    }
   }
 
   private parseReceiverInfo(message: RawMessage): ParsedMessage['receiver'] | undefined {
@@ -1693,7 +1721,8 @@ export class MessageParser {
         name: senderInfo.name || '未知用户',
         nickname: senderInfo.nickname,
         groupCard: senderInfo.groupCard,
-        remark: senderInfo.remark
+        remark: senderInfo.remark,
+        title: this.resolveSenderTitle(message)
       },
       receiver: {
         uid: message.peerUid,
@@ -1735,7 +1764,8 @@ export class MessageParser {
         name: senderInfo.name || '未知用户',
         nickname: senderInfo.nickname,
         groupCard: senderInfo.groupCard,
-        remark: senderInfo.remark
+        remark: senderInfo.remark,
+        title: this.resolveSenderTitle(originalMessage)
       },
       messageType: originalMessage.msgType,
       isSystemMessage: false,
