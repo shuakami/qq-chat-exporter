@@ -63,6 +63,7 @@ export function ScheduledExportWizard({
     includeSystemMessages: true,
     filterPureImageMessages: false,
     preferGroupMemberName: true,
+    skipFileDownloadOnly: false,
   })
 
   // 选中的目标
@@ -118,6 +119,9 @@ export function ScheduledExportWizard({
           ? prefilledData.filterPureImageMessages 
           : defaultFilter,
         preferGroupMemberName: prefilledData.preferGroupMemberName !== undefined ? prefilledData.preferGroupMemberName : true,
+        skipFileDownloadOnly: Array.isArray(prefilledData.skipDownloadResourceTypes)
+          ? prefilledData.skipDownloadResourceTypes.includes('file')
+          : false,
       })
 
       // 如果有预填充的目标，添加到选中列表
@@ -152,6 +156,7 @@ export function ScheduledExportWizard({
         includeSystemMessages: true,
         filterPureImageMessages: false,
         preferGroupMemberName: true,
+        skipFileDownloadOnly: false,
       })
       setSelectedTargets([])
       setSearchTerm("")
@@ -205,6 +210,9 @@ export function ScheduledExportWizard({
         includeSystemMessages: baseForm.includeSystemMessages,
         filterPureImageMessages: baseForm.filterPureImageMessages,
         preferGroupMemberName: baseForm.preferGroupMemberName,
+        ...(baseForm.skipFileDownloadOnly && !baseForm.filterPureImageMessages && {
+          skipDownloadResourceTypes: ['file' as const],
+        }),
       }
       
       try {
@@ -838,16 +846,26 @@ export function ScheduledExportWizard({
                       checked: baseForm.filterPureImageMessages,
                       set: (v: boolean) => setBaseForm(p => ({ ...p, filterPureImageMessages: v })),
                       title: "快速导出（跳过资源下载）",
-                      desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度"
+                      desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度",
+                      visible: true,
+                    },
+                    {
+                      id: "skipFileDownloadOnly",
+                      checked: baseForm.skipFileDownloadOnly,
+                      set: (v: boolean) => setBaseForm(p => ({ ...p, skipFileDownloadOnly: v })),
+                      title: "仅保留文件元数据，不下载文件",
+                      desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。",
+                      visible: !baseForm.filterPureImageMessages,
                     },
                     {
                       id: "preferGroupMemberName",
                       checked: baseForm.preferGroupMemberName,
                       set: (v: boolean) => setBaseForm(p => ({ ...p, preferGroupMemberName: v })),
                       title: "优先使用群成员名称",
-                      desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。这个选项仅对群聊生效。"
+                      desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。这个选项仅对群聊生效。",
+                      visible: true,
                     }
-                  ].map((opt) => (
+                  ].filter((opt) => (opt as any).visible !== false).map((opt) => (
                     <div
                       key={opt.id}
                       className={[

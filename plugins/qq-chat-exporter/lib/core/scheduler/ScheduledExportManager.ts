@@ -150,6 +150,10 @@ export interface ScheduledExportConfig {
         filterPureImageMessages?: boolean;
         prettyFormat?: boolean;
         preferGroupMemberName?: boolean;
+        /** Issue #341: 仅保留元数据、跳过下载的资源类型（'image' | 'video' | 'audio' | 'file'）。 */
+        skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>;
+        /** Issue #341: 兼容字段，等价于 skipDownloadResourceTypes: ['file']。 */
+        skipFileDownload?: boolean;
     };
     /** 备份模式（新增） */
     backupMode?: BackupMode;
@@ -539,8 +543,31 @@ export class ScheduledExportManager {
                 return timeA - timeB;
             });
 
-            // 下载资源
+            // Issue #341: 定时任务也支持按资源类型跳过下载，仅保留元数据。
+            const requestedSkipTypes = Array.isArray(task.options.skipDownloadResourceTypes)
+                ? task.options.skipDownloadResourceTypes
+                : (task.options.skipFileDownload ? ['file' as const] : []);
+            const allowedSkipTypes = ['image', 'video', 'audio', 'file'] as const;
+            const normalizedSkipTypes = requestedSkipTypes
+                .map(t => String(t).toLowerCase())
+                .filter((t): t is typeof allowedSkipTypes[number] =>
+                    (allowedSkipTypes as readonly string[]).includes(t)
+                );
+            try {
+                this.resourceHandler.setSkipDownloadTypes(normalizedSkipTypes);
+            } catch {
+                // older ResourceHandler 没有该方法时忽略
+            }
+
+            // 下载资源（受 skipDownloadResourceTypes 影响）
             const resourceMap = await this.resourceHandler.processMessageResources(allMessages);
+
+            // 重置共享 ResourceHandler 的状态，避免影响后续任务
+            try {
+                this.resourceHandler.setSkipDownloadTypes([]);
+            } catch {
+                // ignore
+            }
 
             // 生成文件名
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
