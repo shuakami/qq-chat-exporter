@@ -447,6 +447,9 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           preferGroupMemberName: form.preferGroupMemberName ?? true,
           ...(form.outputDir?.trim() && { outputDir: form.outputDir.trim() }),
           ...(form.useNameInFileName && { useNameInFileName: true }),
+          ...(Array.isArray(form.skipDownloadResourceTypes) && form.skipDownloadResourceTypes.length > 0 && {
+            skipDownloadResourceTypes: form.skipDownloadResourceTypes,
+          }),
         },
       }
 
