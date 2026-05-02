@@ -187,6 +187,11 @@ export class DatabaseManager {
 
     /**
      * 初始化JSONL文件
+     *
+     * 同时一次性回收 messages.jsonl 占用的磁盘空间：当前架构不再读写该文件，
+     * 但旧版本可能在其中堆积了大量历史导出消息。如果文件存在且非空，移动到
+     * backups/legacy-messages-<timestamp>.jsonl 后再清空，确保万一需要回溯仍
+     * 能找回原始内容。详见 #309。
      */
     private async initializeFiles(): Promise<void> {
         // 确保所有JSONL文件存在
@@ -195,10 +200,47 @@ export class DatabaseManager {
                 await fsPromises.writeFile(filePath, '', 'utf8');
             }
         }
+
+        await this.archiveLegacyMessagesFile();
+    }
+
+    private async archiveLegacyMessagesFile(): Promise<void> {
+        try {
+            const messagesPath = this.files.messages;
+            if (!fs.existsSync(messagesPath)) {
+                return;
+            }
+
+            const stats = await fsPromises.stat(messagesPath);
+            if (stats.size === 0) {
+                return;
+            }
+
+            if (!fs.existsSync(this.backupDir)) {
+                await fsPromises.mkdir(this.backupDir, { recursive: true });
+            }
+
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const archivePath = path.join(this.backupDir, `legacy-messages-${timestamp}.jsonl`);
+            await fsPromises.rename(messagesPath, archivePath);
+            await fsPromises.writeFile(messagesPath, '', 'utf8');
+            console.warn(
+                `[DatabaseManager] messages.jsonl 已不被使用，归档至 ${archivePath} 以加速启动（${stats.size} 字节）。`
+            );
+        } catch (error) {
+            console.warn('[DatabaseManager] 归档 messages.jsonl 失败，忽略并继续启动:', error);
+        }
     }
 
     /**
      * 加载所有数据到内存索引
+     *
+     * 注：messages.jsonl 自当前导出架构改为流式之后已不再被任何调用方读取
+     * （saveMessages / getUnprocessedMessages 等接口在 lib/ 内没有外部使用方），
+     * 仅是历史遗留文件。如果在升级前累积了大量内容，启动时全量解析会显著拖慢初始化。
+     * 详见 #309。这里改为不再加载该文件，并在 initializeFiles 中一次性清空。
+     *
+     * 其余 5 个索引彼此独立，改为并行加载以缩短启动时间。
      */
     private async loadIndexes(): Promise<void> {
         this.taskIdToRecordId.clear();
@@ -209,23 +251,13 @@ export class DatabaseManager {
             resources: false
         };
 
-        // 加载任务数据
-        await this.loadTaskIndex();
-        
-        // 加载消息数据
-        await this.loadMessageIndex();
-        
-        // 加载资源数据
-        await this.loadResourceIndex();
-        
-        // 加载系统信息
-        await this.loadSystemInfoIndex();
-        
-        // 加载定时导出任务
-        await this.loadScheduledExportIndex();
-        
-        // 加载执行历史
-        await this.loadExecutionHistoryIndex();
+        await Promise.all([
+            this.loadTaskIndex(),
+            this.loadResourceIndex(),
+            this.loadSystemInfoIndex(),
+            this.loadScheduledExportIndex(),
+            this.loadExecutionHistoryIndex()
+        ]);
     }
 
     /**
@@ -659,11 +691,12 @@ export class DatabaseManager {
 
     /**
      * 重建所有文件（用于删除操作后的清理）
+     *
+     * messages.jsonl 不再被现行架构读取，启动期已归档清空，运行期不再重写。
      */
     private async rebuildFiles(): Promise<void> {
         await Promise.all([
             this.rebuildTaskFile(),
-            this.rebuildMessageFile(), 
             this.rebuildResourceFile()
         ]);
     }
@@ -758,22 +791,23 @@ export class DatabaseManager {
     }
 
     /**
-     * 批量保存消息
+     * 批量保存消息（仅维护内存索引）
+     *
+     * 历史接口，保留以便兼容潜在外部调用。当前导出流水线全部走流式写出，
+     * 消息不再持久化到 messages.jsonl，避免该文件无限增长拖慢启动（#309）。
      */
     async saveMessages(taskId: string, messages: any[]): Promise<void> {
         this.ensureInitialized();
 
-        // 确保任务消息索引存在
         if (!this.indexes.messages.has(taskId)) {
             this.indexes.messages.set(taskId, new Map());
         }
 
         const taskMessages = this.indexes.messages.get(taskId)!;
-        const messageRecords: MessageDbRecord[] = [];
 
         messages.forEach(msg => {
             const messageRecord: MessageDbRecord = {
-                id: Date.now() + Math.random(), // 简单的ID生成
+                id: Date.now() + Math.random(),
                 taskId: taskId,
                 messageId: msg.msgId,
                 messageSeq: msg.msgSeq,
@@ -785,19 +819,12 @@ export class DatabaseManager {
                 updatedAt: new Date()
             };
 
-            // 更新内存索引
             taskMessages.set(messageRecord.messageId, messageRecord);
-            messageRecords.push(messageRecord);
-        });
-
-        // 批量写入
-        messageRecords.forEach(record => {
-            this.queueWrite(this.files.messages, record);
         });
     }
 
     /**
-     * 标记消息为已处理
+     * 标记消息为已处理（仅维护内存索引，参见 saveMessages 注释）
      */
     async markMessageProcessed(taskId: string, messageId: string): Promise<void> {
         this.ensureInitialized();
@@ -807,9 +834,6 @@ export class DatabaseManager {
             const message = taskMessages.get(messageId)!;
             message.processed = true;
             message.updatedAt = new Date();
-            
-            // 重新写入整个消息记录
-            this.queueWrite(this.files.messages, message);
         }
     }
 
