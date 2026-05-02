@@ -795,13 +795,136 @@ export class ResourceHandler {
     }
 
     /**
+     * issue #285：根据 magic bytes 识别音频真实编码，必要时把已落盘的文件
+     * 扩展名规范化，并同步更新 resourceInfo.fileName / mimeType。
+     *
+     * 主要修正点：QQ 客户端把 SILK 编码语音以 `.amr` 扩展名缓存。把它改成
+     * `.silk` 后下游用户能直接用 silk-decoder / ffmpeg 转 mp3，而不会被
+     * AMR 解码器误判为「文件损坏」。
+     *
+     * 识别失败时返回原路径，保证旧行为。
+     */
+    private normalizeAudioFileExtension(filePath: string, resourceInfo: ResourceInfo): string {
+        try {
+            if (!fs.existsSync(filePath)) return filePath;
+            const stats = fs.statSync(filePath);
+            if (!stats.isFile() || stats.size < 4) return filePath;
+
+            const fd = fs.openSync(filePath, 'r');
+            const buf = Buffer.alloc(16);
+            let n = 0;
+            try {
+                n = fs.readSync(fd, buf, 0, 16, 0);
+            } finally {
+                try { fs.closeSync(fd); } catch {}
+            }
+            if (n < 4) return filePath;
+
+            // SILK：常见两种头
+            //   - `#!SILK_V3` (0x23 0x21 0x53 0x49 0x4C 0x4B 0x5F 0x56 0x33)
+            //   - 前置 0x02 字节后跟 `#!SILK_V3`
+            const silkSignature = Buffer.from('#!SILK_V3');
+            const isSilk =
+                (n >= silkSignature.length && buf.slice(0, silkSignature.length).equals(silkSignature)) ||
+                (n >= silkSignature.length + 1 && buf[0] === 0x02 &&
+                    buf.slice(1, 1 + silkSignature.length).equals(silkSignature));
+            // AMR：`#!AMR\n` (单声道) 或 `#!AMR-WB\n` (宽带)
+            const amrNbSig = Buffer.from('#!AMR\n');
+            const amrWbSig = Buffer.from('#!AMR-WB\n');
+            const isAmr =
+                (n >= amrNbSig.length && buf.slice(0, amrNbSig.length).equals(amrNbSig)) ||
+                (n >= amrWbSig.length && buf.slice(0, amrWbSig.length).equals(amrWbSig));
+            // WAV：RIFF .... WAVE
+            const isWav = n >= 12 &&
+                buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+                buf[8] === 0x57 && buf[9] === 0x41 && buf[10] === 0x56 && buf[11] === 0x45;
+            // MP3：ID3 头 (49 44 33) 或同步字 (FF FB / FF F3 / FF F2)
+            const isMp3 =
+                (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) ||
+                (buf[0] === 0xFF && (buf[1] === 0xFB || buf[1] === 0xF3 || buf[1] === 0xF2));
+            // OGG：OggS
+            const isOgg = buf[0] === 0x4F && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53;
+
+            let realExt: string | null = null;
+            let realMime: string | null = null;
+            if (isSilk) {
+                realExt = '.silk';
+                realMime = 'audio/silk';
+            } else if (isAmr) {
+                realExt = '.amr';
+                realMime = 'audio/amr';
+            } else if (isWav) {
+                realExt = '.wav';
+                realMime = 'audio/wav';
+            } else if (isMp3) {
+                realExt = '.mp3';
+                realMime = 'audio/mpeg';
+            } else if (isOgg) {
+                realExt = '.ogg';
+                realMime = 'audio/ogg';
+            }
+            if (!realExt) return filePath;
+
+            const currentExt = path.extname(filePath).toLowerCase();
+            if (currentExt === realExt) {
+                if (realMime) {
+                    resourceInfo.mimeType = realMime;
+                }
+                return filePath;
+            }
+
+            // rename 真正的物理文件
+            const baseNoExt = currentExt
+                ? filePath.slice(0, filePath.length - currentExt.length)
+                : filePath;
+            const newPath = `${baseNoExt}${realExt}`;
+            try {
+                if (fs.existsSync(newPath)) {
+                    // 同名目标若是同一份内容则直接复用，否则删除避免 EEXIST
+                    try { fs.unlinkSync(newPath); } catch {}
+                }
+                fs.renameSync(filePath, newPath);
+            } catch (renameErr) {
+                console.warn(`[ResourceHandler] 修正音频扩展名失败 ${filePath} → ${newPath}:`, renameErr);
+                return filePath;
+            }
+
+            // 同步更新 resourceInfo
+            if (resourceInfo.fileName) {
+                const fnExt = path.extname(resourceInfo.fileName).toLowerCase();
+                const fnBase = fnExt
+                    ? resourceInfo.fileName.slice(0, resourceInfo.fileName.length - fnExt.length)
+                    : resourceInfo.fileName;
+                resourceInfo.fileName = `${fnBase}${realExt}`;
+            } else {
+                resourceInfo.fileName = path.basename(newPath);
+            }
+            if (realMime) {
+                resourceInfo.mimeType = realMime;
+            }
+            return newPath;
+        } catch (err) {
+            console.warn(`[ResourceHandler] normalizeAudioFileExtension 异常 (${filePath}):`, err);
+            return filePath;
+        }
+    }
+
+    /**
      * 执行下载任务
      */
     private async executeDownload(task: DownloadTask): Promise<string> {
         try {
             return await this.circuitBreaker.execute(async () => {
-                const filePath = await this.downloadResource(task.message, task.element, task.resourceInfo);
-                
+                let filePath = await this.downloadResource(task.message, task.element, task.resourceInfo);
+
+                // issue #285：QQ 把 SILK 编码的语音以 `.amr` 扩展名落到本地缓存，
+                // 直接交给播放器会被当成 AMR 解码失败。在写库前先按 magic bytes
+                // 把音频扩展名规范化（SILK / AMR / WAV / MP3 / OGG），让 JSON、
+                // HTML、文件资源管理器看到一致的文件名。
+                if (filePath && task.resourceInfo.type === 'audio') {
+                    filePath = this.normalizeAudioFileExtension(filePath, task.resourceInfo);
+                }
+
                 // 更新资源状态
                 task.resourceInfo.localPath = filePath;
                 task.resourceInfo.accessible = true;
