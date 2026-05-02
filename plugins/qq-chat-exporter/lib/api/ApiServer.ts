@@ -3772,7 +3772,10 @@ export class QQChatExporterApiServer {
                 preferGroupMemberName: options?.preferGroupMemberName ?? true,
                 timeFormat: 'YYYY-MM-DD HH:mm:ss',
                 encoding: 'utf-8',
-                senderTitleResolver
+                senderTitleResolver,
+                // issue #277：把已下载资源的映射传给 JSON / JSONL / TXT / Excel 导出器，
+                // 让它们既能写入正确的资源相对路径，也能把资源文件复制到 <outputDir>/resources/。
+                resourceMap
             };
 
             // 对消息按时间戳排序，确保时间顺序正确
