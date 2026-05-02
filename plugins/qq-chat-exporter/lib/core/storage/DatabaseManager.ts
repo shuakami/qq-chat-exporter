@@ -172,6 +172,9 @@ export class DatabaseManager {
             // 清理失败的任务
             await this.cleanupFailedTasks();
 
+            // 清理超过 30 天的已完成任务，防止 JSONL 文件无限增长
+            await this.cleanupOldTasks(30);
+
             this.initialized = true;
 
         } catch (error) {
@@ -755,6 +758,52 @@ export class DatabaseManager {
             }
             await this.rebuildFiles();
         }
+    }
+
+    /**
+     * 清理已完成的历史任务
+     * 删除超过 retentionDays 天且状态为 completed/failed/cancelled 的任务及其关联消息
+     */
+    async cleanupOldTasks(retentionDays: number = 30): Promise<number> {
+        this.ensureInitialized();
+        const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+        const tasksToDelete: string[] = [];
+
+        for (const [, taskRecord] of this.indexes.tasks) {
+            try {
+                const state = JSON.parse(taskRecord.state) as ExportTaskState;
+                if (state.status !== 'completed' && state.status !== 'failed' && state.status !== 'cancelled') {
+                    continue;
+                }
+                const endTime = state.endTime ? new Date(state.endTime).getTime() : 0;
+                const updatedAt = taskRecord.updatedAt ? new Date(taskRecord.updatedAt).getTime() : 0;
+                const taskTime = Math.max(endTime, updatedAt);
+                if (taskTime > 0 && taskTime < cutoff) {
+                    tasksToDelete.push(taskRecord.taskId);
+                }
+            } catch {
+                // 无法解析的记录也标记为可清理
+                tasksToDelete.push(taskRecord.taskId);
+            }
+        }
+
+        if (tasksToDelete.length === 0) {
+            return 0;
+        }
+
+        for (const taskId of tasksToDelete) {
+            const recordId = this.taskIdToRecordId.get(taskId);
+            if (recordId) {
+                this.indexes.tasks.delete(recordId);
+                this.taskIdToRecordId.delete(taskId);
+                this.taskPersistSnapshots.delete(taskId);
+            }
+            this.indexes.messages.delete(taskId);
+        }
+
+        await this.rebuildFiles();
+        console.log(`[DatabaseManager] 已清理 ${tasksToDelete.length} 条历史任务记录`);
+        return tasksToDelete.length;
     }
 
     /**

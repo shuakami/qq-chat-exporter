@@ -1116,6 +1116,20 @@ export class QQChatExporterApiServer {
             }
         });
 
+        this.app.post('/api/database/cleanup', async (req, res) => {
+            try {
+                const retentionDays = parseInt(req.body?.retentionDays) || 30;
+                const cleaned = await this.dbManager.cleanupOldTasks(retentionDays);
+                this.sendSuccessResponse(res, {
+                    message: `已清理 ${cleaned} 条历史任务记录`,
+                    cleanedTasks: cleaned,
+                    retentionDays
+                }, (req as any).requestId);
+            } catch (error) {
+                return this.sendErrorResponse(res, new SystemError(ErrorType.DATABASE_ERROR, '数据库清理失败', 'CLEANUP_FAILED'), (req as any).requestId);
+            }
+        });
+
         this.app.get('/api/groups', async (req, res) => {
             try {
                 const forceRefresh = req.query['forceRefresh'] === 'true';
