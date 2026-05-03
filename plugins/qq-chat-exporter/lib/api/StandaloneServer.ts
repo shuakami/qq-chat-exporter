@@ -20,6 +20,7 @@ import os from 'os';
 // 导入前端服务管理器
 import { FrontendBuilder } from '../webui/FrontendBuilder.js';
 import { VERSION, APP_INFO } from '../version.js';
+import { buildNameSearchPredicate } from './galleryFilter.js';
 
 /**
  * API响应接口
@@ -295,7 +296,8 @@ export class QCEStandaloneServer {
                 const type = req.query['type'] as string || 'all';
                 const page = parseInt(req.query['page'] as string) || 1;
                 const limit = parseInt(req.query['limit'] as string) || 50;
-                const resources = await this.getGlobalResourceFiles(type, page, limit);
+                const nameSearch = req.query['nameSearch'];
+                const resources = await this.getGlobalResourceFiles(type, page, limit, nameSearch);
                 this.sendSuccessResponse(res, resources, (req as any).requestId);
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
@@ -761,9 +763,15 @@ export class QCEStandaloneServer {
     /**
      * 获取全局资源文件列表
      */
-    private async getGlobalResourceFiles(type: string, page: number, limit: number): Promise<any> {
+    private async getGlobalResourceFiles(
+        type: string,
+        page: number,
+        limit: number,
+        nameSearch?: unknown
+    ): Promise<any> {
         const files: any[] = [];
         const resourceTypes = type === 'all' ? ['images', 'videos', 'audios', 'files'] : [type];
+        const matchesName = buildNameSearchPredicate(nameSearch);
 
         for (const resourceType of resourceTypes) {
             const dirPath = path.join(this.resourcesDir, resourceType);
@@ -771,6 +779,7 @@ export class QCEStandaloneServer {
 
             const entries = fs.readdirSync(dirPath);
             for (const entry of entries) {
+                if (!matchesName(entry)) continue;
                 const filePath = path.join(dirPath, entry);
                 const stats = fs.statSync(filePath);
                 if (stats.isFile()) {

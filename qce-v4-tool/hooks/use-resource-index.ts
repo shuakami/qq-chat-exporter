@@ -94,13 +94,23 @@ export function useResourceIndex() {
     type: 'all' | 'images' | 'videos' | 'audios' | 'files' = 'all',
     page: number = 1,
     limit: number = 50,
-    append: boolean = false
+    append: boolean = false,
+    nameSearch?: string
   ) => {
     try {
       setFilesLoading(true);
       setError(null);
 
-      const response = await fetch(`/api/resources/files?type=${type}&page=${page}&limit=${limit}`);
+      const params = new URLSearchParams({
+        type,
+        page: String(page),
+        limit: String(limit),
+      });
+      const trimmedSearch = nameSearch?.trim();
+      if (trimmedSearch) {
+        params.set('nameSearch', trimmedSearch);
+      }
+      const response = await fetch(`/api/resources/files?${params.toString()}`);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
