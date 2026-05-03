@@ -155,6 +155,19 @@ export const GroupApi = {
     }
 
     return { result: { infos: new Map(members.map(m => [m.user_id, m])) } };
+  },
+
+  // 入群申请 / 邀请通知（issue #317）。优先走 NapCat 上层 OneBot 的
+  // get_group_system_msg，因为它已经把 uid 解析成了 uin、把 group/user1/user2
+  // 等字段拍平成 invited_requests / join_requests，调用方零额外解析。
+  // 直接 NT 内部 API 没有 uin 解析，调用方还得自己再 await UserApi.getUinByUidV2，
+  // 用这个 fallback 不划算。
+  async getGroupSystemMsg(count = 50) {
+    const { actions, instance } = getBridge();
+    const handler = actions?.get?.('get_group_system_msg');
+    if (!handler) throw new Error('[QCE Overlay] get_group_system_msg 不可用');
+    const result = await handler.handle({ count: Number(count) || 50 }, 'plugin', instance?.config);
+    return result?.data ?? result ?? null;
   }
 };
 
