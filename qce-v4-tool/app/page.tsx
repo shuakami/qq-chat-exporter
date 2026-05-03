@@ -2231,6 +2231,17 @@ export default function QCEDashboard() {
                               </div>
                             )}
                             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
+                            {/* issue #294 子项 3：音视频/文件 tile 直接把文件名摆在底栏，
+                                免得用户必须点开才能看出来这是哪个资源。图片自身就说明
+                                了内容，不强制塞文件名。 */}
+                            {file.type !== 'image' && file.fileName && (
+                              <div
+                                className="absolute inset-x-0 bottom-0 px-1.5 py-1 bg-gradient-to-t from-black/55 to-transparent text-[10px] leading-tight text-white truncate"
+                                title={file.fileName}
+                              >
+                                {file.fileName}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
