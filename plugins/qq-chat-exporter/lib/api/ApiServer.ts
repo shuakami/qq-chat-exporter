@@ -62,6 +62,7 @@ import {
     reconcileOrphanedTask,
     buildTaskResyncPayload,
 } from './orphanTaskReconciler.js';
+import { buildNameSearchPredicate } from './galleryFilter.js';
 
 // 导入类型定义
 import type { RawMessage } from 'NapCatQQ/src/core/types.js';
@@ -3371,7 +3372,8 @@ export class QQChatExporterApiServer {
                 const type = req.query['type'] as string || 'all'; // all, images, videos, audios, files
                 const page = parseInt(req.query['page'] as string) || 1;
                 const limit = parseInt(req.query['limit'] as string) || 50;
-                const resources = await this.getGlobalResourceFiles(type, page, limit);
+                const nameSearch = req.query['nameSearch'];
+                const resources = await this.getGlobalResourceFiles(type, page, limit, nameSearch);
                 this.sendSuccessResponse(res, resources, (req as any).requestId);
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
@@ -6793,7 +6795,8 @@ export class QQChatExporterApiServer {
     private async getGlobalResourceFiles(
         type: string,
         page: number,
-        limit: number
+        limit: number,
+        nameSearch?: unknown
     ): Promise<{
         files: Array<{
             type: string;
@@ -6810,7 +6813,8 @@ export class QQChatExporterApiServer {
     }> {
         const userProfile = process.env['USERPROFILE'] || process.cwd();
         const resourcesDir = path.join(userProfile, '.qq-chat-exporter', 'resources');
-        
+        const matchesName = buildNameSearchPredicate(nameSearch);
+
         const files: Array<{
             type: string;
             fileName: string;
@@ -6845,7 +6849,8 @@ export class QQChatExporterApiServer {
                 
                 for (const entry of entries) {
                     if (!entry.isFile()) continue;
-                    
+                    if (!matchesName(entry.name)) continue;
+
                     const fullPath = path.join(dir, entry.name);
                     try {
                         const stats = fs.statSync(fullPath);
