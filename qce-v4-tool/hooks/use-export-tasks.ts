@@ -596,6 +596,71 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     syncTaskToast(resolvedTask, data)
   }, [syncTaskToast])
 
+  /**
+   * Issue #144: WebSocket 一连上服务端就会推 task_resync。这里只把已知
+   * 任务的 status / progress / messageCount / error 对齐到服务端的真值，
+   * 避免「网页一直转圈但服务进程其实早跑完 / 早挂掉」的状态错位。
+   *
+   * 注意：服务端可能存在前端还没拉到的任务（多端同时操作时）。这种情
+   * 况这里不会乱建 ExportTask 对象，而是交给紧随其后的 loadTasks 把完
+   * 整字段一并取回，避免下载链接 / 文件名等字段缺失。
+   */
+  const applyTaskResync = useCallback((tasks: Array<{
+    taskId: string
+    status: string
+    progress: number
+    messageCount: number
+    error?: string
+  }>) => {
+    if (!Array.isArray(tasks) || tasks.length === 0) return
+
+    setTasks((prev) => {
+      const indexById = new Map<string, (typeof tasks)[number]>()
+      for (const t of tasks) {
+        if (t && typeof t.taskId === 'string') indexById.set(t.taskId, t)
+      }
+
+      let changed = false
+      const next = prev.map((task) => {
+        const remote = indexById.get(task.id)
+        if (!remote) return task
+
+        const nextStatus = (remote.status as ExportTask['status']) ?? task.status
+        const nextProgress =
+          typeof remote.progress === 'number' && Number.isFinite(remote.progress)
+            ? remote.progress
+            : task.progress
+        const nextMessageCount =
+          typeof remote.messageCount === 'number' && Number.isFinite(remote.messageCount)
+            ? remote.messageCount
+            : task.messageCount
+        const nextError = remote.error ?? task.error
+
+        if (
+          nextStatus === task.status &&
+          nextProgress === task.progress &&
+          nextMessageCount === task.messageCount &&
+          nextError === task.error
+        ) {
+          return task
+        }
+
+        changed = true
+        return {
+          ...task,
+          status: nextStatus,
+          progress: nextProgress,
+          messageCount: nextMessageCount,
+          error: nextError,
+        }
+      })
+
+      if (!changed) return prev
+      tasksRef.current = next
+      return next
+    })
+  }, [])
+
   const isJsonlExport = useCallback((task: ExportTask): boolean => {
     return task.fileName?.includes("_chunked_jsonl") || task.format === "STREAMING_JSONL"
   }, [])
@@ -687,6 +752,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     createTask,
     updateTaskProgress,
     handleWebSocketProgress,
+    applyTaskResync,
     downloadTask,
     deleteOriginalFiles,
     getTaskStats,
