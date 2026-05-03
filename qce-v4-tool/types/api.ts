@@ -166,6 +166,31 @@ export interface ExportTask {
   originalFilePath?: string
   /** 是否为流式导出模式 */
   streamingMode?: boolean
+  /**
+   * 本次导出的资源下载摘要（issue #363）。
+   * 后端在 `processMessageResources` 完成后填充；纯文字消息或显式跳过资源下载时为 undefined。
+   */
+  resourceSummary?: ExportResourceSummary
+}
+
+/**
+ * 单次导出资源处理结果（issue #363）。
+ * 用来在任务列表 / 详情中给出明确结论，避免用户被 NapCat 终端的 `[Rkey] 所有服务均已禁用`
+ * 日志误导以为整个导出失败。
+ */
+export interface ExportResourceSummary {
+  /** 命中的总资源条数（包含跳过、命中本地的）。 */
+  attempted: number
+  /** 入口扫描时已经在本地、不需要重新下载的。 */
+  alreadyAvailable: number
+  /** 本次新下载完成的。 */
+  downloaded: number
+  /** 拿不到链接 / 健康检查不过的。 */
+  failed: number
+  /** 因 skipDownloadResourceTypes 主动跳过的。 */
+  skipped: number
+  /** 失败资源的简短样本（最多 5 个），用于在 UI 中显示具体哪些资源没下到。 */
+  failedSamples: string[]
 }
 
 export interface CreateTaskForm {

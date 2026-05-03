@@ -1690,6 +1690,21 @@ export default function QCEDashboard() {
                             {task.error}
                           </div>
                         )}
+
+                        {/* issue #363：资源下载摘要。只在完成态、且本次确实有资源失败时显示。 */}
+                        {task.status === "completed" && task.resourceSummary && task.resourceSummary.failed > 0 && (
+                          <div className="mt-1.5 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                            <span className="font-medium">
+                              资源 {(task.resourceSummary.alreadyAvailable + task.resourceSummary.downloaded)}/{task.resourceSummary.attempted}
+                              ，失败 {task.resourceSummary.failed}
+                              {task.resourceSummary.skipped > 0 && `，跳过 ${task.resourceSummary.skipped}`}
+                            </span>
+                            <span className="text-muted-foreground/70">
+                              {' · '}
+                              这通常是 QQ Rkey 服务临时降级，文字内容不受影响；可在 QQ 客户端重新点开这些消息后再点「重试」。
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="ml-3 flex items-center gap-1.5 flex-shrink-0">
