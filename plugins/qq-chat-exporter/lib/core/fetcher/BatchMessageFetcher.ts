@@ -546,11 +546,18 @@ export class BatchMessageFetcher {
     }
 
     /**
-     * 带重试的API调用
+     * 带重试的 API 调用。
+     *
+     * issue #305 / #316：客户端选大批量、QQ 端 NT API 偶尔慢/卡时，
+     * 单次调用容易在 30s（默认）或 120s（导出场景）触发 TIMEOUT_ERROR。
+     * 原来的实现会用同样的 batchSize 重试，往往再次超时直至放弃。
+     * 现在每遇到一次超时，就把下一次重试的 batchSize 折半（不低于
+     * `MIN_BATCH_SIZE_ON_TIMEOUT`），让 QQ 客户端有机会用更小窗口完成查询。
+     * apiCall 闭包是惰性读取 `this.config.batchSize` 的，所以重试就会自动用新值。
      */
     private async callWithRetry<T>(apiCall: () => Promise<T>): Promise<T> {
         let lastError: Error | undefined;
-        
+
         for (let attempt = 0; attempt <= this.config.retryCount; attempt++) {
             try {
                 // 检查取消令牌
@@ -562,7 +569,7 @@ export class BatchMessageFetcher {
                     });
                 }
 
-                console.info(`[BatchMessageFetcher] 开始API调用 (尝试 ${attempt + 1}/${this.config.retryCount + 1})`);
+                console.info(`[BatchMessageFetcher] 开始API调用 (尝试 ${attempt + 1}/${this.config.retryCount + 1}) batchSize=${this.config.batchSize}`);
                 const result = await Promise.race([
                     apiCall(),
                     this.createTimeoutPromise<T>()
@@ -583,6 +590,17 @@ export class BatchMessageFetcher {
                     break;
                 }
 
+                // issue #305 / #316：超时类错误下次重试用更小的 batchSize。
+                if (this.isTimeoutError(error) && this.config.batchSize > BatchMessageFetcher.MIN_BATCH_SIZE_ON_TIMEOUT) {
+                    const previous = this.config.batchSize;
+                    const next = Math.max(
+                        BatchMessageFetcher.MIN_BATCH_SIZE_ON_TIMEOUT,
+                        Math.floor(previous / 2),
+                    );
+                    this.config.batchSize = next;
+                    console.warn(`[BatchMessageFetcher] 检测到超时，自适应缩小 batchSize: ${previous} -> ${next}`);
+                }
+
                 // 等待重试间隔
                 const retryDelay = this.config.retryInterval * (attempt + 1);
                 console.info(`[BatchMessageFetcher] 等待 ${retryDelay}ms 后重试`);
@@ -592,6 +610,24 @@ export class BatchMessageFetcher {
 
         throw lastError;
     }
+
+    /**
+     * 判断错误是否属于 API 超时。SystemError 直接看 type，其他场景容错地匹配
+     * 错误信息文本（防止上层包装后丢失类型）。
+     */
+    private isTimeoutError(error: unknown): boolean {
+        if (error instanceof SystemError) {
+            return error.type === ErrorType.TIMEOUT_ERROR;
+        }
+        if (error && typeof error === 'object' && 'message' in error) {
+            const message = String((error as { message: unknown }).message ?? '');
+            return /API调用超时|timeout/i.test(message);
+        }
+        return false;
+    }
+
+    /** issue #305 / #316：自适应缩小后的 batchSize 下限。 */
+    private static readonly MIN_BATCH_SIZE_ON_TIMEOUT = 200;
 
     /**
      * 创建超时Promise
