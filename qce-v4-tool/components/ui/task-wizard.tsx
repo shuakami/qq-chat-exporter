@@ -79,6 +79,7 @@ export function TaskWizard({
     filterPureImageMessages: true, // JSON/TXT默认启用
     exportAsZip: false,
     embedAvatarsAsBase64: false,
+    embedResourcesAsDataUri: false, // Issue #311: 自包含 HTML
     streamingZipMode: false, // 流式ZIP导出模式
     outputDir: "", // Issue #192: 自定义导出路径
     useNameInFileName: false, // Issue #216: 文件名包含聊天名称
@@ -120,6 +121,7 @@ export function TaskWizard({
           : defaultFilter,
         exportAsZip: prefilledData.exportAsZip || false,
         embedAvatarsAsBase64: prefilledData.embedAvatarsAsBase64 || false,
+        embedResourcesAsDataUri: prefilledData.embedResourcesAsDataUri || false, // Issue #311
         streamingZipMode: prefilledData.streamingZipMode || false,
         outputDir: prefilledData.outputDir || "",  // Issue #192
         useNameInFileName: prefilledData.useNameInFileName || false,  // Issue #216
@@ -196,6 +198,7 @@ export function TaskWizard({
         filterPureImageMessages: true, // JSON默认启用
         exportAsZip: false,
         embedAvatarsAsBase64: false,
+        embedResourcesAsDataUri: false, // Issue #311
         streamingZipMode: false,
         outputDir: "", // Issue #192: 重置自定义导出路径
         useNameInFileName: false, // Issue #216: 重置文件名包含聊天名称
@@ -1048,6 +1051,15 @@ export function TaskWizard({
                 title: "嵌入头像为Base64",
                 desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）",
                 visible: form.format === "JSON"
+              },
+              {
+                // Issue #311: 自包含 HTML
+                id: "embedResourcesAsDataUri",
+                checked: form.embedResourcesAsDataUri || false,
+                set: (v: boolean) => setForm((p) => ({ ...p, embedResourcesAsDataUri: v })),
+                title: "生成自包含 HTML",
+                desc: "将图片、语音、视频、小于 50 MB 的文件以 base64 内联到单个 HTML文件中，不再产出 resources 目录。适合需要单独发送 / 在手机上丢进文件传输查看的场景。资源较多时 HTML 体积会明显增大。",
+                visible: form.format === "HTML" && !form.exportAsZip && !form.streamingZipMode
               }
             ].filter((opt) => opt.visible).map((opt) => (
               <div

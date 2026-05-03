@@ -444,6 +444,8 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           prettyFormat: true,
           exportAsZip: form.exportAsZip,
           embedAvatarsAsBase64: form.embedAvatarsAsBase64,
+          // Issue #311: 自包含 HTML（资源 base64 内联）。
+          embedResourcesAsDataUri: form.embedResourcesAsDataUri,
           preferGroupMemberName: form.preferGroupMemberName ?? true,
           ...(form.outputDir?.trim() && { outputDir: form.outputDir.trim() }),
           ...(form.useNameInFileName && { useNameInFileName: true }),

@@ -154,6 +154,10 @@ export interface ScheduledExportConfig {
         skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>;
         /** Issue #341: 兼容字段，等价于 skipDownloadResourceTypes: ['file']。 */
         skipFileDownload?: boolean;
+        /** Issue #311: 仅对 HTML 格式生效，启用后资源以 base64 内联。 */
+        embedResourcesAsDataUri?: boolean;
+        /** Issue #311: 单个资源内联上限（字节）。 */
+        maxEmbedFileSizeBytes?: number;
     };
     /** 备份模式（新增） */
     backupMode?: BackupMode;
@@ -601,7 +605,12 @@ export class ScheduledExportManager {
                     const htmlExporter = new ModernHtmlExporter({
                         outputPath: filePath,
                         includeResourceLinks: task.options.includeResourceLinks ?? true,
-                        includeSystemMessages: task.options.includeSystemMessages ?? true
+                        includeSystemMessages: task.options.includeSystemMessages ?? true,
+                        // Issue #311: 自包含 HTML（资源 base64 内联）
+                        embedResourcesAsDataUri: task.options.embedResourcesAsDataUri === true,
+                        ...(typeof task.options.maxEmbedFileSizeBytes === 'number'
+                            ? { maxEmbedFileSizeBytes: task.options.maxEmbedFileSizeBytes }
+                            : {})
                     });
                     const htmlMessageStream = parser.parseMessagesStream(allMessages, resourceMap);
                     await htmlExporter.exportFromIterable(htmlMessageStream, chatInfo);

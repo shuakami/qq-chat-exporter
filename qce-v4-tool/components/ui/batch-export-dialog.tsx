@@ -36,6 +36,8 @@ export interface BatchExportConfig {
   streamingZipMode: boolean
   exportAsZip: boolean
   embedAvatarsAsBase64: boolean
+  /** Issue #311: 自包含 HTML（资源 base64 内联）。 */
+  embedResourcesAsDataUri: boolean
   includeSystemMessages: boolean
   filterPureImageMessages: boolean
   preferGroupMemberName: boolean
@@ -72,6 +74,8 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
   const [streamingZipMode, setStreamingZipMode] = useState(false)
   const [exportAsZip, setExportAsZip] = useState(false)
   const [embedAvatarsAsBase64, setEmbedAvatarsAsBase64] = useState(false)
+  // Issue #311: 自包含 HTML
+  const [embedResourcesAsDataUri, setEmbedResourcesAsDataUri] = useState(false)
   const [includeSystemMessages, setIncludeSystemMessages] = useState(true)
   const [filterPureImageMessages, setFilterPureImageMessages] = useState(false) // HTML默认false
   const [preferGroupMemberName, setPreferGroupMemberName] = useState(true)
@@ -101,6 +105,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
       setStreamingZipMode(false)
       setExportAsZip(false)
       setEmbedAvatarsAsBase64(false)
+      setEmbedResourcesAsDataUri(false) // Issue #311
       setIncludeSystemMessages(true)
       setFilterPureImageMessages(false)
       setPreferGroupMemberName(true)
@@ -129,6 +134,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
     // 重置格式专有选项
     if (format !== 'HTML') {
       setExportAsZip(false)
+      setEmbedResourcesAsDataUri(false) // Issue #311: 仅 HTML 可用
       if (format !== 'JSON') {
         setStreamingZipMode(false)
       }
@@ -189,6 +195,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
       streamingZipMode,
       exportAsZip,
       embedAvatarsAsBase64,
+      embedResourcesAsDataUri,
       includeSystemMessages,
       filterPureImageMessages,
       preferGroupMemberName,
@@ -426,7 +433,9 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                     { id: "preferGroupMemberName", checked: preferGroupMemberName, set: setPreferGroupMemberName, title: "优先使用群成员名称", desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。这个选项仅对群聊生效。", visible: true, highlight: false },
                     { id: "exportAsZip", checked: exportAsZip, set: setExportAsZip, title: "导出为ZIP压缩包", desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）", visible: format === "HTML" && !streamingZipMode, highlight: false },
                     { id: "useNameInFileName", checked: useNameInFileName, set: setUseNameInFileName, title: "文件名包含聊天名称", desc: "导出文件名中包含聊天对象的名称，方便识别", visible: true, highlight: false },
-                    { id: "embedAvatarsAsBase64", checked: embedAvatarsAsBase64, set: setEmbedAvatarsAsBase64, title: "嵌入头像为Base64", desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）", visible: format === "JSON", highlight: false }
+                    { id: "embedAvatarsAsBase64", checked: embedAvatarsAsBase64, set: setEmbedAvatarsAsBase64, title: "嵌入头像为Base64", desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）", visible: format === "JSON", highlight: false },
+                    // Issue #311: 自包含 HTML
+                    { id: "embedResourcesAsDataUri", checked: embedResourcesAsDataUri, set: setEmbedResourcesAsDataUri, title: "生成自包含 HTML", desc: "将图片、语音、视频、小于 50 MB 的文件以 base64 内联到单个 HTML中，不再产出 resources 目录。适合需要单独发送的场景。", visible: format === "HTML" && !exportAsZip && !streamingZipMode, highlight: false }
                   ].filter((opt) => opt.visible).map((opt) => (
                     <div key={opt.id} className={["relative cursor-pointer rounded-2xl border p-4 transition-all", opt.highlight && opt.checked ? "border-orange-400 dark:border-orange-600 bg-orange-50/50 dark:bg-orange-950/30 ring-1 ring-orange-200 dark:ring-orange-800" : opt.highlight ? "border-orange-200 dark:border-orange-800 bg-orange-50/30 dark:bg-orange-950/20 hover:border-orange-300 dark:hover:border-orange-700" : opt.checked ? "border-black/[0.08] dark:border-white/[0.08] bg-muted/30" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]", isExporting ? "opacity-50 cursor-not-allowed" : ""].join(" ")} onClick={() => !isExporting && opt.set(!opt.checked)}>
                       <div className="flex items-start gap-4">
