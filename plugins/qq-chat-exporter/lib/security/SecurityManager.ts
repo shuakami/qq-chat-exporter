@@ -138,16 +138,61 @@ export class SecurityManager {
     private configWatcher: fs.FSWatcher | null = null;
 
     constructor() {
-        const userProfile = process.env['USERPROFILE'] || process.env['HOME'] || '.';
-        const securityDir = path.join(userProfile, '.qq-chat-exporter');
-        
+        const securityDir = SecurityManager.resolveSecurityDir();
+
         // 确保目录存在
         if (!fs.existsSync(securityDir)) {
             fs.mkdirSync(securityDir, { recursive: true });
         }
-        
+
         this.configPath = path.join(securityDir, 'security.json');
         this.isDocker = isDockerEnvironment();
+    }
+
+    /**
+     * 计算 security.json 所在目录。
+     *
+     * 优先级（issue #272）：
+     *   1. 环境变量 `QCE_CONFIG_DIR`（绝对路径），方便 Framework / Standalone 共用一份配置；
+     *   2. `~/.qq-chat-exporter/`（USERPROFILE / HOME）；
+     *   3. 当 USERPROFILE 落到 `C:\Windows\system32\config\systemprofile`
+     *      （管理员模式下未 cd 到脚本目录就启动会出现这种情况）时回退到 HOMEDRIVE+HOMEPATH，
+     *      最终再退到当前工作目录，避免把 token 写到 system32 里读不到。
+     */
+    static resolveSecurityDir(): string {
+        const envOverride = process.env['QCE_CONFIG_DIR'];
+        if (envOverride && envOverride.trim()) {
+            return envOverride.trim();
+        }
+
+        const homeCandidates: Array<string | undefined> = [
+            process.env['USERPROFILE'],
+            process.env['HOME'],
+        ];
+
+        const driveBased =
+            process.env['HOMEDRIVE'] && process.env['HOMEPATH']
+                ? path.join(process.env['HOMEDRIVE'] || '', process.env['HOMEPATH'] || '')
+                : '';
+        if (driveBased) {
+            homeCandidates.push(driveBased);
+        }
+
+        for (const candidate of homeCandidates) {
+            if (!candidate) continue;
+            const normalized = candidate.replace(/\\/g, '/').toLowerCase();
+            // C:\Windows\system32\config\systemprofile（SYSTEM 账户）/ system32 下不可写：跳过
+            if (
+                normalized.includes('/windows/system32') ||
+                normalized.includes('/windows/syswow64')
+            ) {
+                continue;
+            }
+            return path.join(candidate, '.qq-chat-exporter');
+        }
+
+        // 全部候选都不可用：用当前工作目录兜底
+        return path.join(process.cwd(), '.qq-chat-exporter');
     }
 
     /**
@@ -156,6 +201,14 @@ export class SecurityManager {
     async initialize(): Promise<void> {
         // 初始化服务器地址（默认localhost，Docker环境下使用0.0.0.0）
         this.publicIP = this.isDocker ? '0.0.0.0' : '127.0.0.1';
+
+        // Issue #272: 启动时把 configPath 打到 stdout，便于排查 Framework /
+        // Standalone 切换 / admin 模式 USERPROFILE 漂移导致 token 不一致。
+        try {
+            console.log(`[QCE][SecurityManager] config: ${this.configPath}`);
+        } catch {
+            // ignore
+        }
 
         // 加载或创建安全配置
         if (fs.existsSync(this.configPath)) {
@@ -236,8 +289,8 @@ export class SecurityManager {
      * 生成初始安全配置
      */
     private async generateInitialConfig(): Promise<void> {
-        // 生成复杂的访问令牌 (32字符)
-        const accessToken = this.generateSecureToken(32);
+        // 生成复杂的访问令牌（40 字符纯字母数字，issue #272）
+        const accessToken = this.generateSecureToken(40);
         
         // 生成密钥 (64字符)
         const secretKey = this.generateSecureToken(64);
@@ -303,16 +356,22 @@ export class SecurityManager {
     }
 
     /**
-     * 生成安全令牌
+     * 生成安全令牌。
+     *
+     * Issue #272: 之前的字符表里包含 `!@#$%^&*`，复制 / URL / shell / 聊天
+     * 软件转手时容易把这几个字符吃掉或解析成参数分隔符（典型场景：one-click
+     * URL 里的 `&` 被裁成两个 query 参数），用户复制下来的 token 永远不等于
+     * 落盘的那个。改成只用 A-Z / a-z / 0-9，长度从 32 拉到 40 维持熵预算
+     * （log2(62^40) ≈ 238 bit）。
      */
-    private generateSecureToken(length: number = 32): string {
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    private generateSecureToken(length: number = 40): string {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
         let result = '';
-        
+
         for (let i = 0; i < length; i++) {
             result += chars.charAt(crypto.randomInt(0, chars.length));
         }
-        
+
         return result;
     }
 
@@ -322,7 +381,7 @@ export class SecurityManager {
     private async regenerateToken(): Promise<void> {
         if (!this.config) return;
         
-        this.config.accessToken = this.generateSecureToken(32);
+        this.config.accessToken = this.generateSecureToken(40);
         this.config.tokenExpired = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
         
         await this.saveConfig();
