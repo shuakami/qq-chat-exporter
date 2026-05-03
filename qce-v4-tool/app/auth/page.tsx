@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowRight, X, Eye, EyeOff, Lock, ExternalLink } from 'lucide-react'
+import { ArrowRight, X, Eye, EyeOff, Lock, ExternalLink, CheckCircle2 } from 'lucide-react'
 import AuthManager from '@/lib/auth'
 
 export default function AuthPage() {
@@ -12,14 +12,76 @@ export default function AuthPage() {
   const [showToken, setShowToken] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [isReady, setIsReady] = useState(false)
+  // Issue #287: 支持从 URL `?token=` 参数自动填入并一键登录，
+  // 配合后端启动时打印的「一键登录」链接，省掉手动从 security.json 复制 token。
+  const [autoFromUrl, setAutoFromUrl] = useState(false)
+  const submittedFromUrlRef = useRef(false)
+
+  // Token 校验逻辑独立出来，URL 自动登录和表单提交都走同一条。
+  const verifyAndStoreToken = async (rawToken: string): Promise<boolean> => {
+    try {
+      const response = await fetch('/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: rawToken }),
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        AuthManager.getInstance().setToken(rawToken)
+        return true
+      }
+      setError(data.error?.message || '令牌验证失败')
+      return false
+    } catch {
+      setError('无法连接到服务器，请确保 NapCat 正在运行')
+      return false
+    }
+  }
 
   useEffect(() => {
     const authManager = AuthManager.getInstance()
     if (authManager.isAuthenticated()) {
       window.location.href = '/qce-v4-tool'
-    } else {
-      setTimeout(() => setIsReady(true), 600)
+      return
     }
+
+    // 先看 URL 里有没有 token；有就清掉再走自动登录，避免历史栏暴露 token。
+    let urlToken: string | null = null
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      urlToken = params.get('token')
+      if (urlToken) {
+        params.delete('token')
+        const newUrl =
+          window.location.pathname +
+          (params.toString() ? '?' + params.toString() : '') +
+          window.location.hash
+        window.history.replaceState({}, '', newUrl)
+      }
+    }
+
+    if (urlToken && !submittedFromUrlRef.current) {
+      submittedFromUrlRef.current = true
+      setToken(urlToken)
+      setAutoFromUrl(true)
+      setIsReady(true)
+      setLoading(true)
+      // 给一帧时间渲染「检测到一键登录链接」提示，再发请求。
+      setTimeout(async () => {
+        const ok = await verifyAndStoreToken(urlToken!)
+        if (ok) {
+          window.location.href = '/qce-v4-tool'
+        } else {
+          // URL token 失效（比如换了 security.json）就退回手动表单。
+          setAutoFromUrl(false)
+          setLoading(false)
+        }
+      }, 100)
+      return
+    }
+
+    setTimeout(() => setIsReady(true), 600)
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -32,27 +94,12 @@ export default function AuthPage() {
     setLoading(true)
     setError('')
 
-    try {
-      const response = await fetch('/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token.trim() }),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        const authManager = AuthManager.getInstance()
-        authManager.setToken(token.trim())
-        window.location.href = '/qce-v4-tool'
-      } else {
-        setError(data.error?.message || '令牌验证失败')
-      }
-    } catch {
-      setError('无法连接到服务器，请确保 NapCat 正在运行')
-    } finally {
-      setLoading(false)
+    const ok = await verifyAndStoreToken(token.trim())
+    if (ok) {
+      window.location.href = '/qce-v4-tool'
+      return
     }
+    setLoading(false)
   }
 
   return (
@@ -85,6 +132,18 @@ export default function AuthPage() {
               <h1 className="text-2xl font-semibold text-foreground">访问验证</h1>
               <p className="text-muted-foreground mt-2 text-[14px]">请输入访问令牌以继续使用</p>
             </div>
+
+            {/* Issue #287: 当 URL 带 ?token= 时显示自动登录条幅，让用户清楚状态 */}
+            {autoFromUrl && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-4 px-4 py-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-[13px] flex items-center gap-2"
+              >
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                <span>已从一键登录链接读取访问令牌，正在验证...</span>
+              </motion.div>
+            )}
 
             {/* Form Card */}
             <div className="bg-card rounded-2xl border border-black/[0.05] dark:border-white/[0.06] p-6 shadow-[0_2px_8px_rgba(0,0,0,0.015)]">
@@ -195,28 +254,51 @@ export default function AuthPage() {
               </div>
 
               {/* Modal Content */}
-              <div className="p-6 space-y-5">
+              <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
                 <p className="text-muted-foreground text-[14px] leading-relaxed">
-                  令牌是一串随机字符，用来验证你的身份。每次启动 NapCat 时会自动生成一个新的。
+                  令牌是一串随机字符，用来验证你的身份。每次启动 NapCat / QCE 时会自动生成一个新的。
                 </p>
 
+                {/* Issue #287: 一键登录是 Framework 用户最省心的入口，先讲它 */}
                 <div className="space-y-3">
-                  <p className="text-[13px] font-medium text-foreground">去哪找？</p>
+                  <p className="text-[13px] font-medium text-foreground">最快的方式：用一键登录链接（推荐）</p>
                   <p className="text-muted-foreground text-[13px] leading-relaxed">
-                    打开 NapCat 的黑色控制台窗口，往上翻一翻，找到带有 <span className="font-mono bg-black/[0.04] dark:bg-white/[0.06] px-1.5 py-0.5 rounded text-foreground">[QCE] Token:</span> 的那一行，后面那串字符就是了。
+                    QCE 启动后会在控制台打印一条「一键登录」链接，复制到浏览器打开即可，本页会自动读取并完成验证。
+                  </p>
+                  <div className="rounded-lg bg-neutral-900 dark:bg-neutral-950 p-4 font-mono text-xs overflow-x-auto leading-relaxed">
+                    <div className="text-neutral-400">[QCE] QQChatExporter v5.x.x</div>
+                    <div className="text-green-400">[QCE] Token: WgZt3v*UMTqT#i!qleEO!76n02Y^ns$X</div>
+                    <div className="text-neutral-500">[QCE] Web界面: http://127.0.0.1:40653/qce-v4-tool</div>
+                    <div className="text-green-400">[QCE] 一键登录: http://127.0.0.1:40653/qce-v4-tool/auth?token=...</div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-2 border-t border-black/[0.04] dark:border-white/[0.04]">
+                  <p className="text-[13px] font-medium text-foreground">从控制台手动复制</p>
+                  <p className="text-muted-foreground text-[13px] leading-relaxed">
+                    打开 QCE 控制台窗口，往上翻一翻，找到带有 <span className="font-mono bg-black/[0.04] dark:bg-white/[0.06] px-1.5 py-0.5 rounded text-foreground">[QCE] Token:</span> 的那一行，后面那串字符就是 Token。
                   </p>
                 </div>
 
-                {/* Console Example */}
-                <div className="rounded-lg bg-neutral-900 dark:bg-neutral-950 p-4 font-mono text-xs overflow-x-auto">
-                  <div className="text-neutral-400">[QCE] QQChatExporter v5.x.x</div>
-                  <div className="text-green-400">[QCE] Token: WgZt3v*UMTqT#i!qleEO!76n02Y^ns$X</div>
-                  <div className="text-neutral-500">[QCE] Web界面: http://127.0.0.1:40653/qce-v4-tool</div>
+                <div className="space-y-3 pt-2 border-t border-black/[0.04] dark:border-white/[0.04]">
+                  <p className="text-[13px] font-medium text-foreground">从 security.json 找（Framework 模式）</p>
+                  <p className="text-muted-foreground text-[13px] leading-relaxed">
+                    Framework 模式下控制台不一定常驻，可以按 <span className="font-mono bg-black/[0.04] dark:bg-white/[0.06] px-1.5 py-0.5 rounded text-foreground">Win + R</span> 输入：
+                  </p>
+                  <div className="rounded-lg bg-neutral-900 dark:bg-neutral-950 p-3 font-mono text-xs overflow-x-auto">
+                    <span className="text-green-400">%USERPROFILE%\.qq-chat-exporter</span>
+                  </div>
+                  <p className="text-muted-foreground text-[13px] leading-relaxed">
+                    打开里面的 <span className="font-mono bg-black/[0.04] dark:bg-white/[0.06] px-1.5 py-0.5 rounded text-foreground">security.json</span>，找到 <span className="font-mono bg-black/[0.04] dark:bg-white/[0.06] px-1.5 py-0.5 rounded text-foreground">accessToken</span> 字段，复制对应的字符串值即可。
+                  </p>
                 </div>
 
-                <p className="text-muted-foreground/70 text-xs">
-                  复制 Token 那行冒号后面的内容，粘贴到输入框即可。
-                </p>
+                <div className="space-y-2 pt-2 border-t border-black/[0.04] dark:border-white/[0.04]">
+                  <p className="text-[13px] font-medium text-foreground">Token 突然不能用了？</p>
+                  <p className="text-muted-foreground text-[13px] leading-relaxed">
+                    QQ 大版本更新或重新登录后，QCE 通常需要重启才能继续工作。重启后再用最新打印的 Token / 一键登录链接登录即可，老的 Token 会失效。
+                  </p>
+                </div>
               </div>
 
               {/* Modal Footer */}
