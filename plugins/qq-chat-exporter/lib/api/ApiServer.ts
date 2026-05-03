@@ -50,6 +50,12 @@ import { resolvePeerUid } from './peerResolution.js';
 import { lookupUserByUin } from './userLookup.js';
 import { createSafeLogger, type SafeLogger } from './safeLogger.js';
 import { buildSenderFilter } from './senderFilter.js';
+import {
+    classifyChatTypeBinary,
+    getChatTypePrefix,
+    isPrivateLikeChatType,
+} from './chatTypeClassification.js';
+import { resolveSessionName } from './sessionNameResolver.js';
 import { buildResourceSummaryMessage } from '../utils/resourceSummary.js';
 
 // 导入类型定义
@@ -2075,7 +2081,8 @@ export class QQChatExporterApiServer {
                 }
 
                 // 生成日期时间字符串
-                const chatTypePrefix = actualPeer.chatType === 1 ? 'friend' : 'group';
+                // Issue #365: 临时会话 / 服务号等单聊型 chatType 也走 friend_ 前缀。
+                const chatTypePrefix = getChatTypePrefix(actualPeer.chatType);
                 const date = new Date(timestamp);
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`; // 20250506
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`; // 221008
@@ -2085,42 +2092,12 @@ export class QQChatExporterApiServer {
                 const defaultOutputDir = this.pathManager.getExportsDir();
                 const outputDir = customOutputDir || defaultOutputDir;
                 
-                // 确定会话名称：优先使用用户输入的名称，否则自动获取
+                // 确定会话名称：优先使用用户输入的名称，否则自动获取（issue #365）。
                 let sessionName: string;
                 if (userSessionName && userSessionName.trim()) {
-                    // 使用用户输入的任务名
                     sessionName = userSessionName.trim();
                 } else {
-                    // 如果用户没有输入，则尝试自动获取会话名称
-                    sessionName = actualPeer.peerUid;
-                    try {
-                        // 设置较短的超时时间，避免阻塞
-                        const timeoutPromise = new Promise((_, reject) => {
-                            setTimeout(() => reject(new Error('获取会话名称超时')), 2000);
-                        });
-                        
-                        let namePromise;
-                        if (actualPeer.chatType === 1) {
-                            // 私聊 - 仅尝试从已缓存的好友列表获取
-                            namePromise = this.core.apis.FriendApi.getBuddy().then(friends => {
-                                const friend = friends.find((f: any) => f.coreInfo?.uid === actualPeer.peerUid);
-                                return friend?.coreInfo?.remark || friend?.coreInfo?.nick || actualPeer.peerUid;
-                            });
-                        } else if (actualPeer.chatType === 2) {
-                            // 群聊 - 仅尝试从已缓存的群列表获取
-                            namePromise = this.core.apis.GroupApi.getGroups().then(groups => {
-                                const group = groups.find(g => g.groupCode === actualPeer.peerUid || g.groupCode === actualPeer.peerUid.toString());
-                                return group?.groupName || `群聊 ${actualPeer.peerUid}`;
-                            });
-                        } else {
-                            namePromise = Promise.resolve(actualPeer.peerUid);
-                        }
-                        
-                        sessionName = await Promise.race([namePromise, timeoutPromise]) as string;
-                    } catch (error) {
-                        console.warn(`快速获取会话名称失败，使用默认名称: ${actualPeer.peerUid}`, error);
-                        // 使用默认值，不阻塞任务创建
-                    }
+                    sessionName = await resolveSessionName(actualPeer, this.core?.apis);
                 }
 
                 // Issue #216 / #134: 根据用户选项生成文件名（可选包含聊天名称 / 友好命名）
@@ -2203,7 +2180,8 @@ export class QQChatExporterApiServer {
                 const timestamp = Date.now();
 
                 // 流式ZIP导出强制使用ZIP格式
-                const chatTypePrefix = actualPeer.chatType === 1 ? 'friend' : 'group';
+                // Issue #365: 临时会话 / 服务号等单聊型 chatType 也走 friend_ 前缀。
+                const chatTypePrefix = getChatTypePrefix(actualPeer.chatType);
                 const date = new Date(timestamp);
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
@@ -2213,36 +2191,12 @@ export class QQChatExporterApiServer {
                 const defaultOutputDir = this.pathManager.getExportsDir();
                 const outputDir = customOutputDir || defaultOutputDir;
 
-                // 确定会话名称
+                // 确定会话名称（issue #365）
                 let sessionName: string;
                 if (userSessionName && userSessionName.trim()) {
                     sessionName = userSessionName.trim();
                 } else {
-                    sessionName = actualPeer.peerUid;
-                    try {
-                        const timeoutPromise = new Promise((_, reject) => {
-                            setTimeout(() => reject(new Error('获取会话名称超时')), 2000);
-                        });
-                        
-                        let namePromise;
-                        if (actualPeer.chatType === 1) {
-                            namePromise = this.core.apis.FriendApi.getBuddy().then(friends => {
-                                const friend = friends.find((f: any) => f.coreInfo?.uid === actualPeer.peerUid);
-                                return friend?.coreInfo?.remark || friend?.coreInfo?.nick || actualPeer.peerUid;
-                            });
-                        } else if (actualPeer.chatType === 2) {
-                            namePromise = this.core.apis.GroupApi.getGroups().then(groups => {
-                                const group = groups.find(g => g.groupCode === actualPeer.peerUid || g.groupCode === actualPeer.peerUid.toString());
-                                return group?.groupName || `群聊 ${actualPeer.peerUid}`;
-                            });
-                        } else {
-                            namePromise = Promise.resolve(actualPeer.peerUid);
-                        }
-                        
-                        sessionName = await Promise.race([namePromise, timeoutPromise]) as string;
-                    } catch (error) {
-                        console.warn(`快速获取会话名称失败，使用默认名称: ${actualPeer.peerUid}`, error);
-                    }
+                    sessionName = await resolveSessionName(actualPeer, this.core?.apis);
                 }
 
                 // Issue #216 / #134: 根据用户选项生成文件名（可选包含聊天名称 / 友好命名）
@@ -2321,7 +2275,8 @@ export class QQChatExporterApiServer {
                 const timestamp = Date.now();
 
                 // 流式JSONL导出使用目录格式
-                const chatTypePrefix = actualPeer.chatType === 1 ? 'friend' : 'group';
+                // Issue #365: 临时会话 / 服务号等单聊型 chatType 也走 friend_ 前缀。
+                const chatTypePrefix = getChatTypePrefix(actualPeer.chatType);
                 const date = new Date(timestamp);
                 const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
                 const timeStr = `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}${String(date.getSeconds()).padStart(2, '0')}`;
@@ -2331,36 +2286,12 @@ export class QQChatExporterApiServer {
                 const defaultOutputDir = this.pathManager.getExportsDir();
                 const outputDir = customOutputDir || defaultOutputDir;
 
-                // 确定会话名称
+                // 确定会话名称（issue #365）
                 let sessionName: string;
                 if (userSessionName && userSessionName.trim()) {
                     sessionName = userSessionName.trim();
                 } else {
-                    sessionName = actualPeer.peerUid;
-                    try {
-                        const timeoutPromise = new Promise((_, reject) => {
-                            setTimeout(() => reject(new Error('获取会话名称超时')), 2000);
-                        });
-                        
-                        let namePromise;
-                        if (actualPeer.chatType === 1) {
-                            namePromise = this.core.apis.FriendApi.getBuddy().then(friends => {
-                                const friend = friends.find((f: any) => f.coreInfo?.uid === actualPeer.peerUid);
-                                return friend?.coreInfo?.remark || friend?.coreInfo?.nick || actualPeer.peerUid;
-                            });
-                        } else if (actualPeer.chatType === 2) {
-                            namePromise = this.core.apis.GroupApi.getGroups().then(groups => {
-                                const group = groups.find(g => g.groupCode === actualPeer.peerUid || g.groupCode === actualPeer.peerUid.toString());
-                                return group?.groupName || `群聊 ${actualPeer.peerUid}`;
-                            });
-                        } else {
-                            namePromise = Promise.resolve(actualPeer.peerUid);
-                        }
-                        
-                        sessionName = await Promise.race([namePromise, timeoutPromise]) as string;
-                    } catch (error) {
-                        console.warn(`快速获取会话名称失败，使用默认名称: ${actualPeer.peerUid}`, error);
-                    }
+                    sessionName = await resolveSessionName(actualPeer, this.core?.apis);
                 }
 
                 // Issue #216 / #134: 根据用户选项生成目录名（可选包含聊天名称 / 友好命名）
@@ -3974,7 +3905,7 @@ export class QQChatExporterApiServer {
             const selfInfo = this.core.selfInfo;
             const chatInfo = {
                 name: chatName,
-                type: (peer.chatType === ChatType.Group || peer.chatType === 2 ? 'group' : 'private') as 'group' | 'private',
+                type: classifyChatTypeBinary(peer.chatType),
                 selfUid: selfInfo?.uid,
                 selfUin: selfInfo?.uin,
                 selfName: selfInfo?.nick
@@ -4477,7 +4408,7 @@ export class QQChatExporterApiServer {
             const selfInfo = this.core.selfInfo;
             const chatInfo = {
                 name: sessionName,
-                type: (peer.chatType === ChatType.Group || peer.chatType === 2 ? 'group' : 'private') as 'group' | 'private',
+                type: classifyChatTypeBinary(peer.chatType),
                 selfUid: selfInfo?.uid,
                 selfUin: selfInfo?.uin,
                 selfName: selfInfo?.nick
@@ -4733,7 +4664,7 @@ export class QQChatExporterApiServer {
             const selfInfo = this.core.selfInfo;
             const chatInfo = {
                 name: sessionName,
-                type: (peer.chatType === ChatType.Group || peer.chatType === 2 ? 'group' : 'private') as 'group' | 'private',
+                type: classifyChatTypeBinary(peer.chatType),
                 selfUid: selfInfo?.uid,
                 selfUin: selfInfo?.uin,
                 selfName: selfInfo?.nick
@@ -5480,7 +5411,10 @@ export class QQChatExporterApiServer {
                 taskId: task.taskId,
                 taskName: task.sessionName,
                 peer: task.peer,
-                chatType: task.peer.chatType === 1 ? ChatTypeSimple.PRIVATE : ChatTypeSimple.GROUP,
+                // Issue #365: 仅 chatType === 2 算群聊，其它（含临时会话 / 服务号）都按私聊存。
+                chatType: classifyChatTypeBinary(task.peer.chatType) === 'group'
+                    ? ChatTypeSimple.GROUP
+                    : ChatTypeSimple.PRIVATE,
                 chatName: task.sessionName,
                 chatAvatar: '', // 可以后续添加
                 formats: [task.format?.toUpperCase() || 'JSON'] as ExportFormat[],
