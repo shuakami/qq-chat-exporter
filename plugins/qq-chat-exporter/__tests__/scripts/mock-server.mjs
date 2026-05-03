@@ -121,6 +121,8 @@ function pickScenario(scenario, fixtures) {
             return [fixtures.privateWithForward()];
         case 'volume':
             return [fixtures.privateVolume(200)];
+        case 'deactivated':
+            return [fixtures.privateDeactivatedFriend()];
         case 'default':
         case 'all':
         default:
@@ -129,7 +131,8 @@ function pickScenario(scenario, fixtures) {
                 fixtures.groupMixedMedia(),
                 fixtures.privateWithRecall(),
                 fixtures.privateWithForward(),
-                fixtures.privateVolume(50)
+                fixtures.privateVolume(50),
+                fixtures.privateDeactivatedFriend()
             ];
     }
 }

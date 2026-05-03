@@ -246,7 +246,15 @@ export function createMockCore(config: MockConfig = {}): MockNapCatCore {
                 const m = (g.members ?? []).find((x) => x.uin === uin);
                 if (m) return m.uid;
             }
-            return `u_${uin}`;
+            // 兜底命中：fixture 里特地放了一条「已注销好友」的对话，peerUid 形如
+            // `u_deactivated_<uin>`，让 issue #204 的 e2e 可以验证「按 QQ 号
+            // 反查到一个非好友、但有历史会话的 uid」这条链路。
+            const conv = conversations.find(
+                (c) => c.peer.chatType === 1 && c.peer.peerUid === `u_deactivated_${uin}`,
+            );
+            if (conv) return `u_deactivated_${uin}`;
+            // 未登记的 uin 与生产语义保持一致：返回 undefined，让 lookup 落到 found=false。
+            return undefined as unknown as string;
         },
         async getRecentContactListSnapShot() {
             track('UserApi.getRecentContactListSnapShot', []);

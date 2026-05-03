@@ -47,6 +47,7 @@ import {
     manualExportGroupKey,
 } from '../utils/manualExportFileName.js';
 import { resolvePeerUid } from './peerResolution.js';
+import { lookupUserByUin } from './userLookup.js';
 
 // 导入类型定义
 import type { RawMessage } from 'NapCatQQ/src/core/types.js';
@@ -1644,6 +1645,49 @@ export class QQChatExporterApiServer {
                     totalCount: filtered.length,
                     rawCount: changedList.length
                 }, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        /**
+         * 通过 QQ 号查找一个聊天会话（issue #204）。
+         *
+         * 历史背景：当好友账号已经被销号 / 主动从好友列表删除时，QCE 自带的会话列表
+         * （好友 + 群 + 最近联系人）里就找不到这个号了。但只要本机 NTQQ 数据库里
+         * 还留着对话历史，QQ 内部依然能拿到 uid，QCE 的「按 peer 取消息」路径
+         * 就还能跑通。这里把这条「靠 uin 反查 uid」的能力暴露给前端：
+         *
+         *   GET /api/users/lookup?uin=<qq号>
+         *
+         * 返回 { found, uin, uid?, nick?, avatarUrl?, isFriend?, reason? }。
+         *
+         * 找不到 uid 时返回 200 + found=false，避免前端把这种「正常的查不到」
+         * 误报成接口错误。
+         */
+        this.app.get('/api/users/lookup', async (req, res) => {
+            try {
+                const rawUin = String(req.query['uin'] || '').trim();
+                if (!/^\d{4,12}$/.test(rawUin)) {
+                    throw new SystemError(
+                        ErrorType.VALIDATION_ERROR,
+                        'uin 必须是 4-12 位的数字 QQ 号',
+                        'INVALID_UIN'
+                    );
+                }
+
+                const result = await lookupUserByUin(
+                    rawUin,
+                    this.core.apis.UserApi as any,
+                    this.core.apis.FriendApi as any,
+                    {
+                        logWarn: (msg, err) =>
+                            this.core.context.logger.logWarn(`[ApiServer] /api/users/lookup: ${msg}`, err),
+                        logDebug: (msg, err) =>
+                            this.core.context.logger.logDebug(`[ApiServer] /api/users/lookup: ${msg}`, err as any),
+                    },
+                );
+                this.sendSuccessResponse(res, result, (req as any).requestId);
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }
