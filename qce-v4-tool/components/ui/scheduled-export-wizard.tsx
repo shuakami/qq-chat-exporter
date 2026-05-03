@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import type { CreateScheduledExportForm, Group, Friend } from "@/types/api"
 import { useSearch } from "@/hooks/use-search"
+import { toggleSkipResourceType, type SkipDownloadResourceType } from "@/lib/skip-resource-types"
 
 interface ScheduledExportWizardProps {
   isOpen: boolean
@@ -63,7 +64,8 @@ export function ScheduledExportWizard({
     includeSystemMessages: true,
     filterPureImageMessages: false,
     preferGroupMemberName: true,
-    skipFileDownloadOnly: false,
+    // Issue #344：定时导出也支持按资源类型逐项跳过下载。
+    skipDownloadResourceTypes: undefined as SkipDownloadResourceType[] | undefined,
   })
 
   // 选中的目标
@@ -119,9 +121,9 @@ export function ScheduledExportWizard({
           ? prefilledData.filterPureImageMessages 
           : defaultFilter,
         preferGroupMemberName: prefilledData.preferGroupMemberName !== undefined ? prefilledData.preferGroupMemberName : true,
-        skipFileDownloadOnly: Array.isArray(prefilledData.skipDownloadResourceTypes)
-          ? prefilledData.skipDownloadResourceTypes.includes('file')
-          : false,
+        skipDownloadResourceTypes: Array.isArray(prefilledData.skipDownloadResourceTypes) && prefilledData.skipDownloadResourceTypes.length > 0
+          ? (prefilledData.skipDownloadResourceTypes as SkipDownloadResourceType[])
+          : undefined,
       })
 
       // 如果有预填充的目标，添加到选中列表
@@ -156,7 +158,7 @@ export function ScheduledExportWizard({
         includeSystemMessages: true,
         filterPureImageMessages: false,
         preferGroupMemberName: true,
-        skipFileDownloadOnly: false,
+        skipDownloadResourceTypes: undefined,
       })
       setSelectedTargets([])
       setSearchTerm("")
@@ -210,8 +212,8 @@ export function ScheduledExportWizard({
         includeSystemMessages: baseForm.includeSystemMessages,
         filterPureImageMessages: baseForm.filterPureImageMessages,
         preferGroupMemberName: baseForm.preferGroupMemberName,
-        ...(baseForm.skipFileDownloadOnly && !baseForm.filterPureImageMessages && {
-          skipDownloadResourceTypes: ['file' as const],
+        ...(!baseForm.filterPureImageMessages && baseForm.skipDownloadResourceTypes && baseForm.skipDownloadResourceTypes.length > 0 && {
+          skipDownloadResourceTypes: baseForm.skipDownloadResourceTypes,
         }),
       }
       
@@ -849,12 +851,37 @@ export function ScheduledExportWizard({
                       desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度",
                       visible: true,
                     },
+                    // Issue #344：定时导出也支持分别控制图片 / 视频 / 音频 / 文件是否参与下载。
                     {
                       id: "skipFileDownloadOnly",
-                      checked: baseForm.skipFileDownloadOnly,
-                      set: (v: boolean) => setBaseForm(p => ({ ...p, skipFileDownloadOnly: v })),
+                      checked: !!baseForm.skipDownloadResourceTypes?.includes('file'),
+                      set: (v: boolean) => setBaseForm(p => ({ ...p, skipDownloadResourceTypes: toggleSkipResourceType(p.skipDownloadResourceTypes, 'file', v) })),
                       title: "仅保留文件元数据，不下载文件",
                       desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。",
+                      visible: !baseForm.filterPureImageMessages,
+                    },
+                    {
+                      id: "skipImageDownload",
+                      checked: !!baseForm.skipDownloadResourceTypes?.includes('image'),
+                      set: (v: boolean) => setBaseForm(p => ({ ...p, skipDownloadResourceTypes: toggleSkipResourceType(p.skipDownloadResourceTypes, 'image', v) })),
+                      title: "不下载图片",
+                      desc: "定时导出时跳过图片资源的下载。适用于只需定期备份文本记录、不在意图片的场景。",
+                      visible: !baseForm.filterPureImageMessages,
+                    },
+                    {
+                      id: "skipVideoDownload",
+                      checked: !!baseForm.skipDownloadResourceTypes?.includes('video'),
+                      set: (v: boolean) => setBaseForm(p => ({ ...p, skipDownloadResourceTypes: toggleSkipResourceType(p.skipDownloadResourceTypes, 'video', v) })),
+                      title: "不下载视频",
+                      desc: "定时导出时跳过视频资源，避免定时任务下载大量视频占用带宽和磁盘。",
+                      visible: !baseForm.filterPureImageMessages,
+                    },
+                    {
+                      id: "skipAudioDownload",
+                      checked: !!baseForm.skipDownloadResourceTypes?.includes('audio'),
+                      set: (v: boolean) => setBaseForm(p => ({ ...p, skipDownloadResourceTypes: toggleSkipResourceType(p.skipDownloadResourceTypes, 'audio', v) })),
+                      title: "不下载语音",
+                      desc: "定时导出时跳过 SILK / AMR 语音消息。对只需要文字记录的备份场景很有用。",
                       visible: !baseForm.filterPureImageMessages,
                     },
                     {
