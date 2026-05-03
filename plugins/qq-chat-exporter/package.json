@@ -26,10 +26,12 @@
   ],
   "author": "shuakami",
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "@types/archiver": "^7.0.0",
     "archiver": "^7.0.1",
     "cors": "^2.8.5",
     "express": "^4.21.1",
+    "silk-wasm": "^3.6.1",
     "tsx": "^4.19.2",
     "ws": "^8.18.0",
     "xlsx": "^0.18.5"
