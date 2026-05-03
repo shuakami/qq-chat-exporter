@@ -18,6 +18,13 @@ export interface APIResponse<T> {
 export interface SystemInfo {
   name: string
   version: string
+  /**
+   * 后端运行形态。Issue #340：独立模式下没有 NapCat、没有 QQ 登录态，前端
+   * 看到这个值就应该跳过 /api/friends 和 /api/groups（这两个端点固定返回 503
+   * STANDALONE_MODE 错误），并在「会话」一类需要登录态的页面上提示用户走
+   * 「聊天记录」浏览历史导出。
+   */
+  mode?: 'plugin' | 'standalone'
   napcat: {
     version: string
     online: boolean

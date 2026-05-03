@@ -987,6 +987,9 @@ export class QQChatExporterApiServer {
                 name: APP_INFO.name,
                 copyright: APP_INFO.copyright,
                 version: VERSION,
+                // issue #340：前端用这个字段区分插件 / 独立两种后端，独立模式下
+                // 跳过 /api/friends、/api/groups 之类需要 QQ 登录的请求。
+                mode: 'plugin' as const,
                 napcat: {
                     version: 'unknown',
                     online: selfInfo?.online || false,
