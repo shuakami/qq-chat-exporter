@@ -63,6 +63,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ChevronRight,
+  Search,
 } from "lucide-react"
 import type { CreateTaskForm, CreateScheduledExportForm } from "@/types/api"
 import { useQCE } from "@/hooks/use-qce"
@@ -484,6 +485,10 @@ export default function QCEDashboard() {
   const [historySubTab, setHistorySubTab] = useState<'records' | 'gallery'>('records')
   const [galleryType, setGalleryType] = useState<'all' | 'images' | 'videos' | 'audios' | 'files'>('all')
   const [galleryPage, setGalleryPage] = useState(1)
+  // issue #294 子项 1：画廊文件名搜索。输入值是受控的，外加一份 debounce 后真正发请求的值，
+  // 避免每敲一个字就打一次后端。
+  const [gallerySearchInput, setGallerySearchInput] = useState('')
+  const [gallerySearchActive, setGallerySearchActive] = useState('')
 
   const handleOpenTaskWizard = (preset?: Partial<CreateTaskForm>) => {
     setSelectedPreset(preset)
@@ -613,6 +618,24 @@ export default function QCEDashboard() {
       })
     }
   }, [activeTab, loadTasks])
+
+  // issue #294 子项 1：画廊搜索框 debounce。用户停止输入 250ms 之后，才把
+  // input 值同步到 active 值上，避免每敲一个字就打一次后端。
+  useEffect(() => {
+    if (gallerySearchInput === gallerySearchActive) return
+    const timer = setTimeout(() => {
+      setGallerySearchActive(gallerySearchInput)
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [gallerySearchInput, gallerySearchActive])
+
+  // 画廊搜索：active 关键词变化时回到第一页重新拉数据。仅在 gallery 子页激活时触发，
+  // 避免用户根本没切到画廊时被多余请求打扰。
+  useEffect(() => {
+    if (historySubTab !== 'gallery') return
+    setGalleryPage(1)
+    loadResourceFiles(galleryType, 1, 50, false, gallerySearchActive)
+  }, [gallerySearchActive, historySubTab, galleryType, loadResourceFiles])
   
   // 定时导出加载
   useEffect(() => {
@@ -1996,10 +2019,9 @@ export default function QCEDashboard() {
                   </button>
                   <button
                     onClick={() => {
+                      // 切到画廊后由专门的 useEffect 监听 historySubTab / galleryType /
+                      // gallerySearchActive 触发首次加载；这里只切 sub tab，避免重复打后端。
                       setHistorySubTab('gallery')
-                      if (resourceFiles.length === 0) {
-                        loadResourceFiles(galleryType, 1, 50)
-                      }
                     }}
                     className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
                       historySubTab === 'gallery'
@@ -2174,9 +2196,9 @@ export default function QCEDashboard() {
                           <button
                             key={tab.id}
                             onClick={() => {
+                              // 切类型后由 useEffect（依赖 galleryType / gallerySearchActive）
+                              // 自动重新加载，避免和 effect 各打一次。
                               setGalleryType(tab.id as typeof galleryType)
-                              setGalleryPage(1)
-                              loadResourceFiles(tab.id as typeof galleryType, 1, 50)
                             }}
                             className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
                               isActive 
@@ -2191,6 +2213,30 @@ export default function QCEDashboard() {
                       <span className="text-[11px] text-muted-foreground/40 ml-2">
                         {resourceFilesTotal} 个
                       </span>
+                    </div>
+
+                    {/* issue #294 子项 1：文件名搜索。后端按子串过滤后再分页，
+                        匹配数会跟着「N 个」一起变。 */}
+                    <div className="px-1">
+                      <div className="relative max-w-md">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40" />
+                        <input
+                          type="text"
+                          value={gallerySearchInput}
+                          onChange={(e) => setGallerySearchInput(e.target.value)}
+                          placeholder="按文件名搜索..."
+                          className="w-full pl-8 pr-8 py-1.5 text-[12px] rounded-md bg-black/[0.02] dark:bg-white/[0.02] border border-transparent focus:border-black/[0.08] dark:focus:border-white/[0.08] focus:bg-black/[0.03] dark:focus:bg-white/[0.03] outline-none transition-colors"
+                        />
+                        {gallerySearchInput && (
+                          <button
+                            onClick={() => setGallerySearchInput('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                            title="清空"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Loading */}
@@ -2257,7 +2303,7 @@ export default function QCEDashboard() {
                           onClick={() => {
                             const nextPage = galleryPage + 1
                             setGalleryPage(nextPage)
-                            loadResourceFiles(galleryType, nextPage, 50, true)
+                            loadResourceFiles(galleryType, nextPage, 50, true, gallerySearchActive)
                           }}
                           disabled={resourceFilesLoading}
                         >
@@ -2270,8 +2316,19 @@ export default function QCEDashboard() {
                     {!resourceFilesLoading && resourceFiles.length === 0 && (
                       <div className="flex flex-col items-center justify-center py-16 text-center">
                         <Image className="w-8 h-8 text-muted-foreground/20 mb-3" />
-                        <p className="text-[13px] text-foreground font-medium">暂无资源</p>
-                        <p className="text-[12px] text-muted-foreground/60 mt-1">导出聊天记录后，资源将显示在这里</p>
+                        {gallerySearchActive ? (
+                          <>
+                            <p className="text-[13px] text-foreground font-medium">没有匹配的资源</p>
+                            <p className="text-[12px] text-muted-foreground/60 mt-1">
+                              没有文件名包含「{gallerySearchActive}」的资源
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-[13px] text-foreground font-medium">暂无资源</p>
+                            <p className="text-[12px] text-muted-foreground/60 mt-1">导出聊天记录后，资源将显示在这里</p>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
