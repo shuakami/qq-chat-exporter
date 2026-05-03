@@ -83,6 +83,7 @@ export function TaskWizard({
     streamingZipMode: false, // 流式ZIP导出模式
     outputDir: "", // Issue #192: 自定义导出路径
     useNameInFileName: false, // Issue #216: 文件名包含聊天名称
+    useFriendlyFileName: false, // Issue #134: 友好文件名格式 `<名称>(<QQ号>).<扩展名>`
     preferGroupMemberName: true, // Issue #358: 群聊优先使用群成员名称
   })
 
@@ -125,6 +126,7 @@ export function TaskWizard({
         streamingZipMode: prefilledData.streamingZipMode || false,
         outputDir: prefilledData.outputDir || "",  // Issue #192
         useNameInFileName: prefilledData.useNameInFileName || false,  // Issue #216
+        useFriendlyFileName: prefilledData.useFriendlyFileName || false,  // Issue #134
         preferGroupMemberName: prefilledData.preferGroupMemberName !== undefined ? prefilledData.preferGroupMemberName : true,
       })
     }
@@ -202,6 +204,7 @@ export function TaskWizard({
         streamingZipMode: false,
         outputDir: "", // Issue #192: 重置自定义导出路径
         useNameInFileName: false, // Issue #216: 重置文件名包含聊天名称
+        useFriendlyFileName: false, // Issue #134: 重置友好文件名格式
         preferGroupMemberName: true, // Issue #358: 重置群成员名称选项
       })
     }
@@ -1039,9 +1042,29 @@ export function TaskWizard({
               {
                 id: "useNameInFileName",
                 checked: form.useNameInFileName || false,
-                set: (v: boolean) => setForm((p) => ({ ...p, useNameInFileName: v })),
+                set: (v: boolean) =>
+                  setForm((p) => ({
+                    ...p,
+                    useNameInFileName: v,
+                    // 两种命名互斥：选上带名称后关掉友好命名，避免不一致。
+                    useFriendlyFileName: v ? false : p.useFriendlyFileName,
+                  })),
                 title: "文件名包含聊天名称",
                 desc: "在导出文件名中包含群名或好友昵称，方便批量导出后识别文件",
+                visible: true
+              },
+              {
+                // Issue #134: 友好文件名格式
+                id: "useFriendlyFileName",
+                checked: form.useFriendlyFileName || false,
+                set: (v: boolean) =>
+                  setForm((p) => ({
+                    ...p,
+                    useFriendlyFileName: v,
+                    useNameInFileName: v ? false : p.useNameInFileName,
+                  })),
+                title: "使用友好命名（名称(QQ号).html）",
+                desc: "导出文件名使用 `名称(QQ号).<扩展名>` 格式，去掉 friend_/group_ 前缀与时间戳。多次导出同一会话同名碰撞时，会自动追加 `_<日期>_<时间>` 后缀避免覆盖。启用后与「文件名包含聊天名称」互斥。",
                 visible: true
               },
               {

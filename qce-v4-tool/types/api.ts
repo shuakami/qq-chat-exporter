@@ -193,6 +193,12 @@ export interface CreateTaskForm {
   outputDir?: string
   /** 在文件名中包含聊天名称（Issue #216） */
   useNameInFileName?: boolean
+  /**
+   * 使用友好文件名格式 `<名称>(<QQ号>).<扩展名>`（Issue #134）。
+   * 启用后丢掉业务前缀与时间戳；同名碰撞时会自动追加 `_<日期>_<时间>` 后缀。
+   * 优先级高于 useNameInFileName；缺少可用 sessionName 时退回默认名称。
+   */
+  useFriendlyFileName?: boolean
   /** 群聊导出时优先使用群成员名称（Issue #358） */
   preferGroupMemberName?: boolean
   /**
@@ -231,6 +237,8 @@ export interface CreateTaskRequest {
     outputDir?: string
     /** 在文件名中包含聊天名称（Issue #216） */
     useNameInFileName?: boolean
+    /** 使用友好文件名格式 `<名称>(<QQ号>).<扩展名>`（Issue #134） */
+    useFriendlyFileName?: boolean
     /** 群聊导出时优先使用群成员名称（Issue #358） */
     preferGroupMemberName?: boolean
     /** 仅保留元数据、跳过下载的资源类型（Issue #341） */

@@ -36,6 +36,12 @@ import { ZipExporter } from '../utils/ZipExporter.js';
 import { StreamingZipExporter } from '../utils/StreamingZipExporter.js';
 import { VERSION, APP_INFO } from '../version.js';
 import { PathManager } from '../utils/PathManager.js';
+import {
+    buildExportFileName,
+    buildExportDirName,
+    disambiguateExportFileName,
+    sanitizeChatNameForFileName,
+} from '../utils/exportFileName.js';
 import { resolvePeerUid } from './peerResolution.js';
 
 // 导入类型定义
@@ -2043,13 +2049,19 @@ export class QQChatExporterApiServer {
                     }
                 }
 
-                // Issue #216: 根据用户选项生成文件名（可选包含聊天名称）
+                // Issue #216 / #134: 根据用户选项生成文件名（可选包含聊天名称 / 友好命名）
                 const useNameInFileName = options?.useNameInFileName === true;
-                const fileName = this.generateExportFileName(
+                const useFriendlyFileName = options?.useFriendlyFileName === true;
+                const baseFileName = this.generateExportFileName(
                     chatTypePrefix, actualPeer.peerUid, sessionName,
-                    dateStr, timeStr, fileExt, useNameInFileName
+                    dateStr, timeStr, fileExt, useNameInFileName, useFriendlyFileName
                 );
-                
+                // Issue #134: 友好命名不带时间戳，多次导出会同名碰撞，这里加一层
+                // 唯一化处理（主流程里只做这一处，其它路径走原逻辑）。
+                const fileName = useFriendlyFileName
+                    ? this.disambiguateExportFileName(outputDir, baseFileName, dateStr, timeStr)
+                    : baseFileName;
+
                 const filePath = path.join(outputDir, fileName);
                 const downloadUrl = this.generateDownloadUrl(filePath, fileName, customOutputDir);
 
@@ -2159,11 +2171,12 @@ export class QQChatExporterApiServer {
                     }
                 }
 
-                // Issue #216: 根据用户选项生成文件名（可选包含聊天名称）
+                // Issue #216 / #134: 根据用户选项生成文件名（可选包含聊天名称 / 友好命名）
                 const useNameInFileName = options?.useNameInFileName === true;
+                const useFriendlyFileName = options?.useFriendlyFileName === true;
                 const fileName = this.generateExportFileName(
                     chatTypePrefix, actualPeer.peerUid, sessionName,
-                    dateStr, timeStr, 'zip', useNameInFileName
+                    dateStr, timeStr, 'zip', useNameInFileName, useFriendlyFileName
                 ).replace(/\.zip$/, '_streaming.zip');  // 添加 _streaming 后缀（只替换末尾）
                 
                 const filePath = path.join(outputDir, fileName);
@@ -2276,11 +2289,12 @@ export class QQChatExporterApiServer {
                     }
                 }
 
-                // Issue #216: 根据用户选项生成目录名（可选包含聊天名称）
+                // Issue #216 / #134: 根据用户选项生成目录名（可选包含聊天名称 / 友好命名）
                 const useNameInFileName = options?.useNameInFileName === true;
+                const useFriendlyFileName = options?.useFriendlyFileName === true;
                 const dirName = this.generateExportDirName(
                     chatTypePrefix, actualPeer.peerUid, sessionName,
-                    dateStr, timeStr, '_chunked_jsonl', useNameInFileName
+                    dateStr, timeStr, '_chunked_jsonl', useNameInFileName, useFriendlyFileName
                 );
                 
                 const dirPath = path.join(outputDir, dirName);
@@ -5045,30 +5059,11 @@ export class QQChatExporterApiServer {
     }
 
     /**
-     * Issue #216: 安全处理聊天名称，用于文件名
-     * 移除文件名非法字符，限制长度，确保文件系统兼容性
-     * @param name 原始聊天名称
-     * @param maxLength 最大长度，默认50字符
-     * @returns 安全的文件名部分
+     * Issue #216: 安全处理聊天名称，用于文件名。
+     * 实际逻辑放在 utils/exportFileName.ts 里以便单元测试覆盖。
      */
     private sanitizeChatNameForFileName(name: string, maxLength: number = 50): string {
-        if (!name) return '';
-        // 移除文件名非法字符: < > : " / \ | ? *
-        // 同时移除控制字符和其他可能导致问题的字符
-        let safeName = name
-            .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')  // 替换非法字符为下划线
-            .replace(/\s+/g, '_')                     // 替换空白字符为下划线
-            .replace(/_+/g, '_')                      // 合并连续下划线
-            .replace(/^_|_$/g, '');                   // 移除首尾下划线
-        
-        // 限制长度
-        if (safeName.length > maxLength) {
-            safeName = safeName.slice(0, maxLength);
-            // 确保不以下划线结尾
-            safeName = safeName.replace(/_+$/, '');
-        }
-        
-        return safeName;
+        return sanitizeChatNameForFileName(name, maxLength);
     }
 
     /**
@@ -5090,17 +5085,33 @@ export class QQChatExporterApiServer {
         dateStr: string,
         timeStr: string,
         extension: string,
-        useNameInFileName: boolean = false
+        useNameInFileName: boolean = false,
+        useFriendlyFileName: boolean = false
     ): string {
-        if (useNameInFileName && sessionName && sessionName !== peerUid) {
-            const safeName = this.sanitizeChatNameForFileName(sessionName);
-            if (safeName) {
-                // 格式: group_群名_QQ号_日期_时间.扩展名
-                return `${chatTypePrefix}_${safeName}_${peerUid}_${dateStr}_${timeStr}.${extension}`;
-            }
-        }
-        // 默认格式: group_QQ号_日期_时间.扩展名
-        return `${chatTypePrefix}_${peerUid}_${dateStr}_${timeStr}.${extension}`;
+        return buildExportFileName({
+            chatTypePrefix,
+            peerUid,
+            sessionName,
+            dateStr,
+            timeStr,
+            extension,
+            useNameInFileName,
+            useFriendlyFileName,
+        });
+    }
+
+    /**
+     * Issue #134: 友好命名（`<名称>(<QQ号>).<ext>`）不带时间戳，重复导出会撞名。
+     * 当目标目录里已经存在同名文件时，附加 `_<dateStr>_<timeStr>` 作为去重后缀。
+     * 不存在或友好命名未启用时直接返回原文件名。
+     */
+    private disambiguateExportFileName(
+        outputDir: string,
+        fileName: string,
+        dateStr: string,
+        timeStr: string
+    ): string {
+        return disambiguateExportFileName(outputDir, fileName, dateStr, timeStr);
     }
 
     /**
@@ -5112,6 +5123,7 @@ export class QQChatExporterApiServer {
      * @param timeStr 时间字符串 (HHMMSS)
      * @param suffix 目录后缀 (如 _chunked_jsonl)
      * @param useNameInFileName 是否在目录名中包含聊天名称
+     * @param useFriendlyFileName 是否使用 Issue #134 的友好命名
      * @returns 生成的目录名
      */
     private generateExportDirName(
@@ -5121,17 +5133,19 @@ export class QQChatExporterApiServer {
         dateStr: string,
         timeStr: string,
         suffix: string,
-        useNameInFileName: boolean = false
+        useNameInFileName: boolean = false,
+        useFriendlyFileName: boolean = false
     ): string {
-        if (useNameInFileName && sessionName && sessionName !== peerUid) {
-            const safeName = this.sanitizeChatNameForFileName(sessionName);
-            if (safeName) {
-                // 格式: group_群名_QQ号_日期_时间_后缀
-                return `${chatTypePrefix}_${safeName}_${peerUid}_${dateStr}_${timeStr}${suffix}`;
-            }
-        }
-        // 默认格式: group_QQ号_日期_时间_后缀
-        return `${chatTypePrefix}_${peerUid}_${dateStr}_${timeStr}${suffix}`;
+        return buildExportDirName({
+            chatTypePrefix,
+            peerUid,
+            sessionName,
+            dateStr,
+            timeStr,
+            suffix,
+            useNameInFileName,
+            useFriendlyFileName,
+        });
     }
     
     /**
