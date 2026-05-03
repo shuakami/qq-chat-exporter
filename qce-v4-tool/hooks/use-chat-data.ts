@@ -52,6 +52,12 @@ export function useChatData() {
   const [error, setError] = useState<string | null>(null)
   const [loadProgress, setLoadProgress] = useState<{ current: number; total: number } | null>(null)
   const [avatarExportLoading, setAvatarExportLoading] = useState<string | null>(null)
+  /**
+   * Issue #344: peerUid (group.groupCode / friend.uid) → 最近一条消息 ISO 时间。
+   * 从 `/api/recent-contacts` 与 `/api/groups` 返回的 `lastMsgTime` 合并而成，
+   * 供会话列表「按最近活跃」排序 / 显示「N 天前」徽标。
+   */
+  const [recentActivityMap, setRecentActivityMap] = useState<Record<string, string>>({})
   const { apiCall } = useApi()
 
   // 自动分页加载所有群组
@@ -139,8 +145,18 @@ export function useChatData() {
       // 上层导出 / 定时任务在选中时会把 chatType 透传给后端，避免被强制归为
       // 普通好友（chatType=1）。失败时静默跳过，不影响普通好友加载。
       try {
-        const recentResp = await apiCall<RecentContactsResponse>("/api/recent-contacts?limit=200")
+        const recentResp = await apiCall<RecentContactsResponse>("/api/recent-contacts?limit=500&includeAll=true")
         if (recentResp.success && recentResp.data) {
+          // Issue #344: 根据 peerUid 记下最近一条消息时间，供会话列表「按最近
+          // 活跃」排序 以及小徽标显示。
+          const activityMap: Record<string, string> = {}
+          for (const c of recentResp.data.contacts) {
+            if (c.peerUid && c.lastMsgTime) {
+              activityMap[c.peerUid] = c.lastMsgTime
+            }
+          }
+          setRecentActivityMap(activityMap)
+
           const existingUids = new Set(allFriends.map((f) => f.uid))
           const specialFriends: Friend[] = recentResp.data.contacts
             .filter((c) => c.classification === "special" && !existingUids.has(c.peerUid))
@@ -231,5 +247,6 @@ export function useChatData() {
     loadAll,
     exportGroupAvatars,
     avatarExportLoading,
+    recentActivityMap,
   }
 }

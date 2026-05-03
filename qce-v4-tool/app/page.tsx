@@ -299,6 +299,7 @@ export default function QCEDashboard() {
     wsConnected,
     groups,
     friends,
+    recentActivityMap,
     loadChatData,
     tasks,
     loadTasks,
@@ -1042,6 +1043,18 @@ export default function QCEDashboard() {
   // 级联动画 variants（受 reduced-motion 影响）
   // 对于大列表（超过50项），禁用 stagger 动画以提升性能
   const hasLargeList = groups.length > 50 || friends.length > 50
+
+  // Issue #344: 把已完成 / 进行中 / 失败任务的 `messageCount` 按 peerUid 累加，
+  // 给会话列表「按已导出消息数」排序提供数据。每次 tasks 变化都会重新算。
+  const taskCountMap = useMemo<Record<string, number>>(() => {
+    const map: Record<string, number> = {}
+    for (const t of tasks) {
+      const uid = t.peer?.peerUid
+      if (!uid || typeof t.messageCount !== 'number') continue
+      map[uid] = (map[uid] ?? 0) + t.messageCount
+    }
+    return map
+  }, [tasks])
   const STAG = useMemo(() => makeStagger(reduceMotion || hasLargeList ? 0 : 0.06, reduceMotion || hasLargeList), [reduceMotion, hasLargeList])
   const SIDEBAR_WIDTH = 240
   const sidebarTransition = useMemo(
@@ -1674,6 +1687,8 @@ export default function QCEDashboard() {
                       batchMode={batchMode}
                       selectedItems={selectedItems}
                       avatarExportLoading={avatarExportLoading}
+                      recentActivityMap={recentActivityMap}
+                      taskCountMap={taskCountMap}
                       onRefresh={loadChatData}
                       onToggleBatchMode={handleToggleBatchMode}
                       onSelectAll={handleSelectAll}
