@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { FileText, Calendar, Download, CheckCircle2, XCircle, Loader2, Users, User, Package, FolderOpen } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { toggleSkipResourceType, type SkipDownloadResourceType } from "@/lib/skip-resource-types"
 
 export interface BatchExportItem {
   type: 'group' | 'friend'
@@ -81,7 +82,8 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
   const [includeSystemMessages, setIncludeSystemMessages] = useState(true)
   const [filterPureImageMessages, setFilterPureImageMessages] = useState(false) // HTML默认false
   const [preferGroupMemberName, setPreferGroupMemberName] = useState(true)
-  const [skipFileDownloadOnly, setSkipFileDownloadOnly] = useState(false)
+  // Issue #344：批量导出也支持按资源类型逐项跳过下载。
+  const [skipDownloadResourceTypes, setSkipDownloadResourceTypes] = useState<SkipDownloadResourceType[] | undefined>(undefined)
   const [outputDir, setOutputDir] = useState('')
   const [keywords, setKeywords] = useState('')
   const [excludeUserUins, setExcludeUserUins] = useState('')
@@ -113,7 +115,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
       setIncludeSystemMessages(true)
       setFilterPureImageMessages(false)
       setPreferGroupMemberName(true)
-      setSkipFileDownloadOnly(false)
+      setSkipDownloadResourceTypes(undefined)
       setOutputDir('')
       setKeywords('')
       setExcludeUserUins('')
@@ -204,8 +206,8 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
       includeSystemMessages,
       filterPureImageMessages,
       preferGroupMemberName,
-      ...(skipFileDownloadOnly && !filterPureImageMessages && {
-        skipDownloadResourceTypes: ['file' as const]
+      ...(!filterPureImageMessages && skipDownloadResourceTypes && skipDownloadResourceTypes.length > 0 && {
+        skipDownloadResourceTypes,
       }),
       outputDir,
       keywords,
@@ -435,7 +437,11 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                     { id: "streamingZipMode", checked: streamingZipMode, set: setStreamingZipMode, title: "流式导出（超大消息量专用）", desc: format === "HTML" ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式。" : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式。", visible: format === "HTML" || format === "JSON", highlight: true },
                     { id: "includeSystemMessages", checked: includeSystemMessages, set: setIncludeSystemMessages, title: "包含系统消息", desc: "包含入群通知、撤回提示等系统提示消息", visible: true, highlight: false },
                     { id: "filterPureImageMessages", checked: filterPureImageMessages, set: setFilterPureImageMessages, title: "快速导出（跳过资源下载）", desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度", visible: true, highlight: false },
-                    { id: "skipFileDownloadOnly", checked: skipFileDownloadOnly, set: setSkipFileDownloadOnly, title: "仅保留文件元数据，不下载文件", desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。", visible: !filterPureImageMessages, highlight: false },
+                    // Issue #344：分别控制图片 / 视频 / 音频 / 文件四种资源是否参与下载。
+                    { id: "skipFileDownloadOnly", checked: !!skipDownloadResourceTypes?.includes('file'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'file', v)), title: "仅保留文件元数据，不下载文件", desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。", visible: !filterPureImageMessages, highlight: false },
+                    { id: "skipImageDownload", checked: !!skipDownloadResourceTypes?.includes('image'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'image', v)), title: "不下载图片", desc: "批量导出时跳过图片，HTML 中以占位形式显示。需要保留图片可关闭此项。", visible: !filterPureImageMessages, highlight: false },
+                    { id: "skipVideoDownload", checked: !!skipDownloadResourceTypes?.includes('video'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'video', v)), title: "不下载视频", desc: "批量导出时跳过视频，避免长时间或群聊导出时占用大量带宽和磁盘空间。", visible: !filterPureImageMessages, highlight: false },
+                    { id: "skipAudioDownload", checked: !!skipDownloadResourceTypes?.includes('audio'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'audio', v)), title: "不下载语音", desc: "批量导出时跳过 SILK / AMR 等语音消息。对只想保留文字记录的场景很有用。", visible: !filterPureImageMessages, highlight: false },
                     { id: "preferGroupMemberName", checked: preferGroupMemberName, set: setPreferGroupMemberName, title: "优先使用群成员名称", desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。这个选项仅对群聊生效。", visible: true, highlight: false },
                     { id: "exportAsZip", checked: exportAsZip, set: setExportAsZip, title: "导出为ZIP压缩包", desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）", visible: format === "HTML" && !streamingZipMode, highlight: false },
                     {

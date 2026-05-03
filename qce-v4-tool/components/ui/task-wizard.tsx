@@ -15,6 +15,7 @@ import {
 import { useSearch } from "@/hooks/use-search"
 import type { CreateTaskForm, Group, Friend, GroupMember } from "@/types/api"
 import { Checkbox } from "./checkbox"
+import { toggleSkipResourceType } from "@/lib/skip-resource-types"
 
 interface TaskWizardProps {
   isOpen: boolean
@@ -1007,20 +1008,50 @@ export function TaskWizard({
                 desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度",
                 visible: true
               },
+              // Issue #344：仅保留文件元数据，不下载文件
               {
                 id: "skipFileDownloadOnly",
                 checked: !!form.skipDownloadResourceTypes?.includes('file'),
-                set: (v: boolean) => setForm((p) => {
-                  const current = new Set(p.skipDownloadResourceTypes || []);
-                  if (v) {
-                    current.add('file');
-                  } else {
-                    current.delete('file');
-                  }
-                  return { ...p, skipDownloadResourceTypes: Array.from(current) };
-                }),
+                set: (v: boolean) => setForm((p) => ({
+                  ...p,
+                  skipDownloadResourceTypes: toggleSkipResourceType(p.skipDownloadResourceTypes, 'file', v),
+                })),
                 title: "仅保留文件元数据，不下载文件",
                 desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。适合不需要本地副本的备份场景。",
+                visible: !form.filterPureImageMessages
+              },
+              // Issue #344：按资源类型逐项跳过，让用户在不开启「快速导出」的前提下也能精确控制要不要下载图片 / 视频 / 音频。
+              {
+                id: "skipImageDownload",
+                checked: !!form.skipDownloadResourceTypes?.includes('image'),
+                set: (v: boolean) => setForm((p) => ({
+                  ...p,
+                  skipDownloadResourceTypes: toggleSkipResourceType(p.skipDownloadResourceTypes, 'image', v),
+                })),
+                title: "不下载图片",
+                desc: "导出时跳过图片资源的下载，HTML 中以占位形式显示，JSON / TXT 仅保留消息文本与元数据。需要保留图片可关闭此项。",
+                visible: !form.filterPureImageMessages
+              },
+              {
+                id: "skipVideoDownload",
+                checked: !!form.skipDownloadResourceTypes?.includes('video'),
+                set: (v: boolean) => setForm((p) => ({
+                  ...p,
+                  skipDownloadResourceTypes: toggleSkipResourceType(p.skipDownloadResourceTypes, 'video', v),
+                })),
+                title: "不下载视频",
+                desc: "导出时跳过视频资源的下载。视频文件通常体积较大，长时间或群聊导出时容易占用大量带宽和磁盘空间。",
+                visible: !form.filterPureImageMessages
+              },
+              {
+                id: "skipAudioDownload",
+                checked: !!form.skipDownloadResourceTypes?.includes('audio'),
+                set: (v: boolean) => setForm((p) => ({
+                  ...p,
+                  skipDownloadResourceTypes: toggleSkipResourceType(p.skipDownloadResourceTypes, 'audio', v),
+                })),
+                title: "不下载语音",
+                desc: "导出时跳过 SILK / AMR 等语音消息的下载。对只想保留文字记录的备份场景很有用。",
                 visible: !form.filterPureImageMessages
               },
               {
