@@ -617,6 +617,10 @@ export class ScheduledExportManager {
                     break;
                 case 'JSON':
                     // JsonExporter 会自己处理消息解析（流式），直接传原始消息
+                    // Issue #319: 透传 resourceMap，让导出后的 JSON / JSONL 能引用到正确的
+                    // 资源相对路径，并把图片 / 视频 / 语音 / 文件复制到 <outputDir>/resources/。
+                    // 之前定时任务漏传 resourceMap，导致定时 JSON 不会落地聊天文件，用户需要
+                    // 同时勾选 HTML 才能拿到群文件等附件。
                     const jsonExporter = new JsonExporter({
                         outputPath: filePath,
                         includeResourceLinks: task.options.includeResourceLinks ?? true,
@@ -625,7 +629,8 @@ export class ScheduledExportManager {
                         prettyFormat: task.options.prettyFormat ?? true,
                         preferGroupMemberName: task.options.preferGroupMemberName ?? true,
                         timeFormat: 'YYYY-MM-DD HH:mm:ss',
-                        encoding: 'utf-8'
+                        encoding: 'utf-8',
+                        resourceMap
                     }, {}, this.core);
                     await jsonExporter.export(allMessages as any, chatInfo);
                     break;
