@@ -981,17 +981,30 @@ export default function QCEDashboard() {
     }
   }
 
+  // Issue #340：独立模式（start-standalone.bat 启动、没有 NapCat / QQ 登录态）
+  // 下，/api/friends 和 /api/groups 只会回 503 STANDALONE_MODE，没必要发请求；
+  // 「会话」一类需要登录态的页面也直接换成引导卡片。
+  const isStandalone = systemInfo?.mode === "standalone"
+
   useEffect(() => {
+    if (isStandalone) return
     if (activeTab === "sessions" && groups.length === 0 && friends.length === 0) {
       loadChatData()
     }
-  }, [activeTab, groups.length, friends.length, loadChatData])
+  }, [activeTab, groups.length, friends.length, loadChatData, isStandalone])
 
   useEffect(() => {
     if (!error) return
+    // Issue #340：独立模式下 friends/groups 必然失败，错误文案里通常带
+    // 「独立模式」或后端的 `STANDALONE_MODE` code，统一吞掉，避免连续弹两次
+    // 红色 toast 把用户吓走。Sessions tab 上已经有专门的引导卡片说明。
+    if (isStandalone && /独立模式|STANDALONE_MODE/i.test(error)) {
+      setError(null)
+      return
+    }
     toast.error("发生错误", { description: error })
     setError(null)
-  }, [error, setError])
+  }, [error, setError, isStandalone])
 
   useEffect(() => {
     if (!scheduledError) return
@@ -1280,7 +1293,7 @@ export default function QCEDashboard() {
           <div className="flex items-center gap-2">
             {/* Page-specific actions */}
 
-            {activeTab === "sessions" && (
+            {activeTab === "sessions" && !isStandalone && (
               <>
                 <Button size="sm" variant="ghost" className="h-8 text-[13px] rounded-full px-2" onClick={loadChatData} disabled={isLoading}>
                   <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -1591,31 +1604,91 @@ export default function QCEDashboard() {
             {/* ==================== SESSIONS ==================== */}
             {activeTab === "sessions" && (
               <div className="p-5 space-y-4">
-                {batchMode && (
-                  <div className="text-[13px] text-muted-foreground px-1">
-                    已选择 {selectedItems.size} 个会话
+                {/* Issue #340：独立模式下没有 NapCat / QQ 登录态，无法拉群组和好友列表。
+                    用一张引导卡片替换原来的 SessionList，避免红色错误 toast 把用户吓退。 */}
+                {isStandalone ? (
+                  <div
+                    data-testid="sessions-standalone-banner"
+                    className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] bg-card p-6 space-y-4"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 flex items-center justify-center flex-shrink-0">
+                        <Database className="w-[18px] h-[18px]" />
+                      </div>
+                      <div className="space-y-1.5 min-w-0">
+                        <h3 className="text-[15px] font-semibold text-foreground">
+                          当前是独立模式
+                        </h3>
+                        <p className="text-[13px] text-muted-foreground/80 leading-relaxed">
+                          独立模式下没有运行 NapCat / 登录 QQ，无法获取群组和好友列表，也无法发起新的导出。
+                          已经导出的聊天记录、资源画廊、表情包都可以照常浏览。
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="h-8 text-[13px] rounded-full px-3"
+                        onClick={() => setActiveTab("history")}
+                      >
+                        <History className="w-3.5 h-3.5 mr-1.5" />
+                        浏览聊天记录
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 text-[13px] rounded-full px-3"
+                        onClick={() => setActiveTab("stickers")}
+                      >
+                        <Sticker className="w-3.5 h-3.5 mr-1.5" />
+                        表情包
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 text-[13px] rounded-full px-3"
+                        onClick={() =>
+                          window.open(
+                            "https://github.com/shuakami/qq-chat-exporter#standalone",
+                            "_blank",
+                          )
+                        }
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                        切换到完整模式
+                      </Button>
+                    </div>
                   </div>
+                ) : (
+                  <>
+                    {batchMode && (
+                      <div className="text-[13px] text-muted-foreground px-1">
+                        已选择 {selectedItems.size} 个会话
+                      </div>
+                    )}
+                    <SessionList
+                      groups={groups}
+                      friends={friends}
+                      isLoading={isLoading}
+                      batchMode={batchMode}
+                      selectedItems={selectedItems}
+                      avatarExportLoading={avatarExportLoading}
+                      onRefresh={loadChatData}
+                      onToggleBatchMode={handleToggleBatchMode}
+                      onSelectAll={handleSelectAll}
+                      onClearSelection={handleClearSelection}
+                      onToggleItem={handleToggleItem}
+                      onSelectMany={handleSelectMany}
+                      onOpenBatchExportDialog={handleOpenBatchExportDialog}
+                      onPreviewChat={handlePreviewChat}
+                      onOpenTaskWizard={handleOpenTaskWizard}
+                      onExportGroupAvatars={handleExportGroupAvatars}
+                      onOpenEssenceModal={handleOpenEssenceModal}
+                      onOpenGroupFilesModal={handleOpenGroupFilesModal}
+                    />
+                  </>
                 )}
-                <SessionList
-                  groups={groups}
-                  friends={friends}
-                  isLoading={isLoading}
-                  batchMode={batchMode}
-                  selectedItems={selectedItems}
-                  avatarExportLoading={avatarExportLoading}
-                  onRefresh={loadChatData}
-                  onToggleBatchMode={handleToggleBatchMode}
-                  onSelectAll={handleSelectAll}
-                  onClearSelection={handleClearSelection}
-                  onToggleItem={handleToggleItem}
-                  onSelectMany={handleSelectMany}
-                  onOpenBatchExportDialog={handleOpenBatchExportDialog}
-                  onPreviewChat={handlePreviewChat}
-                  onOpenTaskWizard={handleOpenTaskWizard}
-                  onExportGroupAvatars={handleExportGroupAvatars}
-                  onOpenEssenceModal={handleOpenEssenceModal}
-                  onOpenGroupFilesModal={handleOpenGroupFilesModal}
-                />
               </div>
             )}
 
