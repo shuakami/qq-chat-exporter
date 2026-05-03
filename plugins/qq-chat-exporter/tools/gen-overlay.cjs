@@ -353,6 +353,7 @@ export default FileApi;
   getGroups(forceRefresh?: boolean): Promise<any[]>;
   fetchGroupDetail(groupId: string | number): Promise<any>;
   getGroupMemberAll(groupId: string | number, forceRefresh?: boolean): Promise<any>;
+  getGroupSystemMsg(count?: number): Promise<any>;
 };
 
 export declare const NTQQGroupApi: typeof GroupApi;

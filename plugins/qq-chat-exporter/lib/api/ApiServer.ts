@@ -56,6 +56,7 @@ import {
     isPrivateLikeChatType,
 } from './chatTypeClassification.js';
 import { resolveSessionName } from './sessionNameResolver.js';
+import { normalizeGroupSystemNotify } from './groupSystemNotify.js';
 import { buildResourceSummaryMessage } from '../utils/resourceSummary.js';
 import {
     reconcileOrphanedTask,
@@ -1230,6 +1231,43 @@ export class QQChatExporterApiServer {
                 const members = Array.from(result.result.infos.values());
                 
                 this.sendSuccessResponse(res, members, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        // 群系统通知（入群申请 / 邀请通知）— issue #317
+        // GET /api/group-system-notify?count=50  返回所有群里的最近 N 条系统通知
+        // GET /api/groups/:groupCode/join-requests?count=50  仅返回某群的入群申请
+        this.app.get('/api/group-system-notify', async (req, res) => {
+            try {
+                const count = Math.min(Math.max(parseInt(req.query['count'] as string) || 50, 1), 200);
+                const data = await this.core.apis.GroupApi.getGroupSystemMsg(count);
+                this.sendSuccessResponse(res, normalizeGroupSystemNotify(data), (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
+        this.app.get('/api/groups/:groupCode/join-requests', async (req, res) => {
+            try {
+                const { groupCode } = req.params;
+                if (!groupCode) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '群组代码不能为空', 'INVALID_GROUP_CODE');
+                }
+                const count = Math.min(Math.max(parseInt(req.query['count'] as string) || 50, 1), 200);
+                const data = await this.core.apis.GroupApi.getGroupSystemMsg(count);
+                const normalized = normalizeGroupSystemNotify(data);
+                const filtered = {
+                    joinRequests: normalized.joinRequests.filter(r => String(r.groupId) === String(groupCode)),
+                    invitedRequests: normalized.invitedRequests.filter(r => String(r.groupId) === String(groupCode)),
+                };
+                this.sendSuccessResponse(res, {
+                    groupCode,
+                    joinRequests: filtered.joinRequests,
+                    invitedRequests: filtered.invitedRequests,
+                    totalCount: filtered.joinRequests.length + filtered.invitedRequests.length,
+                }, (req as any).requestId);
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }
