@@ -218,6 +218,10 @@ export function TaskWizard({
   const handleSelectTarget = (target: Group | Friend) => {
     setSelectedTarget(target)
     setShowTargetSelector(false)
+    // 切换会话目标时把上一群的成员缓存清掉，下一次打开成员选择器再拉新数据。
+    setGroupMembers([])
+    setSelectedMemberUins(new Set())
+    setMemberSelectorMode(null)
     if ("groupCode" in target) {
       setForm((p) => ({ ...p, chatType: 2, peerUid: target.groupCode, sessionName: target.groupName }))
     } else {
@@ -260,11 +264,10 @@ export function TaskWizard({
     const currentUins = currentRaw?.split(',').map(s => s.trim()).filter(Boolean) || []
     setSelectedMemberUins(new Set(currentUins))
     setMemberSearchTerm("")
-    if (groupMembers.length === 0) {
-      fetchGroupMembers(selectedTarget.groupCode)
-    }
+    // 每次打开都按当前选中的群拉一次成员，避免在向导里换群以后还在用上一群的列表（Codex 在 #412 复盘时指出）。
+    fetchGroupMembers(selectedTarget.groupCode)
     setMemberSelectorMode(mode)
-  }, [selectedTarget, form.includeUserUins, form.excludeUserUins, fetchGroupMembers, memberSelectorMode, groupMembers.length])
+  }, [selectedTarget, form.includeUserUins, form.excludeUserUins, fetchGroupMembers, memberSelectorMode])
 
   // 切换成员选中状态
   const toggleMemberSelection = useCallback((uin: string) => {
