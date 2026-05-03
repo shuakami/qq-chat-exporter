@@ -38,35 +38,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // 有本地 token，但需要向后端验证其有效性
     // 这解决了：用户先用独立模式（任意token通过）后用完整模式的问题
+    //
+    // Issue #346：在网络异常 / 中间代理抽风的场景下，POST /auth 可能：
+    //   - 长时间 hang 住（CDN / 透明代理在等远端）
+    //   - 直接 502 / 503 / 504（代理失败）
+    //   - 返回 HTML 错误页，`response.json()` 抛异常
+    //   - 返回 `{ success: false }` 但不是真的 token 失效
+    // 老逻辑只要 `data.success` 不为 truthy 就清掉本地 token + 跳回 /auth，
+    // 一次抽风用户就被踢出登录态。这里改成只有「后端明确告知 token 无效」
+    // （HTTP 401 / 403）时才清 token，其它情况一律放行；如果 token 真的失效，
+    // 紧接着的 `/api/*` 请求会被 fetch 拦截器以 401/403 兜住、再次跳回 /auth。
     const validateToken = async () => {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 8000)
       try {
         const response = await fetch('/auth', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: authManager.getToken() })
+          body: JSON.stringify({ token: authManager.getToken() }),
+          signal: controller.signal,
         })
-        
-        const data = await response.json()
-        
-        if (data.success) {
-          // token 有效，初始化 fetch 拦截器
-          authManager.initialize()
-          setAuthState('authenticated')
-        } else {
-          // token 无效（可能是独立模式遗留的假token），清除并重定向
+        clearTimeout(timeout)
+
+        if (response.status === 401 || response.status === 403) {
+          // 后端明确说 token 无效（典型来源：独立模式遗留的假 token、
+          // security.json 被重写、或者用户的 IP 不在白名单里）。
           authManager.clearToken()
           setAuthState('redirecting')
           setTimeout(() => {
             window.location.href = '/qce-v4-tool/auth'
           }, 300)
+          return
         }
-      } catch {
-        // 网络错误时，假设后端未启动，允许继续（fetch拦截器会处理后续401）
+
+        // 5xx / 非 JSON 响应 / `success !== true`：当作中间代理或后端临时故障，
+        // 放过这次校验，让前端继续渲染。后续 API 真要 401/403 再走 fetch 拦截器。
+        if (!response.ok) {
+          console.warn('[QCE] /auth verify returned non-ok status', response.status)
+        }
+
+        authManager.initialize()
+        setAuthState('authenticated')
+      } catch (err) {
+        clearTimeout(timeout)
+        // 网络错误 / 超时 / abort：假设后端未启动或代理在抽风，允许继续。
+        // fetch 拦截器会在后续 API 请求遇到 401/403 时正确清 token + 跳转。
+        console.warn('[QCE] /auth verify failed, allowing continue:', err)
         authManager.initialize()
         setAuthState('authenticated')
       }
     }
-    
+
     validateToken()
   }, [pathname, isMounted])
 

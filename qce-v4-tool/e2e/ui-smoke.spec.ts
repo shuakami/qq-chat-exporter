@@ -303,6 +303,131 @@ test.describe('Session list — QQ lookup (issue #204)', () => {
 });
 
 /**
+ * Issue #346: 网络抽风 / 中间代理篡改时，POST /auth 可能短暂返回 5xx 或被
+ * 改写成 success=false。老 AuthProvider 只要 success 不为 truthy 就清掉本地
+ * token + 跳回 /auth，把已经登录的用户踢出。新版只有 401 / 403 才会清 token，
+ * 其它一律放行。这里通过 page.route 模拟两种场景：
+ *   1. POST /auth 返回 502 → 用户保留 token，停留在主界面
+ *   2. POST /auth 返回 200 + `{ success: false }` 但状态码不是 401/403 → 同上
+ */
+test.describe('Auth validation resilience (issue #346)', () => {
+    test('transient 502 on /auth keeps the user inside the app', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+
+        // 用 page.route 拦 POST /auth，在第一次校验请求上返回 502；后续别的
+        // /auth 流程都走真接口。
+        let blocked = false;
+        await page.route('**/auth', async (route, request) => {
+            if (!blocked && request.method() === 'POST') {
+                blocked = true;
+                await route.fulfill({
+                    status: 502,
+                    contentType: 'text/html',
+                    body: '<html><body>Bad Gateway</body></html>',
+                });
+                return;
+            }
+            await route.continue();
+        });
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}${SHELL_PATH}`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        // 等到 AuthProvider 走完 / 渲染主界面：侧栏一定有「会话」入口。
+        await expect(page.getByRole('button', { name: '会话', exact: true }))
+            .toBeVisible({ timeout: 15_000 });
+
+        // 用户没有被踢回 /auth。
+        expect(new URL(page.url()).pathname).not.toMatch(/\/auth\/?$/);
+
+        // localStorage 里的 token 也没被清掉。
+        const stored = await page.evaluate(() => localStorage.getItem('qce_access_token'));
+        expect(stored).toBe(TOKEN);
+    });
+
+    test('non-401/403 with success:false body still keeps the user inside the app', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+
+        let blocked = false;
+        await page.route('**/auth', async (route, request) => {
+            if (!blocked && request.method() === 'POST') {
+                blocked = true;
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        success: false,
+                        error: { type: 'PROXY_TAMPERING', message: 'reverse proxy ate the body' },
+                    }),
+                });
+                return;
+            }
+            await route.continue();
+        });
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}${SHELL_PATH}`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        await expect(page.getByRole('button', { name: '会话', exact: true }))
+            .toBeVisible({ timeout: 15_000 });
+        expect(new URL(page.url()).pathname).not.toMatch(/\/auth\/?$/);
+        const stored = await page.evaluate(() => localStorage.getItem('qce_access_token'));
+        expect(stored).toBe(TOKEN);
+    });
+
+    test('explicit 403 still clears token and redirects to /auth', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+
+        await page.route('**/auth', async (route, request) => {
+            if (request.method() === 'POST') {
+                await route.fulfill({
+                    status: 403,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        success: false,
+                        error: { type: 'AUTH_ERROR', message: 'invalid token', context: { code: 'INVALID_TOKEN' } },
+                    }),
+                });
+                return;
+            }
+            await route.continue();
+        });
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}${SHELL_PATH}`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        // 真 token 失效，前端应当踢回 /auth 并清掉 localStorage。
+        await page.waitForURL(/\/auth\/?$/, { timeout: 15_000 });
+        const stored = await page.evaluate(() => localStorage.getItem('qce_access_token'));
+        expect(stored).toBeNull();
+    });
+});
+
+/**
  * Issue #340: 独立模式（start-standalone.bat）下没有 NapCat / QQ 登录态。
  * 老版本进入 sessions 标签页会立刻发起 /api/friends + /api/groups，两个端点
  * 都回 503 STANDALONE_MODE，前端在右上角连弹两次红色 toast，且 SessionList
