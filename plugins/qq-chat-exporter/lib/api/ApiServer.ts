@@ -49,6 +49,7 @@ import {
 import { resolvePeerUid } from './peerResolution.js';
 import { lookupUserByUin } from './userLookup.js';
 import { createSafeLogger, type SafeLogger } from './safeLogger.js';
+import { buildSenderFilter } from './senderFilter.js';
 import { buildResourceSummaryMessage } from '../utils/resourceSummary.js';
 
 // 导入类型定义
@@ -3790,14 +3791,10 @@ export class QQChatExporterApiServer {
             // 所有消息都保留，只是不下载图片等资源文件
             let filteredMessages = allMessages;
 
-            // 过滤指定用户的消息
-            if (filter?.excludeUserUins && filter.excludeUserUins.length > 0) {
-                const excludeSet = new Set(filter.excludeUserUins.map((uin: string) => String(uin)));
-                const beforeCount = filteredMessages.length;
-                filteredMessages = filteredMessages.filter(msg => {
-                    const senderUin = String(msg.senderUin || '');
-                    return !excludeSet.has(senderUin);
-                });
+            // 按 includeUserUins / excludeUserUins 过滤指定用户的消息
+            const senderFilter = buildSenderFilter(filter?.includeUserUins, filter?.excludeUserUins);
+            if (senderFilter) {
+                filteredMessages = filteredMessages.filter(msg => senderFilter(msg.senderUin));
             }
 
             // 所有格式都需要通过OneBot解析器处理
@@ -4301,6 +4298,7 @@ export class QQChatExporterApiServer {
         spoolRootDir: string,
         options: {
             excludeUserUins?: string[];
+            includeUserUins?: string[];
             resourceHandler?: ResourceHandler;
             processResources?: boolean;
             onBatchStart?: (info: { batchIndex: number; totalMessages: number }) => void;
@@ -4314,7 +4312,7 @@ export class QQChatExporterApiServer {
         fs.mkdirSync(spoolRootDir, { recursive: true });
 
         const batchFiles: string[] = [];
-        const excludeSet = new Set((options.excludeUserUins || []).map(uin => String(uin)));
+        const senderFilter = buildSenderFilter(options.includeUserUins, options.excludeUserUins);
         let batchCount = 0;
         let totalMessages = 0;
 
@@ -4323,8 +4321,8 @@ export class QQChatExporterApiServer {
             options.onBatchStart?.({ batchIndex: batchCount, totalMessages });
 
             let filteredBatch = batch;
-            if (excludeSet.size > 0) {
-                filteredBatch = filteredBatch.filter((msg: any) => !excludeSet.has(String(msg.senderUin || '')));
+            if (senderFilter) {
+                filteredBatch = filteredBatch.filter((msg: any) => senderFilter(msg.senderUin));
             }
 
             if (options.processResources && filteredBatch.length > 0 && options.resourceHandler) {
@@ -4543,6 +4541,7 @@ export class QQChatExporterApiServer {
                 path.join(tempDir!, 'message_batches'),
                 {
                     excludeUserUins: filter?.excludeUserUins,
+                    includeUserUins: filter?.includeUserUins,
                     resourceHandler: taskResourceHandler,
                     processResources: !options?.filterPureImageMessages,
                     onBatchStart: ({ batchIndex, totalMessages }) => {
@@ -4846,16 +4845,17 @@ export class QQChatExporterApiServer {
             // 开始第一个 chunk
             startNewChunk();
 
+            // include / exclude 同时生效的发件人过滤器
+            const jsonlSenderFilter = buildSenderFilter(filter?.includeUserUins, filter?.excludeUserUins);
+
             // 流式获取 -> 解析 -> 写入
             for await (const batch of messageGenerator) {
                 batchCount++;
                 const currentProgress = Math.min(batchCount * 3, 80);
-                
-                // 过滤指定用户
+
                 let filteredBatch = batch;
-                if (filter?.excludeUserUins && filter.excludeUserUins.length > 0) {
-                    const excludeSet = new Set(filter.excludeUserUins.map((uin: string) => String(uin)));
-                    filteredBatch = filteredBatch.filter((msg: any) => !excludeSet.has(String(msg.senderUin || '')));
+                if (jsonlSenderFilter) {
+                    filteredBatch = filteredBatch.filter((msg: any) => jsonlSenderFilter(msg.senderUin));
                 }
 
                 // 逐条解析并写入（不累积）
