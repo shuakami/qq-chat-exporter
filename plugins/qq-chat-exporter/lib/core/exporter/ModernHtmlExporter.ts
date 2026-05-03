@@ -25,6 +25,19 @@ export interface HtmlExportOptions {
     includeResourceLinks?: boolean;
     includeSystemMessages?: boolean;
     encoding?: string; // 建议使用 'utf8'
+    /**
+     * Issue #311: 自包含 HTML 模式。开启后不再生成同级 `resources/`
+     * 目录，所有图片 / 语音 / 视频 / 文件改为以 base64 data URI 内联到
+     * 单个 HTML 文件中，便于单独发送或在没有附属文件夹的环境下查看。
+     */
+    embedResourcesAsDataUri?: boolean;
+    /**
+     * Issue #311: 当 `embedResourcesAsDataUri` 启用时，单个资源若超过此
+     * 大小（字节）则不内联，仍按外链 / 文件名占位渲染。默认 50 MB；可设
+     * 为 0 关闭单文件上限。聚合 HTML 在桌面浏览器与移动端 WebView 上都会
+     * 因为体积过大而崩溃，因此默认值偏保守。
+     */
+    maxEmbedFileSizeBytes?: number;
 }
 
 /**
@@ -129,6 +142,15 @@ export class ModernHtmlExporter {
     private lastRenderedDate?: string;
 
     /**
+     * Issue #311: data URI 缓存。key 为 `<typeDir>/<basename>`，value 为完整
+     * `data:<mime>;base64,...` 字符串。仅当 `embedResourcesAsDataUri=true`
+     * 时被填充，否则始终为空，渲染路径走原有的 `./resources/...`。
+     */
+    private dataUriCache: Map<string, string> = new Map();
+    /** Issue #311: 已尝试过、确认不可内联的资源 key，避免重复磁盘探测。 */
+    private dataUriMisses: Set<string> = new Set();
+
+    /**
      * 资源引用基础路径（URL 相对前缀）
      * - 单文件导出使用 './resources'（资源目录与 HTML 同级，便于独立移动）
      * - Chunked 方案使用 'resources'（无 ./ 前缀）
@@ -144,6 +166,8 @@ export class ModernHtmlExporter {
             includeResourceLinks: true,
             includeSystemMessages: true,
             encoding: 'utf8', // 更稳妥的 Node 编码常量
+            embedResourcesAsDataUri: false,
+            maxEmbedFileSizeBytes: 50 * 1024 * 1024,
             ...options
         };
     }
@@ -687,7 +711,10 @@ export class ModernHtmlExporter {
         };
 
         // 若需要资源目录，预先创建
-        if (this.options.includeResourceLinks) {
+        // Issue #311: 在 embedResourcesAsDataUri 模式下跳过资源目录创建与拷贝，资源直接以
+        // base64 内联。
+        const useDataUri = this.options.includeResourceLinks === true && this.options.embedResourcesAsDataUri === true;
+        if (this.options.includeResourceLinks && !useDataUri) {
             const resourceTypes = ['images', 'videos', 'audios', 'files'];
             await Promise.all(
                 resourceTypes.map(type =>
@@ -731,13 +758,22 @@ export class ModernHtmlExporter {
                     continue;
                 }
 
+                // Issue #311: 内联模式下，为当前消息预加载所有资源为 data URI。顺序
+                // await 以保证随后的同步 renderMessage 可从缓存中取到；同一资源 key
+                // 二次出现时会命中缓存不重复读盘。
+                if (useDataUri) {
+                    for (const res of this.iterResources(message)) {
+                        await this.preloadDataUri(res);
+                    }
+                }
+
                 // 渲染并写入单条消息（小字符串，立即写出，避免累积）
                 const chunk = this.renderMessage(message);
                 await this.writeChunk(ws, chunk + '\n');
                 totalMessages++;
 
-                // 并发受限地复制资源（仅当启用本地资源）
-                if (this.options.includeResourceLinks) {
+                // 并发受限地复制资源（仅当启用本地资源且不在内联模式下）
+                if (this.options.includeResourceLinks && !useDataUri) {
                     for (const res of this.iterResources(message)) {
                         // 控制并发：超出并发上限时，等待任一任务完成
                         while (running.length >= concurrency) {
@@ -989,6 +1025,146 @@ export class ModernHtmlExporter {
         }
     }
 
+    /**
+     * Issue #311: 解析资源在磁盘上的真实路径，规则与 `copyResourceFileStream`
+     * 保持一致：先认 `localPath`，再退回到 ResourceHandler 默认资源目录按文件
+     * 名匹配。返回 `null` 表示未找到。
+     */
+    private async resolveResourceSourcePath(resource: ResourceTask): Promise<string | null> {
+        try {
+            if (resource.localPath && resource.localPath.trim() !== '') {
+                const candidate = this.resolveResourcePath(resource.localPath);
+                if (await this.fileExists(candidate)) {
+                    const stat = await fsp.stat(candidate);
+                    if (!stat.isDirectory()) return candidate;
+                }
+            }
+            if (resource.fileName) {
+                const typeDir = this.normalizeTypeDir(resource.type);
+                const resourceHandlerDir = path.join(
+                    process.env['USERPROFILE'] || process.cwd(),
+                    '.qq-chat-exporter',
+                    'resources',
+                    typeDir
+                );
+                if (await this.fileExists(resourceHandlerDir)) {
+                    const files = await fsp.readdir(resourceHandlerDir);
+                    const baseName = resource.fileName.toLowerCase();
+                    const matchedFile = files.find(f => {
+                        const fLower = f.toLowerCase();
+                        return fLower === baseName || fLower.endsWith('_' + baseName);
+                    });
+                    if (matchedFile) {
+                        const fullPath = path.join(resourceHandlerDir, matchedFile);
+                        if (await this.fileExists(fullPath)) return fullPath;
+                    }
+                }
+            }
+        } catch {
+            // 静默
+        }
+        return null;
+    }
+
+    /**
+     * Issue #311: 把单个资源读入内存并缓存为 data URI。命中以下任一情况则跳
+     * 过：缓存已存在、之前已记录过 miss、文件超过 `maxEmbedFileSizeBytes`。
+     */
+    private async preloadDataUri(resource: ResourceTask): Promise<void> {
+        const key = this.dataUriCacheKey(resource);
+        if (!key) return;
+        if (this.dataUriCache.has(key) || this.dataUriMisses.has(key)) return;
+
+        const sourcePath = await this.resolveResourceSourcePath(resource);
+        if (!sourcePath) {
+            this.dataUriMisses.add(key);
+            return;
+        }
+
+        try {
+            const stat = await fsp.stat(sourcePath);
+            const limit = this.options.maxEmbedFileSizeBytes ?? 0;
+            if (limit > 0 && stat.size > limit) {
+                this.dataUriMisses.add(key);
+                return;
+            }
+            const buf = await fsp.readFile(sourcePath);
+            const mime = this.guessMimeType(resource, sourcePath);
+            const dataUri = `data:${mime};base64,${buf.toString('base64')}`;
+            this.dataUriCache.set(key, dataUri);
+        } catch (error) {
+            console.error('[ModernHtmlExporter] 读取资源用于内联失败:', {
+                resource,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            this.dataUriMisses.add(key);
+        }
+    }
+
+    /**
+     * Issue #311: 生成稳定的资源 key，与 `renderImageElement` 等渲染路径中
+     * 计算的 key 形状一致：`<typeDir>/<basename>`。
+     */
+    private dataUriCacheKey(resource: { type: string; localPath?: string; fileName?: string }): string {
+        const typeDir = this.normalizeTypeDir(resource.type);
+        const base = resource.localPath && resource.localPath.trim()
+            ? path.basename(resource.localPath)
+            : (resource.fileName || '');
+        if (!base) return '';
+        return `${typeDir}/${base}`;
+    }
+
+    /** Issue #311: 渲染期通过 `<typeDir>/<basename>` 查询已加载的 data URI。 */
+    private lookupDataUri(typeDir: string, fileName: string): string | undefined {
+        if (!typeDir || !fileName) return undefined;
+        return this.dataUriCache.get(`${typeDir}/${fileName}`);
+    }
+
+    /**
+     * Issue #311: 根据资源类型与文件扩展名推断 MIME。未识别的扩展名退回到
+     * `application/octet-stream`，浏览器可在下载链接里正确处理。
+     */
+    private guessMimeType(resource: ResourceTask, sourcePath: string): string {
+        const ext = path.extname(sourcePath || resource.fileName || '').toLowerCase();
+        const map: Record<string, string> = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp',
+            '.bmp': 'image/bmp',
+            '.svg': 'image/svg+xml',
+            '.ico': 'image/x-icon',
+            '.heic': 'image/heic',
+            '.heif': 'image/heif',
+            '.mp4': 'video/mp4',
+            '.webm': 'video/webm',
+            '.mov': 'video/quicktime',
+            '.mkv': 'video/x-matroska',
+            '.avi': 'video/x-msvideo',
+            '.mp3': 'audio/mpeg',
+            '.m4a': 'audio/mp4',
+            '.aac': 'audio/aac',
+            '.wav': 'audio/wav',
+            '.ogg': 'audio/ogg',
+            '.flac': 'audio/flac',
+            '.amr': 'audio/amr',
+            '.silk': 'audio/silk',
+            '.pdf': 'application/pdf',
+            '.zip': 'application/zip',
+            '.json': 'application/json',
+            '.txt': 'text/plain',
+            '.html': 'text/html'
+        };
+        if (ext && map[ext]) return map[ext];
+        switch (resource.type) {
+            case 'image': return 'image/jpeg';
+            case 'video': return 'video/mp4';
+            case 'audio': return 'audio/mpeg';
+            default: return 'application/octet-stream';
+        }
+    }
+
     private async fileExists(p: string): Promise<boolean> {
         try {
             await fsp.access(p);
@@ -1196,11 +1372,15 @@ export class ModernHtmlExporter {
 
         // 优先使用localPath（导出后的本地资源）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            src = `${this.resourceBaseHref}/images/${path.basename(data.localPath)}`;
+            const baseName = path.basename(data.localPath);
+            // Issue #311: 自包含模式下优先取内联 data URI，未命中才退回相对路径。
+            const dataUri = this.lookupDataUri('images', baseName);
+            src = dataUri || `${this.resourceBaseHref}/images/${baseName}`;
         }
         // 如果有 filename，尝试使用本地资源路径（用于分块导出模式）
         else if (data?.filename && this.options.includeResourceLinks) {
-            src = `${this.resourceBaseHref}/images/${data.filename}`;
+            const dataUri = this.lookupDataUri('images', data.filename);
+            src = dataUri || `${this.resourceBaseHref}/images/${data.filename}`;
         }
         // 其次使用url，但要过滤掉无效的file://协议路径
         else if (data?.url) {
@@ -1215,7 +1395,10 @@ export class ModernHtmlExporter {
         }
 
         if (src) {
-            return `<div class="image-content"><img src="${src}" alt="${this.escapeHtml(filename)}" loading="lazy" onclick="showImageModal('${src}')"></div>`;
+            // Issue #311: 当 src 为 data URI 时直接传入会让 HTML 体积翻倍，
+            // 并可能造成 onclick 字符串字面量超长引发解析问题。改为从 this.src
+            // 读取，对外链与 data URI 行为一致。
+            return `<div class="image-content"><img src="${src}" alt="${this.escapeHtml(filename)}" loading="lazy" onclick="showImageModal(this.src)"></div>`;
         }
         return `<span class="text-content">📷 ${this.escapeHtml(filename)}</span>`;
     }
@@ -1227,11 +1410,14 @@ export class ModernHtmlExporter {
 
         // 优先使用localPath（导出后的本地资源，使用相对路径）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            src = `${this.resourceBaseHref}/audios/${path.basename(data.localPath)}`;
+            const baseName = path.basename(data.localPath);
+            const dataUri = this.lookupDataUri('audios', baseName);
+            src = dataUri || `${this.resourceBaseHref}/audios/${baseName}`;
         }
         // 如果有 filename，尝试使用本地资源路径（用于分块导出模式）
         else if (data?.filename && this.options.includeResourceLinks) {
-            src = `${this.resourceBaseHref}/audios/${data.filename}`;
+            const dataUri = this.lookupDataUri('audios', data.filename);
+            src = dataUri || `${this.resourceBaseHref}/audios/${data.filename}`;
         }
         // 其次使用url，但要过滤掉本地文件系统路径
         else if (data?.url) {
@@ -1247,7 +1433,10 @@ export class ModernHtmlExporter {
 
         if (src) {
             // AMR格式浏览器可能不支持，同时提供下载链接
-            const isAmr = src.toLowerCase().endsWith('.amr');
+            // Issue #311: 内联模式下 src 为 data URI，需从文件名而非 src 判断是否为 AMR。
+            const isAmr = src.startsWith('data:')
+                ? (filename.toLowerCase().endsWith('.amr'))
+                : src.toLowerCase().endsWith('.amr');
             const audioTag = `<audio src="${src}" controls class="message-audio" preload="metadata">[语音:${duration}秒]</audio>`;
             const downloadLink = isAmr
                 ? `<a href="${src}" download="${this.escapeHtml(filename)}" class="audio-download-link" title="浏览器可能不支持AMR格式，点击下载">下载语音</a>`
@@ -1264,11 +1453,14 @@ export class ModernHtmlExporter {
 
         // 优先使用localPath（导出后的本地资源，使用相对路径）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            src = `${this.resourceBaseHref}/videos/${path.basename(data.localPath)}`;
+            const baseName = path.basename(data.localPath);
+            const dataUri = this.lookupDataUri('videos', baseName);
+            src = dataUri || `${this.resourceBaseHref}/videos/${baseName}`;
         }
         // 如果有 filename，尝试使用本地资源路径（用于分块导出模式）
         else if (data?.filename && this.options.includeResourceLinks) {
-            src = `${this.resourceBaseHref}/videos/${data.filename}`;
+            const dataUri = this.lookupDataUri('videos', data.filename);
+            src = dataUri || `${this.resourceBaseHref}/videos/${data.filename}`;
         }
         // 其次使用url，但要过滤掉本地文件系统路径
         else if (data?.url) {
@@ -1294,11 +1486,14 @@ export class ModernHtmlExporter {
 
         // 优先使用localPath（导出后的本地资源）
         if (data?.localPath && this.isValidResourcePath(data.localPath)) {
-            href = `${this.resourceBaseHref}/files/${path.basename(data.localPath)}`;
+            const baseName = path.basename(data.localPath);
+            const dataUri = this.lookupDataUri('files', baseName);
+            href = dataUri || `${this.resourceBaseHref}/files/${baseName}`;
         }
         // 如果有 filename，尝试使用本地资源路径（用于分块导出模式）
         else if (data?.filename && this.options.includeResourceLinks) {
-            href = `${this.resourceBaseHref}/files/${data.filename}`;
+            const dataUri = this.lookupDataUri('files', data.filename);
+            href = dataUri || `${this.resourceBaseHref}/files/${data.filename}`;
         }
         // 其次使用url，但要过滤掉无效的file://协议路径
         else if (data?.url) {
@@ -1431,7 +1626,9 @@ export class ModernHtmlExporter {
             // 尝试从elements中找到图片
             const imgElement = data.elements.find((el: any) => el?.type === 'image');
             if (imgElement?.data?.localPath) {
-                const imgSrc = `${this.resourceBaseHref}/images/${path.basename(imgElement.data.localPath)}`;
+                const baseName = path.basename(imgElement.data.localPath);
+                const dataUri = this.lookupDataUri('images', baseName);
+                const imgSrc = dataUri || `${this.resourceBaseHref}/images/${baseName}`;
                 imageHtml = `<img src="${imgSrc}" class="reply-content-image" alt="引用图片" loading="lazy">`;
             }
         }
