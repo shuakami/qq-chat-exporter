@@ -197,6 +197,28 @@ export interface MessageElementData {
   data: any;
 }
 
+/**
+ * 合并转发卡片里嵌套的子消息。
+ * 字段刻意保持扁平，方便直接序列化到 JSON / JSONL，也方便 TXT 导出按行渲染。
+ */
+export interface ForwardInnerMessage {
+  /** 子消息的 msgId，缺失时为空字符串 */
+  id: string;
+  /** 子消息时间戳（ms），无法解析时为 0 */
+  timestamp: number;
+  /** ISO 时间，缺失时退到 UNIX 0 */
+  time: string;
+  sender: {
+    uid?: string;
+    uin?: string;
+    name: string;
+  };
+  content: {
+    text: string;
+    elements: MessageElementData[];
+  };
+}
+
 export interface ResourceData {
   type: string;
   filename: string;
@@ -253,6 +275,9 @@ const DEFAULT_SIMPLE_OPTIONS: Required<Omit<SimpleParserOptions, 'onProgress' | 
 /* ---------------------------------- 主类 ---------------------------------- */
 
 export class SimpleMessageParser {
+  /** 嵌套合并转发递归深度上限。三层基本足够，再深就不展开避免栈/性能爆炸。 */
+  private static readonly MAX_FORWARD_DEPTH = 3;
+
   private readonly options: Required<Omit<SimpleParserOptions, 'onProgress' | 'senderTitleResolver'>> & {
     senderTitleResolver?: SenderTitleResolver;
   };
@@ -522,7 +547,7 @@ export class SimpleMessageParser {
   /**
    * 单趟解析消息内容
    */
-  private async parseMessageContent(message: RawMessage): Promise<MessageContent> {
+  private async parseMessageContent(message: RawMessage, forwardDepth: number = 0): Promise<MessageContent> {
     const elements = message.elements || [];
     const parsedElements: MessageElementData[] = new Array(elements.length);
     const resources: ResourceData[] = [];
@@ -535,7 +560,7 @@ export class SimpleMessageParser {
     let count = 0;
     for (let i = 0; i < elements.length; i++) {
       const element = elements[i]!;
-      const parsed = await this.parseElement(element, message);
+      const parsed = await this.parseElement(element, message, forwardDepth);
       if (!parsed) continue;
       parsedElements[count++] = parsed;
 
@@ -572,8 +597,15 @@ export class SimpleMessageParser {
 
   /**
    * 元素解析（尽量同步，无额外中间对象）
+   *
+   * forwardDepth 用于跟踪当前消息已经嵌套在多少层合并转发里，超过 MAX_FORWARD_DEPTH
+   * 后再遇到 multiForwardMsgElement 时只保留外壳信息，不再递归拉取内层消息。
    */
-  private async parseElement(element: MessageElement, message: RawMessage): Promise<MessageElementData | null> {
+  private async parseElement(
+    element: MessageElement,
+    message: RawMessage,
+    forwardDepth: number = 0
+  ): Promise<MessageElementData | null> {
     // 文本 / @ 提及
     if (element.textElement) {
       const te = element.textElement;
@@ -708,12 +740,24 @@ export class SimpleMessageParser {
 
     // 转发
     if (element.multiForwardMsgElement) {
+      const resId = element.multiForwardMsgElement.resId || '';
+      const xmlContent = element.multiForwardMsgElement.xmlContent || '';
+
+      // 拉合并转发卡片里的真实消息列表，导出 JSON / TXT 时把内容也带上（issue #161）。
+      // 失败时降级为只保留 XML summary，绝不阻断主导出；嵌套过深也直接停在外壳。
+      const innerMessages =
+        forwardDepth >= SimpleMessageParser.MAX_FORWARD_DEPTH
+          ? []
+          : await this.fetchForwardInnerMessages(message, resId, forwardDepth + 1);
+
       return {
         type: 'forward',
         data: {
           title: '转发消息',
-          resId: element.multiForwardMsgElement.resId || '',
-          summary: element.multiForwardMsgElement.xmlContent || ''
+          resId,
+          summary: xmlContent,
+          messageCount: innerMessages.length,
+          messages: innerMessages
         }
       };
     }
@@ -974,8 +1018,38 @@ export class SimpleMessageParser {
         return { text: t, html: htmlEnabled ? `<div class="reply">${t}</div>` : '' };
       }
       case 'forward': {
-        const t = `[转发消息]`;
-        return { text: t, html: htmlEnabled ? `<div class="forward">${t}</div>` : '' };
+        const inner: ForwardInnerMessage[] = Array.isArray(element.data?.messages) ? element.data.messages : [];
+        const count = element.data?.messageCount ?? inner.length;
+
+        // 预览前几条作者+文本，方便扫一眼能看到合并转发里到底是什么内容。
+        const previewLines = inner.slice(0, 3).map((m) => {
+          const name = m?.sender?.name || (m?.sender?.uin ? String(m.sender.uin) : '');
+          const body = (m?.content?.text || '').replace(/\s+/g, ' ').trim();
+          const trimmedBody = body.length > 40 ? body.slice(0, 40) + '…' : body;
+          if (name && trimmedBody) return `${name}: ${trimmedBody}`;
+          if (name) return name;
+          return trimmedBody;
+        }).filter(Boolean);
+
+        const header = count > 0 ? `[转发消息: ${count}条]` : `[转发消息]`;
+        const text = previewLines.length > 0 ? `${header}\n${previewLines.map((l) => `  ${l}`).join('\n')}` : header;
+
+        if (!htmlEnabled) {
+          return { text, html: '' };
+        }
+
+        let innerHtml = '';
+        if (inner.length > 0) {
+          innerHtml = `<ul class="forward-inner">${inner.map((m) => {
+            const name = escapeHtmlFast(m?.sender?.name || (m?.sender?.uin ? String(m.sender.uin) : '未知'));
+            const body = escapeHtmlFast((m?.content?.text || '').replace(/\s+/g, ' ').trim());
+            return `<li><span class="forward-inner-sender">${name}</span><span class="forward-inner-text">${body}</span></li>`;
+          }).join('')}</ul>`;
+        }
+        return {
+          text,
+          html: `<div class="forward">${escapeHtmlFast(header)}${innerHtml}</div>`
+        };
       }
       case 'location': {
         const t = `[位置消息]`;
@@ -1051,6 +1125,98 @@ export class SimpleMessageParser {
       return Number.isFinite(n) ? n : 0;
     }
     return 0;
+  }
+
+  /**
+   * 拉合并转发卡片里的子消息列表，并把每条子消息扁平化成 ForwardInnerMessage（issue #161）。
+   *
+   * 数据来源优先级：
+   *   1) message.records（NapCat 推消息时偶尔会顺手填上）
+   *   2) bridge 的 NapCatCore.apis.MsgApi.getMultiMsg(...)
+   *
+   * 任何一步抛错都吞掉返回空数组，外层在 summary / xmlContent 上还是有兜底信息。
+   */
+  private async fetchForwardInnerMessages(
+    message: RawMessage,
+    resId: string,
+    depth: number
+  ): Promise<ForwardInnerMessage[]> {
+    if (depth > SimpleMessageParser.MAX_FORWARD_DEPTH) return [];
+
+    let raws: RawMessage[] = [];
+    const inlineRecords = (message as any).records;
+    if (Array.isArray(inlineRecords) && inlineRecords.length > 0) {
+      raws = inlineRecords;
+    }
+
+    if (raws.length === 0) {
+      try {
+        const bridge = (globalThis as any).__NAPCAT_BRIDGE__;
+        const core = bridge?.core;
+        const msgApi = core?.apis?.MsgApi || core?.apis?.msg;
+        if (msgApi && typeof msgApi.getMultiMsg === 'function') {
+          const peer = {
+            chatType: message.chatType,
+            peerUid: message.peerUid,
+            guildId: ''
+          };
+          const result = await msgApi.getMultiMsg({
+            peer,
+            rootMsgId: message.msgId,
+            parentMsgId: message.msgId,
+            forwardId: resId,
+            resId
+          });
+          if (result && Array.isArray(result.msgList)) {
+            raws = result.msgList;
+          }
+        }
+      } catch {
+        // 拉取失败时只能丢掉子消息，外层卡片仍然会给出 [转发消息: N条] 占位。
+      }
+    }
+
+    if (raws.length === 0) return [];
+
+    const out: ForwardInnerMessage[] = [];
+    for (const raw of raws) {
+      if (!raw) continue;
+      try {
+        const tsMs = millisFromUnixSeconds(raw.msgTime as any);
+        this.cacheSenderInfo(raw);
+        const senderInfo = this.getSenderDisplayInfo(raw);
+
+        const elementsArr: MessageElementData[] = [];
+        const textParts: string[] = [];
+
+        const els = raw.elements || [];
+        for (const el of els) {
+          const parsed = await this.parseElement(el, raw, depth);
+          if (!parsed) continue;
+          elementsArr.push(parsed);
+          const rendered = this.elementToText(parsed, false);
+          if (rendered.text) textParts.push(rendered.text);
+        }
+
+        out.push({
+          id: raw.msgId || '',
+          timestamp: tsMs,
+          time: rfc3339FromMillis(tsMs),
+          sender: {
+            uid: raw.senderUid || undefined,
+            uin: raw.senderUin || undefined,
+            name: senderInfo.name
+          },
+          content: {
+            text: textParts.join(''),
+            elements: elementsArr
+          }
+        });
+      } catch {
+        // 单条子消息解析失败时跳过，避免拖死整批。
+      }
+    }
+    return out;
   }
 
   private isSystemMessage(message: RawMessage): boolean {

@@ -336,6 +336,99 @@ test('forward element preserves resId and surfaces records via map', async () =>
     assert.equal(fw.data.resId, 'fw_001');
 });
 
+test('forward element exposes inner messages from inline records (#161)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const inner = [
+        msg().sender({ uid: 'u_alice', uin: '11111', nick: 'Alice' }).text('inner1').at_time(T + 0).build(),
+        msg().sender({ uid: 'u_bob', uin: '22222', nick: 'Bob' }).text('inner2').at_time(T + 60).build()
+    ];
+    const m = msg().forward({ resId: 'fw_001', records: inner }).at_time(T + 120).build();
+    const [parsed] = await parser.parseMessages([m]);
+    const fw = parsed.content.elements[0];
+    assert.equal(fw.type, 'forward');
+    assert.equal(fw.data.messageCount, 2);
+    assert.equal(fw.data.messages.length, 2);
+    assert.equal(fw.data.messages[0].sender.name, 'Alice');
+    assert.equal(fw.data.messages[0].content.text, 'inner1');
+    assert.equal(fw.data.messages[1].sender.name, 'Bob');
+    assert.equal(fw.data.messages[1].content.text, 'inner2');
+    // 普通文本应该被解析成扁平 elements，方便 JSON 导出。
+    assert.equal(fw.data.messages[0].content.elements[0].type, 'text');
+    assert.equal(fw.data.messages[0].content.elements[0].data.text, 'inner1');
+});
+
+test('forward inline-records fallback feeds bridge MsgApi.getMultiMsg (#161)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+
+    // 注意：用 forward({ resId, records: ... }) 时 builder 会把 records 顺手挂到外层
+    // 消息上，走的是 inline 分支。这里要验证 bridge 兜底，必须自己造一条只有
+    // multiForwardMsgElement 但没有 records 的消息，再让 MockNapCatCore 持有真正的
+    // records，让 MsgApi.getMultiMsg 通过 resId 找回它们。
+    const inner = [
+        msg().sender({ uid: 'u_carol', uin: '33333', nick: 'Carol' }).text('远程inner').at_time(T + 5).build()
+    ];
+    // 先造一条带 forward 元素 + records 的消息让 mock core 把 records 挂到 fw_002 上
+    const seed = msg().forward({ resId: 'fw_002', records: inner }).at_time(T + 10).build();
+    // 把 seed 注入 mock core 的对话池，以便 getMultiMsg 能查到
+    uninstallBridge();
+    const { createMockCore } = await import('../helpers/MockNapCatCore.js');
+    const mockCore = createMockCore({
+        conversations: [
+            {
+                peer: { chatType: 2, peerUid: 'group://7' },
+                messages: [seed]
+            }
+        ]
+    });
+    installBridge({ core: mockCore });
+
+    // 这条消息只有外壳元素，没有 records，必须走 bridge 兜底。
+    const outer = msg({ chatType: 2, peerUid: 'group://7' })
+        .forward({ resId: 'fw_002' })
+        .at_time(T + 120)
+        .build();
+    const [parsed] = await parser.parseMessages([outer]);
+    const fw = parsed.content.elements[0];
+    assert.equal(fw.type, 'forward');
+    assert.equal(fw.data.messageCount, 1);
+    assert.equal(fw.data.messages[0].sender.name, 'Carol');
+    assert.equal(fw.data.messages[0].content.text, '远程inner');
+});
+
+test('forward element falls back gracefully when bridge cannot resolve content (#161)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    // resId 不存在于 mock core，bridge 找不到 → messages 为空，但不应抛错。
+    const m = msg({ chatType: 2, peerUid: 'group://9' })
+        .forward({ resId: 'fw_unknown', xmlContent: '<msg>没有内容</msg>' })
+        .at_time(T)
+        .build();
+    const [parsed] = await parser.parseMessages([m]);
+    const fw = parsed.content.elements[0];
+    assert.equal(fw.type, 'forward');
+    assert.equal(fw.data.summary, '<msg>没有内容</msg>');
+    assert.equal(fw.data.messageCount, 0);
+    assert.deepEqual(fw.data.messages, []);
+    // 文本仍然有 [转发消息] 占位，不会丢空。
+    assert.match(parsed.content.text, /\[转发消息\]/);
+});
+
+test('forward element renders preview lines in content.text (#161)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const inner = [
+        msg().sender({ uid: 'u_a', uin: '1', nick: 'A' }).text('一句话').at_time(T).build(),
+        msg().sender({ uid: 'u_b', uin: '2', nick: 'B' }).text('另一句').at_time(T + 1).build()
+    ];
+    const m = msg().forward({ resId: 'fw_preview', records: inner }).at_time(T + 5).build();
+    const [parsed] = await parser.parseMessages([m]);
+    assert.match(parsed.content.text, /\[转发消息: 2条\]/);
+    assert.match(parsed.content.text, /A: 一句话/);
+    assert.match(parsed.content.text, /B: 另一句/);
+});
+
 test('senderTitleResolver populates sender.title in group chats (#331)', async () => {
     const { SimpleMessageParser } = await loadParser();
     const titleMap = new Map<string, string>([
