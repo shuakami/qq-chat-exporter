@@ -110,6 +110,8 @@ export default function QCEDashboard() {
   // 定时备份合并状态
   const [isScheduledMergeDialogOpen, setIsScheduledMergeDialogOpen] = useState(false)
   const [scheduledTasks, setScheduledTasks] = useState<Array<any>>([])
+  // Issue #163: 同一对话框里也展示手动导出，按会话聚合后允许混合合并。
+  const [manualTasks, setManualTasks] = useState<Array<any>>([])
   const [loadingScheduledTasks, setLoadingScheduledTasks] = useState(false)
   
   // 聊天记录筛选状态
@@ -906,10 +908,11 @@ export default function QCEDashboard() {
       const data = await response.json()
       if (data.success) {
         setScheduledTasks(data.data.scheduledTasks || [])
+        setManualTasks(data.data.manualTasks || [])
       }
     } catch (error) {
-      console.error('加载定时备份失败:', error)
-      addNotification('error', '加载失败', '无法获取定时备份列表')
+      console.error('加载备份列表失败:', error)
+      addNotification('error', '加载失败', '无法获取备份列表')
     } finally {
       setLoadingScheduledTasks(false)
     }
@@ -1393,21 +1396,34 @@ export default function QCEDashboard() {
               </>
             )}
             {activeTab === "history" && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 text-[13px] rounded-full px-2"
-                onClick={async () => {
-                  chatHistoryLoadedRef.current = false
-                  resourceIndexLoadedRef.current = false
-                  await Promise.all([handleLoadChatHistory(), loadResourceIndex()])
-                  chatHistoryLoadedRef.current = true
-                  resourceIndexLoadedRef.current = true
-                }}
-                disabled={chatHistoryLoading || resourceIndexLoading}
-              >
-                <RefreshCw className={`w-4 h-4 ${(chatHistoryLoading || resourceIndexLoading) ? 'animate-spin' : ''}`} />
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-[13px] rounded-full px-2"
+                  onClick={async () => {
+                    chatHistoryLoadedRef.current = false
+                    resourceIndexLoadedRef.current = false
+                    await Promise.all([handleLoadChatHistory(), loadResourceIndex()])
+                    chatHistoryLoadedRef.current = true
+                    resourceIndexLoadedRef.current = true
+                  }}
+                  disabled={chatHistoryLoading || resourceIndexLoading}
+                >
+                  <RefreshCw className={`w-4 h-4 ${(chatHistoryLoading || resourceIndexLoading) ? 'animate-spin' : ''}`} />
+                </Button>
+                {/* Issue #163: 在「聊天记录」页也可以打开合并对话框，覆盖手动导出场景。 */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-[13px] rounded-full px-2.5"
+                  onClick={handleOpenScheduledMergeDialog}
+                  disabled={loadingScheduledTasks}
+                >
+                  <Combine className="w-4 h-4 mr-1" />
+                  合并
+                </Button>
+              </>
             )}
             {activeTab === "stickers" && (
               <>
@@ -2537,6 +2553,7 @@ export default function QCEDashboard() {
         open={isScheduledMergeDialogOpen}
         onOpenChange={setIsScheduledMergeDialogOpen}
         scheduledTasks={scheduledTasks}
+        manualTasks={manualTasks}
         onMerge={handleScheduledMerge}
       />
 
