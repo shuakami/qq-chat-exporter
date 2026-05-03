@@ -42,6 +42,10 @@ import {
     disambiguateExportFileName,
     sanitizeChatNameForFileName,
 } from '../utils/exportFileName.js';
+import {
+    parseManualExportFileName,
+    manualExportGroupKey,
+} from '../utils/manualExportFileName.js';
 import { resolvePeerUid } from './peerResolution.js';
 
 // 导入类型定义
@@ -2918,12 +2922,84 @@ export class QQChatExporterApiServer {
                     taskName,
                     backupCount: backups.length,
                     backups: backups.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-                    latestBackup: backups.reduce((latest, current) => 
+                    latestBackup: backups.reduce((latest, current) =>
                         new Date(current.createdAt) > new Date(latest.createdAt) ? current : latest
                     )
                 })).sort((a, b) => new Date(b.latestBackup.createdAt).getTime() - new Date(a.latestBackup.createdAt).getTime());
 
-                this.sendSuccessResponse(res, { scheduledTasks }, (req as any).requestId);
+                // Issue #163: 同时扫描手动导出目录，把每个会话的多次导出聚到一起，
+                // 让用户能像合并定时备份一样合并手动导出。
+                const manualBackups: Array<{
+                    fileName: string;
+                    taskName: string;
+                    chatType: 'friend' | 'group';
+                    peerUid: string;
+                    sessionName: string | null;
+                    timestamp: string;
+                    createdAt: string;
+                    fileSize: number;
+                    groupKey: string;
+                }> = [];
+                const manualExportDir = this.pathManager.getExportsDir();
+                if (fs.existsSync(manualExportDir)) {
+                    try {
+                        const files = fs.readdirSync(manualExportDir)
+                            .filter(f => f.endsWith('.html') || f.endsWith('.json'));
+                        for (const file of files) {
+                            try {
+                                const parsed = parseManualExportFileName(file);
+                                if (!parsed) continue;
+                                const filePath = path.join(manualExportDir, file);
+                                const stats = fs.statSync(filePath);
+                                manualBackups.push({
+                                    fileName: file,
+                                    // 单文件层面优先用 sessionName 让 UI 直观，没有时退回 `<type>_<uid>`。
+                                    taskName: parsed.sessionName ?? `${parsed.chatType}_${parsed.peerUid}`,
+                                    chatType: parsed.chatType,
+                                    peerUid: parsed.peerUid,
+                                    sessionName: parsed.sessionName,
+                                    timestamp: parsed.timestamp ?? stats.mtime.toISOString().replace(/[-:T]/g, '').slice(0, 14),
+                                    createdAt: stats.mtime.toISOString(),
+                                    fileSize: stats.size,
+                                    groupKey: manualExportGroupKey(parsed),
+                                });
+                            } catch (fileError) {
+                                console.warn(`[ApiServer] 无法读取手动导出文件 ${file}:`, fileError);
+                            }
+                        }
+                    } catch (dirError) {
+                        console.warn('[ApiServer] 读取 exports 目录失败:', dirError);
+                    }
+                }
+
+                // 按 groupKey 聚合，组内只有一个文件的会话也展示出来 —— 单文件无法合并，
+                // 但 UI 可以提示用户继续往同一会话里追加导出再来合并。
+                const groupedManual = new Map<string, typeof manualBackups>();
+                for (const b of manualBackups) {
+                    if (!groupedManual.has(b.groupKey)) {
+                        groupedManual.set(b.groupKey, []);
+                    }
+                    groupedManual.get(b.groupKey)!.push(b);
+                }
+
+                const manualTasks = Array.from(groupedManual.entries()).map(([groupKey, backups]) => {
+                    const sorted = backups.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                    const latest = sorted[0];
+                    // 任务名优先用任意一个带 sessionName 的备份，否则退回 `<chatType>_<uid>`。
+                    const named = sorted.find((it) => it.sessionName);
+                    const taskName = named?.sessionName ?? latest.taskName;
+                    return {
+                        groupKey,
+                        taskName,
+                        chatType: latest.chatType,
+                        peerUid: latest.peerUid,
+                        backupCount: sorted.length,
+                        backups: sorted,
+                        latestBackup: latest,
+                    };
+                }).sort((a, b) => new Date(b.latestBackup.createdAt).getTime() - new Date(a.latestBackup.createdAt).getTime());
+
+                this.sendSuccessResponse(res, { scheduledTasks, manualTasks }, (req as any).requestId);
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }
