@@ -3840,7 +3840,12 @@ export class QQChatExporterApiServer {
                         outputPath: filePath,
                         includeResourceLinks: exportOptions.includeResourceLinks,
                         includeSystemMessages: exportOptions.includeSystemMessages,
-                        encoding: exportOptions.encoding
+                        encoding: exportOptions.encoding,
+                        // Issue #311: 自包含 HTML（资源以 base64 内联）。
+                        embedResourcesAsDataUri: options?.embedResourcesAsDataUri === true,
+                        ...(typeof options?.maxEmbedFileSizeBytes === 'number'
+                            ? { maxEmbedFileSizeBytes: options.maxEmbedFileSizeBytes }
+                            : {})
                     });
                     
                     // 使用流式API：逐条解析、更新资源路径、写入HTML，全程低内存

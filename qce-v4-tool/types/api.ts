@@ -182,6 +182,11 @@ export interface CreateTaskForm {
   exportAsZip?: boolean
   excludeUserUins?: string
   embedAvatarsAsBase64?: boolean
+  /**
+   * Issue #311: HTML 格式专用 — 资源以 base64 内联生成单个自包含 HTML。
+   * 启用后不再导出同级 `resources/` 目录。
+   */
+  embedResourcesAsDataUri?: boolean
   /** 流式ZIP导出模式（专为超大消息量设计，>50万消息推荐使用） */
   streamingZipMode?: boolean
   /** 自定义导出路径（Issue #192） */
@@ -220,6 +225,8 @@ export interface CreateTaskRequest {
     exportAsZip?: boolean
     /** 嵌入头像为Base64 */
     embedAvatarsAsBase64?: boolean
+    /** Issue #311: 自包含 HTML（资源 base64 内联）。 */
+    embedResourcesAsDataUri?: boolean
     /** 自定义导出路径（Issue #192） */
     outputDir?: string
     /** 在文件名中包含聊天名称（Issue #216） */
@@ -318,6 +325,8 @@ export interface ScheduledExport {
     preferGroupMemberName?: boolean
     /** Issue #341: 仅保留元数据、跳过下载的资源类型 */
     skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
+    /** Issue #311: 自包含 HTML（资源 base64 内联）。 */
+    embedResourcesAsDataUri?: boolean
   }
   outputDir?: string
   enabled: boolean

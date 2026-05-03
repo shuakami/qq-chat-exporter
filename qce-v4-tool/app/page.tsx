@@ -821,6 +821,8 @@ export default function QCEDashboard() {
           streamingZipMode: config.streamingZipMode,
           exportAsZip: config.exportAsZip,
           embedAvatarsAsBase64: config.embedAvatarsAsBase64,
+          // Issue #311: 自包含 HTML
+          embedResourcesAsDataUri: config.embedResourcesAsDataUri,
           preferGroupMemberName: config.preferGroupMemberName,
           outputDir: config.outputDir,
           keywords: config.keywords,
