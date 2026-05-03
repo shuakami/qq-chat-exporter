@@ -123,7 +123,7 @@ QCE 有两种启动模式，看你需要干什么：
 *需要登录 QQ，能获取新消息。*
 
 - **Windows**：双击 `launcher-user.bat`
-- **Linux**：运行 `./launcher-user.sh`
+- **Linux**：运行 `./launcher-user.sh`（首次部署看 [Linux 部署指南](linux-deploy.md)）
 - **操作**：看黑底白字的控制台窗口，用手机 QQ 扫码登录。
 - **打开界面**：浏览器访问 `http://localhost:40653/qce-v4-tool`，输入控制台里显示的 `Access Token`。
 

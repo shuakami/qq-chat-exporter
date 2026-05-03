@@ -46,5 +46,7 @@ markdown_extensions:
 nav:
   - 首页: index.md
   - 使用手册: guide.md
+  - Linux 部署: linux-deploy.md
+  - Docker NapCat 部署: docker-napcat-deployment.md
   - 如何反馈问题: feedback.md
   - 如何贡献: contributing.md
