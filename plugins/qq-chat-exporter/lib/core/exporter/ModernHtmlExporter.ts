@@ -1614,20 +1614,56 @@ export class ModernHtmlExporter {
         const jumpTarget = chooseReplyJumpTarget(data);
         const timeStr = formatReplyTimestamp(data?.timestamp ?? data?.time ?? null);
 
-        // 检查是否有图片
-        let imageHtml = '';
-        if (data?.imageUrl || data?.image) {
-            const imgSrc = data?.imageUrl || data?.image;
-            imageHtml = `<img src="${imgSrc}" class="reply-content-image" alt="引用图片">`;
-        } else if (String(content).includes('[图片]') && data?.elements) {
-            // 尝试从elements中找到图片
-            const imgElement = data.elements.find((el: any) => el?.type === 'image');
-            if (imgElement?.data?.localPath) {
-                const baseName = path.basename(imgElement.data.localPath);
-                const dataUri = this.lookupDataUri('images', baseName);
-                const imgSrc = dataUri || `${this.resourceBaseHref}/images/${baseName}`;
-                imageHtml = `<img src="${imgSrc}" class="reply-content-image" alt="引用图片" loading="lazy">`;
+        // Issue #128 子项：被引用消息里如果带图片 / 表情，HTML 里把它们当
+        // 缩略图渲染出来，纯文字部分用 escape 后的 text 拼接。previewElements
+        // 是 SimpleMessageParser 在 referencedMessage 命中后写进来的结构化
+        // 数组（updateResourcePaths 里又跑了一遍 backfillReplyPreviewLocalPaths
+        // 把 image 的 localPath 拉齐）。命中时整段 reply-content-text 都换成
+        // 缩略图 + 文本混排，免去再跟 `[图片]` 占位符贴一次。
+        const previewElements: any[] = Array.isArray(data?.previewElements) ? data.previewElements : [];
+        let bodyHtml: string;
+        if (previewElements.length > 0) {
+            const parts: string[] = [];
+            for (const pe of previewElements) {
+                if (!pe || typeof pe !== 'object') continue;
+                if (pe.type === 'image') {
+                    const localPath: string = pe.localPath || '';
+                    if (localPath) {
+                        const baseName = path.basename(localPath);
+                        const dataUri = this.lookupDataUri('images', baseName);
+                        const imgSrc = dataUri || `${this.resourceBaseHref}/${localPath}`;
+                        parts.push(`<img src="${imgSrc}" class="reply-content-thumb" alt="引用图片" loading="lazy">`);
+                    } else if (pe.originUrl) {
+                        // 兜底：原消息没在导出范围内，但 NT 给了带签名的 originImageUrl。
+                        // QQ 的 URL 会过期、可能跨域；标 onerror 让浏览器在加载失败时退回到 [图片] 文本。
+                        const url = String(pe.originUrl);
+                        parts.push(`<img src="${this.escapeHtml(url)}" class="reply-content-thumb" alt="引用图片" loading="lazy" onerror="this.replaceWith(document.createTextNode('[图片]'))">`);
+                    } else {
+                        parts.push(this.escapeHtml(pe.text || '[图片]'));
+                    }
+                } else if (pe.type === 'marketFace' && pe.url) {
+                    parts.push(`<img src="${this.escapeHtml(String(pe.url))}" class="reply-content-emoji" alt="${this.escapeHtml(pe.faceName || '表情')}" loading="lazy">`);
+                } else {
+                    parts.push(this.escapeHtml(pe.text || ''));
+                }
             }
+            bodyHtml = parts.join('');
+        } else {
+            // 兼容老路径：data.imageUrl / data.elements 上有人手动塞过的图片
+            let imageHtml = '';
+            if (data?.imageUrl || data?.image) {
+                const imgSrc = data?.imageUrl || data?.image;
+                imageHtml = `<img src="${imgSrc}" class="reply-content-thumb" alt="引用图片">`;
+            } else if (String(content).includes('[图片]') && data?.elements) {
+                const imgElement = data.elements.find((el: any) => el?.type === 'image');
+                if (imgElement?.data?.localPath) {
+                    const baseName = path.basename(imgElement.data.localPath);
+                    const dataUri = this.lookupDataUri('images', baseName);
+                    const imgSrc = dataUri || `${this.resourceBaseHref}/images/${baseName}`;
+                    imageHtml = `<img src="${imgSrc}" class="reply-content-thumb" alt="引用图片" loading="lazy">`;
+                }
+            }
+            bodyHtml = `${this.escapeHtml(content)}${imageHtml}`;
         }
 
         const dataAttr = jumpTarget ? `data-reply-to="msg-${this.escapeHtml(jumpTarget)}"` : '';
@@ -1640,8 +1676,7 @@ export class ModernHtmlExporter {
                 <strong>${this.escapeHtml(senderName)}</strong>
                 ${timeStr ? `<span class="reply-content-time">${this.escapeHtml(timeStr)}</span>` : ''}
             </div>
-            <div class="reply-content-text">${this.escapeHtml(content)}</div>
-            ${imageHtml}
+            <div class="reply-content-text">${bodyHtml}</div>
         </div>`;
     }
 
