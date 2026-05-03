@@ -236,9 +236,10 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
    * 层交互。结果就是任务向导里的 Dialog 还开着时打开预览，预览本身和它 fixed 子树
    * 也被一起禁掉了点击。
    *
-   * 这里在弹窗显示期间强制把 body 的 pointer-events 改回 auto，关闭后恢复成原样。
-   * 不动 Radix 自己的 modal=true 行为，只覆盖最末端的 body 状态，避免影响其它依赖
-   * Radix 屏蔽底层交互的弹层。
+   * 这里在弹窗显示期间强制把 body 的 pointer-events 改回 auto。关闭时只在当前 body
+   * 仍是我们写入的 `auto` 时才回写之前的值；如果其它来源（比如 Radix 关闭 wizard 时
+   * 同步清掉了它自己的 lock）已经动过，我们就不再覆盖，避免把陈旧的 'none' 写回去
+   * 把整页锁死（Codex review on PR #400）。
    */
   useEffect(() => {
     if (!open) return
@@ -247,9 +248,9 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
     const previous = body.style.pointerEvents
     body.style.pointerEvents = 'auto'
     return () => {
-      // 关闭时优先恢复打开前的值；遇到 Radix 把 body 的 inline 样式整个清掉的情况
-      // （previous 为空字符串）就保持空字符串，让浏览器回到默认值。
-      body.style.pointerEvents = previous
+      if (body.style.pointerEvents === 'auto') {
+        body.style.pointerEvents = previous
+      }
     }
   }, [open])
 
