@@ -922,6 +922,24 @@ export const MODERN_CSS = `
             border-radius: 6px;
             object-fit: cover;
         }
+
+        /* issue #128: 引用框里跟文字混排的缩略图 / 表情 */
+        .reply-content-thumb {
+            display: inline-block;
+            vertical-align: middle;
+            max-width: 64px;
+            max-height: 64px;
+            border-radius: 4px;
+            object-fit: cover;
+            margin: 0 4px;
+        }
+        .reply-content-emoji {
+            display: inline-block;
+            vertical-align: middle;
+            width: 20px;
+            height: 20px;
+            margin: 0 2px;
+        }
         
         .message.self .reply-content {
             background: rgba(0, 0, 0, 0.08);
