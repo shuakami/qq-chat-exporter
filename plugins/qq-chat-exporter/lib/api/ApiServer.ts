@@ -57,6 +57,10 @@ import {
 } from './chatTypeClassification.js';
 import { resolveSessionName } from './sessionNameResolver.js';
 import { buildResourceSummaryMessage } from '../utils/resourceSummary.js';
+import {
+    reconcileOrphanedTask,
+    buildTaskResyncPayload,
+} from './orphanTaskReconciler.js';
 
 // 导入类型定义
 import type { RawMessage } from 'NapCatQQ/src/core/types.js';
@@ -3478,6 +3482,26 @@ export class QQChatExporterApiServer {
                 data: { message: 'WebSocket连接成功', requestId },
                 timestamp: new Date().toISOString()
             });
+
+            // Issue #144: WebSocket 一连上就把当前内存里的所有任务状态
+            // 整体下发一次。这样：
+            //   1) 服务正在跑任务、网页只是临时断网重连，前端能立刻把
+            //      进度条接上，不用等下一条 export_progress；
+            //   2) 服务进程上次崩了 / 用户刚 launcher-user 重开，前端能
+            //      看到孤儿任务已经被 reconcile 成 failed，不会再一直
+            //      显示「执行中」。
+            try {
+                const resyncTasks = buildTaskResyncPayload(
+                    Array.from(this.exportTasks.values())
+                );
+                this.sendWebSocketMessage(ws, {
+                    type: 'task_resync',
+                    data: { tasks: resyncTasks },
+                    timestamp: new Date().toISOString(),
+                });
+            } catch (error) {
+                this.safeLogger.logError('[API] 发送 task_resync 失败:', error);
+            }
         });
     }
     
@@ -5368,12 +5392,21 @@ export class QQChatExporterApiServer {
                     isCustomPath ? filePath : undefined
                 );
                 
+                // Issue #144: 进程上次崩 / 重启后，state.status 还停在
+                // running / pending 的任务实际已经没人在跑（fetcher 在
+                // 内存里）。这里统一拍成 failed 并写回 DB，避免前端误以
+                // 为还在跑、UI 一直转圈。其余状态保留原样。
+                const reconciled = reconcileOrphanedTask({
+                    status: state.status,
+                    error: state.error,
+                });
+
                 // 转换为API格式
                 const apiTask = {
                     taskId: config.taskId,
                     peer: config.peer,
                     sessionName: config.chatName,
-                    status: state.status,
+                    status: reconciled.status,
                     progress: state.totalMessages > 0 ? Math.round((state.processedMessages / state.totalMessages) * 100) : 0,
                     format: config.formats[0] || 'JSON',
                     messageCount: state.processedMessages,
@@ -5384,7 +5417,7 @@ export class QQChatExporterApiServer {
                     completedAt: state.endTime 
                         ? (typeof state.endTime === 'string' ? state.endTime : state.endTime.toISOString())
                         : undefined,
-                    error: state.error,
+                    error: reconciled.error,
                     filter: {
                         startTime: config.filter.startTime,
                         endTime: config.filter.endTime
@@ -5396,6 +5429,18 @@ export class QQChatExporterApiServer {
                 };
                 
                 this.exportTasks.set(config.taskId, apiTask);
+
+                // Issue #144: 把孤儿任务的 failed 状态持久化回 DB，否则下
+                // 一次重启又会重复同样的 reconcile 流程。saveTaskToDatabase
+                // 失败不阻塞启动，仅记错误。
+                if (reconciled.wasOrphan) {
+                    this.saveTaskToDatabase(apiTask).catch(error => {
+                        this.safeLogger.logError(
+                            `[ApiServer] 持久化孤儿任务 ${config.taskId} 失败状态失败:`,
+                            error,
+                        );
+                    });
+                }
             }
         } catch (error) {
             console.error('[ApiServer] 加载现有任务失败:', error);
