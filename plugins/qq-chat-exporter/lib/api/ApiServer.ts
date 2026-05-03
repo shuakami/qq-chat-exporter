@@ -48,6 +48,7 @@ import {
 } from '../utils/manualExportFileName.js';
 import { resolvePeerUid } from './peerResolution.js';
 import { lookupUserByUin } from './userLookup.js';
+import { createSafeLogger, type SafeLogger } from './safeLogger.js';
 import { buildResourceSummaryMessage } from '../utils/resourceSummary.js';
 
 // 导入类型定义
@@ -150,6 +151,21 @@ export class QQChatExporterApiServer {
     
     // 缓存过期时间（10分钟）
     private readonly CACHE_EXPIRE_TIME = 10 * 60 * 1000;
+
+    /**
+     * Issue #326：用作插件嵌入到老 / 不兼容的 NapCat 版本时，
+     * `core.context.logger` 在某些路径上可能是 undefined（接口被改名、字段
+     * 在 setupMiddleware 完成前被读、或者 NapCatQQ overlay runtime 没匹配
+     * 上）。老代码直接读取 `core.context.logger.log` 会让 Express 中间件
+     * 链炸开，外层连一个 500 都返回不出去，前端表现就是「打开 Web 界面
+     * 什么都没有」。所有日志改走这个 getter，logger 缺失 / 抛异常时自动
+     * fallback 到 console，保证业务代码不会因为日志写不出来而崩。
+     *
+     * 真正的实现 + 单元测试在 `./safeLogger.ts`。
+     */
+    private get safeLogger(): SafeLogger {
+        return createSafeLogger(this.core);
+    }
 
     /**
      * 构造函数
@@ -324,7 +340,7 @@ export class QQChatExporterApiServer {
 
         // 日志中间件
         this.app.use((req: Request, _res: Response, next) => {
-            this.core.context.logger.log(`[API] ${req.method} ${req.path}`);
+            this.safeLogger.log(`[API] ${req.method} ${req.path}`);
             next();
         });
 
@@ -1256,7 +1272,7 @@ export class QQChatExporterApiServer {
                     groupCode
                 }, (req as any).requestId);
             } catch (error) {
-                this.core.context.logger.logError('[ApiServer] 获取群精华消息失败:', error);
+                this.safeLogger.logError('[ApiServer] 获取群精华消息失败:', error);
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }
         });
@@ -1357,7 +1373,7 @@ export class QQChatExporterApiServer {
                     downloadUrl: `/downloads/essence/${fileName}`
                 }, (req as any).requestId);
             } catch (error) {
-                this.core.context.logger.logError('[ApiServer] 导出群精华消息失败:', error);
+                this.safeLogger.logError('[ApiServer] 导出群精华消息失败:', error);
                 this.sendErrorResponse(res, error, (req as any).requestId);
             }
         });
@@ -1589,7 +1605,7 @@ export class QQChatExporterApiServer {
                                 .filter((s: string) => s.length > 0)
                         );
                     } catch (e) {
-                        this.core.context.logger.logWarn(
+                        this.safeLogger.logWarn(
                             '[ApiServer] /api/recent-contacts: 获取好友列表失败，跳过去重',
                             e
                         );
@@ -1600,7 +1616,7 @@ export class QQChatExporterApiServer {
                             (groups || []).map((g: any) => String(g.groupCode || ''))
                         );
                     } catch (e) {
-                        this.core.context.logger.logWarn(
+                        this.safeLogger.logWarn(
                             '[ApiServer] /api/recent-contacts: 获取群组列表失败，跳过去重',
                             e
                         );
@@ -1686,9 +1702,9 @@ export class QQChatExporterApiServer {
                     this.core.apis.FriendApi as any,
                     {
                         logWarn: (msg, err) =>
-                            this.core.context.logger.logWarn(`[ApiServer] /api/users/lookup: ${msg}`, err),
+                            this.safeLogger.logWarn(`[ApiServer] /api/users/lookup: ${msg}`, err),
                         logDebug: (msg, err) =>
-                            this.core.context.logger.logDebug(`[ApiServer] /api/users/lookup: ${msg}`, err as any),
+                            this.safeLogger.logDebug(`[ApiServer] /api/users/lookup: ${msg}`, err as any),
                     },
                 );
                 this.sendSuccessResponse(res, result, (req as any).requestId);
@@ -2042,7 +2058,7 @@ export class QQChatExporterApiServer {
 
                 // Issue #226 / #353: 支持通过 QQ 号导出，自动转换为 uid。
                 // 旧版 NapCat 上 getUidByUinV2 不存在，resolvePeerUid 会安全降级到原始 peerUid。
-                const actualPeerUid = await resolvePeerUid(peer, this.core.apis?.UserApi, this.core.context.logger);
+                const actualPeerUid = await resolvePeerUid(peer, this.core.apis?.UserApi, this.safeLogger);
                 const actualPeer = { ...peer, peerUid: actualPeerUid };
 
                 // 生成任务ID
@@ -2178,7 +2194,7 @@ export class QQChatExporterApiServer {
                 }
 
                 // Issue #226 / #353: 支持通过 QQ 号导出，自动转换为 uid（兼容缺失 getUidByUinV2 的运行时）。
-                const actualPeerUid = await resolvePeerUid(peer, this.core.apis?.UserApi, this.core.context.logger);
+                const actualPeerUid = await resolvePeerUid(peer, this.core.apis?.UserApi, this.safeLogger);
                 const actualPeer = { ...peer, peerUid: actualPeerUid };
 
                 // 生成任务ID
@@ -2296,7 +2312,7 @@ export class QQChatExporterApiServer {
                 }
 
                 // Issue #226 / #353: 支持通过 QQ 号导出，自动转换为 uid（兼容缺失 getUidByUinV2 的运行时）。
-                const actualPeerUid = await resolvePeerUid(peer, this.core.apis?.UserApi, this.core.context.logger);
+                const actualPeerUid = await resolvePeerUid(peer, this.core.apis?.UserApi, this.safeLogger);
                 const actualPeer = { ...peer, peerUid: actualPeerUid };
 
                 // 生成任务ID
@@ -3496,7 +3512,7 @@ export class QQChatExporterApiServer {
     private setupWebSocket(): void {
         this.wss.on('connection', (ws: WebSocket) => {
             const requestId = this.generateRequestId();
-            this.core.context.logger.log(`[API] WebSocket连接建立: ${requestId}`);
+            this.safeLogger.log(`[API] WebSocket连接建立: ${requestId}`);
             
             this.wsConnections.add(ws);
 
@@ -3506,7 +3522,7 @@ export class QQChatExporterApiServer {
                     const message = JSON.parse(data.toString());
                     await this.handleWebSocketMessage(ws, message);
                 } catch (error) {
-                    this.core.context.logger.logError('[API] WebSocket消息处理失败', error);
+                    this.safeLogger.logError('[API] WebSocket消息处理失败', error);
                     this.sendWebSocketMessage(ws, {
                         type: 'error',
                         data: { message: '消息格式错误' },
@@ -3517,11 +3533,11 @@ export class QQChatExporterApiServer {
 
             ws.on('close', () => {
                 this.wsConnections.delete(ws);
-                this.core.context.logger.log(`[API] WebSocket连接关闭: ${requestId}`);
+                this.safeLogger.log(`[API] WebSocket连接关闭: ${requestId}`);
             });
 
             ws.on('error', (error) => {
-                this.core.context.logger.logError(`[API] WebSocket错误: ${requestId}`, error);
+                this.safeLogger.logError(`[API] WebSocket错误: ${requestId}`, error);
             });
 
             // 发送连接确认
@@ -3620,7 +3636,7 @@ export class QQChatExporterApiServer {
                 ws.send(JSON.stringify(message));
             }
         } catch (error) {
-            this.core.context.logger.logError('[API] 发送WebSocket消息失败:', error);
+            this.safeLogger.logError('[API] 发送WebSocket消息失败:', error);
         }
     }
 
@@ -5370,7 +5386,7 @@ export class QQChatExporterApiServer {
             requestId
         };
         
-        this.core.context.logger.logError('[API] 请求错误:', error);
+        this.safeLogger.logError('[API] 请求错误:', error);
         res.status(statusCode).json(response);
     }
 
