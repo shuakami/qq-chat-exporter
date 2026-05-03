@@ -49,6 +49,11 @@ export interface SessionListProps {
   onSelectAll?: (filteredIds?: Set<string>) => void
   onClearSelection?: () => void
   onToggleItem?: (type: 'group' | 'friend', id: string) => void
+  /**
+   * Issue #344: shift+click 区间多选 / 区间反选 用的批量增删接口。
+   * 不传时会退化成逐项调用 onToggleItem，行为不变。
+   */
+  onSelectMany?: (ids: Set<string>, mode: 'add' | 'remove') => void
   onOpenBatchExportDialog?: () => void
   onPreviewChat?: (type: 'group' | 'friend', id: string, name: string, peer: { chatType: number, peerUid: string }) => void
   onOpenTaskWizard?: (preset: { chatType: number, peerUid: string, sessionName: string }) => void
@@ -62,6 +67,8 @@ const KEYBOARD_SHORTCUTS = [
   { key: '/', description: '聚焦搜索' },
   { key: 'Esc', description: '清除搜索/退出批量模式' },
   { key: '←/→', description: '上一页/下一页' },
+  // Issue #344: shift + 点击当前页内两端，区间内的会话会一并切换选中状态。
+  { key: 'Shift+点击', description: '批量模式下区间多选 / 区间反选（同页可见项）' },
 ]
 
 export function SessionList({
@@ -76,6 +83,7 @@ export function SessionList({
   onSelectAll,
   onClearSelection,
   onToggleItem,
+  onSelectMany,
   onOpenBatchExportDialog,
   onPreviewChat,
   onOpenTaskWizard,
@@ -108,10 +116,64 @@ export function SessionList({
   } = useSessionFilter(groups, friends)
 
   const searchInputRef = useRef<HTMLInputElement>(null)
+  // Issue #344: 记住上一次点击的 row key，用于 shift+click 区间多选。
+  const lastClickedKeyRef = useRef<string | null>(null)
 
   const handleToggleSort = useCallback(() => {
     setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
   }, [sortOrder, setSortOrder])
+
+  /**
+   * Issue #344: 处理批量模式下的行点击。
+   * - 普通点击：和原本一样，反转单项选中状态。
+   * - shift + 点击：把上次点击与本次点击之间所有项一起切换到「本次点击命中后的状态」，
+   *   行为对齐 Windows 资源管理器；首次点击或上次点击的项不在当前可见列表里时退回普通点击。
+   */
+  const handleRowClick = useCallback(
+    (e: React.MouseEvent, item: SessionItem) => {
+      if (!batchMode) return
+      const key = `${item.type}_${item.id}`
+      if (e.shiftKey && lastClickedKeyRef.current && lastClickedKeyRef.current !== key) {
+        const visible = paginatedItems
+        const lastIdx = visible.findIndex(
+          (it) => `${it.type}_${it.id}` === lastClickedKeyRef.current
+        )
+        const curIdx = visible.findIndex((it) => `${it.type}_${it.id}` === key)
+        if (lastIdx >= 0 && curIdx >= 0) {
+          const [lo, hi] = lastIdx < curIdx ? [lastIdx, curIdx] : [curIdx, lastIdx]
+          const rangeIds = new Set<string>()
+          for (let i = lo; i <= hi; i++) {
+            const it = visible[i]
+            rangeIds.add(`${it.type}_${it.id}`)
+          }
+          // 以本次点击的目标命中状态决定整段是加选还是反选：当前未选中 -> 全部加进选区；
+          // 当前已选中 -> 整段一起退出选区。
+          const targetMode: 'add' | 'remove' = selectedItems.has(key) ? 'remove' : 'add'
+          if (onSelectMany) {
+            onSelectMany(rangeIds, targetMode)
+          } else {
+            // 调用方没实现批量接口时退化成逐项 toggle，至少保留功能。
+            rangeIds.forEach((rid) => {
+              const [t, ...rest] = rid.split('_')
+              const id = rest.join('_')
+              const isSelected = selectedItems.has(rid)
+              if (
+                (targetMode === 'add' && !isSelected) ||
+                (targetMode === 'remove' && isSelected)
+              ) {
+                onToggleItem?.(t as 'group' | 'friend', id)
+              }
+            })
+          }
+          lastClickedKeyRef.current = key
+          return
+        }
+      }
+      onToggleItem?.(item.type, item.id)
+      lastClickedKeyRef.current = key
+    },
+    [batchMode, paginatedItems, selectedItems, onSelectMany, onToggleItem]
+  )
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -187,13 +249,16 @@ export function SessionList({
               : "hover:bg-black/[0.03] dark:hover:bg-white/[0.03] cursor-pointer"
             : "hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
         ].join(" ")}
-        onClick={() => batchMode && onToggleItem?.(item.type, item.id)}
+        onClick={(e: React.MouseEvent) => batchMode && handleRowClick(e, item)}
       >
         {batchMode && (
           <Checkbox
             checked={isSelected}
             onCheckedChange={() => onToggleItem?.(item.type, item.id)}
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            onClick={(e: React.MouseEvent) => {
+              // 阻止冒泡到 row，避免双触发；shift+click 仍由 row 的 onClick 处理。
+              e.stopPropagation()
+            }}
           />
         )}
         
@@ -432,6 +497,40 @@ export function SessionList({
               >
                 取消批量
               </Button>
+              {/* Issue #344: 当类型筛选为「全部」时，把全选按钮拆成 全选群 / 全选好友 / 全选当前。 */}
+              {type === 'all' ? (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full h-8 px-3 text-[12px]"
+                    onClick={() => {
+                      const ids = new Set<string>()
+                      filteredItems.forEach((item) => {
+                        if (item.type === 'group') ids.add(`group_${item.id}`)
+                      })
+                      // 加选群类型，保留当前已选（含好友）。
+                      onSelectMany ? onSelectMany(ids, 'add') : onSelectAll?.(ids)
+                    }}
+                  >
+                    全选群
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full h-8 px-3 text-[12px]"
+                    onClick={() => {
+                      const ids = new Set<string>()
+                      filteredItems.forEach((item) => {
+                        if (item.type === 'friend') ids.add(`friend_${item.id}`)
+                      })
+                      onSelectMany ? onSelectMany(ids, 'add') : onSelectAll?.(ids)
+                    }}
+                  >
+                    全选好友
+                  </Button>
+                </>
+              ) : null}
               <Button
                 variant="outline"
                 size="sm"
