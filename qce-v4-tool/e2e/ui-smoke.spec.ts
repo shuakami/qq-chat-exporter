@@ -301,3 +301,85 @@ test.describe('Session list — QQ lookup (issue #204)', () => {
         await expect(page.getByText(/未在本机 NTQQ 数据中找到/)).toBeVisible({ timeout: 10_000 });
     });
 });
+
+/**
+ * Issue #340: 独立模式（start-standalone.bat）下没有 NapCat / QQ 登录态。
+ * 老版本进入 sessions 标签页会立刻发起 /api/friends + /api/groups，两个端点
+ * 都回 503 STANDALONE_MODE，前端在右上角连弹两次红色 toast，且 SessionList
+ * 卡在「加载中」。这里通过路由拦截把 /api/system/info 的 mode 改成 'standalone'，
+ * 验证前端会换成专门的引导卡片，并不再发出 friends / groups 请求。
+ */
+test.describe('Standalone mode (issue #340)', () => {
+    test('sessions tab shows a standalone banner instead of loading friends/groups', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+
+        // 拦 /api/system/info：把 mode 改成 standalone，napcat.online 改成 false。
+        await page.route('**/api/system/info', async (route, request) => {
+            if (request.method() !== 'GET') {
+                await route.continue();
+                return;
+            }
+            const original = await route.fetch();
+            const json = await original.json();
+            if (json?.success && json.data) {
+                json.data.mode = 'standalone';
+                if (json.data.napcat) {
+                    json.data.napcat.online = false;
+                }
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify(json),
+            });
+        });
+
+        // 监控 friends / groups，应当一次都不被请求。
+        const friendsRequests: string[] = [];
+        const groupsRequests: string[] = [];
+        page.on('request', (req) => {
+            const url = req.url();
+            if (url.includes('/api/friends')) friendsRequests.push(url);
+            if (url.includes('/api/groups')) groupsRequests.push(url);
+        });
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}${SHELL_PATH}`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        // 跳过欢迎弹窗（如有）。
+        const skipBtn = page.getByRole('button', { name: '跳过' }).first();
+        if (await skipBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await skipBtn.click().catch(() => null);
+        }
+
+        const sessionsTab = page.getByRole('button', { name: '会话', exact: true });
+        await expect(sessionsTab).toBeVisible({ timeout: 15_000 });
+        await sessionsTab.click();
+
+        // 引导卡片可见。
+        const banner = page.getByTestId('sessions-standalone-banner');
+        await expect(banner).toBeVisible({ timeout: 10_000 });
+        await expect(banner.getByText('当前是独立模式')).toBeVisible();
+        await expect(banner.getByRole('button', { name: /浏览聊天记录/ })).toBeVisible();
+
+        // 给一点时间确保前端没有偷偷发请求。
+        await page.waitForTimeout(800);
+        expect(friendsRequests, 'standalone mode must skip /api/friends').toEqual([]);
+        expect(groupsRequests, 'standalone mode must skip /api/groups').toEqual([]);
+
+        // 点击「浏览聊天记录」直接跳到 history 标签页。history 标签页的内容区
+        // 一定带「记录列表」这个 segment 切换按钮，用它来确认跳转成功。
+        await banner.getByRole('button', { name: /浏览聊天记录/ }).click();
+        await expect(
+            page.getByRole('button', { name: '记录列表', exact: true })
+        ).toBeVisible({ timeout: 10_000 });
+    });
+});
