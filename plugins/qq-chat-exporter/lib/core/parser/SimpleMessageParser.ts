@@ -198,6 +198,35 @@ export interface MessageElementData {
 }
 
 /**
+ * issue #128 子项：回复框（reply 元素）里被引用消息的结构化预览片段。
+ * 文本字段 `content` 仍保持「[图片]」「[表情341]」等占位串以兼容
+ * JSON / TXT / Excel 等纯文本导出；HTML 导出额外消费 previewElements
+ * 来渲染图片缩略图 / 表情图等。
+ *
+ * `localPath` / `url` 字段在解析阶段写不进来——picElement.sourcePath 是 NT
+ * 自身的缓存路径，而不是导出的 resources/ 路径。这两个字段会在
+ * `updateSingleMessageResourcePaths` 的二次回填里被写上。
+ */
+export interface ReplyPreviewElement {
+  type: 'text' | 'image' | 'video' | 'audio' | 'file' | 'face' | 'marketFace';
+  text: string;
+  /** image: picElement.md5HexStr，用于跨消息匹配下载后的资源条目 */
+  md5?: string;
+  /** image: picElement.originImageUrl，回退兜底（QQ 临时签名 URL，会过期） */
+  originUrl?: string;
+  /** image / video / file: 原始文件名 */
+  fileName?: string;
+  /** marketFace: 表情包名 */
+  faceName?: string;
+  /** marketFace: 表情包静态 URL */
+  url?: string;
+  /** face: 系统小表情 id */
+  faceIndex?: number;
+  /** updateResourcePaths 二次回填出来的导出包内相对路径，例：images/abc.jpg */
+  localPath?: string;
+}
+
+/**
  * 合并转发卡片里嵌套的子消息。
  * 字段刻意保持扁平，方便直接序列化到 JSON / JSONL，也方便 TXT 导出按行渲染。
  */
@@ -733,7 +762,11 @@ export class SimpleMessageParser {
           senderUin: replyData.senderUin,
           senderName: replyData.senderName,
           content: replyData.content,
-          timestamp: replyData.timestamp
+          timestamp: replyData.timestamp,
+          // issue #128 子项：回复框里的图片 / 表情等元素，HTML 导出时拿来
+          // 渲染缩略图。文本字段 `content` 保持「[图片]」「[表情341]」不变，
+          // JSON / TXT / Excel 等纯文本导出零影响。
+          previewElements: replyData.previewElements
         }
       };
     }
@@ -1423,6 +1456,53 @@ export class SimpleMessageParser {
         this.updateSingleMessageResourcePaths(message, resources);
       }
     }
+    // issue #128：所有消息的资源路径写完之后，再回头把 reply 元素里的
+    // previewElements.localPath 拉齐，让 HTML 导出能直接渲染缩略图。
+    this.backfillReplyPreviewLocalPaths(messages);
+  }
+
+  /**
+   * 二次回填：扫一遍 messages，把每条 reply 元素的 previewElements 里的
+   * 图片片段补上 `localPath`，方便 HTML 导出器直接渲染缩略图。
+   *
+   * 匹配规则：先按 md5（picElement.md5HexStr 一对一稳定映射），匹配不到时
+   * 按顺序兜底（极端老快照里 md5 可能缺失）。被引用消息不在导出范围内时
+   * 自然找不到，留空让 HTML 端走「[图片]」文字回退。
+   */
+  public backfillReplyPreviewLocalPaths(messages: CleanMessage[]): void {
+    if (messages.length === 0) return;
+    // 第一步：建 msgId → image[] 索引
+    const imagesByMsgId = new Map<string, Array<{ md5: string; localPath: string }>>();
+    for (const m of messages) {
+      const imgs: Array<{ md5: string; localPath: string }> = [];
+      for (const el of m.content.elements) {
+        if (el.type !== 'image' || !el.data || typeof el.data !== 'object') continue;
+        const data = el.data as { md5?: string; localPath?: string };
+        if (!data.localPath) continue;
+        imgs.push({ md5: String(data.md5 || ''), localPath: data.localPath });
+      }
+      if (imgs.length > 0) imagesByMsgId.set(m.id, imgs);
+    }
+    if (imagesByMsgId.size === 0) return;
+    // 第二步：扫所有 reply 元素，按 referencedMessageId 找回原消息的图片
+    for (const m of messages) {
+      for (const el of m.content.elements) {
+        if (el.type !== 'reply' || !el.data || typeof el.data !== 'object') continue;
+        const data = el.data as { referencedMessageId?: string; previewElements?: ReplyPreviewElement[] };
+        const refId = data.referencedMessageId ? String(data.referencedMessageId) : '';
+        if (!refId || !Array.isArray(data.previewElements)) continue;
+        const refImgs = imagesByMsgId.get(refId);
+        if (!refImgs || refImgs.length === 0) continue;
+        let fallbackIdx = 0;
+        for (const pe of data.previewElements) {
+          if (pe.type !== 'image') continue;
+          const byMd5 = pe.md5 ? refImgs.find(r => r.md5 && r.md5 === pe.md5) : null;
+          const candidate = byMd5 || refImgs[fallbackIdx];
+          if (candidate?.localPath) pe.localPath = candidate.localPath;
+          fallbackIdx++;
+        }
+      }
+    }
   }
 
   /**
@@ -1579,13 +1659,22 @@ export class SimpleMessageParser {
     //     已被 cacheSenderInfo 收录的可读名字；
     //   - 全部失败时优先用 senderUin（QQ 号）而不是 senderUidStr（u_xxx）。
     const senderName = this.resolveReplySenderName(replyElement, message, referencedMessage);
-    const result = {
+    const result: {
+      messageId: string;
+      referencedMessageId: string | undefined;
+      senderUin: string;
+      senderName: string;
+      content: string;
+      timestamp: number;
+      previewElements: ReplyPreviewElement[];
+    } = {
       messageId: sourceMsgId || replyElement.replayMsgId || replyElement.replayMsgSeq || '0',
       referencedMessageId: referencedMessageId || undefined,  // 确保不会是 "0"
       senderUin: replyElement.senderUin || (referencedMessage?.senderUin ?? ''),
       senderName,
       content: '原消息',
-      timestamp: 0
+      timestamp: 0,
+      previewElements: []
     };
 
     // 如果找到了被引用的消息，从中提取内容
@@ -1593,25 +1682,55 @@ export class SimpleMessageParser {
       // 保持messageId为sourceMsgId，referencedMessageId已经在前面设置
       result.senderUin = referencedMessage.senderUin;
 
-      // 提取被引用消息的文本内容
+      // 提取被引用消息的文本内容 + 结构化的 previewElements
       if (referencedMessage.elements && referencedMessage.elements.length > 0) {
-        const parts = [];
+        const parts: string[] = [];
         for (const element of referencedMessage.elements) {
           if (element.textElement?.content) {
             parts.push(element.textElement.content);
+            result.previewElements.push({ type: 'text', text: element.textElement.content });
           } else if (element.picElement) {
             parts.push('[图片]');
+            result.previewElements.push({
+              type: 'image',
+              text: '[图片]',
+              md5: element.picElement.md5HexStr || '',
+              originUrl: element.picElement.originImageUrl || '',
+              fileName: element.picElement.fileName || ''
+            });
           } else if (element.videoElement) {
             parts.push('[视频]');
+            result.previewElements.push({
+              type: 'video',
+              text: '[视频]',
+              fileName: element.videoElement.fileName || ''
+            });
           } else if (element.pttElement) {
             parts.push('[语音]');
+            result.previewElements.push({ type: 'audio', text: '[语音]' });
           } else if (element.fileElement) {
             parts.push('[文件]');
+            result.previewElements.push({
+              type: 'file',
+              text: '[文件]',
+              fileName: element.fileElement.fileName || ''
+            });
           } else if (element.faceElement) {
             parts.push(`[表情${element.faceElement.faceIndex}]`);
+            result.previewElements.push({
+              type: 'face',
+              text: `[表情${element.faceElement.faceIndex}]`,
+              faceIndex: element.faceElement.faceIndex
+            });
           } else if (element.marketFaceElement) {
             const faceName = element.marketFaceElement.faceName || '超级表情';
             parts.push(`[${faceName}]`);
+            result.previewElements.push({
+              type: 'marketFace',
+              text: `[${faceName}]`,
+              faceName,
+              url: this.generateMarketFaceUrl(element.marketFaceElement.emojiId || '')
+            });
           }
         }
         if (parts.length > 0) {
