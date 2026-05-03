@@ -17,6 +17,7 @@ import {
     ResourceStatus 
 } from '../../types/index.js';
 import { DatabaseManager } from '../storage/DatabaseManager.js';
+import { transcodeSilkFileToMp3 } from '../audio/silkTranscoder.js';
 
 /**
  * 资源处理配置
@@ -40,6 +41,12 @@ export interface ResourceHandlerConfig {
     enableLocalCache: boolean;
     /** 缓存清理阈值（天） */
     cacheCleanupThreshold: number;
+    /**
+     * 是否把 QQ 缓存的 SILK 语音转码成 MP3（issue #306）。
+     * 默认开启：浏览器原生支持 MP3 而不支持 SILK，导出后的 HTML 才能直接播。
+     * 关闭则保留原始 SILK 文件，下游需要自备解码器。
+     */
+    transcodeSilkToMp3: boolean;
 }
 
 const RESOURCE_HEALTH_CACHE_MS = 30 * 60 * 1000;
@@ -370,6 +377,7 @@ export class ResourceHandler {
             healthCheckInterval: 600000, // 10分钟
             enableLocalCache: true,
             cacheCleanupThreshold: 30, // 30天
+            transcodeSilkToMp3: true,
             ...config
         };
 
@@ -1025,6 +1033,49 @@ export class ResourceHandler {
     }
 
     /**
+     * issue #306：把已经识别出的 SILK 文件转码成 MP3 写到同目录，资源记录
+     * 切到 .mp3 路径上，HTML 导出后浏览器就能直接播。
+     *
+     * 失败 / 没装 silk-wasm 等场景下返回原 SILK 路径，调用方零侵入。
+     */
+    private async maybeTranscodeSilkToMp3(silkPath: string, resourceInfo: ResourceInfo): Promise<string> {
+        try {
+            const ext = path.extname(silkPath);
+            const baseNoExt = ext ? silkPath.slice(0, silkPath.length - ext.length) : silkPath;
+            const mp3Path = `${baseNoExt}.mp3`;
+
+            // 已经存在同名 MP3（重复处理或之前转过）：直接复用，不重复编码。
+            if (!fs.existsSync(mp3Path)) {
+                const result = await transcodeSilkFileToMp3(silkPath, mp3Path);
+                if (!result) {
+                    return silkPath;
+                }
+            }
+
+            if (resourceInfo.fileName) {
+                const fnExt = path.extname(resourceInfo.fileName);
+                const fnBase = fnExt
+                    ? resourceInfo.fileName.slice(0, resourceInfo.fileName.length - fnExt.length)
+                    : resourceInfo.fileName;
+                resourceInfo.fileName = `${fnBase}.mp3`;
+            } else {
+                resourceInfo.fileName = path.basename(mp3Path);
+            }
+            resourceInfo.mimeType = 'audio/mpeg';
+            try {
+                resourceInfo.fileSize = fs.statSync(mp3Path).size;
+            } catch {
+                // 大小统计失败不影响主流程
+            }
+
+            return mp3Path;
+        } catch (err) {
+            console.warn(`[ResourceHandler] SILK→MP3 转码失败 (${silkPath}):`, err);
+            return silkPath;
+        }
+    }
+
+    /**
      * 执行下载任务
      */
     private async executeDownload(task: DownloadTask): Promise<string> {
@@ -1038,6 +1089,13 @@ export class ResourceHandler {
                 // HTML、文件资源管理器看到一致的文件名。
                 if (filePath && task.resourceInfo.type === 'audio') {
                     filePath = this.normalizeAudioFileExtension(filePath, task.resourceInfo);
+
+                    // issue #306：腾讯系 SILK 编码浏览器解不了，导出后 HTML 里的
+                    // <audio> 标签播不了。开关默认开启时把 SILK 转码成 MP3，让
+                    // Edge / Chrome / Safari 可以直接播放。失败回退保留原始 SILK。
+                    if (this.config.transcodeSilkToMp3 && path.extname(filePath).toLowerCase() === '.silk') {
+                        filePath = await this.maybeTranscodeSilkToMp3(filePath, task.resourceInfo);
+                    }
                 }
 
                 // 更新资源状态
