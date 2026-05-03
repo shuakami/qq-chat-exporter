@@ -7,6 +7,7 @@
 import { ChatSession, ChatTypeSimple, SystemError, ErrorType } from '../../types/index.js';
 import { NapCatCore, Peer } from 'NapCatQQ/src/core/index.js';
 import { ChatType } from 'NapCatQQ/src/core/types.js';
+import { isPrivateLikeChatType } from '../../api/chatTypeClassification.js';
 
 /**
  * 聊天会话管理器类
@@ -248,8 +249,9 @@ export class ChatSessionManager {
             return null;
         }
 
-        // ChatType.Group = 2
-        const isGroup = contact.chatType === ChatType.Group || contact.chatType === 2;
+        // Issue #365: 仅 ChatType.Group (2) 算群聊，临时会话 (100) / 服务号
+        // (118 / 201) / 频道私聊等都按 private_ 处理。
+        const isGroup = !isPrivateLikeChatType(contact.chatType);
         const sessionId = isGroup
             ? `group_${contact.peerUid}` 
             : `private_${contact.peerUid}`;
