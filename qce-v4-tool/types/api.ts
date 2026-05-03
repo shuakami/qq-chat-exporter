@@ -213,6 +213,8 @@ export interface CreateTaskForm {
   filterPureImageMessages: boolean
   exportAsZip?: boolean
   excludeUserUins?: string
+  /** Issue #369：仅导出这些 QQ 的消息（逗号分隔），与 excludeUserUins 互不冲突。 */
+  includeUserUins?: string
   embedAvatarsAsBase64?: boolean
   /**
    * Issue #311: HTML 格式专用 — 资源以 base64 内联生成单个自包含 HTML。
