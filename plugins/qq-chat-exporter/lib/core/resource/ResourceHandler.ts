@@ -287,6 +287,34 @@ export type ResourceProgressCallback = (progress: {
 }) => void;
 
 /**
+ * 单次 `processMessageResources` 调用产出的资源摘要（issue #363）。
+ *
+ * 这套数字与 `progressCallback` 内部状态的区别：
+ *  - progressCallback 只在「需要下载」的资源上发回调，跳过 / 已经在本地的不算；
+ *  - 这份摘要描述本次实际尝试做了什么，让调用方（ApiServer / ScheduledExportManager）
+ *    可以在导出完成时给用户一段清晰的人类可读结论：本次到底动了多少资源、有几个
+ *    没拿到，免得用户单独看到 NapCat 的 `[Rkey] 所有服务均已禁用` 的日志后误判
+ *    为整个导出失败。
+ *
+ * `failedSamples` 仅给出最多前 5 个失败资源的精简标识（filename or md5），方便日志
+ * 与上层 UI 直接复用，不会把整个失败列表全塞回去。
+ */
+export interface ResourceBatchSummary {
+    /** 命中的总资源条数（包括跳过、已在本地、需要新下载的）。 */
+    attempted: number;
+    /** 命中后无需重新下载（命中本地缓存或已在 QQ 沙箱里）。 */
+    alreadyAvailable: number;
+    /** 实际新下载完成的条数。 */
+    downloaded: number;
+    /** 下载失败 / 触发熔断 / 健康检查不过的条数。 */
+    failed: number;
+    /** 因 `setSkipDownloadTypes` 主动跳过的条数（issue #341）。 */
+    skipped: number;
+    /** 失败资源的简短样本（最多 5 个），用于日志与 UI 提示。 */
+    failedSamples: string[];
+}
+
+/**
  * 资源处理器主类
  */
 export class ResourceHandler {
@@ -307,6 +335,19 @@ export class ResourceHandler {
     private totalResourcesForProgress: number = 0;
     private completedResourcesForProgress: number = 0;
     private failedResourcesForProgress: number = 0;
+
+    /**
+     * 上一次 processMessageResources 调用的摘要（issue #363）。
+     * 每次进入 processMessageResources 会被重置；导出流程在调用完成后立即读取。
+     */
+    private lastBatchSummary: ResourceBatchSummary = {
+        attempted: 0,
+        alreadyAvailable: 0,
+        downloaded: 0,
+        failed: 0,
+        skipped: 0,
+        failedSamples: [],
+    };
 
     /**
      * 跳过下载的资源类型集合（Issue #341）。
@@ -388,27 +429,45 @@ export class ResourceHandler {
      */
     async processMessageResources(messages: RawMessage[]): Promise<Map<string, ResourceInfo[]>> {
         const resourceMap = new Map<string, ResourceInfo[]>();
-        let totalResources = 0;
         let resourcesNeedingDownload = 0;
-        
+        const allResources: ResourceInfo[] = [];
+        // 第一遍扫描后即时记录初始状态（健康 / 跳过 / 待下载），下载完成后再
+        // 用最终状态对比，从而得到准确的 already / downloaded / failed 区分。
+        const initialState = new Map<ResourceInfo, 'available' | 'skipped' | 'pending'>();
+
         // 重置进度计数器
         this.totalResourcesForProgress = 0;
         this.completedResourcesForProgress = 0;
         this.failedResourcesForProgress = 0;
-        
+
+        // 重置摘要（issue #363）。每次调用结束后会被重新填充。
+        this.lastBatchSummary = {
+            attempted: 0,
+            alreadyAvailable: 0,
+            downloaded: 0,
+            failed: 0,
+            skipped: 0,
+            failedSamples: [],
+        };
+
         for (const message of messages) {
             const resources: ResourceInfo[] = [];
-            
+
             for (const element of message.elements) {
                 if (this.isMediaElement(element)) {
                     try {
                         const resourceInfo = await this.processElement(message, element);
                         if (resourceInfo) {
                             resources.push(resourceInfo);
-                            totalResources++;
+                            allResources.push(resourceInfo);
                             // Issue #341: 被跳过下载的资源不计入下载进度，避免进度永远卡住。
-                            if (!resourceInfo.accessible && resourceInfo.status !== ResourceStatus.SKIPPED) {
+                            if (resourceInfo.status === ResourceStatus.SKIPPED) {
+                                initialState.set(resourceInfo, 'skipped');
+                            } else if (!resourceInfo.accessible) {
+                                initialState.set(resourceInfo, 'pending');
                                 resourcesNeedingDownload++;
+                            } else {
+                                initialState.set(resourceInfo, 'available');
                             }
                         }
                     } catch (error) {
@@ -416,27 +475,83 @@ export class ResourceHandler {
                     }
                 }
             }
-            
+
             if (resources.length > 0) {
                 resourceMap.set(message.msgId, resources);
             }
         }
-        
+
         // 设置进度总数
         this.totalResourcesForProgress = resourcesNeedingDownload;
-        
+
         // 等待所有下载任务完成
         if (resourcesNeedingDownload > 0) {
             // 初始进度回调
             this.emitProgress();
-            
+
             // 给下载队列处理器足够时间启动和处理
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
+
             await this.waitForAllDownloads();
         }
-        
+
+        // 计算本批次摘要（issue #363）。规则：
+        //  - 入口看到就 SKIPPED 的，记 skipped；
+        //  - 入口已经 accessible 的，记 alreadyAvailable；
+        //  - 入口需要下载、最终 DOWNLOADED + accessible 的，记 downloaded；
+        //  - 其它情况都算 failed（典型情况：NapCat Rkey 服务全降级 → 拿不到 url）。
+        const failedSamples: string[] = [];
+        for (const r of allResources) {
+            this.lastBatchSummary.attempted++;
+            const initial = initialState.get(r);
+            if (initial === 'skipped') {
+                this.lastBatchSummary.skipped++;
+                continue;
+            }
+            const ok = r.status === ResourceStatus.DOWNLOADED && r.accessible === true;
+            if (initial === 'available') {
+                if (ok) {
+                    this.lastBatchSummary.alreadyAvailable++;
+                } else {
+                    // 入口看着可用但 health check 之后又被打回 FAILED：算失败，
+                    // 让用户知道本次确实漏了。
+                    this.lastBatchSummary.failed++;
+                    if (failedSamples.length < 5) {
+                        failedSamples.push(r.fileName || r.md5 || r.id || 'unknown');
+                    }
+                }
+                continue;
+            }
+            // initial === 'pending'：等待下载结果
+            if (ok) {
+                this.lastBatchSummary.downloaded++;
+            } else {
+                this.lastBatchSummary.failed++;
+                if (failedSamples.length < 5) {
+                    failedSamples.push(r.fileName || r.md5 || r.id || 'unknown');
+                }
+            }
+        }
+        this.lastBatchSummary.failedSamples = failedSamples;
+
         return resourceMap;
+    }
+
+    /**
+     * 读取上一次 `processMessageResources` 的资源摘要（issue #363）。
+     *
+     * 调用时机：紧跟 `processMessageResources` 之后；中间不要再触发其它批次，否则
+     * 会被覆盖。返回的是内部状态的浅拷贝，调用方安全地把它原样存到任务记录里。
+     */
+    getLastBatchSummary(): ResourceBatchSummary {
+        return {
+            attempted: this.lastBatchSummary.attempted,
+            alreadyAvailable: this.lastBatchSummary.alreadyAvailable,
+            downloaded: this.lastBatchSummary.downloaded,
+            failed: this.lastBatchSummary.failed,
+            skipped: this.lastBatchSummary.skipped,
+            failedSamples: [...this.lastBatchSummary.failedSamples],
+        };
     }
 
     /**
