@@ -40,13 +40,8 @@ export default function AuthPage() {
   }
 
   useEffect(() => {
-    const authManager = AuthManager.getInstance()
-    if (authManager.isAuthenticated()) {
-      window.location.href = '/qce-v4-tool'
-      return
-    }
-
-    // 先看 URL 里有没有 token；有就清掉再走自动登录，避免历史栏暴露 token。
+    // 先把 URL 里的 ?token= 剥掉再做任何跳转，避免任何分支（包括已登录直接跳）
+    // 把带 token 的 URL 留在浏览器历史 / 地址栏里。
     let urlToken: string | null = null
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
@@ -59,6 +54,12 @@ export default function AuthPage() {
           window.location.hash
         window.history.replaceState({}, '', newUrl)
       }
+    }
+
+    const authManager = AuthManager.getInstance()
+    if (authManager.isAuthenticated()) {
+      window.location.href = '/qce-v4-tool'
+      return
     }
 
     if (urlToken && !submittedFromUrlRef.current) {
