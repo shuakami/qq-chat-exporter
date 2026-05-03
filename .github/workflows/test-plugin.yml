@@ -89,6 +89,16 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm exec playwright install --with-deps chromium
 
+      - name: Build frontend (static export)
+        working-directory: qce-v4-tool
+        run: pnpm build
+
+      - name: Stage built frontend for the mock server
+        run: |
+          mkdir -p static
+          rm -rf static/qce-v4-tool
+          cp -r qce-v4-tool/out static/qce-v4-tool
+
       - name: Start mock API server
         working-directory: plugins/qq-chat-exporter
         run: |
@@ -102,14 +112,18 @@ jobs:
             sleep 1
           done
           curl -fsS http://localhost:40653/health
+          # Confirm the static frontend is being served too.
+          curl -fsS -o /dev/null -w '[ci] /qce-v4-tool/auth -> %{http_code}\n' \
+            http://localhost:40653/qce-v4-tool/auth
         env:
           QCE_MOCK_TOKEN: qce_mock_token_for_tests
 
-      - name: Run Playwright API smoke tests
+      - name: Run Playwright tests (API + UI)
         working-directory: qce-v4-tool
-        run: pnpm exec playwright test e2e/api-smoke.spec.ts
+        run: pnpm exec playwright test
         env:
           E2E_API_URL: http://localhost:40653
+          E2E_FRONTEND_URL: http://localhost:40653
           QCE_MOCK_TOKEN: qce_mock_token_for_tests
 
       - name: Mock server logs (always)

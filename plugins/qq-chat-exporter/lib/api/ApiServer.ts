@@ -5494,15 +5494,26 @@ export class QQChatExporterApiServer {
                 if (accessToken) {
                     console.log(`${green}[QCE]${reset} Token: ${green}${accessToken}${reset}`);
                 }
-                
+
                 // 显示前端地址
                 if (frontendStatus.isRunning && frontendStatus.mode === 'production') {
-                    const toolUrl = serverAddresses.external 
-                        ? `${serverAddresses.external}/qce-v4-tool` 
-                        : `${serverAddresses.local}/qce-v4-tool`;
+                    const baseUrl = serverAddresses.external
+                        ? serverAddresses.external
+                        : serverAddresses.local;
+                    const toolUrl = `${baseUrl}/qce-v4-tool`;
                     console.log(`${green}[QCE]${reset} Web界面: ${green}${toolUrl}${reset}`);
+                    // Issue #287: Framework 用户没有内嵌登录入口，每次都得手动从 security.json
+                    // 抠 token。这里直接把 token 拼进 auth 页 URL，复制到浏览器一次到位。
+                    if (accessToken) {
+                        const oneClickUrl = `${baseUrl}/qce-v4-tool/auth?token=${encodeURIComponent(accessToken)}`;
+                        console.log(`${green}[QCE]${reset} 一键登录: ${green}${oneClickUrl}${reset}`);
+                    }
                 } else if (frontendStatus.mode === 'development') {
                     console.log(`${green}[QCE]${reset} Web界面: ${green}${frontendStatus.frontendUrl}${reset}`);
+                    if (accessToken && frontendStatus.frontendUrl) {
+                        const oneClickUrl = `${frontendStatus.frontendUrl.replace(/\/$/, '')}/auth?token=${encodeURIComponent(accessToken)}`;
+                        console.log(`${green}[QCE]${reset} 一键登录: ${green}${oneClickUrl}${reset}`);
+                    }
                 }
                 console.log('');
                 
