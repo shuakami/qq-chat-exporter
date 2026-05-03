@@ -436,9 +436,12 @@ goto :eof
 '''
 
     # launcher-user.bat (no admin, with pause)
+    # 切到脚本所在目录再展开 %cd%（Issue #286：在管理员模式下双击 .bat 时，CMD 的初始
+    # CWD 是 C:\Windows\system32，照搬 %cd% 会得到 system32 下不存在的可执行路径）。
     launcher_user_bat = '''@echo off
 chcp 65001 >nul
 setlocal enabledelayedexpansion
+cd /d "%~dp0"
 
 set NAPCAT_PATCH_PACKAGE=%cd%\\qqnt.json
 set NAPCAT_LOAD_PATH=%cd%\\loadNapCat.js
@@ -452,19 +455,24 @@ exit /b
 '''
 
     # launcher.bat (admin mode, no pause)
+    # 提权重启时把脚本所在目录传给新窗口（%~dp0），并在 elevation 之后再 cd 一次，
+    # 避免 elevated CMD 落在 C:\Windows\system32 后用错的 %cd% 拼出找不到的可执行路径
+    # （Issue #286）。
     launcher_bat = '''@echo off
 chcp 65001 >nul
 setlocal enabledelayedexpansion
+cd /d "%~dp0"
 
 net session >nul 2>&1
 if %errorLevel% == 0 (
     echo Administrator mode detected.
 ) else (
     echo Please run this script in administrator mode.
-    powershell -Command "Start-Process 'wt.exe' -ArgumentList 'cmd /c cd /d \\"%cd%\\" && \\"%~f0\\" %*' -Verb runAs"
+    powershell -Command "Start-Process 'wt.exe' -ArgumentList 'cmd /c cd /d \\"%~dp0\\" && \\"%~f0\\" %*' -Verb runAs"
     exit
 )
 
+cd /d "%~dp0"
 set NAPCAT_PATCH_PACKAGE=%cd%\\qqnt.json
 set NAPCAT_LOAD_PATH=%cd%\\loadNapCat.js
 set NAPCAT_INJECT_PATH=%cd%\\NapCatWinBootHook.dll
@@ -477,16 +485,18 @@ set QQ_PATH_CONFIG=%cd%\\config\\qq_path.txt
     launcher_win10_bat = '''@echo off
 chcp 65001 >nul
 setlocal enabledelayedexpansion
+cd /d "%~dp0"
 
 net session >nul 2>&1
 if %errorLevel% == 0 (
     echo Administrator mode detected.
 ) else (
     echo Please run this script in administrator mode.
-    powershell -Command "Start-Process 'cmd.exe' -ArgumentList '/c cd /d \\"%cd%\\" && \\"%~f0\\" %*' -Verb runAs"
+    powershell -Command "Start-Process 'cmd.exe' -ArgumentList '/c cd /d \\"%~dp0\\" && \\"%~f0\\" %*' -Verb runAs"
     exit
 )
 
+cd /d "%~dp0"
 set NAPCAT_PATCH_PACKAGE=%cd%\\qqnt.json
 set NAPCAT_LOAD_PATH=%cd%\\loadNapCat.js
 set NAPCAT_INJECT_PATH=%cd%\\NapCatWinBootHook.dll
@@ -499,6 +509,7 @@ set QQ_PATH_CONFIG=%cd%\\config\\qq_path.txt
     launcher_win10_user_bat = '''@echo off
 chcp 65001 >nul
 setlocal enabledelayedexpansion
+cd /d "%~dp0"
 
 set NAPCAT_PATCH_PACKAGE=%cd%\\qqnt.json
 set NAPCAT_LOAD_PATH=%cd%\\loadNapCat.js
@@ -515,6 +526,7 @@ exit /b
     reset_qq_path_bat = '''@echo off
 chcp 65001 >nul
 setlocal enabledelayedexpansion
+cd /d "%~dp0"
 
 echo.
 echo ============================================
@@ -754,9 +766,12 @@ main();
     
     # Create Windows batch launcher for standalone mode
     if os_name == "Windows":
+        # Issue #286：以管理员双击 .bat 时 CMD 初始 CWD 是 C:\\Windows\\system32，
+        # 这里先 cd 到脚本目录再用相对路径调用 standalone.mjs，避免 Node 找不到入口。
         standalone_bat = '''@echo off
 chcp 65001 > nul
 title QCE 独立模式
+cd /d "%~dp0"
 
 echo.
 echo [QCE] 独立模式
