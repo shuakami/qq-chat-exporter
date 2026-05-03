@@ -449,6 +449,8 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           preferGroupMemberName: form.preferGroupMemberName ?? true,
           ...(form.outputDir?.trim() && { outputDir: form.outputDir.trim() }),
           ...(form.useNameInFileName && { useNameInFileName: true }),
+          // Issue #134: 友好文件名格式 `<名称>(<QQ号>).<扩展名>`
+          ...(form.useFriendlyFileName && { useFriendlyFileName: true }),
           ...(Array.isArray(form.skipDownloadResourceTypes) && form.skipDownloadResourceTypes.length > 0 && {
             skipDownloadResourceTypes: form.skipDownloadResourceTypes,
           }),
