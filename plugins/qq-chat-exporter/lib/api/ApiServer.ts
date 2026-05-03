@@ -48,6 +48,7 @@ import {
 } from '../utils/manualExportFileName.js';
 import { resolvePeerUid } from './peerResolution.js';
 import { lookupUserByUin } from './userLookup.js';
+import { buildResourceSummaryMessage } from '../utils/resourceSummary.js';
 
 // 导入类型定义
 import type { RawMessage } from 'NapCatQQ/src/core/types.js';
@@ -1903,7 +1904,10 @@ export class QQChatExporterApiServer {
                     startTime: task.filter?.startTime,
                     endTime: task.filter?.endTime,
                     isZipExport: task.isZipExport,
-                    originalFilePath: task.originalFilePath
+                    originalFilePath: task.originalFilePath,
+                    // issue #363：把资源摘要带回前端，让任务列表能直接告诉用户
+                    // 「本次有几个资源没拿到、是不是 Rkey 降级、要不要重试」。
+                    resourceSummary: task.resourceSummary
                 })).sort((a, b) => {
                     // 按创建时间倒序排列（最新的任务在前面）
                     const aTime = new Date(a.createdAt).getTime();
@@ -1941,7 +1945,9 @@ export class QQChatExporterApiServer {
                     completedAt: task.completedAt,
                     error: task.error,
                     startTime: task.filter?.startTime,
-                    endTime: task.filter?.endTime
+                    endTime: task.filter?.endTime,
+                    // issue #363：单任务详情也带上资源摘要。
+                    resourceSummary: task.resourceSummary
                 }, (req as any).requestId);
             } catch (error) {
                 this.sendErrorResponse(res, error, (req as any).requestId);
@@ -3798,6 +3804,9 @@ export class QQChatExporterApiServer {
 
             // 处理资源下载（如果启用了纯多媒体消息过滤，则跳过资源下载）
             let resourceMap: Map<string, any>;
+            // issue #363：把每次资源批处理的结果留到任务上，便于完成时给出一句
+            // 人类可读的总结，避免用户被 NapCat Rkey 日志误导。
+            let resourceSummary: ReturnType<typeof taskResourceHandler.getLastBatchSummary> | null = null;
             if (!options?.filterPureImageMessages) {
                 task = this.exportTasks.get(taskId);
                 if (task) {
@@ -3851,11 +3860,16 @@ export class QQChatExporterApiServer {
 
                 // 下载和处理资源（使用过滤后的消息列表）
                 resourceMap = await taskResourceHandler.processMessageResources(filteredMessages);
-                
+                resourceSummary = taskResourceHandler.getLastBatchSummary();
+
                 // 清除进度回调
                 taskResourceHandler.setProgressCallback(null);
-                
-                console.info(`[ApiServer] 处理了 ${resourceMap.size} 个消息的资源`);
+
+                console.info(
+                    `[ApiServer] 处理了 ${resourceMap.size} 个消息的资源（attempted=${resourceSummary.attempted}, ` +
+                    `downloaded=${resourceSummary.downloaded}, alreadyAvailable=${resourceSummary.alreadyAvailable}, ` +
+                    `failed=${resourceSummary.failed}, skipped=${resourceSummary.skipped}）`,
+                );
             } else {
                 console.info(`[ApiServer] 已启用纯多媒体消息过滤，跳过资源下载`);
                 resourceMap = new Map(); // 不下载资源，使用空Map
@@ -4042,20 +4056,28 @@ export class QQChatExporterApiServer {
 
             const stats = fs.statSync(finalFilePath);
 
+            // issue #363：用资源摘要拼一句给用户看的总结，让任务完成态本身就把
+            // 「有几个资源没拿到、是不是 Rkey 降级、要不要重试」讲清楚。
+            const resourceSummaryMessage = buildResourceSummaryMessage(resourceSummary);
+            const completionMessage = resourceSummaryMessage
+                ? `导出完成 · ${resourceSummaryMessage}`
+                : '导出完成';
+
             // 更新任务为完成状态
             task = this.exportTasks.get(taskId);
             if (task) {
                 await this.updateTaskStatus(taskId, {
                     status: 'completed',
                     progress: 100,
-                    message: '导出完成',
+                    message: completionMessage,
                     messageCount: sortedMessages.length,
                     filePath: finalFilePath,
                     fileSize: stats.size,
                     completedAt: new Date().toISOString(),
                     fileName: finalFileName,
                     isZipExport,
-                    originalFilePath: isZipExport ? filePath : undefined
+                    originalFilePath: isZipExport ? filePath : undefined,
+                    resourceSummary: resourceSummary ?? undefined,
                 });
             }
 
@@ -4074,14 +4096,15 @@ export class QQChatExporterApiServer {
                     taskId,
                     status: 'completed',
                     progress: 100,
-                    message: '导出完成',
+                    message: completionMessage,
                     messageCount: sortedMessages.length,
                     fileName: finalFileName,
                     filePath: finalFilePath,
                     fileSize: stats.size,
                     downloadUrl: finalDownloadUrl,
                     isZipExport,
-                    originalFilePath: isZipExport ? filePath : undefined
+                    originalFilePath: isZipExport ? filePath : undefined,
+                    resourceSummary: resourceSummary ?? undefined,
                 }
             });
 

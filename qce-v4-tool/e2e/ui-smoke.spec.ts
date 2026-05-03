@@ -199,6 +199,84 @@ test.describe('Session list — QQ lookup (issue #204)', () => {
         await expect(page.getByText('非好友 / 已注销')).toBeVisible({ timeout: 10_000 });
     });
 
+    /**
+     * Issue #363: 当本次导出有资源下载失败时，任务列表里这条任务下面应当出现
+     * 一段说明 Rkey 降级和重试方法的提示文案。这里直接拦截 `/api/tasks` 把一条
+     * 带 `resourceSummary.failed > 0` 的完成态任务塞进去，验证 UI 真的会渲染。
+     */
+    test('completed task with failed resources shows Rkey explanation banner (issue #363)', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+
+        // 拦截 /api/tasks，让前端看到一条 issue #363 场景的完成任务。
+        await page.route('**/api/tasks', async (route, request) => {
+            // 只拦 GET，POST 走真接口（不影响其它流程）。
+            if (request.method() !== 'GET') {
+                await route.continue();
+                return;
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: {
+                        tasks: [
+                            {
+                                id: 'rkey-fallback-task',
+                                peer: { peerUid: '12345', chatType: 1 },
+                                sessionName: 'Rkey 降级测试会话',
+                                status: 'completed',
+                                progress: 100,
+                                format: 'HTML',
+                                messageCount: 200,
+                                fileName: 'rkey_test.html',
+                                filePath: '/tmp/rkey_test.html',
+                                fileSize: 12345,
+                                createdAt: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+                                completedAt: new Date(Date.now() - 1 * 60 * 1000).toISOString(),
+                                resourceSummary: {
+                                    attempted: 12,
+                                    alreadyAvailable: 3,
+                                    downloaded: 5,
+                                    failed: 4,
+                                    skipped: 0,
+                                    failedSamples: ['photo-1.jpg', 'photo-2.jpg', 'photo-3.jpg', 'photo-4.jpg'],
+                                },
+                            },
+                        ],
+                    },
+                }),
+            });
+        });
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}${SHELL_PATH}`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        // 关掉欢迎弹窗（如有），切到任务标签页。
+        const skipBtn = page.getByRole('button', { name: '跳过' }).first();
+        if (await skipBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await skipBtn.click().catch(() => null);
+        }
+        const tasksTab = page.getByRole('button', { name: '任务', exact: true });
+        await expect(tasksTab).toBeVisible({ timeout: 15_000 });
+        await tasksTab.click();
+
+        // 任务行出现
+        await expect(page.getByText('Rkey 降级测试会话')).toBeVisible({ timeout: 10_000 });
+        // 数字行
+        await expect(page.getByText(/资源 8\/12，失败 4/)).toBeVisible({ timeout: 10_000 });
+        // Rkey 解释文案
+        await expect(page.getByText(/Rkey 服务临时降级|重新点开这些消息/)).toBeVisible({ timeout: 10_000 });
+    });
+
     test('searching for a non-existent QQ shows a friendly not-found message', async ({ page }) => {
         await clearLocalStorage(page);
         await page.evaluate((value) => {

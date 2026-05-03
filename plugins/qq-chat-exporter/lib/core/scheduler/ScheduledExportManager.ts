@@ -203,6 +203,18 @@ export interface ExecutionHistory {
     error?: string;
     /** 执行耗时（毫秒） */
     duration: number;
+    /**
+     * 资源下载摘要（issue #363）。仅在本次执行触发了资源下载时存在。
+     * 用来在执行历史 UI 上明确告诉用户本次到底丢了几个资源、是不是 Rkey 降级。
+     */
+    resourceSummary?: {
+        attempted: number;
+        alreadyAvailable: number;
+        downloaded: number;
+        failed: number;
+        skipped: number;
+        failedSamples: string[];
+    };
 }
 
 /**
@@ -566,6 +578,13 @@ export class ScheduledExportManager {
             // 下载资源（受 skipDownloadResourceTypes 影响）
             const resourceMap = await this.resourceHandler.processMessageResources(allMessages);
 
+            // issue #363：留下本次资源下载摘要，让 UI 能直接告诉用户本次有几个资源没拿到。
+            try {
+                history.resourceSummary = this.resourceHandler.getLastBatchSummary();
+            } catch {
+                // 旧版 ResourceHandler 不带 getLastBatchSummary 时忽略，不影响导出本身。
+            }
+
             // 重置共享 ResourceHandler 的状态，避免影响后续任务
             try {
                 this.resourceHandler.setSkipDownloadTypes([]);
@@ -651,8 +670,12 @@ export class ScheduledExportManager {
             }
 
             const stats = fs.statSync(filePath);
-            
-            history.status = 'success';
+
+            // issue #363：如果本次有资源下载失败，把状态降级为 partial，让用户在执行历史
+            // 列表上一眼就能看出来「本次导出文件出来了但漏了点东西」。
+            history.status = (history.resourceSummary && history.resourceSummary.failed > 0)
+                ? 'partial'
+                : 'success';
             history.messageCount = allMessages.length;
             history.filePath = filePath;
             history.fileSize = stats.size;
