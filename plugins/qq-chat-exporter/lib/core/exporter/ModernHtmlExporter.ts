@@ -1661,9 +1661,23 @@ export class ModernHtmlExporter {
         const title = data?.title || '聊天记录';
         const summary = data?.summary || data?.content || '查看转发消息';
         const preview = data?.preview || [];
+        // issue #161：解析器现在会把合并转发卡片里的真实子消息塞进 data.messages，
+        // 优先用它渲染完整列表，老数据 / fallback 再退回 preview / summary。
+        const innerMessages: Array<{
+            sender?: { name?: string; uin?: string };
+            content?: { text?: string };
+        }> = Array.isArray(data?.messages) ? data.messages : [];
+        const messageCount: number = typeof data?.messageCount === 'number' ? data.messageCount : innerMessages.length;
 
         let previewHtml = '';
-        if (Array.isArray(preview) && preview.length > 0) {
+        if (innerMessages.length > 0) {
+            previewHtml = innerMessages.slice(0, 5).map((m) => {
+                const name = this.escapeHtml(m?.sender?.name || (m?.sender?.uin ? String(m.sender.uin) : '未知'));
+                const text = (m?.content?.text || '').replace(/\s+/g, ' ').trim();
+                const trimmed = text.length > 60 ? text.slice(0, 60) + '…' : text;
+                return `<div class="forward-card-line"><span class="forward-card-sender">${name}:</span> <span class="forward-card-body">${this.escapeHtml(trimmed)}</span></div>`;
+            }).join('');
+        } else if (Array.isArray(preview) && preview.length > 0) {
             previewHtml = preview.slice(0, 3).map((line: any) => {
                 const text = typeof line === 'string' ? line : (line?.text || '');
                 return this.escapeHtml(text);
@@ -1673,6 +1687,8 @@ export class ModernHtmlExporter {
             const lines = summary.split('\n').slice(0, 3);
             previewHtml = lines.map(l => this.escapeHtml(l)).join('<br>');
         }
+
+        const footerLabel = messageCount > 0 ? `转发消息 · ${messageCount}条` : '转发消息';
 
         return `<div class="forward-card">
             <div class="forward-card-header">
@@ -1684,7 +1700,7 @@ export class ModernHtmlExporter {
             <div class="forward-card-content">
                 ${previewHtml || '点击查看转发的聊天记录'}
             </div>
-            <div class="forward-card-footer">转发消息</div>
+            <div class="forward-card-footer">${this.escapeHtml(footerLabel)}</div>
         </div>`;
     }
 
@@ -1763,9 +1779,20 @@ export class ModernHtmlExporter {
                 case 'json':
                     parts.push(`${d?.title || d?.summary || 'JSON'} ${d?.description || ''} ${d?.url || ''}`.trim());
                     break;
-                case 'forward':
+                case 'forward': {
+                    // issue #161：搜索时把合并转发卡片里的子消息内容也带上，否则
+                    // 只能搜到外壳标题，搜不到真实文本。
                     parts.push(`${d?.title || '转发'} ${d?.summary || d?.content || ''}`.trim());
+                    if (Array.isArray(d?.messages)) {
+                        for (const m of d.messages) {
+                            const name = m?.sender?.name || (m?.sender?.uin ? String(m.sender.uin) : '');
+                            const text = m?.content?.text || '';
+                            if (name) parts.push(String(name));
+                            if (text) parts.push(String(text));
+                        }
+                    }
                     break;
+                }
                 case 'location':
                     parts.push(`${d?.name || '位置'} ${d?.address || ''}`.trim());
                     break;
