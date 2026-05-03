@@ -230,6 +230,29 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
     }
   }, [open, chat])
 
+  /**
+   * Issue #300: 这个预览弹窗本身是 framer-motion 自定义模态，z-index 在更外层 Radix
+   * Dialog 之上，但 Radix 在它自己的 `<body>` 上挂了 `pointer-events: none` 来禁用底
+   * 层交互。结果就是任务向导里的 Dialog 还开着时打开预览，预览本身和它 fixed 子树
+   * 也被一起禁掉了点击。
+   *
+   * 这里在弹窗显示期间强制把 body 的 pointer-events 改回 auto，关闭后恢复成原样。
+   * 不动 Radix 自己的 modal=true 行为，只覆盖最末端的 body 状态，避免影响其它依赖
+   * Radix 屏蔽底层交互的弹层。
+   */
+  useEffect(() => {
+    if (!open) return
+    if (typeof document === 'undefined') return
+    const body = document.body
+    const previous = body.style.pointerEvents
+    body.style.pointerEvents = 'auto'
+    return () => {
+      // 关闭时优先恢复打开前的值；遇到 Radix 把 body 的 inline 样式整个清掉的情况
+      // （previous 为空字符串）就保持空字符串，让浏览器回到默认值。
+      body.style.pointerEvents = previous
+    }
+  }, [open])
+
   if (!chat) return null
 
   return (
