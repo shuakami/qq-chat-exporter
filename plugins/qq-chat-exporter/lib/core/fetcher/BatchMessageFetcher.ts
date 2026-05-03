@@ -11,6 +11,7 @@ import {
     ErrorType, 
     SystemError 
 } from '../../types/index.js';
+import { isPrivateLikeChatType } from '../../api/chatTypeClassification.js';
 
 /**
  * 批量获取配置接口
@@ -223,9 +224,11 @@ export class BatchMessageFetcher {
      * 根据筛选条件和性能情况选择最优的获取策略
      */
     private selectOptimalStrategy(filter: MessageFilter, peer: Peer): FetchStrategy {
-        // 对于私聊，直接使用最简单可靠的方法
-        if (peer.chatType === 1) {
-            console.debug(`策略选择: 私聊使用基础getMsgHistory方法, 对等体=${peer.peerUid}`);
+        // 对于单聊型会话（含好友、临时会话、服务号、频道私聊等，issue #365），
+        // 直接使用最简单可靠的方法。chatType !== 2 都按非群聊处理，避免群聊
+        // 调优策略对单聊场景画蛇添足。
+        if (isPrivateLikeChatType(peer.chatType)) {
+            console.debug(`策略选择: 单聊使用基础getMsgHistory方法, 对等体=${peer.peerUid}, chatType=${peer.chatType}`);
             return FetchStrategy.TIME_BASED_SEQUENTIAL;
         }
 
