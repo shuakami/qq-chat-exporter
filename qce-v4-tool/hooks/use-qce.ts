@@ -54,6 +54,7 @@ export function useQCE(props?: { onNotification?: UseExportTasksProps['onNotific
     loadChatData: chatData.loadAll,
     exportGroupAvatars: chatData.exportGroupAvatars,
     avatarExportLoading: chatData.avatarExportLoading,
+    recentActivityMap: chatData.recentActivityMap,
 
     // Tasks
     tasks: exportTasks.tasks,

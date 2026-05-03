@@ -1,9 +1,9 @@
 import { useState, useMemo, useCallback, useEffect } from "react"
 import type { Group, Friend } from "@/types/api"
+import { compareSessionItems, type SortField, type SortOrder } from "@/lib/session-sort"
 
 export type SessionType = 'all' | 'group' | 'friend'
-export type SortField = 'name' | 'memberCount' | 'id'
-export type SortOrder = 'asc' | 'desc'
+export type { SortField, SortOrder }
 
 export interface SessionFilterState {
   search: string
@@ -22,11 +22,30 @@ export interface SessionItem {
   avatarUrl: string
   memberCount?: number
   isOnline?: boolean
+  /**
+   * Issue #344: 会话最近一条消息的时间（ISO）。由 `useSessionFilter`
+   * 调用方从 `/api/recent-contacts` 结果里查出来传进来，没有记录时 `undefined`。
+   */
+  lastMessageTime?: string
+  /**
+   * Issue #344: 该会话在本地任务里已经导出过的消息总数（`/api/tasks`
+   * 里 completed task 的 `messageCount` 求和）。未导出过时 `0`。
+   */
+  exportedMessageCount?: number
   raw: Group | Friend
 }
 
 export interface UseSessionFilterOptions {
   defaultPageSize?: number
+  /**
+   * Issue #344: peerUid → 最近一条消息 ISO 时间。key 针对
+   * `friend.uid` 和 `group.groupCode` 两种。
+   */
+  recentActivityMap?: Record<string, string | undefined>
+  /**
+   * Issue #344: peerUid → 已导出消息总数。
+   */
+  taskCountMap?: Record<string, number | undefined>
 }
 
 export interface UseSessionFilterReturn {
@@ -67,7 +86,11 @@ export function useSessionFilter(
   friends: Friend[],
   options: UseSessionFilterOptions = {}
 ): UseSessionFilterReturn {
-  const { defaultPageSize = 50 } = options
+  const {
+    defaultPageSize = 50,
+    recentActivityMap,
+    taskCountMap,
+  } = options
 
   // Filter state
   const [search, setSearch] = useState("")
@@ -86,6 +109,8 @@ export function useSessionFilter(
       subName: g.remark,
       avatarUrl: g.avatarUrl || `https://p.qlogo.cn/gh/${g.groupCode}/${g.groupCode}/640/`,
       memberCount: g.memberCount,
+      lastMessageTime: recentActivityMap?.[g.groupCode],
+      exportedMessageCount: taskCountMap?.[g.groupCode] ?? 0,
       raw: g,
     }))
 
@@ -96,11 +121,13 @@ export function useSessionFilter(
       subName: f.remark && f.nick !== f.remark ? f.nick : undefined,
       avatarUrl: f.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${f.uin}&s=640`,
       isOnline: f.isOnline,
+      lastMessageTime: recentActivityMap?.[f.uid],
+      exportedMessageCount: taskCountMap?.[f.uid] ?? 0,
       raw: f,
     }))
 
     return [...groupItems, ...friendItems]
-  }, [groups, friends])
+  }, [groups, friends, recentActivityMap, taskCountMap])
 
   // Filtered items (search + type filter)
   const filteredItems = useMemo<SessionItem[]>(() => {
@@ -135,27 +162,10 @@ export function useSessionFilter(
       })
     }
 
-    // Sort
-    items = [...items].sort((a, b) => {
-      let comparison = 0
-
-      switch (sortField) {
-        case 'name':
-          comparison = a.name.localeCompare(b.name, 'zh-CN')
-          break
-        case 'memberCount':
-          // Groups first (they have memberCount), then friends
-          const aCount = a.memberCount ?? -1
-          const bCount = b.memberCount ?? -1
-          comparison = aCount - bCount
-          break
-        case 'id':
-          comparison = a.id.localeCompare(b.id)
-          break
-      }
-
-      return sortOrder === 'asc' ? comparison : -comparison
-    })
+    // Sort。纯函数抽到 `lib/session-sort` 里，方便后端 node:test 复用。
+    items = [...items].sort((a, b) =>
+      compareSessionItems(a, b, sortField, sortOrder),
+    )
 
     return items
   }, [allItems, search, type, sortField, sortOrder])

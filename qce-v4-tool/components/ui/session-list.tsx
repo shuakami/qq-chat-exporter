@@ -36,6 +36,10 @@ import {
   type SortField,
   type SortOrder,
 } from "@/hooks/use-session-filter"
+import {
+  formatCompactCount,
+  formatRelativeFromNow,
+} from "@/lib/session-sort"
 import { QqLookupCard } from "./qq-lookup-card"
 
 const UIN_PATTERN = /^\d{4,12}$/
@@ -47,6 +51,16 @@ export interface SessionListProps {
   batchMode?: boolean
   selectedItems?: Set<string>
   avatarExportLoading?: string | null
+  /**
+   * Issue #344: peerUid (group.groupCode / friend.uid) → 最近一条消息 ISO 时间。
+   * 供「按最近活跃」排序 / 列表徽标显示。
+   */
+  recentActivityMap?: Record<string, string | undefined>
+  /**
+   * Issue #344: peerUid → 该会话在本地任务里已导出的消息总数。供「按
+   * 已导出消息数」排序。
+   */
+  taskCountMap?: Record<string, number | undefined>
   onRefresh?: () => void
   onToggleBatchMode?: () => void
   onSelectAll?: (filteredIds?: Set<string>) => void
@@ -81,6 +95,8 @@ export function SessionList({
   batchMode = false,
   selectedItems = new Set(),
   avatarExportLoading,
+  recentActivityMap,
+  taskCountMap,
   onRefresh,
   onToggleBatchMode,
   onSelectAll,
@@ -116,7 +132,10 @@ export function SessionList({
     hasPrevPage,
     groupCount,
     friendCount,
-  } = useSessionFilter(groups, friends)
+  } = useSessionFilter(groups, friends, {
+    recentActivityMap,
+    taskCountMap,
+  })
 
   const searchInputRef = useRef<HTMLInputElement>(null)
   // Issue #344: 记住上一次点击的 row key，用于 shift+click 区间多选。
@@ -300,6 +319,22 @@ export function SessionList({
                 <span className="truncate">{item.subName}</span>
               </>
             )}
+            {/* Issue #344: 最近一条消息时间。没有数据时不渲染。 */}
+            {item.lastMessageTime && (
+              <>
+                <span>·</span>
+                <span title={item.lastMessageTime} className="truncate">
+                  {formatRelativeFromNow(item.lastMessageTime)}
+                </span>
+              </>
+            )}
+            {/* Issue #344: 已导出消息累计。0 不渲染，避免噪声。 */}
+            {item.exportedMessageCount && item.exportedMessageCount > 0 && (
+              <>
+                <span>·</span>
+                <span className="truncate">已导出 {formatCompactCount(item.exportedMessageCount)} 条</span>
+              </>
+            )}
           </div>
         </div>
 
@@ -433,13 +468,16 @@ export function SessionList({
 
           {/* Sort Field */}
           <Select value={sortField} onValueChange={(v: string) => setSortField(v as SortField)}>
-            <SelectTrigger className="w-[100px] h-10 text-sm rounded-lg">
+            <SelectTrigger className="w-[120px] h-10 text-sm rounded-lg">
               <SelectValue placeholder="排序" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="name">名称</SelectItem>
               <SelectItem value="memberCount">人数</SelectItem>
               <SelectItem value="id">ID</SelectItem>
+              {/* Issue #344: 按最近一条消息时间 / 已导出消息数排序。 */}
+              <SelectItem value="lastActivity">最近活跃</SelectItem>
+              <SelectItem value="exportedCount">已导出条数</SelectItem>
             </SelectContent>
           </Select>
 
