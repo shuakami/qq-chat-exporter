@@ -143,6 +143,23 @@ export function privateWithForward(): MockConversation {
 
 /* --------------------------- Scenario 5: Volume ---------------------------- */
 
+/* --------------------- Scenario 6: Deactivated friend (#204) ----------------- */
+
+/**
+ * 模拟一个「对方已注销 / 已从好友列表删除」的私聊：
+ *   - 这个 uid 不在 FRIENDS 里；
+ *   - getUidByUinV2('77777') 仍能反查到 `u_deactivated_77777`（mock 里给了一个
+ *     特殊兜底分支，模拟本机数据库还留着会话痕迹）；
+ *   - 这条会话有真实历史消息，按 peer 取消息能跑通。
+ */
+export function privateDeactivatedFriend(): MockConversation {
+    resetIds();
+    return conversation(privatePeer('u_deactivated_77777'), { name: '老张 (77777)', type: 'private' })
+        .add(msg().sender({ uid: 'u_deactivated_77777', uin: '77777', nick: '老张' }).text('明天见').at_time(T + 0).build())
+        .add(msg().sender({ uid: 'self_test_uid', uin: '10000', nick: 'TestSelf' }).text('好的').at_time(T + 60).build())
+        .build();
+}
+
 /**
  * Creates `count` text messages spanning `count` minutes. Used by fetcher
  * pagination tests — the BatchMessageFetcher splits this across batches and
