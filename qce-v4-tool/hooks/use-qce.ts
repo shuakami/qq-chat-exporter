@@ -24,6 +24,15 @@ export function useQCE(props?: { onNotification?: UseExportTasksProps['onNotific
       // New progress message format
       exportTasks.handleWebSocketProgress(data)
     },
+    onTaskResync: (data) => {
+      // Issue #144: 服务端在 WS 一连上就推一份当前任务状态全量；先把已
+      // 知任务的 status / progress 用服务端真值对齐，再触发一次 REST 全
+      // 量拉取，把可能新增 / 完成 / 失败的任务列表彻底刷一遍。
+      exportTasks.applyTaskResync(data.tasks)
+      exportTasks.loadTasks().catch((error) => {
+        console.error("[QCE] task_resync 触发的 loadTasks 失败:", error)
+      })
+    },
     onError: (error) => {
       if (error) {
         console.error("[QCE] WebSocket error:", error)
