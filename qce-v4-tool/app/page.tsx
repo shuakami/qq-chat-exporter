@@ -723,6 +723,24 @@ export default function QCEDashboard() {
     setSelectedItems(new Set())
   }
 
+  /**
+   * Issue #344: 区间多选 / 分类全选用的批量增删入口。
+   * - mode = 'add' 把 ids 全部加进当前选区；
+   * - mode = 'remove' 把 ids 全部从当前选区移除。
+   * 不替换其它已选项，避免按「全选群」会清掉用户手挑的好友。
+   */
+  const handleSelectMany = (ids: Set<string>, mode: 'add' | 'remove') => {
+    setSelectedItems((prev) => {
+      const next = new Set(prev)
+      if (mode === 'add') {
+        ids.forEach((id) => next.add(id))
+      } else {
+        ids.forEach((id) => next.delete(id))
+      }
+      return next
+    })
+  }
+
   const handleToggleItem = (type: 'group' | 'friend', id: string) => {
     const itemId = `${type}_${id}`
     const newSet = new Set(selectedItems)
@@ -1574,6 +1592,7 @@ export default function QCEDashboard() {
                   onSelectAll={handleSelectAll}
                   onClearSelection={handleClearSelection}
                   onToggleItem={handleToggleItem}
+                  onSelectMany={handleSelectMany}
                   onOpenBatchExportDialog={handleOpenBatchExportDialog}
                   onPreviewChat={handlePreviewChat}
                   onOpenTaskWizard={handleOpenTaskWizard}
