@@ -6,6 +6,10 @@ import { pipeline } from 'stream/promises';
 import { once } from 'events';
 import type { CleanMessage } from '../parser/SimpleMessageParser.js';
 import {
+    chooseReplyJumpTarget,
+    formatReplyTimestamp,
+} from './replyRender.js';
+import {
     renderTemplate,
     MODERN_CSS,
     MODERN_TOOLBAR_HTML,
@@ -1602,20 +1606,13 @@ export class ModernHtmlExporter {
     private renderReplyElement(data: any): string {
         const senderName = data?.senderName || '用户';
         const content = data?.content || data?.text || '引用消息';
-        const replyMsgId = data?.replyMsgId || data?.msgId || '';
-        const time = data?.time || data?.timestamp || '';
 
-        // 格式化时间
-        let timeStr = '';
-        if (time) {
-            const date = this.safeToDate(time);
-            if (date) {
-                timeStr = date.toLocaleString('zh-CN', {
-                    month: '2-digit', day: '2-digit',
-                    hour: '2-digit', minute: '2-digit'
-                });
-            }
-        }
+        // Issue #128: 选 reply 跳转目标 / 时间字段。SimpleMessageParser
+        // 写的是 referencedMessageId / timestamp（秒级 epoch number），跟
+        // 历史的 replyMsgId / time 字段不同；这两个 helper 把字段挑选
+        // 统一掉，并把时间格式化成「MM-DD HH:mm」中文串。
+        const jumpTarget = chooseReplyJumpTarget(data);
+        const timeStr = formatReplyTimestamp(data?.timestamp ?? data?.time ?? null);
 
         // 检查是否有图片
         let imageHtml = '';
@@ -1633,8 +1630,10 @@ export class ModernHtmlExporter {
             }
         }
 
-        const dataAttr = replyMsgId ? `data-reply-to="msg-${replyMsgId}"` : '';
-        const onClick = replyMsgId ? `onclick="scrollToMessage('msg-${replyMsgId}')"` : '';
+        const dataAttr = jumpTarget ? `data-reply-to="msg-${this.escapeHtml(jumpTarget)}"` : '';
+        const onClick = jumpTarget
+            ? `onclick="scrollToMessage('msg-${this.escapeHtml(jumpTarget)}')"`
+            : '';
 
         return `<div class="reply-content" ${dataAttr} ${onClick}>
             <div class="reply-content-header">
