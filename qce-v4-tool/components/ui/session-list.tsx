@@ -36,6 +36,9 @@ import {
   type SortField,
   type SortOrder,
 } from "@/hooks/use-session-filter"
+import { QqLookupCard } from "./qq-lookup-card"
+
+const UIN_PATTERN = /^\d{4,12}$/
 
 export interface SessionListProps {
   groups: Group[]
@@ -581,13 +584,25 @@ export function SessionList({
               <p className="text-sm text-foreground">没有符合条件的会话</p>
               <p className="text-xs text-muted-foreground/60 mt-1">
                 尝试调整搜索条件或
-                <button 
+                <button
                   onClick={resetFilters}
                   className="text-primary hover:underline ml-1"
                 >
                   清除筛选
                 </button>
               </p>
+              {/*
+                * Issue #204：搜索词是合法 QQ 号但好友/群/最近联系人都搜不到时，
+                * 把搜索框里的数字直接喂给 /api/users/lookup，让用户能定位到
+                * 已注销 / 已删好友的历史会话。
+                */}
+              {UIN_PATTERN.test(search.trim()) && onOpenTaskWizard && (
+                <QqLookupCard
+                  initialUin={search.trim()}
+                  onStartExport={(preset) => onOpenTaskWizard(preset)}
+                  onPreview={onPreviewChat ? (peer, name) => onPreviewChat('friend', peer.peerUid, name, peer) : undefined}
+                />
+              )}
             </>
           )}
         </div>
