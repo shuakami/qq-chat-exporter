@@ -434,6 +434,10 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           ...(form.excludeUserUins && {
             excludeUserUins: form.excludeUserUins.split(",").map((uin) => uin.trim()).filter(Boolean),
           }),
+          // Issue #369：仅导出指定 QQ 的消息。
+          ...(form.includeUserUins && {
+            includeUserUins: form.includeUserUins.split(",").map((uin) => uin.trim()).filter(Boolean),
+          }),
           includeRecalled: form.includeRecalled,
         },
         options: {

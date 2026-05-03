@@ -10,7 +10,7 @@ import { Badge } from "./badge"
 import { Separator } from "./separator"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import {
-  Users, User, Search, Loader2, ChevronDown, RefreshCw, Settings, Eye, FileText, CheckCircle, X, UserMinus, Check
+  Users, User, Search, Loader2, ChevronDown, RefreshCw, Settings, Eye, FileText, CheckCircle, X, UserMinus, UserPlus, Check
 } from "lucide-react"
 import { useSearch } from "@/hooks/use-search"
 import type { CreateTaskForm, Group, Friend, GroupMember } from "@/types/api"
@@ -59,8 +59,9 @@ export function TaskWizard({
   const [manualQQNumber, setManualQQNumber] = useState("")
   const [manualSessionName, setManualSessionName] = useState("")
   
-  // 群成员选择器状态
-  const [showMemberSelector, setShowMemberSelector] = useState(false)
+  // 群成员选择器状态：mode 表示当前选择器是给「排除」还是「仅导出」面板用的，
+  // null 表示未展开。Issue #369 把同一份选择器复用给两个目标字段。
+  const [memberSelectorMode, setMemberSelectorMode] = useState<'exclude' | 'include' | null>(null)
   const [groupMembers, setGroupMembers] = useState<GroupMember[]>([])
   const [membersLoading, setMembersLoading] = useState(false)
   const [selectedMemberUins, setSelectedMemberUins] = useState<Set<string>>(new Set())
@@ -75,6 +76,7 @@ export function TaskWizard({
     endTime: "",
     keywords: "",
     excludeUserUins: "",
+    includeUserUins: "",
     includeRecalled: false,
     includeSystemMessages: true,
     filterPureImageMessages: true, // JSON/TXT默认启用
@@ -115,6 +117,7 @@ export function TaskWizard({
         endTime: prefilledData.endTime || "",
         keywords: prefilledData.keywords || "",
         excludeUserUins: prefilledData.excludeUserUins || "",
+        includeUserUins: prefilledData.includeUserUins || "",
         includeRecalled: prefilledData.includeRecalled || false,
         includeSystemMessages:
           prefilledData.includeSystemMessages !== undefined ? prefilledData.includeSystemMessages : true,
@@ -196,6 +199,7 @@ export function TaskWizard({
         endTime: "",
         keywords: "",
         excludeUserUins: "",
+        includeUserUins: "",
         includeRecalled: false,
         includeSystemMessages: true,
         filterPureImageMessages: true, // JSON默认启用
@@ -244,19 +248,23 @@ export function TaskWizard({
     }
   }, [])
 
-  // 切换群成员选择器展开/收起
-  const handleOpenMemberSelector = useCallback(() => {
-    if (selectedTarget && "groupCode" in selectedTarget) {
-      if (!showMemberSelector) {
-        // 展开时：从当前 excludeUserUins 恢复已选中的成员
-        const currentUins = form.excludeUserUins?.split(',').map(s => s.trim()).filter(Boolean) || []
-        setSelectedMemberUins(new Set(currentUins))
-        setMemberSearchTerm("")
-        fetchGroupMembers(selectedTarget.groupCode)
-      }
-      setShowMemberSelector(!showMemberSelector)
+  // 切换群成员选择器展开/收起。mode 决定面板服务于哪一个字段。
+  // 同一时间只展开一个面板：再点同一按钮收起，点另一按钮则切换面板内容。
+  const handleOpenMemberSelector = useCallback((mode: 'exclude' | 'include') => {
+    if (!(selectedTarget && "groupCode" in selectedTarget)) return
+    if (memberSelectorMode === mode) {
+      setMemberSelectorMode(null)
+      return
     }
-  }, [selectedTarget, form.excludeUserUins, fetchGroupMembers, showMemberSelector])
+    const currentRaw = mode === 'include' ? form.includeUserUins : form.excludeUserUins
+    const currentUins = currentRaw?.split(',').map(s => s.trim()).filter(Boolean) || []
+    setSelectedMemberUins(new Set(currentUins))
+    setMemberSearchTerm("")
+    if (groupMembers.length === 0) {
+      fetchGroupMembers(selectedTarget.groupCode)
+    }
+    setMemberSelectorMode(mode)
+  }, [selectedTarget, form.includeUserUins, form.excludeUserUins, fetchGroupMembers, memberSelectorMode, groupMembers.length])
 
   // 切换成员选中状态
   const toggleMemberSelection = useCallback((uin: string) => {
@@ -271,12 +279,14 @@ export function TaskWizard({
     })
   }, [])
 
-  // 确认选择的成员
+  // 确认选择的成员，根据当前面板写入 include 或 exclude 字段
   const confirmMemberSelection = useCallback(() => {
     const uins = Array.from(selectedMemberUins).join(',')
-    setForm(p => ({ ...p, excludeUserUins: uins }))
-    setShowMemberSelector(false)
-  }, [selectedMemberUins])
+    setForm(p => memberSelectorMode === 'include'
+      ? { ...p, includeUserUins: uins }
+      : { ...p, excludeUserUins: uins })
+    setMemberSelectorMode(null)
+  }, [selectedMemberUins, memberSelectorMode])
 
   // 过滤群成员
   const filteredMembers = groupMembers.filter(member => {
@@ -288,6 +298,97 @@ export function TaskWizard({
       (member.uin && member.uin.includes(term))
     )
   })
+
+  // 渲染折叠式群成员选择器面板。include 与 exclude 共用同一份 UI，由 mode 控制可见性，
+  // 只有 mode 与外层匹配时才展开，确认按钮的写入逻辑见 confirmMemberSelection。
+  const renderMemberSelectorPanel = (mode: 'exclude' | 'include') => (
+    <div className={`overflow-hidden transition-all duration-300 ease-in-out ${memberSelectorMode === mode ? "max-h-[350px] opacity-100" : "max-h-0 opacity-0"}`}>
+      <div className="border border-black/[0.06] dark:border-white/[0.06] rounded-xl p-3 space-y-2 bg-muted/50">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
+          <Input
+            placeholder="搜索昵称、群名片或QQ号..."
+            value={memberSearchTerm}
+            onChange={(e) => setMemberSearchTerm(e.target.value)}
+            className="pl-9 h-8 text-sm rounded-full bg-card"
+          />
+        </div>
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>已选择 {selectedMemberUins.size} 个成员</span>
+          {selectedMemberUins.size > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedMemberUins(new Set())}
+              className="h-5 px-2 text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
+            >
+              清空
+            </Button>
+          )}
+        </div>
+        <div className="max-h-[180px] overflow-y-auto border border-black/[0.06] dark:border-white/[0.06] rounded-lg bg-card">
+          {membersLoading ? (
+            <div className="flex items-center justify-center h-20">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/60" />
+            </div>
+          ) : filteredMembers.length === 0 ? (
+            <div className="flex items-center justify-center h-20 text-muted-foreground text-xs">
+              {memberSearchTerm ? "没有找到匹配的成员" : "暂无群成员数据"}
+            </div>
+          ) : (
+            <div className="divide-y divide-black/[0.06] dark:divide-white/[0.06]">
+              {filteredMembers.slice(0, 50).map((member) => {
+                const uin = member.uin || member.uid
+                const isSelected = selectedMemberUins.has(uin)
+                const displayName = member.cardName || member.nick
+                const roleNum = typeof member.role === 'number' ? member.role : 0
+                const isOwner = roleNum === 4 || member.role === 'owner'
+                const isAdmin = roleNum === 3 || member.role === 'admin'
+                return (
+                  <div
+                    key={uin}
+                    onClick={() => toggleMemberSelection(uin)}
+                    className={`flex items-center gap-2 p-2 cursor-pointer hover:bg-muted transition-colors ${
+                      isSelected ? "bg-blue-50 dark:bg-blue-950/50" : ""
+                    }`}
+                  >
+                    <Checkbox checked={isSelected} className="w-4 h-4" />
+                    <Avatar className="w-6 h-6 rounded-full">
+                      <AvatarImage src={member.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=100`} />
+                      <AvatarFallback className="text-xs">{displayName[0]}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate flex items-center gap-1">
+                        {displayName}
+                        {isOwner && <Badge variant="secondary" className="text-[10px] px-1 py-0">群主</Badge>}
+                        {isAdmin && <Badge variant="secondary" className="text-[10px] px-1 py-0">管理</Badge>}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground/60 truncate">
+                        {uin}
+                      </p>
+                    </div>
+                    {isSelected && <Check className="w-3 h-3 text-blue-600 flex-shrink-0" />}
+                  </div>
+                )
+              })}
+              {filteredMembers.length > 50 && (
+                <div className="p-2 text-center text-xs text-muted-foreground/60">
+                  仅显示前50个结果，请使用搜索缩小范围
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <Button
+          onClick={confirmMemberSelection}
+          size="sm"
+          className={`w-full h-7 text-xs rounded-full ${mode === 'include' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+        >
+          确认选择 ({selectedMemberUins.size})
+        </Button>
+      </div>
+    </div>
+  )
 
   const handleSearchInput = useCallback((value: string) => {
     setSearchTerm(value)
@@ -836,112 +937,18 @@ export function TaskWizard({
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={handleOpenMemberSelector}
+                onClick={() => handleOpenMemberSelector('exclude')}
                 className="text-xs h-7 text-blue-600 hover:text-blue-700"
               >
                 <UserMinus className="w-3 h-3 mr-1" />
-                {showMemberSelector ? "收起" : "从群成员选择"}
-                <ChevronDown className={`w-3 h-3 ml-1 transition-transform duration-200 ${showMemberSelector ? "rotate-180" : ""}`} />
+                {memberSelectorMode === 'exclude' ? "收起" : "从群成员选择"}
+                <ChevronDown className={`w-3 h-3 ml-1 transition-transform duration-200 ${memberSelectorMode === 'exclude' ? "rotate-180" : ""}`} />
               </Button>
             )}
           </div>
           
-          {/* 折叠式群成员选择器 */}
-          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showMemberSelector ? "max-h-[350px] opacity-100" : "max-h-0 opacity-0"}`}>
-            <div className="border border-black/[0.06] dark:border-white/[0.06] rounded-xl p-3 space-y-2 bg-muted/50">
-              {/* 搜索框 */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
-                <Input
-                  placeholder="搜索昵称、群名片或QQ号..."
-                  value={memberSearchTerm}
-                  onChange={(e) => setMemberSearchTerm(e.target.value)}
-                  className="pl-9 h-8 text-sm rounded-full bg-card"
-                />
-              </div>
-              
-              {/* 已选数量 */}
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>已选择 {selectedMemberUins.size} 个成员</span>
-                {selectedMemberUins.size > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setSelectedMemberUins(new Set())}
-                    className="h-5 px-2 text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300"
-                  >
-                    清空
-                  </Button>
-                )}
-              </div>
-              
-              {/* 成员列表 */}
-              <div className="max-h-[180px] overflow-y-auto border border-black/[0.06] dark:border-white/[0.06] rounded-lg bg-card">
-                {membersLoading ? (
-                  <div className="flex items-center justify-center h-20">
-                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/60" />
-                  </div>
-                ) : filteredMembers.length === 0 ? (
-                  <div className="flex items-center justify-center h-20 text-muted-foreground text-xs">
-                    {memberSearchTerm ? "没有找到匹配的成员" : "暂无群成员数据"}
-                  </div>
-                ) : (
-                  <div className="divide-y divide-black/[0.06] dark:divide-white/[0.06]">
-                    {filteredMembers.slice(0, 50).map((member) => {
-                      const uin = member.uin || member.uid
-                      const isSelected = selectedMemberUins.has(uin)
-                      const displayName = member.cardName || member.nick
-                      // 处理 role: 4=owner, 3=admin, 其他=member
-                      const roleNum = typeof member.role === 'number' ? member.role : 0
-                      const isOwner = roleNum === 4 || member.role === 'owner'
-                      const isAdmin = roleNum === 3 || member.role === 'admin'
-                      return (
-                        <div
-                          key={uin}
-                          onClick={() => toggleMemberSelection(uin)}
-                          className={`flex items-center gap-2 p-2 cursor-pointer hover:bg-muted transition-colors ${
-                            isSelected ? "bg-blue-50 dark:bg-blue-950/50" : ""
-                          }`}
-                        >
-                          <Checkbox checked={isSelected} className="w-4 h-4" />
-                          <Avatar className="w-6 h-6 rounded-full">
-                            <AvatarImage src={member.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=100`} />
-                            <AvatarFallback className="text-xs">{displayName[0]}</AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium truncate flex items-center gap-1">
-                              {displayName}
-                              {isOwner && <Badge variant="secondary" className="text-[10px] px-1 py-0">群主</Badge>}
-                              {isAdmin && <Badge variant="secondary" className="text-[10px] px-1 py-0">管理</Badge>}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground/60 truncate">
-                              {uin}
-                            </p>
-                          </div>
-                          {isSelected && <Check className="w-3 h-3 text-blue-600 flex-shrink-0" />}
-                        </div>
-                      )
-                    })}
-                    {filteredMembers.length > 50 && (
-                      <div className="p-2 text-center text-xs text-muted-foreground/60">
-                        仅显示前50个结果，请使用搜索缩小范围
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              
-              {/* 确认按钮 */}
-              <Button 
-                onClick={confirmMemberSelection} 
-                size="sm"
-                className="w-full h-7 text-xs rounded-full bg-blue-600 hover:bg-blue-700"
-              >
-                确认选择 ({selectedMemberUins.size})
-              </Button>
-            </div>
-          </div>
-          
+          {renderMemberSelectorPanel('exclude')}
+
           <Textarea
             id="excludeUserUins"
             placeholder="用逗号分隔多个QQ号，如：123456789,987654321&#10;这些用户的消息将被过滤掉（适合过滤机器人）"
@@ -953,6 +960,42 @@ export function TaskWizard({
           {form.excludeUserUins && (
             <p className="text-xs text-muted-foreground">
               已选择 {form.excludeUserUins.split(',').filter(s => s.trim()).length} 个用户
+            </p>
+          )}
+        </div>
+
+        {/* Issue #369：仅导出指定 QQ 号的消息（与排除互不冲突；同一 QQ 同时出现时，排除优先生效） */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="includeUserUins">仅导出这些用户的消息（可选）</Label>
+            {selectedTarget && "groupCode" in selectedTarget && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handleOpenMemberSelector('include')}
+                className="text-xs h-7 text-emerald-600 hover:text-emerald-700"
+              >
+                <UserPlus className="w-3 h-3 mr-1" />
+                {memberSelectorMode === 'include' ? "收起" : "从群成员选择"}
+                <ChevronDown className={`w-3 h-3 ml-1 transition-transform duration-200 ${memberSelectorMode === 'include' ? "rotate-180" : ""}`} />
+              </Button>
+            )}
+          </div>
+
+          {renderMemberSelectorPanel('include')}
+
+          <Textarea
+            id="includeUserUins"
+            placeholder="用逗号分隔多个QQ号，如：123456789,987654321&#10;留空表示不限制；填写后只会导出这些用户的消息"
+            value={form.includeUserUins || ""}
+            onChange={(e) => setForm((p) => ({ ...p, includeUserUins: e.target.value }))}
+            rows={2}
+            className="rounded-2xl"
+          />
+          {form.includeUserUins && (
+            <p className="text-xs text-muted-foreground">
+              已选择 {form.includeUserUins.split(',').filter(s => s.trim()).length} 个用户
             </p>
           )}
         </div>
