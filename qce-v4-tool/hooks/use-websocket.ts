@@ -1,11 +1,23 @@
 import { useCallback, useEffect, useState, useRef } from "react"
-import type { WebSocketMessage, ExportProgressMessage, NotificationMessage, WebSocketProgressMessage } from "@/types/api"
+import type {
+  WebSocketMessage,
+  ExportProgressMessage,
+  NotificationMessage,
+  WebSocketProgressMessage,
+  WebSocketTaskResyncMessage,
+} from "@/types/api"
 
 interface UseWebSocketProps {
   onMessage?: (data: WebSocketMessage) => void
   onExportProgress?: (data: ExportProgressMessage['data']) => void
   onProgressUpdate?: (data: WebSocketProgressMessage['data']) => void
   onNotification?: (data: NotificationMessage['data']) => void
+  /**
+   * Issue #144: 服务端在 WebSocket 一连上就推一份当前内存里的任务状态
+   * 全量。前端拿到后可以立刻把任务列表里的 status / progress 对齐，无需
+   * 等下一条 export_progress 才有反应。
+   */
+  onTaskResync?: (data: WebSocketTaskResyncMessage['data']) => void
   onError?: (error: string | null) => void
 }
 
@@ -14,6 +26,7 @@ export function useWebSocket({
   onExportProgress,
   onProgressUpdate,
   onNotification,
+  onTaskResync,
   onError,
 }: UseWebSocketProps = {}) {
   const [ws, setWs] = useState<WebSocket | null>(null)
@@ -25,6 +38,7 @@ export function useWebSocket({
     onExportProgress,
     onProgressUpdate,
     onNotification,
+    onTaskResync,
     onError,
   })
   
@@ -35,9 +49,10 @@ export function useWebSocket({
       onExportProgress,
       onProgressUpdate,
       onNotification,
+      onTaskResync,
       onError,
     }
-  }, [onMessage, onExportProgress, onProgressUpdate, onNotification, onError])
+  }, [onMessage, onExportProgress, onProgressUpdate, onNotification, onTaskResync, onError])
 
   const connect = useCallback(() => {
     // Don't create new connection if one already exists
@@ -73,6 +88,9 @@ export function useWebSocket({
         } else if (data.type === "export_progress" || data.type === "export_complete" || data.type === "export_error") {
           // New progress message format
           callbacksRef.current.onProgressUpdate?.(data.data)
+        } else if (data.type === "task_resync") {
+          // Issue #144: 服务端 WebSocket 连上后下发的任务状态全量同步
+          callbacksRef.current.onTaskResync?.(data.data)
         } else if (data.type === "notification") {
           callbacksRef.current.onNotification?.(data.data)
         }

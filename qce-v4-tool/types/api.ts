@@ -341,6 +341,24 @@ export interface WebSocketProgressMessage {
   }
 }
 
+/**
+ * Issue #144: WebSocket 连接刚建立时，服务端会下发一份 in-memory 任务
+ * 状态快照，让网页端能立刻把进度条接上，而不必等下一条 export_progress
+ * 推送。仅含前端真正用得到的字段，不传 peer / filter / 文件路径。
+ */
+export interface WebSocketTaskResyncMessage {
+  type: "task_resync"
+  data: {
+    tasks: Array<{
+      taskId: string
+      status: string
+      progress: number
+      messageCount: number
+      error?: string
+    }>
+  }
+}
+
 // Scheduled Export Types
 export interface ScheduledExport {
   id: string
