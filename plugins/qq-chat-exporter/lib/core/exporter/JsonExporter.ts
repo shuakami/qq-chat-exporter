@@ -1067,12 +1067,16 @@ export class JsonExporter extends BaseExporter {
 
         // 添加回复元素
         if (content.reply) {
+            // issue #128：被引用消息的时间戳直接挂出来（秒级 epoch），
+            // 调用方就不用再回查 messageMap 自己组装"几月几日 几点几分"了。
             elements.push({
                 type: 'reply',
                 data: {
                     messageId: content.reply.messageId,
                     referencedMessageId: content.reply.referencedMessageId, // 被引用消息的实际messageId
+                    senderUin: content.reply.senderUin,
                     senderName: content.reply.senderName,
+                    timestamp: content.reply.timestamp,
                     content: content.reply.content
                 }
             });

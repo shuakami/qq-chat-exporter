@@ -272,7 +272,9 @@
             "data": {
               "messageId": "m_1",
               "referencedMessageId": "m_1",
+              "senderUin": "11111",
               "senderName": "",
+              "timestamp": 1704067300,
               "content": "Anyone seen the build break?"
             }
           }

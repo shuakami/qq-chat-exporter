@@ -1723,27 +1723,38 @@ export class SimpleMessageParser {
               fileName: element.picElement.fileName || ''
             });
           } else if (element.videoElement) {
-            parts.push('[视频]');
+            // issue #128：视频 / 文件元素带文件名时直接挂在占位符里，
+            // JSON / TXT / Excel 这些纯文本导出能看出原消息引用的是哪个视频。
+            const videoName = element.videoElement.fileName || '';
+            const videoText = videoName ? `[视频:${videoName}]` : '[视频]';
+            parts.push(videoText);
             result.previewElements.push({
               type: 'video',
-              text: '[视频]',
-              fileName: element.videoElement.fileName || ''
+              text: videoText,
+              fileName: videoName
             });
           } else if (element.pttElement) {
             parts.push('[语音]');
             result.previewElements.push({ type: 'audio', text: '[语音]' });
           } else if (element.fileElement) {
-            parts.push('[文件]');
+            const fileName = element.fileElement.fileName || '';
+            const fileText = fileName ? `[文件:${fileName}]` : '[文件]';
+            parts.push(fileText);
             result.previewElements.push({
               type: 'file',
-              text: '[文件]',
-              fileName: element.fileElement.fileName || ''
+              text: fileText,
+              fileName
             });
           } else if (element.faceElement) {
-            parts.push(`[表情${element.faceElement.faceIndex}]`);
+            // issue #128：表情元素优先用 faceText / faceMap 给出的可读名（如 /微 /奋），
+            // 而不是抛"[表情341]"这种调用方还得自己查表的占位文本。
+            const faceId = element.faceElement.faceIndex?.toString() || '';
+            const faceText = element.faceElement.faceText || this.faceMap.get(faceId) || `表情${faceId}`;
+            const facePart = faceText.startsWith('[') ? faceText : `[${faceText}]`;
+            parts.push(facePart);
             result.previewElements.push({
               type: 'face',
-              text: `[表情${element.faceElement.faceIndex}]`,
+              text: facePart,
               faceIndex: element.faceElement.faceIndex
             });
           } else if (element.marketFaceElement) {
