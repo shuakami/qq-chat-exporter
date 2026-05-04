@@ -408,11 +408,41 @@ test('forward element falls back gracefully when bridge cannot resolve content (
     const [parsed] = await parser.parseMessages([m]);
     const fw = parsed.content.elements[0];
     assert.equal(fw.type, 'forward');
-    assert.equal(fw.data.summary, '<msg>没有内容</msg>');
+    // issue #128 子项 3：summary 不再保留 NapCat 推下来的 XML 原文，
+    // 改用解析失败时的占位文本"查看转发消息"。
+    assert.equal(fw.data.summary, '查看转发消息');
     assert.equal(fw.data.messageCount, 0);
     assert.deepEqual(fw.data.messages, []);
+    assert.deepEqual(fw.data.preview, []);
     // 文本仍然有 [转发消息] 占位，不会丢空。
     assert.match(parsed.content.text, /\[转发消息\]/);
+});
+
+test('forward element extracts preview lines from multiForwardMsg XML when getMultiMsg fails (#128)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const xml = `<msg multiMsgFlag="0" m_resid="fwd_xml"><item layout="1">
+        <title size="34">群聊的聊天记录</title>
+        <title size="26">小明: 你好</title>
+        <title size="26">小红: 在吗</title>
+        <title size="26">小明: 出去玩吧</title>
+        <summary size="26">查看7条转发消息</summary>
+    </item></msg>`;
+    const m = msg({ chatType: 2, peerUid: 'group://9' })
+        .forward({ resId: 'fw_xml_only', xmlContent: xml })
+        .at_time(T)
+        .build();
+    const [parsed] = await parser.parseMessages([m]);
+    const fw = parsed.content.elements[0];
+    assert.equal(fw.type, 'forward');
+    assert.equal(fw.data.title, '群聊的聊天记录');
+    assert.equal(fw.data.summary, '查看7条转发消息');
+    assert.equal(fw.data.messageCount, 7);
+    assert.deepEqual(fw.data.messages, []);
+    assert.deepEqual(fw.data.preview, ['小明: 你好', '小红: 在吗', '小明: 出去玩吧']);
+    // text 应该带上从 XML 抠到的预览行
+    assert.match(parsed.content.text, /小明: 你好/);
+    assert.match(parsed.content.text, /\[转发消息: 7条\]/);
 });
 
 test('forward element renders preview lines in content.text (#161)', async () => {
