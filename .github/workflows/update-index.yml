@@ -1,0 +1,233 @@
+name: 自动更新 NapCat 插件索引
+
+# 当 release-plugin.yml 完成、Release 创建成功后通过 workflow_dispatch 触发本工作流
+# 由本工作流从 fork 的 napcat-plugin-index 仓库向 NapNeko/napcat-plugin-index 提交更新 PR
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '手动指定版本号（如 v5.5.60），留空则从 plugins/qq-chat-exporter/package.json 获取'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  INDEX_REPO: NapNeko/napcat-plugin-index
+  INDEX_REPO_NAME: napcat-plugin-index
+  INDEX_BRANCH: main
+  INDEX_FILE: plugins.v4.json
+  PLUGIN_PACKAGE_JSON: plugins/qq-chat-exporter/package.json
+  # 插件商店的 ID 必须以 napcat-plugin- 开头；源 package.json 的 name 是 qq-chat-exporter
+  # 这里硬编码索引专用的 ID，避免动源仓库已对外暴露的包名
+  PLUGIN_ID: napcat-plugin-qce
+
+jobs:
+  update-index:
+    name: 提交插件索引更新 PR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout plugin repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Extract plugin metadata
+        id: meta
+        run: |
+          PKG_PATH="${{ env.PLUGIN_PACKAGE_JSON }}"
+          PLUGIN_NAME=$(node -e "console.log(require('./${PKG_PATH}').plugin || require('./${PKG_PATH}').name)")
+          DESCRIPTION=$(node -e "console.log(require('./${PKG_PATH}').description || '')")
+          AUTHOR=$(node -e "console.log(require('./${PKG_PATH}').author || '')")
+          TAGS=$(node -e "console.log(JSON.stringify(require('./${PKG_PATH}').napcat?.tags || ['工具']))")
+          MIN_VERSION=$(node -e "console.log(require('./${PKG_PATH}').napcat?.minVersion || '4.14.0')")
+          HOMEPAGE=$(node -e "console.log(require('./${PKG_PATH}').napcat?.homepage || require('./${PKG_PATH}').homepage || '')")
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="v$(node -e "console.log(require('./${PKG_PATH}').version)")"
+          fi
+          CLEAN_VERSION=$(echo "$VERSION" | sed 's/^v//')
+
+          REPO_FULL="${{ github.repository }}"
+          DOWNLOAD_URL="https://github.com/${REPO_FULL}/releases/download/${VERSION}/${{ env.PLUGIN_ID }}.zip"
+
+          if [ -z "$HOMEPAGE" ]; then
+            HOMEPAGE="https://github.com/${REPO_FULL}"
+          fi
+
+          {
+            echo "plugin_id=${{ env.PLUGIN_ID }}"
+            echo "plugin_name=$PLUGIN_NAME"
+            echo "version=$CLEAN_VERSION"
+            echo "description=$DESCRIPTION"
+            echo "author=$AUTHOR"
+            echo "homepage=$HOMEPAGE"
+            echo "download_url=$DOWNLOAD_URL"
+            echo "tags=$TAGS"
+            echo "min_version=$MIN_VERSION"
+            echo "tag_name=$VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Plugin: ${{ env.PLUGIN_ID }} v$CLEAN_VERSION"
+          echo "Download: $DOWNLOAD_URL"
+
+      - name: Verify release asset exists
+        run: |
+          URL="${{ steps.meta.outputs.download_url }}"
+          echo "验证下载链接: $URL"
+          HTTP_CODE=$(curl -sL -o /dev/null -w "%{http_code}" "$URL")
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+            echo "下载链接有效 (HTTP $HTTP_CODE)"
+          else
+            echo "首次失败 (HTTP $HTTP_CODE)，等待 30 秒后重试..."
+            sleep 30
+            HTTP_CODE=$(curl -sL -o /dev/null -w "%{http_code}" "$URL")
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+              echo "重试成功 (HTTP $HTTP_CODE)"
+            else
+              echo "重试仍然失败 (HTTP $HTTP_CODE)，跳过索引更新"
+              exit 1
+            fi
+          fi
+
+      - name: Ensure fork exists
+        id: fork
+        env:
+          GH_TOKEN: ${{ secrets.INDEX_PAT }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "未配置 INDEX_PAT secret，跳过索引更新"
+            exit 1
+          fi
+          PAT_USER=$(curl -sS -H "Authorization: token ${GH_TOKEN}" \
+            https://api.github.com/user | jq -r '.login')
+          if [ -z "$PAT_USER" ] || [ "$PAT_USER" = "null" ]; then
+            echo "无法获取 PAT 对应的 GitHub 用户名，请检查 INDEX_PAT 是否有效"
+            exit 1
+          fi
+
+          FORK_REPO="${PAT_USER}/${{ env.INDEX_REPO_NAME }}"
+          {
+            echo "pat_user=$PAT_USER"
+            echo "fork_repo=$FORK_REPO"
+          } >> "$GITHUB_OUTPUT"
+          echo "PAT 用户: $PAT_USER"
+          echo "Fork 仓库: $FORK_REPO"
+
+          HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token ${GH_TOKEN}" \
+            "https://api.github.com/repos/${FORK_REPO}")
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "Fork 已存在"
+          else
+            echo "Fork 不存在，正在创建..."
+            FORK_RESULT=$(curl -sS -X POST \
+              -H "Authorization: token ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ env.INDEX_REPO }}/forks" \
+              -d '{"default_branch_only": true}')
+            FORK_FULL_NAME=$(echo "$FORK_RESULT" | jq -r '.full_name')
+            if [ -z "$FORK_FULL_NAME" ] || [ "$FORK_FULL_NAME" = "null" ]; then
+              echo "Fork 创建失败:"
+              echo "$FORK_RESULT" | jq .
+              exit 1
+            fi
+            echo "Fork 创建成功: $FORK_FULL_NAME"
+            sleep 10
+          fi
+
+      - name: Sync fork with upstream
+        env:
+          GH_TOKEN: ${{ secrets.INDEX_PAT }}
+        run: |
+          SYNC_RESULT=$(curl -sS -X POST \
+            -H "Authorization: token ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ steps.fork.outputs.fork_repo }}/merge-upstream" \
+            -d '{"branch": "${{ env.INDEX_BRANCH }}"}')
+          echo "$SYNC_RESULT" | jq -r '.message // "已同步"'
+
+      - name: Checkout index repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.INDEX_REPO }}
+          ref: ${{ env.INDEX_BRANCH }}
+          path: plugin-index
+          token: ${{ secrets.INDEX_PAT }}
+
+      - name: Update plugins.v4.json
+        env:
+          PLUGIN_ID: ${{ steps.meta.outputs.plugin_id }}
+          PLUGIN_NAME: ${{ steps.meta.outputs.plugin_name }}
+          PLUGIN_VERSION: ${{ steps.meta.outputs.version }}
+          PLUGIN_DESCRIPTION: ${{ steps.meta.outputs.description }}
+          PLUGIN_AUTHOR: ${{ steps.meta.outputs.author }}
+          PLUGIN_HOMEPAGE: ${{ steps.meta.outputs.homepage }}
+          PLUGIN_DOWNLOAD_URL: ${{ steps.meta.outputs.download_url }}
+          PLUGIN_TAGS: ${{ steps.meta.outputs.tags }}
+          PLUGIN_MIN_VERSION: ${{ steps.meta.outputs.min_version }}
+          INDEX_FILE_NAME: ${{ env.INDEX_FILE }}
+        run: |
+          cd plugin-index
+          node -e "
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync(process.env.INDEX_FILE_NAME, 'utf-8'));
+            const pluginId = process.env.PLUGIN_ID;
+            const newPlugin = {
+              id: pluginId,
+              name: process.env.PLUGIN_NAME,
+              version: process.env.PLUGIN_VERSION,
+              description: process.env.PLUGIN_DESCRIPTION,
+              author: process.env.PLUGIN_AUTHOR,
+              homepage: process.env.PLUGIN_HOMEPAGE,
+              downloadUrl: process.env.PLUGIN_DOWNLOAD_URL,
+              tags: JSON.parse(process.env.PLUGIN_TAGS),
+              minVersion: process.env.PLUGIN_MIN_VERSION
+            };
+            const idx = data.plugins.findIndex(p => p.id === pluginId);
+            if (idx >= 0) {
+              console.log('更新已有插件: ' + pluginId);
+              data.plugins[idx] = newPlugin;
+            } else {
+              console.log('新增插件: ' + pluginId);
+              data.plugins.push(newPlugin);
+            }
+            fs.writeFileSync(process.env.INDEX_FILE_NAME, JSON.stringify(data, null, 2) + '\n');
+            console.log('plugins.v4.json 已更新');
+          "
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          path: plugin-index
+          token: ${{ secrets.INDEX_PAT }}
+          push-to-fork: ${{ steps.fork.outputs.fork_repo }}
+          commit-message: "chore: update ${{ steps.meta.outputs.plugin_id }} to v${{ steps.meta.outputs.version }}"
+          branch: "auto-update/${{ steps.meta.outputs.plugin_id }}-v${{ steps.meta.outputs.version }}"
+          delete-branch: true
+          title: "[${{ steps.meta.outputs.plugin_name }}] 更新至 v${{ steps.meta.outputs.version }}"
+          body: |
+            ## 自动更新插件索引
+
+            | 字段 | 值 |
+            |------|-----|
+            | **插件 ID** | `${{ steps.meta.outputs.plugin_id }}` |
+            | **插件名称** | ${{ steps.meta.outputs.plugin_name }} |
+            | **版本** | v${{ steps.meta.outputs.version }} |
+            | **作者** | ${{ steps.meta.outputs.author }} |
+            | **下载链接** | ${{ steps.meta.outputs.download_url }} |
+            | **主页** | ${{ steps.meta.outputs.homepage }} |
+            | **最低 NapCat 版本** | ${{ steps.meta.outputs.min_version }} |
+
+            ---
+
+            > 此 PR 由 CI 自动创建，来源仓库 [${{ github.repository }}](${{ steps.meta.outputs.homepage }}) Release ${{ steps.meta.outputs.tag_name }}

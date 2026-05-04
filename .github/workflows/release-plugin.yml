@@ -118,8 +118,56 @@ jobs:
           path: NapCat-Framework-QCE-*.zip
           retention-days: 7
 
+  build-napcat-plugin:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: "Setup Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: "Setup pnpm"
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: "Sync version from tag"
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          node scripts/sync-version.js "$VERSION"
+        shell: bash
+
+      - name: "Build Frontend"
+        run: |
+          cd qce-v4-tool
+          pnpm install
+          pnpm run build
+
+      - name: "Generate NapCatQQ overlay runtime"
+        run: node tools/create-overlay-runtime.cjs
+        working-directory: plugins/qq-chat-exporter
+
+      - name: "Build NapCat plugin store package"
+        run: python3 scripts/build-napcat-plugin.py
+        env:
+          NODE_ENV: production
+          QCE_VERSION: ${{ github.ref_name }}
+
+      - name: "上传 NapCat 插件构建产物"
+        uses: actions/upload-artifact@v4
+        with:
+          name: napcat-plugin-qce
+          path: napcat-plugin-qce.zip
+          retention-days: 7
+
   create-release:
-    needs: [get-napcat-version, build-shell-packages, build-framework-package]
+    needs: [get-napcat-version, build-shell-packages, build-framework-package, build-napcat-plugin]
     runs-on: ubuntu-latest
     
     steps:
@@ -139,6 +187,7 @@ jobs:
           find artifacts/NapCat-QCE-Windows-x64 -type f -name "*.zip" -exec cp {} release-files/ \; 2>/dev/null || true
           find artifacts/NapCat-QCE-Linux-x64 -type f -name "*.tar.gz" -exec cp {} release-files/ \; 2>/dev/null || true
           find artifacts/NapCat-Framework-QCE -type f -name "*.zip" -exec cp {} release-files/ \; 2>/dev/null || true
+          find artifacts/napcat-plugin-qce -type f -name "*.zip" -exec cp {} release-files/ \; 2>/dev/null || true
           echo "发布文件列表："
           ls -lh release-files/
       
@@ -186,10 +235,12 @@ jobs:
           | **Shell 模式** | Windows x64 | 独立无头 QQ，适合服务器/自动化 | \`NapCat-QCE-Windows-x64-${VERSION}.zip\` |
           | **Shell 模式** | Linux x64 | 独立无头 QQ，适合服务器/Docker | \`NapCat-QCE-Linux-x64-${VERSION}.tar.gz\` |
           | **Framework 模式** | Windows | QQNT 插件，与桌面 QQ 共存 | \`NapCat-Framework-QCE-${VERSION}.zip\` |
+          | **NapCat 插件商店包** | 跨平台 | 已有 NapCat 环境，从插件商店一键安装 | \`napcat-plugin-qce.zip\` |
 
           > **如何选择？**
           > - **Shell 模式**：独立运行，需要单独登录 QQ，适合服务器部署和自动化备份
           > - **Framework 模式**：作为 QQNT 插件运行，与正在使用的 QQ 共享登录，适合 Windows 桌面用户
+          > - **NapCat 插件商店包**：如果你已经在用 NapCat（自己装好的、Docker 跑的、宿主机部署的都行），直接在 NapCat WebUI 插件商店里搜 `qq-chat-exporter` 安装即可，无需手动下载这个 zip
 
           <details>
           <summary>Shell 模式使用方法</summary>
@@ -280,7 +331,27 @@ jobs:
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
+
+      # 触发索引更新工作流
+      # 注：默认 GITHUB_TOKEN 创建的 Release 不会触发 on.release 事件，
+      # 因此需要手动通过 workflow_dispatch 触发 update-index.yml
+      - name: "触发 NapCat 插件索引自动更新"
+        if: success() && !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc')
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'update-index.yml',
+              ref: 'master',
+              inputs: {
+                version: '${{ github.ref_name }}'
+              }
+            })
+            console.log('已派发 update-index.yml 工作流')
+
       - name: "发布完成"
         run: |
           echo "========================================="
