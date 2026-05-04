@@ -22,6 +22,18 @@ function getNapCatRoot(): string {
 }
 
 /**
+ * 获取插件自身的根目录
+ * 用于通过 NapCat 插件商店安装的场景：前端静态资源直接打包在插件 zip 内的 webui/ 子目录里
+ */
+function getPluginRoot(): string {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    // 当前文件位置: plugins/qq-chat-exporter/lib/webui/FrontendBuilder.ts
+    // 向上 2 级到达插件自身根目录
+    return path.resolve(__dirname, '..', '..');
+}
+
+/**
  * 前端服务管理器
  */
 export class FrontendBuilder {
@@ -34,9 +46,14 @@ export class FrontendBuilder {
     constructor() {
         const cwd = process.cwd();
         const napCatRoot = getNapCatRoot();
+        const pluginRoot = getPluginRoot();
         
         // 检测可能的静态资源路径（优先使用基于模块位置的路径）
+        // 1) 插件商店安装场景：前端打包在插件 zip 内的 webui/ 子目录
+        // 2) 集成包安装场景：前端在 NapCat 根目录的 static/qce-v4-tool 下
+        // 3) 其他历史路径兼容
         const possiblePaths = [
+            path.join(pluginRoot, 'webui'),
             path.join(napCatRoot, 'static', 'qce-v4-tool'),
             path.join(cwd, 'static', 'qce-v4-tool'),
             path.join(cwd, 'dist', 'static', 'qce-v4-tool'),
