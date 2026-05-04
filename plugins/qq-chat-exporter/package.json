@@ -1,9 +1,21 @@
 {
   "name": "qq-chat-exporter",
-  "version": "5.5.59",
-  "description": "QQ Chat Exporter Plugin for NapCat - Export QQ chat history with advanced features",
+  "plugin": "QQ 聊天记录导出",
+  "version": "5.5.60",
+  "description": "导出 QQ 聊天记录为 HTML / JSON / TXT / Excel，支持时间筛选、批量任务、定时任务、表情图片语音视频资源处理、合并转发展开等。",
   "main": "index.mjs",
   "type": "module",
+  "icon": "icon.png",
+  "homepage": "https://github.com/shuakami/qq-chat-exporter",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shuakami/qq-chat-exporter.git"
+  },
+  "napcat": {
+    "tags": ["工具"],
+    "minVersion": "4.14.0",
+    "homepage": "https://github.com/shuakami/qq-chat-exporter"
+  },
   "scripts": {
     "gen:overlay": "node tools/gen-overlay.cjs && node tools/create-overlay-runtime.cjs",
     "fix:imports": "node tools/fix-imports.cjs && node tools/fix-ts-imports.cjs",
