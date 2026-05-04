@@ -1,7 +1,7 @@
 {
   "name": "qq-chat-exporter",
   "plugin": "QQ 聊天记录导出",
-  "version": "5.5.61",
+  "version": "5.5.62",
   "description": "导出 QQ 聊天记录为 HTML / JSON / TXT / Excel，支持时间筛选、批量任务、定时任务、表情图片语音视频资源处理、合并转发展开等。",
   "main": "index.mjs",
   "type": "module",
