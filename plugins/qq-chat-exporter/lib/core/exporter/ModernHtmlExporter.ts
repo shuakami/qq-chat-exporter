@@ -1675,7 +1675,11 @@ export class ModernHtmlExporter {
 
     private renderForwardElement(data: any): string {
         const title = data?.title || '聊天记录';
-        const summary = data?.summary || data?.content || '查看转发消息';
+        const rawSummary = typeof data?.summary === 'string' ? data.summary : (typeof data?.content === 'string' ? data.content : '');
+        // issue #128 子项 3：老数据里 summary 可能是 NapCat 推下来的 multiForwardMsg XML 原文，
+        // 不能直接当预览渲染（否则前台会出现 <msg ... ><item ...> 这种 XML 卡片代码）。
+        const summaryLooksLikeXml = rawSummary.trim().startsWith('<') && /<\/?[a-zA-Z]/.test(rawSummary);
+        const summary = summaryLooksLikeXml ? '查看转发消息' : (rawSummary || '查看转发消息');
         const preview = data?.preview || [];
         // issue #161：解析器现在会把合并转发卡片里的真实子消息塞进 data.messages，
         // 优先用它渲染完整列表，老数据 / fallback 再退回 preview / summary。
@@ -1694,14 +1698,14 @@ export class ModernHtmlExporter {
                 return `<div class="forward-card-line"><span class="forward-card-sender">${name}:</span> <span class="forward-card-body">${this.escapeHtml(trimmed)}</span></div>`;
             }).join('');
         } else if (Array.isArray(preview) && preview.length > 0) {
-            previewHtml = preview.slice(0, 3).map((line: any) => {
+            previewHtml = preview.slice(0, 5).map((line: any) => {
                 const text = typeof line === 'string' ? line : (line?.text || '');
-                return this.escapeHtml(text);
-            }).join('<br>');
-        } else if (typeof summary === 'string') {
-            // 尝试从summary中提取预览内容
-            const lines = summary.split('\n').slice(0, 3);
-            previewHtml = lines.map(l => this.escapeHtml(l)).join('<br>');
+                const trimmed = text.length > 80 ? text.slice(0, 80) + '…' : text;
+                return `<div class="forward-card-line"><span class="forward-card-body">${this.escapeHtml(trimmed)}</span></div>`;
+            }).join('');
+        } else if (!summaryLooksLikeXml && summary) {
+            // 解析器没解析出预览行时，用 summary（"查看N条转发消息"）当占位文本。
+            previewHtml = `<div class="forward-card-line"><span class="forward-card-body">${this.escapeHtml(summary)}</span></div>`;
         }
 
         const footerLabel = messageCount > 0 ? `转发消息 · ${messageCount}条` : '转发消息';
@@ -1798,7 +1802,17 @@ export class ModernHtmlExporter {
                 case 'forward': {
                     // issue #161：搜索时把合并转发卡片里的子消息内容也带上，否则
                     // 只能搜到外壳标题，搜不到真实文本。
-                    parts.push(`${d?.title || '转发'} ${d?.summary || d?.content || ''}`.trim());
+                    // issue #128 子项 3：summary 可能是 multiForwardMsg XML 原文（老数据），
+                    // 把它写进搜索索引里只会让索引被 `<msg>` / `<item>` 这种标签污染，跳掉。
+                    const fwdSummary = typeof d?.summary === 'string' ? d.summary : '';
+                    const fwdSummaryLooksLikeXml = fwdSummary.trim().startsWith('<') && /<\/?[a-zA-Z]/.test(fwdSummary);
+                    const fwdSummaryClean = fwdSummaryLooksLikeXml ? '' : fwdSummary;
+                    parts.push(`${d?.title || '转发'} ${fwdSummaryClean || d?.content || ''}`.trim());
+                    if (Array.isArray(d?.preview)) {
+                        for (const line of d.preview) {
+                            if (typeof line === 'string' && line.trim()) parts.push(line);
+                        }
+                    }
                     if (Array.isArray(d?.messages)) {
                         for (const m of d.messages) {
                             const name = m?.sender?.name || (m?.sender?.uin ? String(m.sender.uin) : '');

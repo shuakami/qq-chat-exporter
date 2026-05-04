@@ -6,6 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { RawMessage, MessageElement, NTMsgType } from 'NapCatQQ/src/core/types.js';
+import { parseMultiForwardXml, looksLikeMultiForwardXml } from './multiForwardXmlParser.js';
 
 /* ------------------------------ 内部高性能工具 ------------------------------ */
 
@@ -783,13 +784,25 @@ export class SimpleMessageParser {
           ? []
           : await this.fetchForwardInnerMessages(message, resId, forwardDepth + 1);
 
+      // issue #128 子项 3：拉子消息失败时不再把 XML 原文塞进 summary，
+      // 改解析 QQ 客户端的卡片 XML（带 <title>/<summary> 标记）抠出可读预览。
+      // 拉成功的情况下也留一份 xmlPreview，方便 fallback 到 fallback 时还能用。
+      const xmlInfo = parseMultiForwardXml(xmlContent);
+      const cardTitle = xmlInfo.header || '聊天记录';
+      const cardSummary = xmlInfo.summary
+        || (innerMessages.length > 0 ? `查看${innerMessages.length}条转发消息` : '查看转发消息');
+      const messageCount = innerMessages.length > 0
+        ? innerMessages.length
+        : xmlInfo.messageCount;
+
       return {
         type: 'forward',
         data: {
-          title: '转发消息',
+          title: cardTitle,
           resId,
-          summary: xmlContent,
-          messageCount: innerMessages.length,
+          summary: cardSummary,
+          preview: xmlInfo.previewLines,
+          messageCount,
           messages: innerMessages
         }
       };
@@ -1053,9 +1066,13 @@ export class SimpleMessageParser {
       case 'forward': {
         const inner: ForwardInnerMessage[] = Array.isArray(element.data?.messages) ? element.data.messages : [];
         const count = element.data?.messageCount ?? inner.length;
+        // issue #128：拉子消息失败时退回到 multiForwardMsg XML 抠出来的卡片预览行（已 unescape，无 XML）。
+        const xmlPreview: string[] = Array.isArray(element.data?.preview)
+          ? element.data.preview.filter((s: unknown): s is string => typeof s === 'string' && s.trim().length > 0)
+          : [];
 
         // 预览前几条作者+文本，方便扫一眼能看到合并转发里到底是什么内容。
-        const previewLines = inner.slice(0, 3).map((m) => {
+        const innerPreviewLines = inner.slice(0, 3).map((m) => {
           const name = m?.sender?.name || (m?.sender?.uin ? String(m.sender.uin) : '');
           const body = (m?.content?.text || '').replace(/\s+/g, ' ').trim();
           const trimmedBody = body.length > 40 ? body.slice(0, 40) + '…' : body;
@@ -1063,6 +1080,9 @@ export class SimpleMessageParser {
           if (name) return name;
           return trimmedBody;
         }).filter(Boolean);
+        const previewLines = innerPreviewLines.length > 0
+          ? innerPreviewLines
+          : xmlPreview.slice(0, 3).map((l) => l.length > 60 ? l.slice(0, 60) + '…' : l);
 
         const header = count > 0 ? `[转发消息: ${count}条]` : `[转发消息]`;
         const text = previewLines.length > 0 ? `${header}\n${previewLines.map((l) => `  ${l}`).join('\n')}` : header;
@@ -1077,6 +1097,10 @@ export class SimpleMessageParser {
             const name = escapeHtmlFast(m?.sender?.name || (m?.sender?.uin ? String(m.sender.uin) : '未知'));
             const body = escapeHtmlFast((m?.content?.text || '').replace(/\s+/g, ' ').trim());
             return `<li><span class="forward-inner-sender">${name}</span><span class="forward-inner-text">${body}</span></li>`;
+          }).join('')}</ul>`;
+        } else if (xmlPreview.length > 0) {
+          innerHtml = `<ul class="forward-inner">${xmlPreview.slice(0, 5).map((line) => {
+            return `<li><span class="forward-inner-text">${escapeHtmlFast(line)}</span></li>`;
           }).join('')}</ul>`;
         }
         return {
