@@ -12,6 +12,23 @@ import { ParsedMessage } from '../parser/MessageParser.js';
 import { SimpleMessageParser, CleanMessage } from '../parser/SimpleMessageParser.js';
 
 /**
+ * issue #128：把被引用消息时间戳渲染成 "MM-DD HH:MM" 标签。
+ * 接受秒级 epoch / 毫秒级 epoch / 数字字符串，全都归一到毫秒后再 toLocaleString。
+ * 老数据里 timestamp 字段缺失或为 0 时直接返回空串，调用方看到空串就跳过。
+ */
+function formatReplyTimeLabel(ts: number): string {
+    if (!Number.isFinite(ts) || ts <= 0) return '';
+    const ms = ts < 1e12 ? ts * 1000 : ts;
+    const d = new Date(ms);
+    if (Number.isNaN(d.getTime())) return '';
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${mm}-${dd} ${hh}:${min}`;
+}
+
+/**
  * 文本格式选项接口
  */
 interface TextFormatOptions {
@@ -141,7 +158,21 @@ export class TextExporter extends BaseExporter {
         const cleanMessages = await simpleParser.parseMessages(messages);
         
         // 将CleanMessage转换为ParsedMessage格式
-        return cleanMessages.map((cleanMsg: CleanMessage): ParsedMessage => ({
+        return cleanMessages.map((cleanMsg: CleanMessage): ParsedMessage => {
+            // issue #128：从 cleanMsg.content.elements 里把 type=reply 的数据回挂到
+            // content.reply，这样 formatMessage 能直接走"回复: 时间 名字 - 内容"那条路径。
+            const replyEl = (cleanMsg.content.elements || []).find((el: any) => el?.type === 'reply');
+            const reply = replyEl?.data && typeof replyEl.data === 'object' ? {
+                messageId: String(replyEl.data.messageId ?? ''),
+                referencedMessageId: replyEl.data.referencedMessageId,
+                senderUin: replyEl.data.senderUin,
+                senderName: replyEl.data.senderName,
+                timestamp: typeof replyEl.data.timestamp === 'number' ? replyEl.data.timestamp : undefined,
+                content: typeof replyEl.data.content === 'string' ? replyEl.data.content : '',
+                elements: []
+            } : undefined;
+
+            return {
             messageId: cleanMsg.id,
             messageSeq: cleanMsg.seq,
             timestamp: new Date(cleanMsg.timestamp),
@@ -181,6 +212,7 @@ export class TextExporter extends BaseExporter {
                     checkedAt: new Date()
                 })),
                 emojis: [],
+                reply,
                 special: []
             },
             stats: {
@@ -190,7 +222,8 @@ export class TextExporter extends BaseExporter {
                 processingTime: 0
             },
             rawMessage: {} as any // 没有原始消息数据
-        }));
+            };
+        });
     }
 
     /**
@@ -316,7 +349,14 @@ export class TextExporter extends BaseExporter {
         }
         
         if (message.content.reply) {
-            lines.push(`回复: ${message.content.reply.senderName} - ${message.content.reply.content}`);
+            // issue #128：被引用消息的时间戳如果拿到，就在前面加一个"MM-DD HH:MM"，
+            // 让纯文本导出也能看出引用的是几点几分的消息。
+            const reply = message.content.reply;
+            const ts = typeof reply.timestamp === 'number' && reply.timestamp > 0 ? reply.timestamp : 0;
+            const tsLabel = ts ? formatReplyTimeLabel(ts) : '';
+            const sender = reply.senderName || '';
+            const head = tsLabel ? `${tsLabel} ${sender}`.trim() : sender;
+            lines.push(`回复: ${head} - ${reply.content}`);
         }
         
         return lines.map(line => this.wrapLine(line));

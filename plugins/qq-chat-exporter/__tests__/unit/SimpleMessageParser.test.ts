@@ -322,6 +322,65 @@ test('reply uses group card from referenced message even when replyElement carri
     assert.equal(replyEl!.data.senderName, 'Bob (PM)');
 });
 
+test('reply preview uses readable face / video / file names instead of placeholder indices (#128)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    // 被引用消息：一段文本 + 一个视频 + 一个文件 + 一个表情 ID
+    const original = msg()
+        .sender({ uid: 'u_bob', uin: '22222', nick: 'Bob' })
+        .text('看看这个：')
+        .video({ filename: '会议录像.mp4' })
+        .file({ filename: '议程.pdf' })
+        .face(0)  // /微 在 faceMap 里映射过的
+        .at_time(T + 0)
+        .build();
+    const reply = msg()
+        .sender({ uid: 'u_alice', uin: '11111', nick: 'Alice' })
+        .reply({ sourceMsgId: original.msgId, msgSeq: original.msgSeq, msgTime: Number(original.msgTime) })
+        .text('收到')
+        .at_time(T + 60)
+        .build();
+    const parsed = await parser.parseMessages([original, reply]);
+    const replyEl = parsed[1].content.elements.find((e) => e.type === 'reply');
+    assert.ok(replyEl, 'expected a reply element');
+    // content 字符串里看得到带文件名的占位符
+    assert.match(replyEl!.data.content, /\[视频:会议录像\.mp4\]/);
+    assert.match(replyEl!.data.content, /\[文件:议程\.pdf\]/);
+    // /微 是 faceMap 里 faceId=0 的预定义读音，不该再是 [表情0]
+    assert.doesNotMatch(replyEl!.data.content, /\[表情0\]/);
+    // previewElements 里也要带可读 fileName / faceIndex
+    const previews: any[] = replyEl!.data.previewElements || [];
+    const videoPreview = previews.find((p: any) => p.type === 'video');
+    const filePreview = previews.find((p: any) => p.type === 'file');
+    const facePreview = previews.find((p: any) => p.type === 'face');
+    assert.equal(videoPreview?.fileName, '会议录像.mp4');
+    assert.equal(filePreview?.fileName, '议程.pdf');
+    assert.equal(facePreview?.faceIndex, 0);
+});
+
+test('reply data exposes referenced sender uin + epoch timestamp (#128)', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const original = msg()
+        .sender({ uid: 'u_bob', uin: '22222', nick: 'Bob' })
+        .text('the question')
+        .at_time(T + 0)
+        .build();
+    const reply = msg()
+        .sender({ uid: 'u_alice', uin: '11111', nick: 'Alice' })
+        .reply({ sourceMsgId: original.msgId, msgSeq: original.msgSeq, msgTime: Number(original.msgTime) })
+        .text('the answer')
+        .at_time(T + 60)
+        .build();
+    const parsed = await parser.parseMessages([original, reply]);
+    const replyEl = parsed[1].content.elements.find((e) => e.type === 'reply');
+    assert.ok(replyEl, 'expected a reply element');
+    assert.equal(replyEl!.data.senderUin, '22222');
+    // SimpleMessageParser 的 reply 走的是被引用消息的 msgTime（秒级 epoch）
+    assert.equal(typeof replyEl!.data.timestamp, 'number');
+    assert.equal(replyEl!.data.timestamp, Number(original.msgTime));
+});
+
 test('forward element preserves resId and surfaces records via map', async () => {
     const { SimpleMessageParser } = await loadParser();
     const parser = new SimpleMessageParser({ html: 'none' });

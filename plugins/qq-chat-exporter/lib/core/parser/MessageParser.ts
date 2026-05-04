@@ -258,7 +258,11 @@ export interface ParsedMessageContent {
   reply?: {
     messageId: string;
     referencedMessageId?: string;  // 被引用消息的实际messageId，用于链接跳转
+    // issue #128：senderUin / timestamp 直接挂在 content.reply 上，导出器
+    // (JSON / TXT / Excel) 不用再回查 messageMap 自己组装。
+    senderUin?: string;
     senderName?: string;
+    timestamp?: number;
     content: string;
     elements?: any[];
   };
@@ -1412,10 +1416,30 @@ export class MessageParser {
       }
     }
 
+    // issue #128：被引用消息的 senderUin / timestamp 也回填到 reply 数据上，
+    // 这样 JSON / TXT / Excel 等导出器不用再回查 messageMap 自己组装。
+    let referencedTimestamp: number | undefined;
+    let referencedSenderUin: string | undefined;
+    if (referencedMessageId && this.messageMap.has(referencedMessageId)) {
+      const ref = this.messageMap.get(referencedMessageId);
+      if (ref?.msgTime) referencedTimestamp = parseInt(ref.msgTime as any) || undefined;
+      if (ref?.senderUin) referencedSenderUin = ref.senderUin;
+    }
+    // NapCat 上游字段名拼成 replayMsgTime（多了个 a），但旧测试 / 极少数兼容字段
+    // 又写成 replyMsgTime，两个都兜一下，避免老回放数据导致 timestamp 丢失。
+    if (!referencedTimestamp && (reply.replayMsgTime || (reply as any).replyMsgTime)) {
+      referencedTimestamp = Number(reply.replayMsgTime || (reply as any).replyMsgTime) || undefined;
+    }
+    if (!referencedSenderUin && reply.senderUin) {
+      referencedSenderUin = reply.senderUin;
+    }
+
     return {
       messageId: sourceMsgId,      // 保留原始的sourceMsgIdInRecords用于内部查找
       referencedMessageId,         // 使用 replayMsgId 作为被引用消息的实际ID
+      senderUin: referencedSenderUin,
       senderName: reply.senderUidStr || '',
+      timestamp: referencedTimestamp,
       content: this.extractReplyContent(reply, messageRef),
       elements: []
     };
@@ -1639,10 +1663,23 @@ export class MessageParser {
         for (const element of referencedMessage.elements) {
           if (element.textElement) b.push(element.textElement.content || '');
           else if (element.picElement) b.push('[图片]');
-          else if (element.videoElement) b.push('[视频]');
+          else if (element.videoElement) {
+            // issue #128：视频 / 文件元素带文件名时直接挂在占位符里，
+            // JSON / TXT / Excel 这些纯文本导出能看出原消息引用的是哪个视频。
+            const name = element.videoElement.fileName || '';
+            b.push(name ? `[视频:${name}]` : '[视频]');
+          }
           else if (element.pttElement) b.push('[语音]');
-          else if (element.fileElement) b.push(`[文件: ${element.fileElement.fileName || ''}]`);
-          else if (element.faceElement) b.push(`[表情${element.faceElement.faceIndex}]`);
+          else if (element.fileElement) {
+            const name = element.fileElement.fileName || '';
+            b.push(name ? `[文件:${name}]` : '[文件]');
+          }
+          else if (element.faceElement) {
+            // issue #128：表情元素优先用 faceText / faceMap 给出的可读名（如 /微 /奋）。
+            const faceId = element.faceElement.faceIndex?.toString() || '';
+            const faceText = element.faceElement.faceText || this.faceMap.get(faceId) || `表情${faceId}`;
+            b.push(faceText.startsWith('[') ? faceText : `[${faceText}]`);
+          }
           else if (element.marketFaceElement) {
             const faceName = element.marketFaceElement.faceName || '超级表情';
             b.push(`[${faceName}]`);

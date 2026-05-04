@@ -506,11 +506,16 @@ export class ExcelExporter extends BaseExporter {
         }
         
         if (content.reply) {
+            // issue #128：Excel 行里的 reply 元素同步带上 referencedMessageId / senderUin / timestamp，
+            // 跟 JSON 字段保持一致，方便用户在 Excel 里直接拉时间列做透视。
             elements.push({
                 type: 'reply',
                 data: {
                     messageId: content.reply.messageId,
+                    referencedMessageId: content.reply.referencedMessageId,
+                    senderUin: content.reply.senderUin,
                     senderName: content.reply.senderName,
+                    timestamp: content.reply.timestamp,
                     content: content.reply.content
                 }
             });
