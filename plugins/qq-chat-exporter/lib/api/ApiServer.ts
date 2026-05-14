@@ -27,7 +27,7 @@ import { DatabaseManager } from '../core/storage/DatabaseManager.js';
 import { ResourceHandler } from '../core/resource/ResourceHandler.js';
 import { ScheduledExportManager } from '../core/scheduler/ScheduledExportManager.js';
 import { FrontendBuilder } from '../webui/FrontendBuilder.js';
-import { SecurityManager } from '../security/SecurityManager.js';
+import { SecurityManager, type VerifyTokenReason } from '../security/SecurityManager.js';
 import { StickerPackExporter } from '../core/sticker/StickerPackExporter.js';
 import { GroupAlbumExporter } from '../core/group/GroupAlbumExporter.js';
 import { GroupFilesExporter } from '../core/group/GroupFilesExporter.js';
@@ -89,6 +89,38 @@ interface ApiResponse<T = any> {
     error?: SystemErrorData;
     timestamp: string;
     requestId: string;
+}
+
+/**
+ * Issue #438: 把 verifyTokenWithReason 的 reason 映射成 HTTP 状态 + error code +
+ * 用户可读消息。token 错和 IP 不在白名单都用 403，但 code / message 不同，
+ * 前端 / 用户能直接对症排查。
+ */
+function mapVerifyTokenFailure(
+    reason: VerifyTokenReason,
+    clientIP?: string,
+): { status: number; code: string; message: string } {
+    switch (reason) {
+        case 'token_expired':
+            return {
+                status: 403,
+                code: 'TOKEN_EXPIRED',
+                message: '访问令牌已过期，请在控制台重新获取',
+            };
+        case 'ip_not_allowed':
+            return {
+                status: 403,
+                code: 'IP_NOT_ALLOWED',
+                message: `客户端 IP${clientIP ? ` ${clientIP}` : ''} 不在 IP 白名单内（可在 security.json 中关闭 IP 白名单或加入当前 IP）`,
+            };
+        case 'invalid_token':
+        default:
+            return {
+                status: 403,
+                code: 'INVALID_TOKEN',
+                message: '无效的访问令牌',
+            };
+    }
 }
 
 /**
@@ -415,23 +447,29 @@ export class QQChatExporterApiServer {
             
             // 获取真实客户端IP（优先使用代理头）
             const clientIP = this.getClientIP(req);
-            if (!this.securityManager.verifyToken(token, clientIP)) {
-                return res.status(403).json({
+            const authResult = this.securityManager.verifyTokenWithReason(token, clientIP);
+            if (!authResult.ok) {
+                // Issue #438: token 错 / token 过期 / IP 不在白名单以前都是
+                // "无效的访问令牌"，用户根本判断不出是哪个环节挂了。
+                // 这里按 reason 返回不同的 error code、message、HTTP 状态。
+                const mapped = mapVerifyTokenFailure(authResult.reason, clientIP);
+                return res.status(mapped.status).json({
                     success: false,
                     error: {
                         type: 'AUTH_ERROR',
-                        message: '无效的访问令牌',
+                        message: mapped.message,
                         timestamp: new Date(),
                         context: {
-                            code: 'INVALID_TOKEN',
-                            requestId: (req as any).requestId
+                            code: mapped.code,
+                            requestId: (req as any).requestId,
+                            ...(mapped.code === 'IP_NOT_ALLOWED' ? { clientIP } : {}),
                         }
                     },
                     timestamp: new Date().toISOString(),
                     requestId: (req as any).requestId
                 });
             }
-            
+
             next();
         });
     }
@@ -865,8 +903,8 @@ export class QQChatExporterApiServer {
                 return this.sendErrorResponse(res, new SystemError(ErrorType.VALIDATION_ERROR, '缺少访问令牌', 'MISSING_TOKEN'), (req as any).requestId, 400);
             }
             
-            const isValid = this.securityManager.verifyToken(token, clientIP);
-            if (isValid) {
+            const authResult = this.securityManager.verifyTokenWithReason(token, clientIP);
+            if (authResult.ok) {
                 this.sendSuccessResponse(res, {
                     authenticated: true,
                     message: '认证成功',
@@ -874,7 +912,13 @@ export class QQChatExporterApiServer {
                     clientIP: clientIP // 返回检测到的客户端IP，便于调试
                 }, (req as any).requestId);
             } else {
-                return this.sendErrorResponse(res, new SystemError(ErrorType.AUTH_ERROR, '无效的访问令牌', 'INVALID_TOKEN'), (req as any).requestId, 403);
+                const mapped = mapVerifyTokenFailure(authResult.reason, clientIP);
+                return this.sendErrorResponse(
+                    res,
+                    new SystemError(ErrorType.AUTH_ERROR, mapped.message, mapped.code),
+                    (req as any).requestId,
+                    mapped.status,
+                );
             }
         });
 
