@@ -21,6 +21,19 @@ export interface SecurityConfig {
 }
 
 /**
+ * verifyToken 失败原因，便于上层根据具体原因返回差异化错误码。
+ *
+ * - `invalid_token`: token 不匹配 / 配置缺失
+ * - `token_expired`: token 已过 tokenExpired 时间
+ * - `ip_not_allowed`: token 正确，但 clientIP 不在白名单内
+ */
+export type VerifyTokenReason = 'invalid_token' | 'token_expired' | 'ip_not_allowed';
+
+export type VerifyTokenResult =
+    | { ok: true }
+    | { ok: false; reason: VerifyTokenReason };
+
+/**
  * 检测是否在Docker环境中运行
  */
 function isDockerEnvironment(): boolean {
@@ -44,6 +57,47 @@ function isDockerEnvironment(): boolean {
         // 忽略错误
     }
     return false;
+}
+
+/**
+ * 从 `/proc/net/route` 解析默认路由网关 IP（dotted decimal）。
+ *
+ * 在 Docker 容器里通过端口映射进来的请求会被 SNAT 改写成桥网关地址
+ * （默认 bridge 是 `172.17.0.1`，自定义网络可能是 `172.x.0.1`），这个
+ * IP 永远不会出现在 `/.dockerenv` 或环境变量里，只能从默认路由表反推。
+ *
+ * 失败 / 非 Linux / 没读到默认路由都返回空数组，调用方继续走兜底逻辑。
+ */
+function detectDockerBridgeGateways(): string[] {
+    if (process.platform !== 'linux') return [];
+    const gateways = new Set<string>();
+    try {
+        const routeFile = '/proc/net/route';
+        if (!fs.existsSync(routeFile)) return [];
+        const lines = fs.readFileSync(routeFile, 'utf8').split('\n');
+        // 表头：Iface Destination Gateway Flags RefCnt Use Metric Mask ...
+        for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].trim().split(/\s+/);
+            if (cols.length < 8) continue;
+            const destination = cols[1];
+            const gatewayHex = cols[2];
+            if (destination !== '00000000') continue; // 只看默认路由
+            if (!/^[0-9A-Fa-f]{8}$/.test(gatewayHex)) continue;
+            if (gatewayHex === '00000000') continue;
+            // `/proc/net/route` 里 gateway 是小端 hex（每两位一段，反序）。
+            const bytes: number[] = [];
+            for (let j = 0; j < 4; j++) {
+                bytes.push(parseInt(gatewayHex.slice(j * 2, j * 2 + 2), 16));
+            }
+            const ip = bytes.reverse().join('.');
+            if (ip !== '0.0.0.0') {
+                gateways.add(ip);
+            }
+        }
+    } catch {
+        // 静默：探测失败不影响主流程
+    }
+    return Array.from(gateways);
 }
 
 /**
@@ -213,6 +267,12 @@ export class SecurityManager {
         // 加载或创建安全配置
         if (fs.existsSync(this.configPath)) {
             await this.loadConfig();
+            // Issue #438: 插件商店发布的包会自带一份 "出厂" security.json
+            // （`{disableIPWhitelist: false, allowedIPs: ['127.0.0.1','::1']}`），
+            // 这种情况 generateInitialConfig 永远不会跑，Docker 自动配置 +
+            // token / secret 生成都缺位。这里在 load 完之后再过一遍迁移逻辑，
+            // 把缺失字段补齐、必要时打开 Docker 模式。
+            await this.migrateFactoryConfigIfNeeded();
         } else {
             await this.generateInitialConfig();
         }
@@ -224,6 +284,89 @@ export class SecurityManager {
         
         // 启动配置文件监听（热加载）
         this.startConfigWatcher();
+    }
+
+    /**
+     * Issue #438: 把「出厂打包 / 字段不完整」的 security.json 迁移成完整配置。
+     *
+     * 插件商店发布的包里自带一份占位 `security.json`：
+     *   `{"disableIPWhitelist": false, "allowedIPs": ["127.0.0.1", "::1"]}`
+     * 这份文件没有 `accessToken` / `secretKey` / `createdAt`，但 `loadConfig`
+     * 依然能解析成功 —— 结果就是 `generateInitialConfig` 永远不会被调用，
+     * Docker 自动识别 + 自动 `disableIPWhitelist` 的逻辑全部失效。
+     *
+     * 这里的判定原则：**任何缺核心字段（accessToken / secretKey / createdAt）
+     * 的配置都视为「出厂占位」**，因为正常用户不可能手工创建一个没有
+     * token 的 security.json。检测到出厂占位后：
+     *   1. 补齐 accessToken / secretKey / createdAt / tokenExpired；
+     *   2. 如果当前在 Docker 里，强行切到 Docker 友好模式
+     *      （disableIPWhitelist=true + 加 Docker 网段 + 加运行时探测到的
+     *      桥网关），等价于补跑 `generateInitialConfig` 的 Docker 分支。
+     *
+     * 用户已经手动改过的 security.json（accessToken 等核心字段都在）不会被
+     * 这条路径触碰。
+     */
+    private async migrateFactoryConfigIfNeeded(): Promise<void> {
+        if (!this.config) {
+            // loadConfig 失败时 generateInitialConfig 已经被调用过，直接返回。
+            return;
+        }
+
+        const cfg = this.config;
+        const missingCoreFields =
+            !cfg.accessToken ||
+            !cfg.secretKey ||
+            !(cfg.createdAt instanceof Date) ||
+            isNaN(cfg.createdAt.getTime());
+
+        if (!missingCoreFields) {
+            // 用户已有完整配置，尊重用户的所有偏好，不动任何字段。
+            return;
+        }
+
+        // 补齐核心字段
+        if (!cfg.accessToken) {
+            cfg.accessToken = this.generateSecureToken(40);
+        }
+        if (!cfg.secretKey) {
+            cfg.secretKey = this.generateSecureToken(64);
+        }
+        if (!(cfg.createdAt instanceof Date) || isNaN(cfg.createdAt.getTime())) {
+            cfg.createdAt = new Date();
+        }
+        if (!(cfg.tokenExpired instanceof Date) || isNaN(cfg.tokenExpired.getTime())) {
+            cfg.tokenExpired = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        }
+
+        // allowedIPs 脏数据兜底
+        if (!Array.isArray(cfg.allowedIPs)) {
+            cfg.allowedIPs = ['127.0.0.1', '::1'];
+        }
+
+        if (this.isDocker) {
+            // Docker 下出厂占位：补跑 generateInitialConfig 的 Docker 分支。
+            const dockerAllowed = new Set<string>(cfg.allowedIPs);
+            dockerAllowed.add('127.0.0.1');
+            dockerAllowed.add('::1');
+            dockerAllowed.add('172.16.0.0/12');
+            dockerAllowed.add('192.168.0.0/16');
+            dockerAllowed.add('10.0.0.0/8');
+            for (const gw of detectDockerBridgeGateways()) {
+                dockerAllowed.add(gw);
+            }
+            cfg.allowedIPs = Array.from(dockerAllowed);
+            cfg.disableIPWhitelist = true;
+            try {
+                console.log(
+                    '[QCE][SecurityManager] Detected factory-shipped security.json in Docker, ' +
+                        'auto-enabling Docker-friendly auth (issue #438).',
+                );
+            } catch {
+                // ignore
+            }
+        }
+
+        await this.saveConfig();
     }
     
     /**
@@ -301,6 +444,13 @@ export class SecurityManager {
             defaultAllowedIPs.push('172.16.0.0/12');
             defaultAllowedIPs.push('192.168.0.0/16');
             defaultAllowedIPs.push('10.0.0.0/8');
+            // Issue #438: 进一步把默认路由网关（bridge SNAT 源 IP）追加进白名单，
+            // 兜底自定义 docker 网络出现非标准网段的情况。
+            for (const gw of detectDockerBridgeGateways()) {
+                if (!defaultAllowedIPs.includes(gw)) {
+                    defaultAllowedIPs.push(gw);
+                }
+            }
         }
         
         this.config = {
@@ -388,38 +538,49 @@ export class SecurityManager {
     }
 
     /**
-     * 验证访问令牌
+     * 验证访问令牌（兼容旧调用，返回布尔值）。
      */
     verifyToken(token: string, clientIP?: string): boolean {
-        if (!this.config) return false;
-        
-        // 验证令牌
-        if (token !== this.config.accessToken) {
-            return false;
+        return this.verifyTokenWithReason(token, clientIP).ok;
+    }
+
+    /**
+     * 验证访问令牌，返回带具体失败原因的结果。
+     *
+     * Issue #438: 之前不论是 token 错、IP 不在白名单还是过期都收敛到
+     * `"无效的访问令牌"` 同一条报错，用户根本判断不出是哪个环节挂了。
+     * 这里把三种失败拆开成可识别的 reason，让 API 层能给前端不同的
+     * error code / message。
+     */
+    verifyTokenWithReason(token: string, clientIP?: string): VerifyTokenResult {
+        if (!this.config || !this.config.accessToken) {
+            return { ok: false, reason: 'invalid_token' };
         }
-        
-        // 如果禁用了IP白名单验证，跳过IP检查
-        if (this.config.disableIPWhitelist) {
-            // 仅依赖Token验证
-        } else if (clientIP && this.config.allowedIPs.length > 0) {
-            // 验证IP（支持精确匹配、CIDR网段、通配符）
-            const isAllowed = this.checkIPAllowed(clientIP);
-            
-            if (!isAllowed) {
-                return false;
+
+        // 1. token 比对
+        if (token !== this.config.accessToken) {
+            return { ok: false, reason: 'invalid_token' };
+        }
+
+        // 2. 过期检查（在 IP 检查之前，过期是更明确的失败原因）
+        if (this.config.tokenExpired && new Date() > this.config.tokenExpired) {
+            return { ok: false, reason: 'token_expired' };
+        }
+
+        // 3. IP 白名单
+        if (!this.config.disableIPWhitelist) {
+            if (clientIP && this.config.allowedIPs.length > 0) {
+                if (!this.checkIPAllowed(clientIP)) {
+                    return { ok: false, reason: 'ip_not_allowed' };
+                }
             }
         }
-        
-        // 验证是否过期
-        if (this.config.tokenExpired && new Date() > this.config.tokenExpired) {
-            return false;
-        }
-        
+
         // 更新最后访问时间
         this.config.lastAccess = new Date();
         this.saveConfig().catch(console.error);
-        
-        return true;
+
+        return { ok: true };
     }
     
     /**
