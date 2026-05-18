@@ -721,7 +721,51 @@ extern "C" void qq_magic_napi_register(void *m) {
             if os.path.exists(so_path):
                 os.remove(so_path)
         print()
-    
+
+        # Pre-compile libnapcat_launcher.so for Linux (fixes issue #433).
+        #
+        # Before this, launcher-user.sh ran `node napcat-bootstrap.mjs`, which
+        # loaded QQ's wrapper.node into a plain Node.js process. wrapper.node
+        # is built for the Electron embedder, so its std::vector<...> state
+        # was half-initialised on Linux and the first realloc after login
+        # segfaulted (the SIGSEGV users on Fedora 44 / Debian 13 / NixOS /
+        # Arch / Ubuntu 24.04 reported in #433).
+        #
+        # The fix is to launch the real QQ Electron binary with an
+        # LD_PRELOAD shim that swaps QQ's package.json `main` to point at our
+        # loadNapCat.js, so wrapper.node ends up inside the Electron embedder
+        # it was built for. The source for that shim lives in
+        # scripts/napcat-launcher/launcher.cpp; we compile it here.
+        print("[9.4/11] Pre-compiling libnapcat_launcher.so for Linux...")
+
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        launcher_src_dir = os.path.join(repo_root, "scripts", "napcat-launcher")
+        launcher_cpp = os.path.join(launcher_src_dir, "launcher.cpp")
+        if not os.path.isfile(launcher_cpp):
+            print(f"[!] {launcher_cpp} not found; cannot pre-compile Linux launcher.")
+        else:
+            dest_cpp = f"{pack_dir}/launcher.cpp"
+            dest_so = f"{pack_dir}/libnapcat_launcher.so"
+            shutil.copy2(launcher_cpp, dest_cpp)
+
+            launcher_compile_ok = run_command([
+                "g++", "-shared", "-fPIC", "-O2",
+                "-o", dest_so, dest_cpp, "-ldl",
+            ])
+
+            if launcher_compile_ok and os.path.exists(dest_so):
+                print("[x] libnapcat_launcher.so compiled successfully")
+                # Ship launcher.cpp alongside the .so so users on
+                # unsupported architectures (e.g. arm64 runners that do not
+                # match this build host) can rebuild it themselves; the
+                # generated launcher-user.sh also retries in-place compile.
+            else:
+                print("[!] Warning: Could not pre-compile libnapcat_launcher.so")
+                print("[!] launcher-user.sh will fall back to in-place compilation.")
+                if os.path.exists(dest_so):
+                    os.remove(dest_so)
+        print()
+
     # Create standalone mode scripts
     print("[9.5/11] Creating standalone mode scripts...")
     
@@ -903,36 +947,38 @@ await import(napcatUrl);
 # NapCat + QCE launcher (Linux / macOS).
 #
 # This script wires up the bits NapCat assumes a Windows installer has
-# already taken care of:
+# already taken care of.
 #
-#   1. NAPCAT_QQ_PATH  - auto-detected from the standard QQ install paths
-#                        (deb, snap, flatpak, /Applications/QQ.app, ...) and
-#                        symlink-resolved so QQBasicInfoWrapper finds
-#                        resources/app/package.json next to the real binary.
-#   2. qq_magic.so     - LD_PRELOAD'ed so NapCat's native modules can resolve
-#                        the qq_magic_napi_register symbol that Linux QQ
-#                        does not export. Built in-place via g++ if the
-#                        bundled copy is missing.
-#   3. libgnutls.so.30 - LD_PRELOAD'ed when QQ ships libbugly.so, which
-#                        references gnutls_* symbols without listing
-#                        libgnutls in its NEEDED entries.
-#   4. Single-process  - NAPCAT_DISABLE_MULTI_PROCESS=1 by default. NapCat's
-#                        master/worker mode forks via child_process.fork
-#                        using process.execPath as the runtime; once the
-#                        bootstrap shim points process.execPath at the QQ
-#                        Electron binary, every fork spawns a real Electron
-#                        process (chrome-sandbox, GPU, dbus...) which
-#                        crashes on most headless servers. Single-process
-#                        mode runs NCoreInitShell directly inside this
-#                        Node.js process and is the recommended default for
-#                        headless deployments.
+# Linux flow (issue #433):
+#   We launch the real QQ Electron binary with libnapcat_launcher.so
+#   LD_PRELOAD'ed. The shim hooks open/openat/fopen and rewrites QQ's
+#   package.json `main` to point at loadNapCat.js, which imports napcat.mjs
+#   out of this directory. wrapper.node thus runs inside the Electron
+#   embedder it was built for instead of plain Node.js, where it would
+#   segfault on login (`std::vector<std::string>::_M_realloc_insert` inside
+#   wrapper.node, observed on Fedora 44 / Debian 13 / NixOS / Arch /
+#   Ubuntu 24.04).
+#
+#   Other Linux-only bits:
+#     - qq_magic.so       supplies the qq_magic_napi_register symbol Linux
+#                         QQ does not export.
+#     - libgnutls.so.30   preloaded when QQ ships libbugly.so, which is
+#                         missing the NEEDED entry for it.
+#     - NAPCAT_DISABLE_MULTI_PROCESS=1 by default — NapCat's master/worker
+#                         mode forks via process.execPath, which under
+#                         Electron means spawning headless QQ child
+#                         processes and is brittle on most servers.
+#
+# macOS flow (unchanged):
+#   We run `node napcat-bootstrap.mjs`, which overrides process.execPath to
+#   the QQ binary and then imports napcat.mjs. The Electron-binary approach
+#   is Linux-specific because xvfb/headless concerns and QQ's macOS .app
+#   bundle layout differ.
 
 set -u
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
-
-export NAPCAT_MAIN_PATH="$SCRIPT_DIR/napcat-bootstrap.mjs"
 
 # --- 1. Locate QQ -----------------------------------------------------------
 
@@ -982,19 +1028,15 @@ fi
 
 echo "[Info] QQ Path: $NAPCAT_QQ_PATH"
 
-# --- 2. Locate node --------------------------------------------------------
-
-if ! command -v node >/dev/null 2>&1; then
-    echo "[Error] node not found. Install Node.js 18+ from https://nodejs.org/."
-    exit 1
-fi
-
-# --- 3. Linux-specific runtime fixes ---------------------------------------
+# --- 2. Linux-specific runtime fixes (Electron + LD_PRELOAD) ---------------
 
 if [[ "${OSTYPE:-}" == linux* ]]; then
+    # 2a. Build qq_magic.so if missing — NapCat's native modules dlopen and
+    # immediately try to resolve qq_magic_napi_register, which is *not*
+    # exported by Linux QQ. The stub forwards to napi_module_register at
+    # runtime.
     QQ_MAGIC_SO="$SCRIPT_DIR/qq_magic.so"
     QQ_MAGIC_CPP="$SCRIPT_DIR/qq_magic.cpp"
-
     if [ ! -f "$QQ_MAGIC_SO" ]; then
         echo "[Info] qq_magic.so missing, attempting in-place compile..."
         if [ ! -f "$QQ_MAGIC_CPP" ]; then
@@ -1020,37 +1062,98 @@ __QQMAGIC__
             echo "          drop a pre-built qq_magic.so next to this script."
         fi
     fi
-    if [ -f "$QQ_MAGIC_SO" ]; then
-        export LD_PRELOAD="$QQ_MAGIC_SO${LD_PRELOAD:+:$LD_PRELOAD}"
-    fi
 
-    # libbugly.so references gnutls_* symbols (gnutls_free, gnutls_alert_get,
-    # ...) but ships without a NEEDED entry for libgnutls.so.30, so dlopen()
-    # fails with "undefined symbol: gnutls_free" unless gnutls is already in
-    # the process. Preload it.
-    if [ -f "$QQ_DIR/resources/app/libbugly.so" ]; then
-        LIBGNUTLS=$(ldconfig -p 2>/dev/null | awk -F'=> ' '/libgnutls\.so\.30/ { print $2; exit }' | tr -d '[:space:]')
-        if [ -n "$LIBGNUTLS" ] && [ -f "$LIBGNUTLS" ]; then
-            export LD_PRELOAD="$LIBGNUTLS${LD_PRELOAD:+:$LD_PRELOAD}"
+    # 2b. Build libnapcat_launcher.so if missing — the package.json/loadNapCat.js
+    # hook that lets QQ Electron boot into napcat.mjs (issue #433).
+    LAUNCHER_SO="$SCRIPT_DIR/libnapcat_launcher.so"
+    LAUNCHER_CPP="$SCRIPT_DIR/launcher.cpp"
+    if [ ! -f "$LAUNCHER_SO" ]; then
+        echo "[Info] libnapcat_launcher.so missing, attempting in-place compile..."
+        if [ ! -f "$LAUNCHER_CPP" ]; then
+            echo "[Error] launcher.cpp not bundled. Re-download the release tarball or"
+            echo "        copy it from https://github.com/shuakami/qq-chat-exporter/"
+            echo "        blob/master/scripts/napcat-launcher/launcher.cpp"
+            exit 1
+        fi
+        if command -v g++ >/dev/null 2>&1; then
+            if g++ -shared -fPIC -O2 -o "$LAUNCHER_SO" "$LAUNCHER_CPP" -ldl 2>&1; then
+                echo "[Info] libnapcat_launcher.so compiled at $LAUNCHER_SO"
+            else
+                echo "[Error] libnapcat_launcher.so compile failed. QCE cannot run on"
+                echo "        Linux without this shim — install build-essential and retry."
+                exit 1
+            fi
         else
-            echo "[Warning] libgnutls.so.30 not found; QQ libbugly.so may fail to load."
-            echo "          Debian/Ubuntu: sudo apt-get install -y libgnutls30"
-            echo "          RHEL/Fedora:   sudo dnf install -y gnutls"
+            echo "[Error] g++ not available. Install build-essential (Debian/Ubuntu)"
+            echo "        or @development tools (RHEL/Fedora) and re-run."
+            exit 1
         fi
     fi
 
-    if [ -n "${LD_PRELOAD:-}" ]; then
-        echo "[Info] LD_PRELOAD: $LD_PRELOAD"
+    # 2c. libbugly.so references gnutls_* symbols but ships without a NEEDED
+    # entry for libgnutls.so.30; preload the system copy if present.
+    LIBGNUTLS=""
+    if [ -f "$QQ_DIR/resources/app/libbugly.so" ]; then
+        LIBGNUTLS=$(ldconfig -p 2>/dev/null | awk -F'=> ' '/libgnutls\.so\.30/ { print $2; exit }' | tr -d '[:space:]')
+        if [ -z "$LIBGNUTLS" ] || [ ! -f "$LIBGNUTLS" ]; then
+            echo "[Warning] libgnutls.so.30 not found; QQ libbugly.so may fail to load."
+            echo "          Debian/Ubuntu: sudo apt-get install -y libgnutls30"
+            echo "          RHEL/Fedora:   sudo dnf install -y gnutls"
+            LIBGNUTLS=""
+        fi
     fi
 
-    # Default to single-process mode unless the caller has explicitly opted
-    # into NapCat's master/worker model (which currently breaks on headless
-    # servers, see issue #314).
+    # Compose LD_PRELOAD. Order matters: the launcher hook must load before
+    # anything that opens package.json (which is essentially everything).
+    LD_PRELOAD_PARTS="$LAUNCHER_SO"
+    [ -f "$QQ_MAGIC_SO" ] && LD_PRELOAD_PARTS="$LD_PRELOAD_PARTS:$QQ_MAGIC_SO"
+    [ -n "$LIBGNUTLS" ] && LD_PRELOAD_PARTS="$LD_PRELOAD_PARTS:$LIBGNUTLS"
+    export LD_PRELOAD="$LD_PRELOAD_PARTS${LD_PRELOAD:+:$LD_PRELOAD}"
+    echo "[Info] LD_PRELOAD: $LD_PRELOAD"
+
+    # 2d. Inputs the launcher shim reads.
+    export NAPCAT_BOOTMAIN="$SCRIPT_DIR"
+    export NAPCAT_QQ_PKG_JSON="$QQ_PKG_JSON"
+
+    # 2e. Single-process mode by default — see comments at the top.
     : "${NAPCAT_DISABLE_MULTI_PROCESS:=1}"
     export NAPCAT_DISABLE_MULTI_PROCESS
+
+    # 2f. Headless safety net. QQ is an Electron app and needs a display
+    # server. On desktops this is already there. On headless servers (Docker,
+    # SSH, CI) we fall back to xvfb-run so QQ has a virtual X session.
+    DISPLAY_VAR="${DISPLAY:-}"
+    WAYLAND_VAR="${WAYLAND_DISPLAY:-}"
+    XVFB_PREFIX=()
+    if [ -z "$DISPLAY_VAR" ] && [ -z "$WAYLAND_VAR" ]; then
+        if command -v xvfb-run >/dev/null 2>&1; then
+            echo "[Info] No DISPLAY detected; wrapping QQ in xvfb-run."
+            XVFB_PREFIX=(xvfb-run -a --server-args="-screen 0 1280x720x24")
+        else
+            echo "[Warning] No DISPLAY and xvfb-run is not installed."
+            echo "          On headless boxes, install xvfb first:"
+            echo "          Debian/Ubuntu: sudo apt-get install -y xvfb"
+            echo "          RHEL/Fedora:   sudo dnf install -y xorg-x11-server-Xvfb"
+            echo "          Continuing anyway — QQ may fail to start."
+        fi
+    fi
+
+    echo "Starting NapCat + QCE (Linux Electron mode, issue #433)..."
+    echo "Press Ctrl+C to stop."
+    echo "After QQ login, open http://localhost:40653/qce-v4-tool/ in your browser."
+    echo ""
+
+    exec "${XVFB_PREFIX[@]}" "$NAPCAT_QQ_PATH" --no-sandbox
 fi
 
-# --- 4. Run NapCat ---------------------------------------------------------
+# --- 3. macOS flow (unchanged Node + bootstrap shim path) -------------------
+
+if ! command -v node >/dev/null 2>&1; then
+    echo "[Error] node not found. Install Node.js 18+ from https://nodejs.org/."
+    exit 1
+fi
+
+export NAPCAT_MAIN_PATH="$SCRIPT_DIR/napcat-bootstrap.mjs"
 
 echo "Starting NapCat + QCE..."
 echo "Press Ctrl+C to stop."
