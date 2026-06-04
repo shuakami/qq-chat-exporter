@@ -258,13 +258,13 @@
       },
       "type": "type_3",
       "content": {
-        "text": "[回复 : Anyone seen the build break?]\nthanks team, fix incoming",
+        "text": "[回复 Alice (PM): Anyone seen the build break?]\nthanks team, fix incoming",
         "html": "",
         "elements": [
           {
             "type": "text",
             "data": {
-              "text": "[回复 : Anyone seen the build break?]\nthanks team, fix incoming"
+              "text": "[回复 Alice (PM): Anyone seen the build break?]\nthanks team, fix incoming"
             }
           },
           {
@@ -273,7 +273,7 @@
               "messageId": "m_1",
               "referencedMessageId": "m_1",
               "senderUin": "11111",
-              "senderName": "",
+              "senderName": "Alice (PM)",
               "timestamp": 1704067300,
               "content": "Anyone seen the build break?"
             }

@@ -6,6 +6,7 @@ import { RawMessage, MessageElement, ElementType, NTMsgType } from 'NapCatQQ/src
 import { SystemError, ErrorType, ResourceInfo, ResourceStatus } from '../../types/index.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 import { OneBotMsgApi } from 'NapCatQQ/src/onebot/api/msg.js';
+import { resolveReplySenderName } from './replySenderName.js';
 
 /* ------------------------------ 内部高性能工具 ------------------------------ */
 
@@ -123,6 +124,14 @@ type MsgRef = {
   msgId: string;
   msgSeq?: string;
   clientSeq?: string;
+  // issue #296：为让「回复 XXX」的发件人跟随被引用消息本身，
+  // 在索引里保留被引用消息的发件人身份（uin / uid + 名片 / 备注 / 昵称）。
+  senderUin?: string;
+  senderUidStr?: string;
+  sendMemberName?: string;
+  sendRemarkName?: string;
+  sendNickName?: string;
+  msgTime?: string;
   // 为提取引用预览而保留的最小 elements 信息（不保留 records / 原始大字段）
   elements?: any[];
 };
@@ -470,6 +479,12 @@ export class MessageParser {
         msgId: msg.msgId,
         msgSeq: msg.msgSeq,
         clientSeq: (msg as any).clientSeq,
+        senderUin: msg.senderUin,
+        senderUidStr: msg.senderUid,
+        sendMemberName: (msg as any).sendMemberName,
+        sendRemarkName: (msg as any).sendRemarkName,
+        sendNickName: (msg as any).sendNickName,
+        msgTime: msg.msgTime,
         elements: Array.isArray(msg.elements) ? msg.elements.slice(0, 16) : undefined // 控制体积
       });
       // 也索引 records（引用常出现在这里）
@@ -480,6 +495,12 @@ export class MessageParser {
               msgId: r.msgId,
               msgSeq: r.msgSeq,
               clientSeq: (r as any).clientSeq,
+              senderUin: r.senderUin,
+              senderUidStr: r.senderUid,
+              sendMemberName: (r as any).sendMemberName,
+              sendRemarkName: (r as any).sendRemarkName,
+              sendNickName: (r as any).sendNickName,
+              msgTime: r.msgTime,
               elements: Array.isArray(r.elements) ? r.elements.slice(0, 16) : undefined
             });
           }
@@ -1425,50 +1446,73 @@ export class MessageParser {
     
     // sourceMsgIdInRecords 用于内部查找（在 records 数组中）
     const sourceMsgId = reply.sourceMsgIdInRecords || '';
-    
-    // 如果 replayMsgId 无效，尝试用 replayMsgSeq 查找
-    if (!referencedMessageId && reply.replayMsgSeq) {
-      for (const [msgId, msg] of this.messageMap.entries()) {
+
+    // issue #296：先统一锁定被引用消息的索引（MsgRef），让发件人 / 时间戳 / 内容
+    // 都来自同一条消息，避免「内容取自 A、发件人取自 reply 元素」导致的发件人错位。
+    // 依次尝试：replayMsgId → sourceMsgIdInRecords → replayMsgSeq → replyMsgClientSeq。
+    let referencedRef: MsgRef | undefined;
+    if (referencedMessageId && this.messageMap.has(referencedMessageId)) {
+      referencedRef = this.messageMap.get(referencedMessageId);
+    }
+    if (!referencedRef && sourceMsgId && this.messageMap.has(sourceMsgId)) {
+      referencedRef = this.messageMap.get(sourceMsgId);
+      if (referencedRef && !referencedMessageId) referencedMessageId = referencedRef.msgId;
+    }
+    if (!referencedRef && reply.replayMsgSeq) {
+      for (const [, msg] of this.messageMap.entries()) {
         if (msg.msgSeq === reply.replayMsgSeq) {
-          referencedMessageId = msg.msgId;
+          referencedRef = msg;
+          if (!referencedMessageId) referencedMessageId = msg.msgId;
           break;
         }
       }
     }
-    
-    // 再尝试用 replyMsgClientSeq 查找
-    if (!referencedMessageId && reply.replyMsgClientSeq) {
-      for (const [msgId, msg] of this.messageMap.entries()) {
+    if (!referencedRef && reply.replyMsgClientSeq) {
+      for (const [, msg] of this.messageMap.entries()) {
         if (msg.clientSeq === reply.replyMsgClientSeq) {
-          referencedMessageId = msg.msgId;
+          referencedRef = msg;
+          if (!referencedMessageId) referencedMessageId = msg.msgId;
           break;
         }
       }
     }
 
-    // issue #128：被引用消息的 senderUin / timestamp 也回填到 reply 数据上，
-    // 这样 JSON / TXT / Excel 等导出器不用再回查 messageMap 自己组装。
+    // issue #128 / #296：被引用消息的 senderUin / timestamp / 显示名回填到 reply 数据上，
+    // 优先取被引用消息本身（referencedRef），找不到才退回 reply 元素自带字段。
     let referencedTimestamp: number | undefined;
-    let referencedSenderUin: string | undefined;
-    if (referencedMessageId && this.messageMap.has(referencedMessageId)) {
-      const ref = this.messageMap.get(referencedMessageId);
-      if (ref?.msgTime) referencedTimestamp = parseInt(ref.msgTime as any) || undefined;
-      if (ref?.senderUin) referencedSenderUin = ref.senderUin;
-    }
+    if (referencedRef?.msgTime) referencedTimestamp = parseInt(referencedRef.msgTime as any) || undefined;
     // NapCat 上游字段名拼成 replayMsgTime（多了个 a），但旧测试 / 极少数兼容字段
     // 又写成 replyMsgTime，两个都兜一下，避免老回放数据导致 timestamp 丢失。
     if (!referencedTimestamp && (reply.replayMsgTime || (reply as any).replyMsgTime)) {
       referencedTimestamp = Number(reply.replayMsgTime || (reply as any).replyMsgTime) || undefined;
     }
-    if (!referencedSenderUin && reply.senderUin) {
-      referencedSenderUin = reply.senderUin;
-    }
+
+    const referencedSenderUin = referencedRef?.senderUin || reply.senderUin || undefined;
+
+    // 显示名按与外层发件人一致的优先级解析：命中被引用消息就用它的名片 / 备注 / 昵称，
+    // 否则退回 reply 元素自带的 senderMemberName / senderNick，再退回 uin / uid。
+    const isGroupChat = messageRef?.chatType === 2;
+    const preferGroupMemberName = this.config.preferGroupMemberName === true;
+    const senderName = referencedRef
+      ? resolveReplySenderName({
+          memberName: referencedRef.sendMemberName,
+          remark: referencedRef.sendRemarkName,
+          nickname: referencedRef.sendNickName,
+          uin: referencedRef.senderUin,
+          uidStr: referencedRef.senderUidStr,
+        }, { isGroupChat, preferGroupMemberName })
+      : resolveReplySenderName({
+          memberName: (reply as any).senderMemberName,
+          nickname: (reply as any).senderNick,
+          uin: reply.senderUin,
+          uidStr: reply.senderUidStr,
+        }, { isGroupChat, preferGroupMemberName });
 
     return {
       messageId: sourceMsgId,      // 保留原始的sourceMsgIdInRecords用于内部查找
       referencedMessageId,         // 使用 replayMsgId 作为被引用消息的实际ID
       senderUin: referencedSenderUin,
-      senderName: reply.senderUidStr || '',
+      senderName,
       timestamp: referencedTimestamp,
       content: this.extractReplyContent(reply, messageRef),
       elements: []
