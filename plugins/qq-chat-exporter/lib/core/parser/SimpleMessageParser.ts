@@ -1233,6 +1233,13 @@ export class SimpleMessageParser {
       }
     }
 
+    if (raws.length === 0) {
+      const fromAction = await this.fetchForwardInnerMessagesByAction(message, resId);
+      if (fromAction.length > 0) {
+        return fromAction;
+      }
+    }
+
     if (raws.length === 0) return [];
 
     const out: ForwardInnerMessage[] = [];
@@ -1272,6 +1279,66 @@ export class SimpleMessageParser {
       } catch {
         // 单条子消息解析失败时跳过，避免拖死整批。
       }
+    }
+    return out;
+  }
+
+  private async fetchForwardInnerMessagesByAction(
+    message: RawMessage,
+    resId: string
+  ): Promise<ForwardInnerMessage[]> {
+    const bridge = (globalThis as any).__NAPCAT_BRIDGE__;
+    const getForwardAction = bridge?.actions?.get?.('get_forward_msg');
+    if (!getForwardAction) return [];
+
+    for (const messageId of [message.msgId, resId].filter(Boolean)) {
+      try {
+        const result = await getForwardAction.handle({ message_id: messageId }, 'plugin', {});
+        const messages = result?.data?.messages;
+        if (Array.isArray(messages) && messages.length > 0) {
+          return this.normalizeForwardActionMessages(messages);
+        }
+      } catch {
+        // 继续尝试下一个 messageId / resId。
+      }
+    }
+    return [];
+  }
+
+  private normalizeForwardActionMessages(messages: any[]): ForwardInnerMessage[] {
+    const out: ForwardInnerMessage[] = [];
+    for (const item of messages) {
+      if (!item) continue;
+      const sender = item.sender || {};
+      const elements = Array.isArray(item.message)
+        ? item.message.map((element: any) => ({
+            type: String(element?.type || 'unknown'),
+            data: element?.data || {}
+          }))
+        : [];
+      const textFromElements = elements
+        .map((element) => this.elementToText(element, false).text)
+        .filter(Boolean)
+        .join('');
+      const rawText = typeof item.raw_message === 'string' ? item.raw_message : '';
+      const text = textFromElements || rawText;
+      const tsMs = millisFromUnixSeconds(item.time || 0);
+      const senderName = sender.card || sender.nickname || sender.name || String(item.user_id || sender.user_id || '');
+
+      out.push({
+        id: String(item.message_id || item.real_id || item.message_seq || item.real_seq || ''),
+        timestamp: tsMs,
+        time: rfc3339FromMillis(tsMs),
+        sender: {
+          uid: item.user_id != null ? String(item.user_id) : undefined,
+          uin: sender.user_id != null ? String(sender.user_id) : undefined,
+          name: senderName
+        },
+        content: {
+          text,
+          elements
+        }
+      });
     }
     return out;
   }
