@@ -58,6 +58,7 @@ import {
 import { resolveSessionName } from './sessionNameResolver.js';
 import { normalizeGroupSystemNotify } from './groupSystemNotify.js';
 import { buildResourceSummaryMessage } from '../utils/resourceSummary.js';
+import { describeServerStartupError } from '../utils/serverStartupError.js';
 import {
     reconcileOrphanedTask,
     buildTaskResyncPayload,
@@ -5681,7 +5682,7 @@ export class QQChatExporterApiServer {
             });
 
             this.server.on('error', (error) => {
-                console.error('[QCE] 服务器启动失败:', error);
+                console.error(describeServerStartupError(error as NodeJS.ErrnoException, 40653));
                 reject(error);
             });
         });
