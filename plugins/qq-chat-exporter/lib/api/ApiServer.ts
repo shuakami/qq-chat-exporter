@@ -5553,7 +5553,7 @@ export class QQChatExporterApiServer {
                     includeRecalled: task.filter?.includeRecalled || false
                 },
                 // Issue #192: 保存实际使用的输出目录（可能是自定义路径）
-                outputDir: task.PathManager.sanitizePath(options?.outputDir || '') || this.pathManager.getExportsDir(),
+                outputDir: PathManager.sanitizePath(task.options?.outputDir || '') || this.pathManager.getExportsDir(),
                 includeResourceLinks: task.options?.includeResourceLinks || true,
                 batchSize: task.options?.batchSize || 5000,
                 timeout: 30000,
