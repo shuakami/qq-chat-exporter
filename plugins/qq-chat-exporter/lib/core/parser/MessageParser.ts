@@ -291,6 +291,7 @@ export interface ParsedMessageContent {
     summary: string;
     messageCount: number;
     senderNames: string[];
+    messages?: any[];
   };
   calendar?: {
     title: string;
@@ -1234,11 +1235,40 @@ export class MessageParser {
                         senderNames: []
                       };
                       multiForward.messageCount = result.data.messages.length;
+                      multiForward.messages = result.data.messages;
                     }
                   }
                 }
               } catch (error) {
                 // 获取合并转发详情失败，忽略错误
+              }
+
+              const fallbackResId = element.multiForwardMsgElement.resId
+                || (element.multiForwardMsgElement.xmlContent || '').match(/m_resid="([^"]+)"/)?.[1]
+                || '';
+              if ((!Array.isArray(multiForward?.messages) || multiForward.messages.length === 0) && fallbackResId) {
+                try {
+                  const bridge = (globalThis as any).__NAPCAT_BRIDGE__;
+                  const getForwardAction = bridge?.actions?.get?.('get_forward_msg');
+                  if (getForwardAction) {
+                    const result = await getForwardAction.handle({
+                      message_id: fallbackResId
+                    }, 'plugin', {});
+
+                    if (result?.data?.messages) {
+                      multiForward = multiForward || {
+                        title: '聊天记录',
+                        summary: '合并转发的聊天记录',
+                        messageCount: result.data.messages.length,
+                        senderNames: []
+                      };
+                      multiForward.messageCount = result.data.messages.length;
+                      multiForward.messages = result.data.messages;
+                    }
+                  }
+                } catch {
+                  // resId 兜底失败时保持外层合并转发占位。
+                }
               }
               
               const count = multiForward?.messageCount || 0;
