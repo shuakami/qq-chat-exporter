@@ -16,11 +16,18 @@
 4. 复制控制台的 Token
 5. 打开 `http://localhost:40653/qce-v4-tool`
 
-### Docker NapCat 部署
+### Docker 一键部署
 
-如果已有 Docker 部署的 NapCat（Shell 模式），可以作为插件直接挂载，无需桌面 QQNT 环境。
+适用于 macOS（含 Apple Silicon）、Linux、Windows，无需安装 QQ 客户端。
 
-详见 [Docker NapCat 部署指南](docs/docker-napcat-deployment.md)。
+1. 克隆仓库：`git clone https://github.com/shuakami/qq-chat-exporter.git`
+2. 启动：`cd qq-chat-exporter/docker && docker compose up -d`
+3. 查看 Token：`docker logs napcat-qce 2>&1 | grep -i token`
+4. 访问：`http://localhost:40653/qce-v4-tool`
+
+> Apple Silicon (M1/M2/M3/M4) 通过 Rosetta 模拟运行，首次启动可能稍慢。
+
+详见 [Docker 部署指南](docs/docker-napcat-deployment.md)。
 
 ## 相关项目
 

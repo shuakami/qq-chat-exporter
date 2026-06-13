@@ -639,7 +639,7 @@ pause
     }
 
     plugins_config = {
-        "qq-chat-exporter": True
+        "napcat-plugin-qce": True
     }
     
     onebot_config = {

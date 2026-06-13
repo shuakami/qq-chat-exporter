@@ -148,7 +148,7 @@ def main():
     }
 
     plugins_config = {
-        "qq-chat-exporter": True
+        "napcat-plugin-qce": True
     }
 
     with open(os.path.join(config_dir, "napcat.json"), "w", encoding="utf-8") as f:
