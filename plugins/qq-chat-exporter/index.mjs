@@ -45,6 +45,73 @@ function createFallbackCore(rawCore) {
   return safeCore;
 }
 
+/**
+ * API adapter that wraps the real NapCat apis and provides fallback implementations
+ * for methods that are missing or have different signatures in NapCat 4.18.6.
+ * 
+ * This adapter receives the REAL NapCat APIs (from the bridge), not the stub Proxy.
+ * It provides stub fallbacks for methods that don't exist or return wrong types.
+ */
+function createApiAdapter(apis) {
+  // Known methods that QCE expects, organized by API namespace
+  const knownMethods = {
+    GroupApi: ['getGroups', 'fetchGroupDetail', 'getGroupMemberAll', 'getGroupFileCount'],
+    FriendApi: ['getBuddy', 'getBuddyV2ExWithCate', 'getFriends'],
+    WebApi: ['getGroupEssenceMsgAll'],
+  };
+
+  const stubs = {
+    GroupApi: {
+      getGroups: async () => [],
+      fetchGroupDetail: async (groupCode) => ({ groupCode, groupName: 'Unknown' }),
+      getGroupMemberAll: async () => ({ result: { infos: new Map() } }),
+      getGroupFileCount: async () => ({ groupFileCounts: [] }),
+    },
+    FriendApi: {
+      getBuddy: async () => [],
+      getBuddyV2ExWithCate: async () => [],
+      getFriends: async () => [],
+    },
+    WebApi: {
+      getGroupEssenceMsgAll: async () => [],
+    },
+  };
+
+  return new Proxy({}, {
+    get(target, apiName) {
+      if (!(apiName in target)) {
+        target[apiName] = new Proxy({}, {
+          get(apiTarget, methodName) {
+            const methodList = knownMethods[apiName];
+            const methodStubs = stubs[apiName];
+
+            // If this is a known QCE method
+            if (methodList && methodList.includes(methodName)) {
+              // Try the real API first
+              const realApi = apis?.[apiName];
+              const realMethod = realApi?.[methodName];
+              if (typeof realMethod === 'function') {
+                return realMethod.bind(realApi);
+              }
+              // Fall back to stub
+              return methodStubs?.[methodName] || (async () => []);
+            }
+
+            // For unknown methods, try real API first
+            const realApi = apis?.[apiName];
+            const realMethod = realApi?.[methodName];
+            if (typeof realMethod === 'function') {
+              return realMethod.bind(realApi);
+            }
+            return async () => ({ result: 0, errMsg: '' });
+          }
+        });
+      }
+      return target[apiName];
+    }
+  });
+}
+
 function pickFirstDefined(...values) {
   for (const value of values) {
     if (value !== undefined && value !== null) {
@@ -190,6 +257,11 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
       );
       runtimeCore = createFallbackCore(core);
     }
+
+    // Use the real NapCat core's APIs if available (from the bridge)
+    // The stub NapCatCore creates a proxy for apis, but we want the real QQ APIs
+    const realApis = globalThis.__NAPCAT_BRIDGE__?.core?.apis || runtimeCore.apis;
+    runtimeCore.apis = createApiAdapter(realApis);
 
     apiLauncher = new QQChatExporterApiLauncher(runtimeCore);
     await apiLauncher.startApiServer();
