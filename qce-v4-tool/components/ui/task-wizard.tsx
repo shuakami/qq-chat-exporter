@@ -13,6 +13,7 @@ import {
   Users, User, Search, Loader2, ChevronDown, RefreshCw, Settings, Eye, FileText, CheckCircle, X, UserMinus, UserPlus, Check
 } from "lucide-react"
 import { useSearch } from "@/hooks/use-search"
+import { useApi } from "@/hooks/use-api"
 import type { CreateTaskForm, Group, Friend, GroupMember } from "@/types/api"
 import { Checkbox } from "./checkbox"
 import { toggleSkipResourceType } from "@/lib/skip-resource-types"
@@ -34,6 +35,8 @@ interface TaskWizardProps {
   }) => void
   onExportAvatars?: (groupCode: string, groupName: string) => void
   avatarExportLoading?: string | null
+  /** Issue #340：独立模式下群相关 API 不可用，隐藏手动输入群号 */
+  isStandalone?: boolean
 }
 
 export function TaskWizard({
@@ -47,17 +50,22 @@ export function TaskWizard({
   onLoadData,
   onPreview,
   onExportAvatars,
-  avatarExportLoading
+  avatarExportLoading,
+  isStandalone = false,
 }: TaskWizardProps) {
+  const { apiCall } = useApi()
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedTarget, setSelectedTarget] = useState<Group | Friend | null>(null)
   const [showTargetSelector, setShowTargetSelector] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   
-  // 手动输入QQ号模式（Issue #226）
-  const [manualInputMode, setManualInputMode] = useState(false)
+  // 手动输入 QQ 号 / 群号模式（Issue #226）：friend | group | null
+  const [manualInputMode, setManualInputMode] = useState<'friend' | 'group' | null>(null)
   const [manualQQNumber, setManualQQNumber] = useState("")
+  const [manualGroupCode, setManualGroupCode] = useState("")
   const [manualSessionName, setManualSessionName] = useState("")
+  const [manualGroupLoading, setManualGroupLoading] = useState(false)
+  const [manualGroupError, setManualGroupError] = useState<string | null>(null)
   
   // 群成员选择器状态：mode 表示当前选择器是给「排除」还是「仅导出」面板用的，
   // null 表示未展开。Issue #369 把同一份选择器复用给两个目标字段。
@@ -184,9 +192,12 @@ export function TaskWizard({
       setSelectedTarget(null)
       setSearchTerm("")
       setShowTargetSelector(true)
-      setManualInputMode(false)
+      setManualInputMode(null)
       setManualQQNumber("")
+      setManualGroupCode("")
       setManualSessionName("")
+      setManualGroupLoading(false)
+      setManualGroupError(null)
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
       groupSearchRef.current.clear()
       friendSearchRef.current.clear()
@@ -445,16 +456,43 @@ export function TaskWizard({
     setShowTargetSelector(true)
     setSelectedTarget(null)
     setSearchTerm("")
-    setManualInputMode(false)
+    setManualInputMode(null)
     setManualQQNumber("")
+    setManualGroupCode("")
     setManualSessionName("")
+    setManualGroupLoading(false)
+    setManualGroupError(null)
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     groupSearchRef.current.clear()
     friendSearchRef.current.clear()
   }, [])
 
-  // 手动输入QQ号确认（Issue #226）
-  const handleManualInputConfirm = useCallback(() => {
+  const openManualFriendInput = useCallback(() => {
+    if (manualInputMode === 'friend') {
+      setManualInputMode(null)
+      return
+    }
+    setManualInputMode('friend')
+    setForm((p) => ({ ...p, chatType: 1 }))
+    setManualGroupError(null)
+    setSearchTerm("")
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+  }, [manualInputMode])
+
+  const openManualGroupInput = useCallback(() => {
+    if (manualInputMode === 'group') {
+      setManualInputMode(null)
+      return
+    }
+    setManualInputMode('group')
+    setForm((p) => ({ ...p, chatType: 2 }))
+    setManualGroupError(null)
+    setSearchTerm("")
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+  }, [manualInputMode])
+
+  // 手动输入 QQ 号确认（Issue #226）
+  const handleManualFriendInputConfirm = useCallback(() => {
     const qqNumber = manualQQNumber.trim()
     if (!qqNumber) return
     
@@ -480,8 +518,52 @@ export function TaskWizard({
     
     setSelectedTarget(virtualFriend)
     setShowTargetSelector(false)
-    setManualInputMode(false)
+    setManualInputMode(null)
   }, [manualQQNumber, manualSessionName])
+
+  // 手动输入群号确认：调用 get_group_info 校验群是否存在
+  const handleManualGroupInputConfirm = useCallback(async () => {
+    const groupCode = manualGroupCode.trim()
+    if (!groupCode) return
+
+    setManualGroupLoading(true)
+    setManualGroupError(null)
+    try {
+      const response = await apiCall<Group>(`/api/groups/${groupCode}`)
+      if (!response.success || !response.data) {
+        throw new Error(response.error?.message || '群组不存在或无权访问')
+      }
+
+      const apiData = response.data
+      const groupName = manualSessionName.trim() || apiData.groupName || `群聊 ${groupCode}`
+
+      setForm((p) => ({
+        ...p,
+        chatType: 2,
+        peerUid: groupCode,
+        sessionName: groupName,
+      }))
+
+      const virtualGroup: Group = {
+        groupCode,
+        groupName,
+        memberCount: apiData.memberCount ?? 0,
+        maxMember: apiData.maxMember ?? 0,
+        avatarUrl: apiData.avatarUrl || `https://p.qlogo.cn/gh/${groupCode}/${groupCode}/640/`,
+      }
+
+      setSelectedTarget(virtualGroup)
+      setShowTargetSelector(false)
+      setManualInputMode(null)
+      setGroupMembers([])
+      setSelectedMemberUins(new Set())
+      setMemberSelectorMode(null)
+    } catch (error) {
+      setManualGroupError(error instanceof Error ? error.message : '群组不存在或无权访问')
+    } finally {
+      setManualGroupLoading(false)
+    }
+  }, [manualGroupCode, manualSessionName, apiCall])
 
   const canSubmit = () => selectedTarget !== null && form.sessionName.trim() !== ""
 
@@ -497,12 +579,12 @@ export function TaskWizard({
           <Label className="text-sm font-medium mb-2 block">选择聊天类型</Label>
           <div className="grid grid-cols-2 gap-2">
             <Button
-              variant={form.chatType === 1 && !manualInputMode ? "default" : "outline"}
+              variant={form.chatType === 1 && manualInputMode !== 'group' ? "default" : "outline"}
               size="sm"
               onClick={() => {
                 setForm((p) => ({ ...p, chatType: 1 }))
                 setSearchTerm("")
-                setManualInputMode(false)
+                setManualInputMode(null)
                 if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
                 friendSearchRef.current.search("")
               }}
@@ -512,12 +594,12 @@ export function TaskWizard({
               好友聊天
             </Button>
             <Button
-              variant={form.chatType === 2 && !manualInputMode ? "default" : "outline"}
+              variant={form.chatType === 2 && manualInputMode !== 'friend' ? "default" : "outline"}
               size="sm"
               onClick={() => {
                 setForm((p) => ({ ...p, chatType: 2 }))
                 setSearchTerm("")
-                setManualInputMode(false)
+                setManualInputMode(null)
                 if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
                 groupSearchRef.current.search("")
               }}
@@ -527,20 +609,41 @@ export function TaskWizard({
               群组聊天
             </Button>
           </div>
-          {/* 手动输入QQ号选项（Issue #226） */}
-          <Button
-            variant={manualInputMode ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setManualInputMode(!manualInputMode)}
-            className="w-full mt-2 justify-center rounded-full text-xs"
-          >
-            {manualInputMode ? <X className="w-3 h-3 mr-1" /> : <User className="w-3 h-3 mr-1" />}
-            {manualInputMode ? "取消手动输入" : "手动输入QQ号"}
-          </Button>
+          {/* 手动输入 QQ 号 / 群号（独立入口，Issue #226） */}
+          <div className={`grid gap-2 mt-2 ${isStandalone ? "grid-cols-1" : "grid-cols-2"}`}>
+            <Button
+              variant={manualInputMode === 'friend' ? "default" : "ghost"}
+              size="sm"
+              onClick={openManualFriendInput}
+              className="justify-center rounded-full text-xs"
+            >
+              {manualInputMode === 'friend' ? (
+                <X className="w-3 h-3 mr-1" />
+              ) : (
+                <User className="w-3 h-3 mr-1" />
+              )}
+              {manualInputMode === 'friend' ? "取消" : "手动输入QQ号"}
+            </Button>
+            {!isStandalone && (
+              <Button
+                variant={manualInputMode === 'group' ? "default" : "ghost"}
+                size="sm"
+                onClick={openManualGroupInput}
+                className="justify-center rounded-full text-xs"
+              >
+                {manualInputMode === 'group' ? (
+                  <X className="w-3 h-3 mr-1" />
+                ) : (
+                  <Users className="w-3 h-3 mr-1" />
+                )}
+                {manualInputMode === 'group' ? "取消" : "手动输入群号"}
+              </Button>
+            )}
+          </div>
         </div>
 
-        {/* 手动输入QQ号面板（Issue #226） */}
-        {manualInputMode ? (
+        {/* 手动输入面板 */}
+        {manualInputMode === 'friend' ? (
           <div className="space-y-3 p-4 border border-black/[0.08] dark:border-white/[0.08] rounded-2xl bg-muted/50">
             <div className="space-y-2">
               <Label htmlFor="manualQQ" className="text-sm">QQ号码</Label>
@@ -563,7 +666,7 @@ export function TaskWizard({
               />
             </div>
             <Button
-              onClick={handleManualInputConfirm}
+              onClick={handleManualFriendInputConfirm}
               disabled={!manualQQNumber.trim()}
               className="w-full rounded-full bg-blue-600 hover:bg-blue-700"
               size="sm"
@@ -573,6 +676,51 @@ export function TaskWizard({
             </Button>
             <p className="text-xs text-muted-foreground">
               适用于好友列表中未显示的用户，如超过1000人限制的好友
+            </p>
+          </div>
+        ) : manualInputMode === 'group' ? (
+          <div className="space-y-3 p-4 border border-black/[0.08] dark:border-white/[0.08] rounded-2xl bg-muted/50">
+            <div className="space-y-2">
+              <Label htmlFor="manualGroup" className="text-sm">群号</Label>
+              <Input
+                id="manualGroup"
+                placeholder="输入要导出的群号"
+                value={manualGroupCode}
+                onChange={(e) => {
+                  setManualGroupCode(e.target.value.replace(/\D/g, ''))
+                  setManualGroupError(null)
+                }}
+                className="rounded-xl font-mono"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="manualGroupName" className="text-sm">备注名称（可选）</Label>
+              <Input
+                id="manualGroupName"
+                placeholder="给这个群聊起个名字"
+                value={manualSessionName}
+                onChange={(e) => setManualSessionName(e.target.value)}
+                className="rounded-xl"
+              />
+            </div>
+            {manualGroupError && (
+              <p className="text-xs text-red-600 dark:text-red-400">{manualGroupError}</p>
+            )}
+            <Button
+              onClick={handleManualGroupInputConfirm}
+              disabled={!manualGroupCode.trim() || manualGroupLoading}
+              className="w-full rounded-full bg-blue-600 hover:bg-blue-700"
+              size="sm"
+            >
+              {manualGroupLoading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle className="w-4 h-4 mr-2" />
+              )}
+              {manualGroupLoading ? "查询中..." : "确认"}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              适用于群列表中未显示的群，如列表未加载完或搜索不到的情况
             </p>
           </div>
         ) : (
