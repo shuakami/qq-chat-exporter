@@ -67,6 +67,7 @@ cd NapCat-QCE-Linux-x64
 - 设置 `LD_PRELOAD`，包含 `qq_magic.so` 和 `libgnutls.so.30`
 - 在 `qq_magic.so` 缺失而 `g++` 可用时原地编译
 - 在 Linux 上默认 `NAPCAT_DISABLE_MULTI_PROCESS=1`
+- 需要与桌面 QQ 同时在线时，用 `--legacy` 回退到独立 Node 启动方式（见下文）
 
 启动成功后控制台会打印二维码（同时保存到 `cache/qrcode.png`），用手机 QQ 扫码登录。NapCat WebUI 监听 6099，QCE 监听 40653：
 
@@ -85,8 +86,24 @@ http://<服务器IP>:40653/qce-v4-tool/
 | `NAPCAT_QQ_PATH` | 自动探测 | QQ 二进制路径 |
 | `NAPCAT_DISABLE_MULTI_PROCESS` | `1`（Linux） | 禁用 NapCat 多进程模式 |
 | `LD_PRELOAD` | `qq_magic.so:libgnutls.so.30` | 见 [#常见问题](#常见问题) |
+| `QCE_LINUX_LEGACY_LAUNCH` | `0` | 设为 `1` 改用旧版独立 Node 启动方式，见 [#和桌面 QQ 同时在线（legacy 模式）](#和桌面-qq-同时在线legacy-模式) |
 
 需要 NapCat master / worker 模式时设置 `NAPCAT_DISABLE_MULTI_PROCESS=0`。
+
+## 和桌面 QQ 同时在线（legacy 模式）
+
+从 v5.5.64 起，Linux 默认启动方式改为直接拉起真实的 QQ Electron 进程（`qq --no-sandbox`）并通过 `LD_PRELOAD` 注入 NapCat（见 [#433](https://github.com/shuakami/qq-chat-exporter/issues/433)）。这意味着 QCE 与桌面 QQ 客户端抢占同一个「PC 端登录」名额，**两者无法同时在线**：先登桌面 QQ 再开 QCE，桌面端会被强制下线，反之亦然（[#469](https://github.com/shuakami/qq-chat-exporter/issues/469)）。
+
+如果你希望桌面 QQ 保持在线，可以回退到 v5.5.64 之前的启动方式——以独立 Node 进程运行 `napcat-bootstrap.mjs`（即 macOS 使用的路径），它不占用桌面端登录名额：
+
+```bash
+# 二选一
+./launcher-user.sh --legacy
+# 或
+QCE_LINUX_LEGACY_LAUNCH=1 ./launcher-user.sh
+```
+
+代价：部分发行版在该路径下登录时可能崩溃（[#433](https://github.com/shuakami/qq-chat-exporter/issues/433) 中报告的 `wrapper.node` 段错误）。若登录后 QQ 崩溃，去掉该开关回到默认的 Electron 启动方式即可。
 
 ## 常见问题
 
