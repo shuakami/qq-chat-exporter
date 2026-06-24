@@ -1114,23 +1114,18 @@ export const MODERN_CSS = `
             font-size: 13px;
             color: var(--text-secondary);
             line-height: 1.6;
-            max-height: 120px;
-            overflow: hidden;
             position: relative;
         }
-        
-        .forward-card-content::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 30px;
-            background: linear-gradient(to bottom, transparent, var(--bubble-other));
+
+        /* issue #434：嵌套的合并转发消息卡片，缩进 + 左侧分隔线，区分层级。 */
+        .forward-card-nested {
+            margin-left: 8px;
+            margin-top: 4px;
+            border-left: 2px solid rgba(0, 0, 0, 0.08);
         }
-        
-        .message.self .forward-card-content::after {
-            background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.05));
+
+        [data-theme="dark"] .forward-card-nested {
+            border-left-color: rgba(255, 255, 255, 0.12);
         }
         
         .forward-card-footer {
