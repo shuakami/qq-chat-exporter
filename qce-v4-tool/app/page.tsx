@@ -2666,6 +2666,7 @@ export default function QCEDashboard() {
         groups={groups}
         friends={friends}
         onLoadData={loadChatData}
+        isStandalone={isStandalone}
         onPreview={(chat) => {
           setPreviewingChat(chat)
           setIsPreviewModalOpen(true)
