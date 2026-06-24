@@ -1673,7 +1673,7 @@ export class ModernHtmlExporter {
         </div>`;
     }
 
-    private renderForwardElement(data: any): string {
+    private renderForwardElement(data: any, depth: number = 0): string {
         const title = data?.title || '聊天记录';
         const rawSummary = typeof data?.summary === 'string' ? data.summary : (typeof data?.content === 'string' ? data.content : '');
         // issue #128 子项 3：老数据里 summary 可能是 NapCat 推下来的 multiForwardMsg XML 原文，
@@ -1685,9 +1685,12 @@ export class ModernHtmlExporter {
         // 优先用它渲染完整列表，老数据 / fallback 再退回 preview / summary。
         const innerMessages: Array<{
             sender?: { name?: string; uin?: string };
-            content?: { text?: string };
+            content?: { text?: string; elements?: Array<{ type?: string; data?: any }> };
         }> = Array.isArray(data?.messages) ? data.messages : [];
         const messageCount: number = typeof data?.messageCount === 'number' ? data.messageCount : innerMessages.length;
+        // issue #434：子消息本身可能又是一条合并转发（嵌套[聊天记录]），递归展开成内层卡片。
+        // 解析器侧 MAX_FORWARD_DEPTH=3，这里用同样的上限兜底异常数据。
+        const MAX_RENDER_DEPTH = 3;
 
         let previewHtml = '';
         if (innerMessages.length > 0) {
@@ -1695,7 +1698,14 @@ export class ModernHtmlExporter {
                 const name = this.escapeHtml(m?.sender?.name || (m?.sender?.uin ? String(m.sender.uin) : '未知'));
                 const text = (m?.content?.text || '').replace(/\s+/g, ' ').trim();
                 const trimmed = text.length > 60 ? text.slice(0, 60) + '…' : text;
-                return `<div class="forward-card-line"><span class="forward-card-sender">${name}:</span> <span class="forward-card-body">${this.escapeHtml(trimmed)}</span></div>`;
+                const nestedForwards = depth < MAX_RENDER_DEPTH && Array.isArray(m?.content?.elements)
+                    ? m.content!.elements.filter((el) => el?.type === 'forward' && el?.data)
+                    : [];
+                const nestedHtml = nestedForwards.map((el) => this.renderForwardElement(el.data, depth + 1)).join('');
+                // 子消息只是一条嵌套转发时，正文就是"[转发消息: N条]"这类占位，已由内层卡片表达，去掉避免重复。
+                const bodyText = nestedHtml && /^\[转发消息/.test(text) ? '' : trimmed;
+                const bodyHtml = bodyText ? `<span class="forward-card-body">${this.escapeHtml(bodyText)}</span>` : '';
+                return `<div class="forward-card-line"><span class="forward-card-sender">${name}:</span> ${bodyHtml}${nestedHtml}</div>`;
             }).join('');
         } else if (Array.isArray(preview) && preview.length > 0) {
             previewHtml = preview.slice(0, 5).map((line: any) => {
@@ -1710,7 +1720,7 @@ export class ModernHtmlExporter {
 
         const footerLabel = messageCount > 0 ? `转发消息 · ${messageCount}条` : '转发消息';
 
-        return `<div class="forward-card">
+        return `<div class="forward-card${depth > 0 ? ' forward-card-nested' : ''}">
             <div class="forward-card-header">
                 <svg class="forward-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
