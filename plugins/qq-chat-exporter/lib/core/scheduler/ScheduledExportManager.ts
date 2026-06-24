@@ -346,6 +346,32 @@ export class ScheduledExportManager {
     }
 
     /**
+     * 一键触发所有定时导出任务（issue #445）。
+     *
+     * 默认只触发已启用的任务；任务在后台串行执行，避免多个导出并发争抢 NapCat 资源。
+     * 立即返回被排入执行的任务列表，每个任务的实际结果通过其执行历史查询。
+     */
+    triggerAllScheduledExports(options: { includeDisabled?: boolean } = {}): Array<{ id: string; name: string }> {
+        const includeDisabled = options.includeDisabled === true;
+        const targets = Array.from(this.scheduledTasks.values())
+            .filter((task) => includeDisabled || task.enabled);
+
+        // 串行执行，逐个 await，避免并发导出互相争抢资源；executeExportTask 内部已捕获
+        // 异常并写入执行历史，这里再兜一层防止意外抛出中断整个队列。
+        void (async () => {
+            for (const task of targets) {
+                try {
+                    await this.executeExportTask(task);
+                } catch {
+                    // 单个任务失败不影响后续任务，结果已记录在执行历史中。
+                }
+            }
+        })();
+
+        return targets.map((task) => ({ id: task.id, name: task.name }));
+    }
+
+    /**
      * 获取任务执行历史
      */
     async getExecutionHistory(scheduledExportId: string, limit: number = 50): Promise<ExecutionHistory[]> {
