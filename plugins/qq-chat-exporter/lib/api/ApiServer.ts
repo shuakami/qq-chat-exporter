@@ -2833,6 +2833,20 @@ export class QQChatExporterApiServer {
             }
         });
 
+        // 一键触发所有定时导出任务（issue #445）
+        // 默认只触发已启用的任务，传 includeDisabled=true 可包含未启用的；
+        // 任务在后台串行执行，接口立即返回被排入执行的任务列表。
+        this.app.post('/api/scheduled-exports/trigger-all', async (req, res) => {
+            try {
+                const includeDisabled = req.body?.includeDisabled === true
+                    || req.query['includeDisabled'] === 'true';
+                const triggered = this.scheduledExportManager.triggerAllScheduledExports({ includeDisabled });
+                this.sendSuccessResponse(res, { triggered, count: triggered.length }, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
         // 获取指定的定时导出任务
         this.app.get('/api/scheduled-exports/:id', async (req, res) => {
             try {
