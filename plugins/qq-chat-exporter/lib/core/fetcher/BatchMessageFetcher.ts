@@ -122,8 +122,9 @@ export class BatchMessageFetcher {
         }
 
         this.isFetching = true;
-        this.cancelToken.cancelled = false;
-        
+        // 注意：不在每个批次开始时重置取消标记，否则在分页抓取过程中调用 cancel()
+        // 会被下一批次清掉，导致取消失效（issue #446）。取消标记由抓取序列起点统一重置。
+
         try {
             const startTime = Date.now();
             
@@ -172,6 +173,9 @@ export class BatchMessageFetcher {
             endTime,
             ...additionalFilter
         };
+
+        // 抓取序列起点重置取消标记，保证本次抓取从未取消状态开始（issue #446）。
+        this.cancelToken.cancelled = false;
 
         let hasMore = true;
         let nextMessageId: string | undefined;
@@ -694,6 +698,13 @@ export class BatchMessageFetcher {
      */
     cancel(): void {
         this.cancelToken.cancelled = true;
+    }
+
+    /**
+     * 当前抓取是否已被取消（issue #446）。
+     */
+    isCancelled(): boolean {
+        return this.cancelToken.cancelled;
     }
 
     /**

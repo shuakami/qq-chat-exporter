@@ -183,6 +183,11 @@ export class QQChatExporterApiServer {
     
     // 任务资源处理器管理（每个任务使用独立的 ResourceHandler）
     private taskResourceHandlers: Map<string, ResourceHandler> = new Map();
+
+    // issue #446：跟踪运行中导出任务的消息抓取器，用于「停止任务」时打断分页抓取。
+    private runningExportFetchers: Map<string, BatchMessageFetcher> = new Map();
+    // issue #446：被用户主动停止的任务ID。导出流程据此把状态标记为 cancelled 而非 failed。
+    private cancelledTaskIds: Set<string> = new Set();
     
     // 资源文件名缓存 (shortName -> fullFileName 映射)
     // 例如: "A1D18D97.jpg" -> "a1d18d97b45c620add5133050c00044c_A1D18D97.jpg"
@@ -2100,6 +2105,45 @@ export class QQChatExporterApiServer {
             }
         });
 
+        // issue #446：停止/取消一个运行中的导出任务。
+        // 给抓取器发取消信号，分页抓取会在当前批次结束后停止，任务标记为 cancelled。
+        this.app.post('/api/tasks/:taskId/cancel', async (req, res) => {
+            try {
+                const { taskId } = req.params;
+                if (!this.exportTasks.has(taskId)) {
+                    throw new SystemError(ErrorType.VALIDATION_ERROR, '任务不存在', 'TASK_NOT_FOUND');
+                }
+
+                const task = this.exportTasks.get(taskId);
+                const status = task?.status;
+                // 已结束的任务无需取消，幂等返回。
+                if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+                    this.sendSuccessResponse(res, { taskId, cancelled: false, status }, (req as any).requestId);
+                    return;
+                }
+
+                this.cancelledTaskIds.add(taskId);
+                const fetcher = this.runningExportFetchers.get(taskId);
+                if (fetcher) {
+                    fetcher.cancel();
+                }
+
+                await this.updateTaskStatus(taskId, {
+                    status: 'cancelled',
+                    message: '任务已停止',
+                    completedAt: new Date().toISOString()
+                });
+                this.broadcastWebSocketMessage({
+                    type: 'export_progress',
+                    data: { taskId, status: 'cancelled', message: '任务已停止' }
+                });
+
+                this.sendSuccessResponse(res, { taskId, cancelled: true }, (req as any).requestId);
+            } catch (error) {
+                this.sendErrorResponse(res, error, (req as any).requestId);
+            }
+        });
+
         // 删除ZIP导出任务的原始文件
         this.app.delete('/api/tasks/:taskId/original-files', async (req, res) => {
             try {
@@ -3755,6 +3799,9 @@ export class QQChatExporterApiServer {
                 endTimeMs = endTimeMs * 1000;
             }
             
+            // issue #446：注册抓取器，使「停止任务」接口能打断本任务的分页抓取。
+            this.runningExportFetchers.set(taskId, fetcher);
+
             const allMessages: RawMessage[] = [];
             const messageGenerator = fetcher.fetchAllMessagesInTimeRange(peer, startTimeMs, endTimeMs);
             
@@ -3813,6 +3860,11 @@ export class QQChatExporterApiServer {
             }
             
             // 消息收集完成
+
+            // issue #446：用户已停止任务，跳过后续解析/下载/写文件，交由 catch 标记为 cancelled。
+            if (this.cancelledTaskIds.has(taskId) || fetcher.isCancelled()) {
+                throw new SystemError(ErrorType.VALIDATION_ERROR, '任务已被用户停止', 'EXPORT_CANCELLED');
+            }
 
             // 补全群消息的群昵称（sendMemberName）+ 构建群头衔映射（issue #331）
             let memberSpecialTitleMap: Map<string, string> | null = null;
@@ -4190,20 +4242,32 @@ export class QQChatExporterApiServer {
             this.clearResourceCache('audios');
 
         } catch (error) {
-            console.error(`[ApiServer] 导出任务失败: ${taskId}`, error);
-            
-            // 更新任务为失败状态
+            // issue #446：区分「用户主动停止」与真正的失败，停止时状态记为 cancelled。
+            const wasCancelled = this.cancelledTaskIds.has(taskId);
+            if (wasCancelled) {
+                console.info(`[ApiServer] 导出任务已被用户停止: ${taskId}`);
+            } else {
+                console.error(`[ApiServer] 导出任务失败: ${taskId}`, error);
+            }
+
             task = this.exportTasks.get(taskId);
             if (task) {
-                await this.updateTaskStatus(taskId, {
+                await this.updateTaskStatus(taskId, wasCancelled ? {
+                    status: 'cancelled',
+                    message: '任务已停止',
+                    completedAt: new Date().toISOString()
+                } : {
                     status: 'failed',
                     error: error instanceof Error ? error.message : '导出失败',
                     completedAt: new Date().toISOString()
                 });
             }
 
-            // 发送错误通知
-            this.broadcastWebSocketMessage({
+            // 发送通知
+            this.broadcastWebSocketMessage(wasCancelled ? {
+                type: 'export_progress',
+                data: { taskId, status: 'cancelled', message: '任务已停止' }
+            } : {
                 type: 'export_error',
                 data: {
                     taskId,
@@ -4212,6 +4276,10 @@ export class QQChatExporterApiServer {
                 }
             });
         } finally {
+            // issue #446：清理停止任务的跟踪状态。
+            this.runningExportFetchers.delete(taskId);
+            this.cancelledTaskIds.delete(taskId);
+
             // 清理任务的资源处理器（无论成功还是失败）
             const resourceHandler = this.taskResourceHandlers.get(taskId);
             if (resourceHandler) {

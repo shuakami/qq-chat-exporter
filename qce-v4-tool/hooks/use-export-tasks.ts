@@ -399,6 +399,29 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     }
   }, [apiCall, dismissTaskToast])
 
+  // issue #446：停止一个运行中的导出任务。后端会打断分页抓取并把任务标记为 cancelled。
+  const cancelTask = useCallback(async (taskId: string): Promise<boolean> => {
+    try {
+      setError(null)
+
+      const response = await apiCall(`/api/tasks/${taskId}/cancel`, {
+        method: "POST",
+      })
+
+      if (response.success) {
+        return true
+      }
+
+      setError(response.error?.message || "停止任务失败")
+      return false
+    } catch (err) {
+      const errorMessage = `停止任务失败: ${err instanceof Error ? err.message : "未知错误"}`
+      setError(errorMessage)
+      console.error("[QCE] Cancel task error:", err)
+      return false
+    }
+  }, [apiCall])
+
   const createTask = useCallback(async (form: CreateTaskForm): Promise<boolean> => {
     if (!form.peerUid || !form.sessionName) {
       setError("请填写完整信息")
@@ -749,6 +772,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     loadTasks,
     refreshTasks,
     deleteTask,
+    cancelTask,
     createTask,
     updateTaskProgress,
     handleWebSocketProgress,

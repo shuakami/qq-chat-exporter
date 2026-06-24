@@ -64,6 +64,7 @@ import {
   PanelLeftOpen,
   ChevronRight,
   Search,
+  Square,
 } from "lucide-react"
 import type { CreateTaskForm, CreateScheduledExportForm } from "@/types/api"
 import { useQCE } from "@/hooks/use-qce"
@@ -305,6 +306,7 @@ export default function QCEDashboard() {
     tasks,
     loadTasks,
     deleteTask,
+    cancelTask,
     createTask,
     downloadTask,
     getTaskStats,
@@ -1819,6 +1821,23 @@ export default function QCEDashboard() {
                       </div>
 
                       <div className="ml-3 flex items-center gap-1.5 flex-shrink-0">
+                        {/* issue #446：运行中的任务可以停止，打断分页抓取，不必干等。 */}
+                        {(task.status === "running" || task.status === "pending") && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 rounded-full p-0 text-muted-foreground/60 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                            onClick={() => {
+                              showDeleteConfirmationToast(`停止任务「${task.sessionName}」？`, "已获取的消息不会保存", async () => {
+                                const success = await cancelTask(task.id)
+                                if (!success) throw new Error("停止失败")
+                              })
+                            }}
+                            title="停止"
+                          >
+                            <Square className="w-4 h-4" />
+                          </Button>
+                        )}
                         {task.status === "completed" && (
                           <>
                             <Button
