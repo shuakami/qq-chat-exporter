@@ -228,7 +228,7 @@ export interface ReplyPreviewElement {
 }
 
 /**
- * 合并转发卡片里嵌套的子消息。
+ * 合并转发消息卡片里嵌套的子消息。
  * 字段刻意保持扁平，方便直接序列化到 JSON / JSONL，也方便 TXT 导出按行渲染。
  */
 export interface ForwardInnerMessage {
@@ -777,7 +777,7 @@ export class SimpleMessageParser {
       const resId = element.multiForwardMsgElement.resId || '';
       const xmlContent = element.multiForwardMsgElement.xmlContent || '';
 
-      // 拉合并转发卡片里的真实消息列表，导出 JSON / TXT 时把内容也带上（issue #161）。
+      // 拉合并转发消息卡片里的真实消息列表，导出 JSON / TXT 时把内容也带上（issue #161）。
       // 失败时降级为只保留 XML summary，绝不阻断主导出；嵌套过深也直接停在外壳。
       const innerMessages =
         forwardDepth >= SimpleMessageParser.MAX_FORWARD_DEPTH
@@ -1185,7 +1185,7 @@ export class SimpleMessageParser {
   }
 
   /**
-   * 拉合并转发卡片里的子消息列表，并把每条子消息扁平化成 ForwardInnerMessage（issue #161）。
+   * 拉合并转发消息卡片里的子消息列表，并把每条子消息扁平化成 ForwardInnerMessage（issue #161）。
    *
    * 数据来源优先级：
    *   1) message.records（NapCat 推消息时偶尔会顺手填上）
