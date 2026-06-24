@@ -1681,7 +1681,7 @@ export class ModernHtmlExporter {
         const summaryLooksLikeXml = rawSummary.trim().startsWith('<') && /<\/?[a-zA-Z]/.test(rawSummary);
         const summary = summaryLooksLikeXml ? '查看转发消息' : (rawSummary || '查看转发消息');
         const preview = data?.preview || [];
-        // issue #161：解析器现在会把合并转发卡片里的真实子消息塞进 data.messages，
+        // issue #161：解析器现在会把合并转发消息卡片里的真实子消息塞进 data.messages，
         // 优先用它渲染完整列表，老数据 / fallback 再退回 preview / summary。
         const innerMessages: Array<{
             sender?: { name?: string; uin?: string };
@@ -1800,7 +1800,7 @@ export class ModernHtmlExporter {
                     parts.push(`${d?.title || d?.summary || 'JSON'} ${d?.description || ''} ${d?.url || ''}`.trim());
                     break;
                 case 'forward': {
-                    // issue #161：搜索时把合并转发卡片里的子消息内容也带上，否则
+                    // issue #161：搜索时把合并转发消息卡片里的子消息内容也带上，否则
                     // 只能搜到外壳标题，搜不到真实文本。
                     // issue #128 子项 3：summary 可能是 multiForwardMsg XML 原文（老数据），
                     // 把它写进搜索索引里只会让索引被 `<msg>` / `<item>` 这种标签污染，跳掉。

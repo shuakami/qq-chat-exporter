@@ -1076,7 +1076,7 @@ export const MODERN_CSS = `
             display: block;
         }
         
-        /* 合并转发卡片 */
+        /* 合并转发消息卡片 */
         .forward-card {
             background: var(--bubble-other);
             border: 1px solid rgba(0, 0, 0, 0.08);
