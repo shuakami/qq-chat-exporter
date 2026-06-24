@@ -4061,6 +4061,9 @@ export class QQChatExporterApiServer {
                         encoding: exportOptions.encoding,
                         // Issue #311: 自包含 HTML（资源以 base64 内联）。
                         embedResourcesAsDataUri: options?.embedResourcesAsDataUri === true,
+                        // Issue #467: 打印 / PDF 友好开关，默认开启。
+                        showSearchBar: options?.showSearchBar !== false,
+                        enableVirtualScroll: options?.enableVirtualScroll !== false,
                         ...(typeof options?.maxEmbedFileSizeBytes === 'number'
                             ? { maxEmbedFileSizeBytes: options.maxEmbedFileSizeBytes }
                             : {})
@@ -4551,6 +4554,9 @@ export class QQChatExporterApiServer {
                 includeResourceLinks: !options?.filterPureImageMessages,
                 includeSystemMessages: options?.includeSystemMessages ?? true,
                 encoding: 'utf-8',
+                // Issue #467: 打印 / PDF 友好开关，默认开启。
+                showSearchBar: options?.showSearchBar !== false,
+                enableVirtualScroll: options?.enableVirtualScroll !== false,
                 senderTitleResolver
             });
 
