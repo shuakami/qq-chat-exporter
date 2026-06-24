@@ -158,6 +158,10 @@ export interface ScheduledExportConfig {
         embedResourcesAsDataUri?: boolean;
         /** Issue #311: 单个资源内联上限（字节）。 */
         maxEmbedFileSizeBytes?: number;
+        /** Issue #467: 仅对 HTML 格式生效，是否显示底部胶囊式搜索/工具栏（默认 true）。 */
+        showSearchBar?: boolean;
+        /** Issue #467: 仅对 HTML 格式生效，是否启用虚拟滚动（默认 true）。 */
+        enableVirtualScroll?: boolean;
     };
     /** 备份模式（新增） */
     backupMode?: BackupMode;
@@ -653,6 +657,9 @@ export class ScheduledExportManager {
                         includeSystemMessages: task.options.includeSystemMessages ?? true,
                         // Issue #311: 自包含 HTML（资源 base64 内联）
                         embedResourcesAsDataUri: task.options.embedResourcesAsDataUri === true,
+                        // Issue #467: 打印 / PDF 友好开关，默认开启。
+                        showSearchBar: task.options.showSearchBar !== false,
+                        enableVirtualScroll: task.options.enableVirtualScroll !== false,
                         ...(typeof task.options.maxEmbedFileSizeBytes === 'number'
                             ? { maxEmbedFileSizeBytes: task.options.maxEmbedFileSizeBytes }
                             : {})

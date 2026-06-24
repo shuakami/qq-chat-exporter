@@ -43,6 +43,17 @@ export interface HtmlExportOptions {
      * 因为体积过大而崩溃，因此默认值偏保守。
      */
     maxEmbedFileSizeBytes?: number;
+    /**
+     * Issue #467: 是否在导出的 HTML 中显示底部胶囊式搜索/工具栏。默认 true。
+     * 关闭后工具栏不渲染，便于打印 / 导出 PDF 时不被虚拟打印机一并捕获。
+     */
+    showSearchBar?: boolean;
+    /**
+     * Issue #467: 是否启用虚拟滚动（消息超过 100 条时只渲染可视区域）。默认 true。
+     * 关闭后所有消息一次性留在 DOM 中，打印 / 转 PDF 不会因为虚拟滚动而出现空白页，
+     * 代价是超大聊天记录在浏览器里打开会更吃内存。
+     */
+    enableVirtualScroll?: boolean;
 }
 
 /**
@@ -173,6 +184,8 @@ export class ModernHtmlExporter {
             encoding: 'utf8', // 更稳妥的 Node 编码常量
             embedResourcesAsDataUri: false,
             maxEmbedFileSizeBytes: 50 * 1024 * 1024,
+            showSearchBar: true,
+            enableVirtualScroll: true,
             ...options
         };
     }
@@ -1186,14 +1199,22 @@ export class ModernHtmlExporter {
     }
 
     private generateScripts(): string {
-        // 保持原结构：lucide CDN + 内联脚本
-        return MODERN_SINGLE_SCRIPTS_HTML;
+        // 保持原结构：lucide CDN + 内联脚本。
+        // Issue #467: 注入运行期开关，控制是否启用虚拟滚动。
+        const enableVirtualScroll = this.options.enableVirtualScroll !== false;
+        const runtimeConfig = `<script>window.__QCE_ENABLE_VIRTUAL_SCROLL = ${enableVirtualScroll};</script>\n`;
+        return runtimeConfig + MODERN_SINGLE_SCRIPTS_HTML;
     }
 
     /**
      * 生成Toolbar（底部胶囊）
      */
     private generateToolbar(): string {
+        // Issue #467: 关闭搜索栏时隐藏整条工具栏（保留 DOM 节点，避免脚本里的
+        // 事件绑定取到 null 报错），display:none 同时让打印 / PDF 不再捕获它。
+        if (this.options.showSearchBar === false) {
+            return MODERN_TOOLBAR_HTML.replace('<div class="toolbar">', '<div class="toolbar" style="display:none">');
+        }
         return MODERN_TOOLBAR_HTML;
     }
 

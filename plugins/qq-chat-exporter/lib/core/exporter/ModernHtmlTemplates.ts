@@ -1721,8 +1721,10 @@ export const MODERN_SINGLE_APP_JS = `
                 document.getElementById('info-range').textContent = firstTime + ' ~ ' + lastTime;
             }
             // 初始化虚拟滚动（消息超过100条时启用）
+            // issue #467：导出时可通过 window.__QCE_ENABLE_VIRTUAL_SCROLL=false 关闭，
+            // 让所有消息留在 DOM 中，便于打印 / 导出 PDF（默认仍启用）。
             var virtualScroller = null;
-            if (messageBlocks.length > 100) {
+            if (window.__QCE_ENABLE_VIRTUAL_SCROLL !== false && messageBlocks.length > 100) {
                 var chatContent = document.querySelector('.chat-content');
                 var originalBlocks = messageBlocks.map(function(block) { return block.cloneNode(true); });
                 chatContent.innerHTML = '';
