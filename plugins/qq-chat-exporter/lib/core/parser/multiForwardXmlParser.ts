@@ -1,7 +1,7 @@
 /**
  * 解析 NapCat 推过来的 multiForwardMsgElement.xmlContent（issue #128 子项 3）。
  *
- * 当合并转发卡片无法通过 getMultiMsg 拉到子消息时（消息已过期 / NapCat 拒绝下发 / 嵌套过深），
+ * 当合并转发消息卡片无法通过 getMultiMsg 拉到子消息时（消息已过期 / NapCat 拒绝下发 / 嵌套过深），
  * 旧版会把整段 XML 当作 summary 直接落进导出文件，导致 HTML / 搜索索引里出现 `<msg ... ><item ...>...`
  * 这种 XML 原文。
  *
@@ -18,7 +18,7 @@
  *     ...
  *   </msg>
  *
- * 抠出 header / preview 行 / 末尾 summary，调用方可直接拿来塞进转发卡片占位预览，
+ * 抠出 header / preview 行 / 末尾 summary，调用方可直接拿来塞进转发消息卡片占位预览，
  * 不再把 XML 原文塞进 data.summary。
  */
 
