@@ -38,7 +38,8 @@ RUN pnpm run build
 FROM mlikiowa/napcat-docker:latest
 
 # Copy plugin (source + production node_modules)
-COPY --from=build /build/plugins/qq-chat-exporter /app/napcat/plugins/qq-chat-exporter
+COPY --from=build /build/plugins/qq-chat-exporter /app/napcat/plugins/napcat-plugin-qce
+RUN node -e "const fs=require('fs'); const p='/app/napcat/plugins/napcat-plugin-qce/package.json'; const pkg=JSON.parse(fs.readFileSync(p,'utf8')); pkg.name='napcat-plugin-qce'; fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');"
 
 # Copy frontend static export
 COPY --from=build /build/qce-v4-tool/out /app/napcat/static/qce-v4-tool

@@ -15,6 +15,9 @@ from pathlib import Path
 from urllib.request import urlretrieve, urlopen
 from datetime import datetime
 
+SOURCE_PLUGIN_DIR = "plugins/qq-chat-exporter"
+RUNTIME_PLUGIN_ID = "napcat-plugin-qce"
+
 def get_qce_version():
     """Get QCE version from environment or package.json"""
     if os.environ.get('QCE_VERSION'):
@@ -51,6 +54,16 @@ def write_napcat_builtin_plugin_config(config_dir):
 
     with open(os.path.join(builtin_config_dir, "config.json"), "w", encoding="utf-8") as f:
         json.dump(builtin_config, f, indent=2, ensure_ascii=False)
+
+def rewrite_runtime_plugin_package(plugin_dir):
+    """Rewrite release package metadata to the NapCat official plugin ID."""
+    package_json = os.path.join(plugin_dir, "package.json")
+    with open(package_json, "r", encoding="utf-8") as f:
+        package_data = json.load(f)
+    package_data["name"] = RUNTIME_PLUGIN_ID
+    with open(package_json, "w", encoding="utf-8") as f:
+        json.dump(package_data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
 
 def download_file(url, dest):
     """Download file"""
@@ -122,8 +135,9 @@ def main():
     
     # Copy QCE plugin
     print("[5/8] Copying QCE plugin...")
-    qce_dest = os.path.join(plugins_dir, "qq-chat-exporter")
-    shutil.copytree("plugins/qq-chat-exporter", qce_dest)
+    qce_dest = os.path.join(plugins_dir, RUNTIME_PLUGIN_ID)
+    shutil.copytree(SOURCE_PLUGIN_DIR, qce_dest)
+    rewrite_runtime_plugin_package(qce_dest)
     print("[x] Done")
     print()
     
@@ -177,7 +191,7 @@ def main():
 
     plugins_config = {
         "napcat-plugin-builtin": True,
-        "qq-chat-exporter": True
+        RUNTIME_PLUGIN_ID: True
     }
 
     with open(os.path.join(config_dir, "napcat.json"), "w", encoding="utf-8") as f:

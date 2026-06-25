@@ -27,6 +27,8 @@ def get_qce_version():
         return 'unknown'
 
 VERSION = get_qce_version()
+SOURCE_PLUGIN_DIR = "plugins/qq-chat-exporter"
+RUNTIME_PLUGIN_ID = "napcat-plugin-qce"
 
 def get_platform_info():
     """Detect current platform"""
@@ -99,6 +101,16 @@ def copy_directory(src, dst):
     if os.path.exists(dst):
         shutil.rmtree(dst)
     shutil.copytree(src, dst)
+
+def rewrite_runtime_plugin_package(plugin_dir):
+    """Rewrite release package metadata to the NapCat official plugin ID."""
+    package_json = os.path.join(plugin_dir, "package.json")
+    with open(package_json, "r", encoding="utf-8") as f:
+        package_data = json.load(f)
+    package_data["name"] = RUNTIME_PLUGIN_ID
+    with open(package_json, "w", encoding="utf-8") as f:
+        json.dump(package_data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
 
 def create_archive(source_dir, output_file, format_type):
     """Create archive (zip or tar.gz)"""
@@ -603,13 +615,14 @@ pause
     
     # Copy plugin files
     print("[6/11] Copying plugin files...")
-    copy_directory("plugins/qq-chat-exporter", f"{pack_dir}/plugins/qq-chat-exporter")
+    plugin_dir = f"{pack_dir}/plugins/{RUNTIME_PLUGIN_ID}"
+    copy_directory(SOURCE_PLUGIN_DIR, plugin_dir)
+    rewrite_runtime_plugin_package(plugin_dir)
     print("[x] Copied")
     print()
     
     # Install plugin dependencies
     print("[7/11] Installing plugin dependencies...")
-    plugin_dir = f"{pack_dir}/plugins/qq-chat-exporter"
     npm_cmd = ["npm.cmd" if os_name == "Windows" else "npm", "install", "--omit=dev"]
     if not run_command(npm_cmd, cwd=plugin_dir):
         print("[!] Dependency install failed")
@@ -655,7 +668,7 @@ pause
 
     plugins_config = {
         "napcat-plugin-builtin": True,
-        "qq-chat-exporter": True
+        RUNTIME_PLUGIN_ID: True
     }
     
     onebot_config = {
@@ -823,7 +836,7 @@ async function main() {
 main();
 '''
     
-    with open(f"{pack_dir}/plugins/qq-chat-exporter/standalone.mjs", "w", encoding="utf-8", newline="\n") as f:
+    with open(f"{pack_dir}/plugins/{RUNTIME_PLUGIN_ID}/standalone.mjs", "w", encoding="utf-8", newline="\n") as f:
         f.write(standalone_mjs)
     
     # Create Windows batch launcher for standalone mode
@@ -869,10 +882,10 @@ exit /b 1
 :found_node
 echo [信息] 正在启动独立模式服务器...
 echo.
-"%NODE_EXE%" plugins/qq-chat-exporter/standalone.mjs %1
+"%NODE_EXE%" plugins/__RUNTIME_PLUGIN_ID__/standalone.mjs %1
 
 pause
-'''
+'''.replace("__RUNTIME_PLUGIN_ID__", RUNTIME_PLUGIN_ID)
         with open(f"{pack_dir}/start-standalone.bat", "w", encoding="utf-8") as f:
             f.write(standalone_bat)
     
@@ -902,8 +915,8 @@ fi
 
 echo "[信息] 正在启动独立模式服务器..."
 echo ""
-node plugins/qq-chat-exporter/standalone.mjs "$@"
-'''
+node plugins/__RUNTIME_PLUGIN_ID__/standalone.mjs "$@"
+'''.replace("__RUNTIME_PLUGIN_ID__", RUNTIME_PLUGIN_ID)
         standalone_sh_path = f"{pack_dir}/start-standalone.sh"
         with open(standalone_sh_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(standalone_sh)
