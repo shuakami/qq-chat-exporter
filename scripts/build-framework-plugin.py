@@ -38,6 +38,20 @@ def get_napcat_latest_version():
         print(f"[!] Failed to get latest version: {e}")
         return "v4.8.119"
 
+def write_napcat_builtin_plugin_config(config_dir):
+    """Disable the builtin #napcat reply command by default."""
+    builtin_config_dir = os.path.join(config_dir, "plugins", "napcat-plugin-builtin")
+    os.makedirs(builtin_config_dir, exist_ok=True)
+
+    builtin_config = {
+        "prefix": "#napcat",
+        "enableReply": False,
+        "description": "这是一个内置插件的配置示例"
+    }
+
+    with open(os.path.join(builtin_config_dir, "config.json"), "w", encoding="utf-8") as f:
+        json.dump(builtin_config, f, indent=2, ensure_ascii=False)
+
 def download_file(url, dest):
     """Download file"""
     print(f"[->] Downloading: {url}")
@@ -162,6 +176,7 @@ def main():
     }
 
     plugins_config = {
+        "napcat-plugin-builtin": True,
         "qq-chat-exporter": True
     }
 
@@ -170,6 +185,8 @@ def main():
 
     with open(os.path.join(config_dir, "plugins.json"), "w", encoding="utf-8") as f:
         json.dump(plugins_config, f, indent=2, ensure_ascii=False)
+
+    write_napcat_builtin_plugin_config(config_dir)
     print("[x] Done")
     print()
     
