@@ -122,7 +122,21 @@ def main():
         sys.exit(1)
     print("[x] Done")
     print()
-    
+
+    # Ensure the Windows esbuild binary is bundled. The Framework package only
+    # ever runs on Windows desktop QQ, but `npm install` on a Linux runner would
+    # fetch the linux-x64 esbuild binary, so tsx fails to load esbuild and the
+    # API server never starts. Drop the win32 binaries in explicitly.
+    print("[6.5/8] Bundling Windows esbuild binary...")
+    ensure_cmd = ["node.exe" if os_name == "Windows" else "node",
+                  "scripts/ensure-esbuild-platforms.mjs", qce_dest,
+                  "win32-x64,win32-arm64"]
+    if not run_command(ensure_cmd):
+        print("[!] esbuild platform bundling failed")
+        sys.exit(1)
+    print("[x] Done")
+    print()
+
     # Generate overlay runtime
     print("[7/8] Generating overlay runtime...")
     node_cmd = ["node.exe" if os_name == "Windows" else "node", "tools/create-overlay-runtime.cjs"]

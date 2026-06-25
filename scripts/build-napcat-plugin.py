@@ -82,6 +82,21 @@ def install_prod_deps(staging_plugin_dir: Path) -> None:
         sys.exit("[!] npm install --omit=dev failed")
 
 
+def bundle_esbuild_platforms(staging_plugin_dir: Path) -> None:
+    """补齐所有平台的 esbuild 原生二进制。
+
+    npm install 只会拉取构建机所属平台的 @esbuild/<platform> 包，导致在
+    Linux 上打出的插件商店包只带 linux-x64，Windows / macOS 用户安装后
+    tsx 加载 esbuild 失败、API 服务器静默无法启动。插件商店包是跨平台的，
+    因此需要内置所有受支持平台的二进制。
+    """
+    print("[-] Bundling esbuild binaries for all platforms...")
+    node_cmd = "node.exe" if platform.system() == "Windows" else "node"
+    script = str(Path("scripts") / "ensure-esbuild-platforms.mjs")
+    if not run_command([node_cmd, script, str(staging_plugin_dir)]):
+        sys.exit("[!] Failed to bundle esbuild platform binaries")
+
+
 def copy_overlay_runtime(staging_plugin_dir: Path) -> None:
     src = SOURCE_PLUGIN_DIR / "node_modules" / "NapCatQQ"
     dest = staging_plugin_dir / "node_modules" / "NapCatQQ"
@@ -246,6 +261,9 @@ def main() -> None:
 
     # 5) 安装生产依赖（基于刚写入的 package.json）
     install_prod_deps(staging_plugin_dir)
+
+    # 5.5) 补齐所有平台的 esbuild 原生二进制（插件商店包跨平台）
+    bundle_esbuild_platforms(staging_plugin_dir)
 
     # 6) 把 NapCatQQ overlay runtime 复制到 staging 的 node_modules
     copy_overlay_runtime(staging_plugin_dir)
