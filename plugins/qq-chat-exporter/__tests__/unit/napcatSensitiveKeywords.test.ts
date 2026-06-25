@@ -1,16 +1,19 @@
 /**
  * Guards against NapCat PluginLoader sensitive-keyword false positives
- * (issue #466).
+ * (issues #466, #482).
  *
  * NapCat's PluginLoader scans the shipped plugin source and rejects the plugin
  * outright when it finds a blocked keyword. The plugin ships its TypeScript
- * sources verbatim (tsx loads lib/*.ts at runtime), so even keywords that only
- * appear in comments get scanned. "发卡" — a substring of "转发卡片"
- * ("forward card") used in comments — tripped this and made QCE disappear from
- * the plugin list on Docker NapCat.
+ * sources verbatim (tsx loads lib/*.ts at runtime), and the Shell / Framework
+ * one-click packages additionally ship __tests__/ and tools/, so a blocked
+ * keyword anywhere in the shipped tree trips the loader and makes QCE vanish
+ * from the plugin list ("Scanned 0 plugins").
  *
- * This test fails if any blocked keyword reappears in the shipped source, so a
- * future comment/string does not silently break Docker installs again.
+ * To stop this guard from becoming a landmine itself, the keyword list is built
+ * from escape sequences, so the literal characters never appear in this file.
+ *
+ * This test fails if any blocked keyword reappears anywhere in the shipped
+ * source, so a future comment/string does not silently break installs again.
  */
 
 import test from 'node:test';
@@ -23,15 +26,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PLUGIN_ROOT = path.resolve(__dirname, '../..');
 
-// Keywords NapCat's PluginLoader rejects (observed in #466). Extend as more are
-// reported.
-const BLOCKED_KEYWORDS = ['发卡'];
+// Keywords NapCat's PluginLoader rejects (observed in #466 / #482). Encoded as
+// escape sequences so the literal characters never appear in this guard file.
+// '\u53d1\u5361' is the substring of the Chinese phrase for "forward card".
+const BLOCKED_KEYWORDS = ['\u53d1\u5361'];
 
-// Files NapCat actually scans: the shipped entrypoint and the lib/ sources.
-const SHIPPED_ROOTS = [
-    path.join(PLUGIN_ROOT, 'index.mjs'),
-    path.join(PLUGIN_ROOT, 'lib'),
-];
+// NapCat scans the whole shipped plugin directory, so we check everything that
+// ships except third-party dependencies.
+const IGNORED_DIRS = new Set(['node_modules']);
+
+const SCANNED_EXTENSIONS = new Set(['.ts', '.mjs', '.js', '.cjs', '.json']);
 
 function collectFiles(target: string): string[] {
     if (!fs.existsSync(target)) return [];
@@ -39,23 +43,20 @@ function collectFiles(target: string): string[] {
     if (stat.isFile()) return [target];
     const out: string[] = [];
     for (const entry of fs.readdirSync(target)) {
+        if (IGNORED_DIRS.has(entry)) continue;
         out.push(...collectFiles(path.join(target, entry)));
     }
     return out;
 }
 
-const SCANNED_EXTENSIONS = new Set(['.ts', '.mjs', '.js', '.json']);
-
-test('shipped plugin source is free of NapCat sensitive keywords (#466)', () => {
+test('shipped plugin source is free of NapCat sensitive keywords (#466, #482)', () => {
     const offenders: string[] = [];
-    for (const root of SHIPPED_ROOTS) {
-        for (const file of collectFiles(root)) {
-            if (!SCANNED_EXTENSIONS.has(path.extname(file))) continue;
-            const content = fs.readFileSync(file, 'utf8');
-            for (const keyword of BLOCKED_KEYWORDS) {
-                if (content.includes(keyword)) {
-                    offenders.push(`${path.relative(PLUGIN_ROOT, file)} contains "${keyword}"`);
-                }
+    for (const file of collectFiles(PLUGIN_ROOT)) {
+        if (!SCANNED_EXTENSIONS.has(path.extname(file))) continue;
+        const content = fs.readFileSync(file, 'utf8');
+        for (const keyword of BLOCKED_KEYWORDS) {
+            if (content.includes(keyword)) {
+                offenders.push(`${path.relative(PLUGIN_ROOT, file)} contains "${keyword}"`);
             }
         }
     }
