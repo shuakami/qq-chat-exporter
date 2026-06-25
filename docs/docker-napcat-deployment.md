@@ -81,7 +81,7 @@ napcat/
 │   └── plugins.json          ← 必须创建
 ├── plugins/
 │   ├── napcat-plugin-builtin/ ← 从容器复制
-│   └── qq-chat-exporter/      ← QCE 插件
+│   └── napcat-plugin-qce/      ← QCE 插件
 └── qce-v4-tool/               ← 前端静态文件
 ```
 
@@ -105,7 +105,7 @@ docker cp napcat:/app/napcat/plugins/napcat-plugin-builtin plugins/napcat-plugin
 tar -xzf NapCat-QCE-*.tar.gz -C /tmp/qce-release
 
 # 复制插件
-cp -r /tmp/qce-release/plugins/qq-chat-exporter plugins/
+cp -r /tmp/qce-release/plugins/napcat-plugin-qce plugins/
 
 # 复制前端静态文件
 cp -r /tmp/qce-release/static/qce-v4-tool ./qce-v4-tool
@@ -117,16 +117,16 @@ cp -r /tmp/qce-release/static/qce-v4-tool ./qce-v4-tool
 
 ```bash
 # 方法一：使用辅助脚本（推荐）
-docker exec napcat bash /app/napcat/plugins/qq-chat-exporter/tools/docker-setup.sh
+docker exec napcat bash /app/napcat/plugins/napcat-plugin-qce/tools/docker-setup.sh
 
 # 方法二：手动安装
 # 1. 查看当前 esbuild 版本
-docker exec napcat node -e "console.log(require('/app/napcat/plugins/qq-chat-exporter/node_modules/esbuild/package.json').version)"
+docker exec napcat node -e "console.log(require('/app/napcat/plugins/napcat-plugin-qce/node_modules/esbuild/package.json').version)"
 # 2. 在宿主机下载对应版本的 ARM64 包
 npm pack @esbuild/linux-arm64@<版本号>
 # 3. 解压到插件目录
-mkdir -p plugins/qq-chat-exporter/node_modules/@esbuild/linux-arm64
-tar -xzf esbuild-linux-arm64-*.tgz -C plugins/qq-chat-exporter/node_modules/@esbuild/linux-arm64 --strip-components=1
+mkdir -p plugins/napcat-plugin-qce/node_modules/@esbuild/linux-arm64
+tar -xzf esbuild-linux-arm64-*.tgz -C plugins/napcat-plugin-qce/node_modules/@esbuild/linux-arm64 --strip-components=1
 ```
 
 ### 4. 启用插件
@@ -136,7 +136,7 @@ NapCat 默认仅启用内置插件，需创建 `config/plugins.json`：
 ```json
 {
   "napcat-plugin-builtin": true,
-  "qq-chat-exporter": true
+  "napcat-plugin-qce": true
 }
 ```
 
@@ -175,7 +175,7 @@ docker logs -f napcat 2>&1 | grep -i "plugin\|qce\|chat-exporter"
 预期日志：
 ```
 [Plugins] 加载插件: napcat-plugin-builtin
-[Plugins] 加载插件: qq-chat-exporter
+[Plugins] 加载插件: napcat-plugin-qce
 [QCE] Running mode: Shell (headless)
 [QCE] API server started on port 40653
 ```
@@ -217,7 +217,7 @@ server {
 架构不匹配，参见步骤 3。
 
 ### 插件未加载（日志中无 QCE 相关输出）
-检查 `config/plugins.json` 是否存在且 `"qq-chat-exporter": true`。
+检查 `config/plugins.json` 是否存在且 `"napcat-plugin-qce": true`。
 
 ### 前端 404
 检查 `qce-v4-tool/` 目录是否包含 `index.html` 和 `_next/` 目录，且已正确挂载到 `/app/napcat/static/qce-v4-tool`。

@@ -9,12 +9,12 @@ if [ ! -f "$CONFIG_DIR/plugins.json" ]; then
     cat > "$CONFIG_DIR/plugins.json" << 'EOF'
 {
   "napcat-plugin-builtin": true,
-  "qq-chat-exporter": true
+  "napcat-plugin-qce": true
 }
 EOF
-elif ! grep -q '"qq-chat-exporter"' "$CONFIG_DIR/plugins.json"; then
-    # plugins.json 存在但缺少 qq-chat-exporter，用 sed 注入
-    sed -i 's/}/  ,"qq-chat-exporter": true\n}/' "$CONFIG_DIR/plugins.json"
+elif ! grep -q '"napcat-plugin-qce"' "$CONFIG_DIR/plugins.json"; then
+    # plugins.json 存在但缺少 napcat-plugin-qce，用 sed 注入
+    sed -i 's/}/  ,"napcat-plugin-qce": true\n}/' "$CONFIG_DIR/plugins.json"
 fi
 
 # napcat.json（仅不存在时创建）
