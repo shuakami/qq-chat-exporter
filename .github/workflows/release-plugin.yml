@@ -203,10 +203,17 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: "下载所有构建产物"
+      - name: "下载发布构建产物"
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
+          pattern: NapCat-*
+
+      - name: "下载 NapCat 插件构建产物"
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/napcat-plugin-qce
+          name: napcat-plugin-qce
       
       - name: "准备发布文件"
         run: |
