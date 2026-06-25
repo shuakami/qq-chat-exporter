@@ -53,6 +53,13 @@ function isDockerEnvironment(): boolean {
         if (process.env['container'] || process.env['DOCKER_CONTAINER']) {
             return true;
         }
+        // cgroup v2: 检查 /proc/1/mountinfo 中是否包含 docker
+        if (fs.existsSync('/proc/1/mountinfo')) {
+            const mountinfo = fs.readFileSync('/proc/1/mountinfo', 'utf8');
+            if (mountinfo.includes('docker') || mountinfo.includes('/containers/')) {
+                return true;
+            }
+        }
     } catch {
         // 忽略错误
     }

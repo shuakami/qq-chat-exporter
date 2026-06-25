@@ -1,0 +1,11 @@
+{
+  "name": "NapCatQQ",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/core/index.js",
+  "exports": {
+    "./src/core/index.js": "./src/core/index.js",
+    "./src/core/types.js": "./src/core/types.js",
+    "./src/onebot/api/msg.js": "./src/onebot/api/msg.js"
+  }
+}

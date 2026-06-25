@@ -1,8 +1,72 @@
 # Docker NapCat 部署指南
 
-在 Docker NapCat Shell 模式下部署 QQ Chat Exporter 插件。
+## 推荐方式：一键 Docker 部署
 
-## 前提条件
+使用自包含的 Docker 镜像，将 NapCat + QCE 插件 + 前端打包为一体化容器，支持全平台（包括 macOS/Apple Silicon）。
+
+### 前提条件
+
+- Docker Desktop（macOS/Windows）或 Docker Engine（Linux）
+- 约 2GB 磁盘空间
+
+### 快速启动
+
+```bash
+git clone https://github.com/shuakami/qq-chat-exporter.git
+cd qq-chat-exporter/docker
+docker compose up -d
+```
+
+### 查看登录二维码
+
+```bash
+docker logs -f napcat-qce
+```
+
+扫码登录后按 Ctrl+C 退出日志查看。
+
+### 获取 Token
+
+```bash
+docker logs napcat-qce 2>&1 | grep -i token
+```
+
+### 访问前端
+
+打开浏览器访问：`http://localhost:40653/qce-v4-tool`
+
+### 使用预构建镜像（发布后可用）
+
+如果不想本地构建，可以直接使用预构建镜像。编辑 `docker/docker-compose.yml`，取消注释 `image` 行并注释 `build` 部分：
+
+```yaml
+services:
+  napcat-qce:
+    image: ghcr.io/shuakami/napcat-qce:latest
+    # build:
+    #   context: ..
+    #   dockerfile: docker/Dockerfile
+```
+
+### 数据持久化
+
+| 卷名 | 容器路径 | 说明 |
+|------|---------|------|
+| qq-session | /app/.config/QQ | QQ 登录会话 |
+| qce-data | /root/.qq-chat-exporter | 导出数据 |
+| ./config | /app/napcat/config | NapCat 配置 |
+
+### macOS/Apple Silicon 说明
+
+Docker Compose 配置中 `platform: linux/amd64` 确保在 Apple Silicon 上通过 Rosetta 2 模拟运行 x86_64 容器。首次启动可能需要 1-2 分钟。
+
+---
+
+## 进阶方式：手动挂载到现有 NapCat Docker
+
+如果你已经有运行中的 NapCat Docker 容器，可以将 QCE 作为插件手动挂载。
+
+### 前提条件
 
 - 已部署 Docker NapCat（`mlikiowa/napcat-docker:latest`）
 - NapCat 版本 >= 4.17（插件上下文使用 `oneBot` 属性）
