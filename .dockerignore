@@ -1,0 +1,16 @@
+.git
+node_modules
+NapCat-QCE-*
+NapCat-Framework-*
+*.zip
+*.tar.gz
+qce-v4-tool/.next
+qce-v4-tool/node_modules
+qce-v4-tool/out
+plugins/qq-chat-exporter/node_modules
+plugins/qq-chat-exporter/dist
+plugins/qq-chat-exporter/.napcat-src
+docs
+.github
+*.md
+!plugins/qq-chat-exporter/package.json

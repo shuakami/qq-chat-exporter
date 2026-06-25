@@ -1,0 +1,23 @@
+services:
+  napcat-qce:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    # image: ghcr.io/shuakami/napcat-qce:latest
+    container_name: napcat-qce
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      - ACCOUNT=${ACCOUNT:-}
+      - DOCKER_CONTAINER=true
+    ports:
+      - "40653:40653"
+      - "6099:6099"
+    volumes:
+      - qq-session:/app/.config/QQ
+      - qce-data:/app/.qq-chat-exporter
+      - ./config:/app/napcat/config
+
+volumes:
+  qq-session:
+  qce-data:

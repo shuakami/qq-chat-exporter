@@ -1,0 +1,17 @@
+{
+  "network": {
+    "httpServers": [],
+    "httpSseServers": [],
+    "httpClients": [],
+    "websocketServers": [],
+    "websocketClients": []
+  },
+  "musicSignUrl": "",
+  "enableLocalFile2Url": true,
+  "parseMultMsg": false,
+  "debug": false,
+  "heartInterval": 30000,
+  "messagePostFormat": "array",
+  "reportSelfMessage": false,
+  "token": ""
+}

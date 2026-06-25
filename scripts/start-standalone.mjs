@@ -29,7 +29,7 @@ async function main() {
     
     try {
         // 使用插件目录的 tsx
-        const tsx = await import(pathToFileURL(join(pluginDir, 'node_modules/tsx/esm/api.mjs')).href);
+        const tsx = await import(pathToFileURL(join(pluginDir, 'node_modules/tsx/dist/esm/api/index.mjs')).href);
         tsx.register();
         
         // 动态导入 StandaloneServer
