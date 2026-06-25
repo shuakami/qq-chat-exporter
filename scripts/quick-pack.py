@@ -80,6 +80,20 @@ def extract_zip(zip_path, dest_dir):
         zip_ref.extractall(dest_dir)
     print(f"[x] Extracted to: {dest_dir}")
 
+def write_napcat_builtin_plugin_config(config_dir):
+    """Disable the builtin #napcat reply command by default."""
+    builtin_config_dir = os.path.join(config_dir, "plugins", "napcat-plugin-builtin")
+    os.makedirs(builtin_config_dir, exist_ok=True)
+
+    builtin_config = {
+        "prefix": "#napcat",
+        "enableReply": False,
+        "description": "这是一个内置插件的配置示例"
+    }
+
+    with open(os.path.join(builtin_config_dir, "config.json"), "w", encoding="utf-8") as f:
+        json.dump(builtin_config, f, indent=2, ensure_ascii=False)
+
 def copy_directory(src, dst):
     """Copy directory recursively"""
     if os.path.exists(dst):
@@ -626,7 +640,8 @@ pause
     
     # Update config files
     print("[9/11] Updating config files...")
-    os.makedirs(f"{pack_dir}/config", exist_ok=True)
+    config_dir = f"{pack_dir}/config"
+    os.makedirs(config_dir, exist_ok=True)
     
     napcat_config = {
         "fileLog": False,
@@ -639,6 +654,7 @@ pause
     }
 
     plugins_config = {
+        "napcat-plugin-builtin": True,
         "qq-chat-exporter": True
     }
     
@@ -660,14 +676,16 @@ pause
         "token": ""
     }
     
-    with open(f"{pack_dir}/config/napcat.json", "w") as f:
+    with open(f"{config_dir}/napcat.json", "w") as f:
         json.dump(napcat_config, f, indent=2)
 
-    with open(f"{pack_dir}/config/plugins.json", "w") as f:
+    with open(f"{config_dir}/plugins.json", "w") as f:
         json.dump(plugins_config, f, indent=2)
 
-    with open(f"{pack_dir}/config/onebot11.json", "w") as f:
+    with open(f"{config_dir}/onebot11.json", "w") as f:
         json.dump(onebot_config, f, indent=2)
+
+    write_napcat_builtin_plugin_config(config_dir)
     
     print("[x] Updated")
     print()

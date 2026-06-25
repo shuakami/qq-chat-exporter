@@ -1,7 +1,7 @@
 {
   "name": "qq-chat-exporter",
   "plugin": "QQ 聊天记录导出",
-  "version": "5.5.75",
+  "version": "5.5.76",
   "description": "导出 QQ 聊天记录为 HTML / JSON / TXT / Excel，支持时间筛选、批量任务、定时任务、表情图片语音视频资源处理、合并转发展开等。",
   "main": "index.mjs",
   "type": "module",
@@ -12,7 +12,9 @@
     "url": "https://github.com/shuakami/qq-chat-exporter.git"
   },
   "napcat": {
-    "tags": ["工具"],
+    "tags": [
+      "工具"
+    ],
     "minVersion": "4.14.0",
     "homepage": "https://github.com/shuakami/qq-chat-exporter"
   },
