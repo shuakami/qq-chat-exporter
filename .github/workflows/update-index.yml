@@ -106,17 +106,20 @@ jobs:
         run: |
           if [ -z "$GH_TOKEN" ]; then
             echo "未配置 INDEX_PAT secret，跳过索引更新"
-            exit 1
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           PAT_USER=$(curl -sS -H "Authorization: token ${GH_TOKEN}" \
             https://api.github.com/user | jq -r '.login')
           if [ -z "$PAT_USER" ] || [ "$PAT_USER" = "null" ]; then
             echo "无法获取 PAT 对应的 GitHub 用户名，请检查 INDEX_PAT 是否有效"
-            exit 1
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           FORK_REPO="${PAT_USER}/${{ env.INDEX_REPO_NAME }}"
           {
+            echo "enabled=true"
             echo "pat_user=$PAT_USER"
             echo "fork_repo=$FORK_REPO"
           } >> "$GITHUB_OUTPUT"
@@ -146,6 +149,7 @@ jobs:
           fi
 
       - name: Sync fork with upstream
+        if: steps.fork.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ secrets.INDEX_PAT }}
         run: |
@@ -157,6 +161,7 @@ jobs:
           echo "$SYNC_RESULT" | jq -r '.message // "已同步"'
 
       - name: Checkout index repo
+        if: steps.fork.outputs.enabled == 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ env.INDEX_REPO }}
@@ -165,6 +170,7 @@ jobs:
           token: ${{ secrets.INDEX_PAT }}
 
       - name: Update plugins.v4.json
+        if: steps.fork.outputs.enabled == 'true'
         env:
           PLUGIN_ID: ${{ steps.meta.outputs.plugin_id }}
           PLUGIN_NAME: ${{ steps.meta.outputs.plugin_name }}
@@ -206,6 +212,7 @@ jobs:
           "
 
       - name: Create Pull Request
+        if: steps.fork.outputs.enabled == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
           path: plugin-index
