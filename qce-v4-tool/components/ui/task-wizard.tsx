@@ -955,47 +955,29 @@ export function TaskWizard({
             <p className="text-sm text-muted-foreground mt-1">选择最适合您需求的格式</p>
           </div>
 
-          <div className="space-y-3">
+          <div className="flex items-center gap-2 p-1 rounded-full bg-muted w-fit">
             {(["JSON", "HTML", "TXT", "EXCEL"] as const).map((fmt) => {
-              const desc =
-                fmt === "JSON"
-                  ? "结构化数据，保留完整信息"
-                  : fmt === "HTML"
-                  ? "网页格式，适合直接查看与打印"
-                  : fmt === "EXCEL"
-                  ? "Excel格式，便于数据分析"
-                  : "纯文本，兼容性最好"
-              const chip =
-                fmt === "JSON" ? "结构化" : fmt === "HTML" ? "推荐" : fmt === "EXCEL" ? "数据分析" : "兼容"
-              const chipClass = "bg-muted text-muted-foreground"
               const active = form.format === fmt
               return (
-                <div
+                <button
                   key={fmt}
+                  type="button"
                   className={[
-                    "relative cursor-pointer rounded-2xl border-2 p-4 transition-all",
-                    active ? "border-blue-500 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-950/30 shadow-sm" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.12] dark:hover:border-white/[0.12]"
+                    "px-4 py-1.5 text-sm font-medium rounded-full transition-all",
+                    active
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
                   ].join(" ")}
                   onClick={() => setForm((p) => ({ ...p, format: fmt }))}
                 >
-                  <div className="flex items-start gap-3">
-                    <div className={active ? "text-blue-600 dark:text-blue-500" : "text-muted-foreground"}>
-                      <FileText className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-medium text-foreground">{fmt}</h3>
-                        <span className={`text-xs px-2 py-0.5 rounded ${chipClass}`}>{chip}</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1">{desc}</p>
-                    </div>
-                    {active && <div className="w-2 h-2 bg-blue-600 dark:bg-blue-500 rounded-full" />}
-                  </div>
-                </div>
+                  {fmt}
+                </button>
               )
             })}
           </div>
         </div>
+
+        <Separator />
 
         {/* 时间范围 */}
         <div className="space-y-3">
@@ -1030,6 +1012,8 @@ export function TaskWizard({
           </div>
         </div>
 
+        <Separator />
+
         {/* 关键词过滤 */}
         <div className="space-y-2">
           <Label htmlFor="keywords">关键词过滤（可选）</Label>
@@ -1042,6 +1026,8 @@ export function TaskWizard({
             className="rounded-2xl"
           />
         </div>
+
+        <Separator />
 
         {/* 排除用户 */}
         <div className="space-y-2">
@@ -1114,6 +1100,8 @@ export function TaskWizard({
             </p>
           )}
         </div>
+
+        <Separator />
 
         {/* 高级选项 */}
         <div className="space-y-3">
@@ -1273,21 +1261,21 @@ export function TaskWizard({
                 desc: "将图片、语音、视频、小于 50 MB 的文件以 base64 内联到单个 HTML文件中，不再产出 resources 目录。适合需要单独发送 / 在手机上丢进文件传输查看的场景。资源较多时 HTML 体积会明显增大。",
                 visible: form.format === "HTML" && !form.exportAsZip && !form.streamingZipMode
               }
-            ].filter((opt) => opt.visible).map((opt) => (
-              <div
-                key={opt.id}
-                className="flex items-start justify-between gap-4 py-3"
-              >
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-medium text-sm text-foreground">{opt.title}</h4>
-                  <p className="text-sm mt-0.5 leading-relaxed text-muted-foreground">{opt.desc}</p>
+            ].filter((opt) => opt.visible).map((opt, idx, arr) => (
+              <div key={opt.id}>
+                <div className="flex items-start justify-between gap-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium text-sm text-foreground">{opt.title}</h4>
+                    <p className="text-sm mt-0.5 leading-relaxed text-muted-foreground">{opt.desc}</p>
+                  </div>
+                  <div className="flex-shrink-0 pt-0.5">
+                    <Switch
+                      checked={opt.checked}
+                      onCheckedChange={(v) => opt.set(v)}
+                    />
+                  </div>
                 </div>
-                <div className="flex-shrink-0 pt-0.5">
-                  <Switch
-                    checked={opt.checked}
-                    onCheckedChange={(v) => opt.set(v)}
-                  />
-                </div>
+                {idx < arr.length - 1 && <Separator />}
               </div>
             ))}
           </div>
