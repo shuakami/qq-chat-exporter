@@ -16,6 +16,7 @@ import { useSearch } from "@/hooks/use-search"
 import { useApi } from "@/hooks/use-api"
 import type { CreateTaskForm, Group, Friend, GroupMember } from "@/types/api"
 import { Checkbox } from "./checkbox"
+import { Switch } from "./switch"
 import { toggleSkipResourceType } from "@/lib/skip-resource-types"
 
 interface TaskWizardProps {
@@ -1275,37 +1276,17 @@ export function TaskWizard({
             ].filter((opt) => opt.visible).map((opt) => (
               <div
                 key={opt.id}
-                className={[
-                  "relative cursor-pointer rounded-2xl border p-4 transition-all",
-                  (opt as any).highlight && opt.checked 
-                    ? "border-blue-400 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-950/30 ring-1 ring-blue-200 dark:ring-blue-800" 
-                    : (opt as any).highlight 
-                      ? "border-black/[0.08] dark:border-white/[0.08] bg-muted/30 hover:border-blue-300 dark:hover:border-blue-700"
-                      : opt.checked 
-                        ? "border-foreground/20 bg-muted" 
-                        : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.12] dark:hover:border-white/[0.12]"
-                ].join(" ")}
-                onClick={() => opt.set(!opt.checked)}
+                className="flex items-start justify-between gap-4 py-3"
               >
-                <div className="flex items-start gap-4">
-                  <div className="flex-shrink-0 pt-0.5">
-                    <div className={[
-                      "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
-                      opt.checked 
-                        ? (opt as any).highlight ? "border-blue-500 bg-blue-500" : "border-foreground bg-foreground"
-                        : (opt as any).highlight ? "border-muted-foreground/40 hover:border-muted-foreground/60" : "border-muted-foreground/40 hover:border-muted-foreground/60"
-                    ].join(" ")}>
-                      {opt.checked && (
-                        <svg className={`w-3 h-3 ${(opt as any).highlight ? 'text-white' : 'text-background'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <h4 className={`font-medium text-sm ${(opt as any).highlight ? 'text-blue-700 dark:text-blue-400' : 'text-foreground'}`}>{opt.title}</h4>
-                    <p className={`text-sm mt-1 leading-relaxed ${(opt as any).highlight ? 'text-blue-600 dark:text-blue-500' : 'text-muted-foreground'}`}>{opt.desc}</p>
-                  </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-medium text-sm text-foreground">{opt.title}</h4>
+                  <p className="text-sm mt-0.5 leading-relaxed text-muted-foreground">{opt.desc}</p>
+                </div>
+                <div className="flex-shrink-0 pt-0.5">
+                  <Switch
+                    checked={opt.checked}
+                    onCheckedChange={(v) => opt.set(v)}
+                  />
                 </div>
               </div>
             ))}
