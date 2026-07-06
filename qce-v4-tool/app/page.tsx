@@ -1283,45 +1283,28 @@ export default function QCEDashboard() {
               {/* Sidebar footer */}
               <div className="flex-shrink-0 px-2 pb-2 space-y-1">
                 <div className="flex items-center justify-between px-2 py-1">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label="Help"
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-transparent hover:bg-accent transition-colors"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="text-muted-foreground">
-                          <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 12.5a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM9.5 8.4c-.5.34-.75.6-.75 1.1a.75.75 0 0 1-1.5 0c0-1.15.75-1.72 1.27-2.07.4-.27.63-.44.63-.83 0-.55-.45-1-.98-1-.39 0-.73.24-.89.58a.75.75 0 1 1-1.36-.64A2.48 2.48 0 0 1 8.17 4c1.37 0 2.48 1.1 2.48 2.5 0 1.07-.7 1.55-1.15 1.9Z"/>
-                        </svg>
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent side="top" align="start" className="w-44 rounded-xl">
-                      <DropdownMenuItem asChild>
-                        <a
-                          href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-                          使用文档
-                        </a>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <a
-                          href="https://github.com/shuakami/qq-chat-exporter"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2"
-                        >
-                          <svg className="w-3.5 h-3.5 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                          </svg>
-                          GitHub {githubStars !== null ? (githubStars >= 1000 ? `${(githubStars / 1000).toFixed(1)}k` : githubStars) : ''}
-                        </a>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <a
+                    href="https://github.com/shuakami/qq-chat-exporter"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-transparent hover:bg-accent transition-colors"
+                    title={`GitHub ${githubStars !== null ? (githubStars >= 1000 ? `${(githubStars / 1000).toFixed(1)}k` : githubStars) : ''}`}
+                  >
+                    <svg className="w-4 h-4 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                    </svg>
+                  </a>
+                  <a
+                    href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-transparent hover:bg-accent transition-colors"
+                    title="使用文档"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="text-muted-foreground">
+                      <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 12.5a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM9.5 8.4c-.5.34-.75.6-.75 1.1a.75.75 0 0 1-1.5 0c0-1.15.75-1.72 1.27-2.07.4-.27.63-.44.63-.83 0-.55-.45-1-.98-1-.39 0-.73.24-.89.58a.75.75 0 1 1-1.36-.64A2.48 2.48 0 0 1 8.17 4c1.37 0 2.48 1.1 2.48 2.5 0 1.07-.7 1.55-1.15 1.9Z"/>
+                    </svg>
+                  </a>
                   <ThemeToggle />
                 </div>
               </div>
@@ -2788,15 +2771,17 @@ export default function QCEDashboard() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/50 z-50"
+                transition={{ duration: 0.15 }}
+                className="fixed inset-0 bg-background/80 z-[110]"
                 onClick={() => setIsFilePathModalOpen(false)}
               />
               {canPreview ? (
                 <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="fixed inset-4 bg-background rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden"
+                  initial={{ opacity: 0, scale: 0.97, y: 8 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.97, y: 8 }}
+                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="fixed inset-4 z-[111] flex flex-col bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden"
                 >
                   <div className="flex items-center justify-between px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -2835,10 +2820,11 @@ export default function QCEDashboard() {
                 </motion.div>
               ) : (
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-background rounded-2xl shadow-2xl z-50 overflow-hidden"
+                  initial={{ opacity: 0, scale: 0.97, y: 8 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.97, y: 8 }}
+                  transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md z-[111] bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden"
                 >
                   <div className="p-8 text-center">
                     <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-muted flex items-center justify-center">
@@ -2931,17 +2917,18 @@ export default function QCEDashboard() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 z-50"
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 bg-background/80 z-[110]"
               onClick={() => setShowHtmlHelp(false)}
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.2 }}
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-background rounded-2xl shadow-xl z-50 overflow-hidden"
+              initial={{ opacity: 0, scale: 0.97, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed inset-4 sm:inset-[10%] z-[111] flex flex-col bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden"
             >
-              <div className="flex items-center justify-between px-6 py-4">
+              <div className="px-6 py-4 flex items-center justify-between flex-shrink-0">
                 <div>
                   <h3 className="font-medium text-foreground">HTML 导出</h3>
                   <p className="text-xs text-muted-foreground">可视化聊天记录</p>
@@ -2954,7 +2941,7 @@ export default function QCEDashboard() {
                 </button>
               </div>
 
-              <div className="p-6 space-y-5">
+              <div className="flex-1 overflow-y-auto p-6 space-y-5">
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium text-foreground">适合什么场景？</h4>
                   <p className="text-sm text-muted-foreground leading-relaxed">
@@ -2980,15 +2967,15 @@ export default function QCEDashboard() {
                   </ol>
                 </div>
 
-                <div className="p-4 rounded-xl bg-amber-50 border border-amber-100 dark:bg-amber-950/30 dark:border-amber-900/60">
+                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30">
                   <p className="text-xs text-amber-700 dark:text-amber-200">
                     注意：不要单独移动 HTML 文件，需要和 resources 文件夹放在一起，图片才能正常显示。
                   </p>
                 </div>
               </div>
 
-              <div className="px-6 py-4 border-t border-border bg-muted">
-                <Button className="w-full" onClick={() => setShowHtmlHelp(false)}>
+              <div className="px-6 py-4 flex-shrink-0">
+                <Button className="w-full rounded-full" onClick={() => setShowHtmlHelp(false)}>
                   知道了
                 </Button>
               </div>
@@ -3005,17 +2992,18 @@ export default function QCEDashboard() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 z-50"
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 bg-background/80 z-[110]"
               onClick={() => setShowJsonHelp(false)}
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.2 }}
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-background rounded-2xl shadow-xl z-50 overflow-hidden"
+              initial={{ opacity: 0, scale: 0.97, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed inset-4 sm:inset-[10%] z-[111] flex flex-col bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden"
             >
-              <div className="flex items-center justify-between px-6 py-4">
+              <div className="px-6 py-4 flex items-center justify-between flex-shrink-0">
                 <div>
                   <h3 className="font-medium text-foreground">JSON 导出</h3>
                   <p className="text-xs text-muted-foreground">结构化数据格式</p>
@@ -3028,7 +3016,7 @@ export default function QCEDashboard() {
                 </button>
               </div>
 
-              <div className="p-6 space-y-5">
+              <div className="flex-1 overflow-y-auto p-6 space-y-5">
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium text-foreground">适合什么场景？</h4>
                   <p className="text-sm text-muted-foreground leading-relaxed">
@@ -3065,8 +3053,8 @@ export default function QCEDashboard() {
                 </div>
               </div>
 
-              <div className="px-6 py-4 border-t border-border bg-muted">
-                <Button className="w-full" onClick={() => setShowJsonHelp(false)}>
+              <div className="px-6 py-4 flex-shrink-0">
+                <Button className="w-full rounded-full" onClick={() => setShowJsonHelp(false)}>
                   知道了
                 </Button>
               </div>
@@ -3083,17 +3071,18 @@ export default function QCEDashboard() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 z-50"
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 bg-background/80 z-[110]"
               onClick={() => setShowJsonlHelp(false)}
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.2 }}
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-background rounded-2xl shadow-xl z-50 overflow-hidden"
+              initial={{ opacity: 0, scale: 0.97, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed inset-4 sm:inset-[10%] z-[111] flex flex-col bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden"
             >
-              <div className="flex items-center justify-between px-6 py-4">
+              <div className="px-6 py-4 flex items-center justify-between flex-shrink-0">
                 <div>
                   <h3 className="font-medium text-foreground">JSONL 分块导出</h3>
                   <p className="text-xs text-muted-foreground">适合大规模数据处理</p>
@@ -3106,7 +3095,7 @@ export default function QCEDashboard() {
                 </button>
               </div>
 
-              <div className="p-6 space-y-5">
+              <div className="flex-1 overflow-y-auto p-6 space-y-5">
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium text-foreground">这是什么？</h4>
                   <p className="text-sm text-muted-foreground leading-relaxed">
@@ -3150,10 +3139,10 @@ export default function QCEDashboard() {
                 </div>
               </div>
 
-              <div className="px-6 py-4 border-t border-border bg-muted flex gap-3">
+              <div className="px-6 py-4 flex-shrink-0 flex gap-3">
                 <Button
                   variant="outline"
-                  className="flex-1"
+                  className="flex-1 rounded-full"
                   onClick={() => {
                     if (helpFilePath) {
                       openFileLocation(helpFilePath)
@@ -3165,7 +3154,7 @@ export default function QCEDashboard() {
                   {helpFilePath ? '打开文件位置' : '打开导出目录'}
                 </Button>
                 <Button
-                  className="flex-1"
+                  className="flex-1 rounded-full"
                   onClick={() => setShowJsonlHelp(false)}
                 >
                   知道了
@@ -3184,17 +3173,18 @@ export default function QCEDashboard() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 z-50"
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 bg-background/80 z-[110]"
               onClick={() => setShowStreamingZipHelp(false)}
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.2 }}
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-background rounded-2xl shadow-xl z-50 overflow-hidden"
+              initial={{ opacity: 0, scale: 0.97, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              className="fixed inset-4 sm:inset-[10%] z-[111] flex flex-col bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden"
             >
-              <div className="flex items-center justify-between px-6 py-4">
+              <div className="px-6 py-4 flex items-center justify-between flex-shrink-0">
                 <div>
                   <h3 className="font-medium text-foreground">流式 HTML ZIP 导出</h3>
                   <p className="text-xs text-muted-foreground">分块 HTML + 资源打包</p>
@@ -3207,7 +3197,7 @@ export default function QCEDashboard() {
                 </button>
               </div>
 
-              <div className="p-6 space-y-5">
+              <div className="flex-1 overflow-y-auto p-6 space-y-5">
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium text-foreground">这是什么？</h4>
                   <p className="text-sm text-muted-foreground leading-relaxed">
@@ -3246,17 +3236,17 @@ export default function QCEDashboard() {
                   </ol>
                 </div>
 
-                <div className="p-4 rounded-xl bg-amber-50 border border-amber-100 dark:bg-amber-950/30 dark:border-amber-900/60">
+                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30">
                   <p className="text-xs text-amber-700 dark:text-amber-200">
                     注意：必须解压后才能正常查看，不要直接在压缩软件里打开 HTML。
                   </p>
                 </div>
               </div>
 
-              <div className="px-6 py-4 border-t border-border bg-muted flex gap-3">
+              <div className="px-6 py-4 flex-shrink-0 flex gap-3">
                 <Button
                   variant="outline"
-                  className="flex-1"
+                  className="flex-1 rounded-full"
                   onClick={() => {
                     if (helpFilePath) {
                       openFileLocation(helpFilePath)
@@ -3268,7 +3258,7 @@ export default function QCEDashboard() {
                   {helpFilePath ? '打开文件位置' : '打开导出目录'}
                 </Button>
                 <Button
-                  className="flex-1"
+                  className="flex-1 rounded-full"
                   onClick={() => setShowStreamingZipHelp(false)}
                 >
                   知道了
