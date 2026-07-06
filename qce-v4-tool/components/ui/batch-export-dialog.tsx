@@ -240,14 +240,13 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
         overlayClassName="bg-white/60 dark:bg-neutral-950/60 backdrop-blur-xl"
         className="flex flex-col h-full p-0"
       >
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Package className="w-5 h-5" />
+        <DialogHeader className="border-0 px-6 pt-5 pb-0">
+          <DialogTitle className="text-base font-semibold">
             批量导出聊天记录
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 flex gap-8 min-h-0 px-6 py-6">
+        <div className="flex-1 flex gap-8 min-h-0 px-6 py-4">
           {/* 左侧 - 选中的会话列表 */}
           <div className="w-2/5 flex flex-col">
             <div className="mb-4">
@@ -513,7 +512,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
 
 
         {/* 底部操作栏 */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-black/[0.06] dark:border-white/[0.06]">
+        <div className="flex items-center justify-between px-6 py-4">
           <div className="text-sm text-muted-foreground">
             {progress.status === 'running' ? (
               <span className="text-blue-600 dark:text-blue-400">正在导出 {progress.current + 1}/{progress.total} 个会话...</span>
@@ -524,12 +523,12 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
             )}
           </div>
           <div className="flex gap-3">
-            <Button variant="outline" onClick={handleClose} disabled={isExporting} className="rounded-full">
+            <Button variant="outline" onClick={handleClose} disabled={isExporting} className="rounded-full text-[13px]">
               {isExporting ? '导出中...' : progress.status === 'completed' ? '关闭' : '取消'}
             </Button>
             {progress.status !== 'completed' && (
-              <Button onClick={handleExport} disabled={isExporting || (timeRange === 'custom' && (!customStartDate || !customEndDate || !!dateError))} className="bg-blue-600 hover:bg-blue-700 rounded-full">
-                {isExporting ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />导出中...</>) : (<><Download className="w-4 h-4 mr-2" />开始批量导出</>)}
+              <Button onClick={handleExport} disabled={isExporting || (timeRange === 'custom' && (!customStartDate || !customEndDate || !!dateError))} className="rounded-full text-[13px] bg-[#171717] text-white hover:bg-[#171717]/90 dark:bg-white dark:text-[#171717] dark:hover:bg-white/90">
+                {isExporting ? '导出中...' : '开始批量导出'}
               </Button>
             )}
           </div>

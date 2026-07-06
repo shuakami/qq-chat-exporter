@@ -22,7 +22,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  output: 'export',
+  output: process.env.NODE_ENV === 'production' ? 'export' : undefined,
   trailingSlash: true,
   // 生产环境下配置基础路径和资源前缀
   basePath: process.env.NODE_ENV === 'production' ? '/static/qce-v4-tool' : '',
