@@ -320,11 +320,11 @@ export function SessionList({
         </div>
 
         {!batchMode && (
-          <div className="grid grid-cols-[64px_72px_32px] items-center gap-1 flex-shrink-0">
+          <div className="flex items-center gap-1 flex-shrink-0">
             <Button
               size="sm"
               variant="ghost"
-              className="h-8 w-full px-0 text-xs rounded-full justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              className="h-7 px-2.5 text-xs rounded-full justify-center opacity-0 group-hover:opacity-100 transition-opacity"
               onClick={(e: React.MouseEvent) => {
                 e.stopPropagation()
                 onPreviewChat?.(item.type, item.id, item.name, { 
@@ -338,7 +338,7 @@ export function SessionList({
             <Button
               size="sm"
               variant="outline"
-              className="h-8 w-full px-0 text-xs rounded-full justify-center"
+              className="h-7 px-2.5 text-xs rounded-full justify-center"
               onClick={(e: React.MouseEvent) => {
                 e.stopPropagation()
                 onOpenTaskWizard?.({
