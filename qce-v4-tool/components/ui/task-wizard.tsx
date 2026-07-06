@@ -574,114 +574,82 @@ export function TaskWizard({
 
     return (
       <div className="space-y-4">
-        {/* 类型切换 */}
+        {/* 类型切换 - 4个按钮一行 */}
         <div>
-          <Label className="text-sm font-medium mb-2 block">选择聊天类型</Label>
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              variant={form.chatType === 1 && manualInputMode !== 'group' ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
+          <div className={`flex gap-1 p-0.5 rounded-lg bg-black/[0.03] dark:bg-white/[0.04] ${isStandalone ? '' : ''}`}>
+            {[
+              { key: 'friend', label: '好友', onClick: () => {
                 setForm((p) => ({ ...p, chatType: 1 }))
                 setSearchTerm("")
                 setManualInputMode(null)
                 if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
                 friendSearchRef.current.search("")
-              }}
-              className="justify-center rounded-full"
-            >
-              <User className="w-4 h-4 mr-2" />
-              好友聊天
-            </Button>
-            <Button
-              variant={form.chatType === 2 && manualInputMode !== 'friend' ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
+              }, active: form.chatType === 1 && !manualInputMode },
+              { key: 'group', label: '群组', onClick: () => {
                 setForm((p) => ({ ...p, chatType: 2 }))
                 setSearchTerm("")
                 setManualInputMode(null)
                 if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
                 groupSearchRef.current.search("")
-              }}
-              className="justify-center rounded-full"
-            >
-              <Users className="w-4 h-4 mr-2" />
-              群组聊天
-            </Button>
-          </div>
-          {/* 手动输入 QQ 号 / 群号（独立入口，Issue #226） */}
-          <div className={`grid gap-2 mt-2 ${isStandalone ? "grid-cols-1" : "grid-cols-2"}`}>
-            <Button
-              variant={manualInputMode === 'friend' ? "default" : "ghost"}
-              size="sm"
-              onClick={openManualFriendInput}
-              className="justify-center rounded-full text-xs"
-            >
-              {manualInputMode === 'friend' ? (
-                <X className="w-3 h-3 mr-1" />
-              ) : (
-                <User className="w-3 h-3 mr-1" />
-              )}
-              {manualInputMode === 'friend' ? "取消" : "手动输入QQ号"}
-            </Button>
-            {!isStandalone && (
-              <Button
-                variant={manualInputMode === 'group' ? "default" : "ghost"}
-                size="sm"
-                onClick={openManualGroupInput}
-                className="justify-center rounded-full text-xs"
+              }, active: form.chatType === 2 && !manualInputMode },
+              { key: 'manual-friend', label: '输入QQ号', onClick: openManualFriendInput, active: manualInputMode === 'friend' },
+              ...(!isStandalone ? [{ key: 'manual-group', label: '输入群号', onClick: openManualGroupInput, active: manualInputMode === 'group' }] : []),
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={tab.onClick}
+                className={[
+                  "flex-1 px-3 py-1.5 text-[13px] font-medium rounded-md transition-all text-center",
+                  tab.active
+                    ? "bg-white dark:bg-white/10 text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+                    : "text-muted-foreground hover:text-foreground"
+                ].join(" ")}
               >
-                {manualInputMode === 'group' ? (
-                  <X className="w-3 h-3 mr-1" />
-                ) : (
-                  <Users className="w-3 h-3 mr-1" />
-                )}
-                {manualInputMode === 'group' ? "取消" : "手动输入群号"}
-              </Button>
-            )}
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
 
         {/* 手动输入面板 */}
         {manualInputMode === 'friend' ? (
-          <div className="space-y-3 p-4 border border-black/[0.08] dark:border-white/[0.08] rounded-2xl bg-muted/50">
-            <div className="space-y-2">
-              <Label htmlFor="manualQQ" className="text-sm">QQ号码</Label>
+          <div className="space-y-3 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="manualQQ" className="text-[13px] text-muted-foreground">QQ号码</Label>
               <Input
                 id="manualQQ"
                 placeholder="输入要导出的QQ号"
                 value={manualQQNumber}
                 onChange={(e) => setManualQQNumber(e.target.value.replace(/\D/g, ''))}
-                className="rounded-xl font-mono"
+                className="rounded-full font-mono h-9"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="manualName" className="text-sm">备注名称（可选）</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="manualName" className="text-[13px] text-muted-foreground">备注名称（可选）</Label>
               <Input
                 id="manualName"
                 placeholder="给这个聊天起个名字"
                 value={manualSessionName}
                 onChange={(e) => setManualSessionName(e.target.value)}
-                className="rounded-xl"
+                className="rounded-full h-9"
               />
             </div>
             <Button
               onClick={handleManualFriendInputConfirm}
               disabled={!manualQQNumber.trim()}
-              className="w-full rounded-full bg-blue-600 hover:bg-blue-700"
+              className="w-full rounded-full text-[13px] bg-[#171717] text-white hover:bg-[#171717]/90 dark:bg-white dark:text-[#171717] dark:hover:bg-white/90"
               size="sm"
             >
-              <CheckCircle className="w-4 h-4 mr-2" />
               确认
             </Button>
-            <p className="text-xs text-muted-foreground">
-              适用于好友列表中未显示的用户，如超过1000人限制的好友
+            <p className="text-xs text-muted-foreground/60">
+              适用于好友列表中未显示的用户
             </p>
           </div>
         ) : manualInputMode === 'group' ? (
-          <div className="space-y-3 p-4 border border-black/[0.08] dark:border-white/[0.08] rounded-2xl bg-muted/50">
-            <div className="space-y-2">
-              <Label htmlFor="manualGroup" className="text-sm">群号</Label>
+          <div className="space-y-3 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="manualGroup" className="text-[13px] text-muted-foreground">群号</Label>
               <Input
                 id="manualGroup"
                 placeholder="输入要导出的群号"
@@ -690,17 +658,17 @@ export function TaskWizard({
                   setManualGroupCode(e.target.value.replace(/\D/g, ''))
                   setManualGroupError(null)
                 }}
-                className="rounded-xl font-mono"
+                className="rounded-full font-mono h-9"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="manualGroupName" className="text-sm">备注名称（可选）</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="manualGroupName" className="text-[13px] text-muted-foreground">备注名称（可选）</Label>
               <Input
                 id="manualGroupName"
                 placeholder="给这个群聊起个名字"
                 value={manualSessionName}
                 onChange={(e) => setManualSessionName(e.target.value)}
-                className="rounded-xl"
+                className="rounded-full h-9"
               />
             </div>
             {manualGroupError && (
@@ -709,18 +677,13 @@ export function TaskWizard({
             <Button
               onClick={handleManualGroupInputConfirm}
               disabled={!manualGroupCode.trim() || manualGroupLoading}
-              className="w-full rounded-full bg-blue-600 hover:bg-blue-700"
+              className="w-full rounded-full text-[13px] bg-[#171717] text-white hover:bg-[#171717]/90 dark:bg-white dark:text-[#171717] dark:hover:bg-white/90"
               size="sm"
             >
-              {manualGroupLoading ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <CheckCircle className="w-4 h-4 mr-2" />
-              )}
-              {manualGroupLoading ? "查询中..." : "确认"}
+              {manualGroupLoading ? '查询中...' : '确认'}
             </Button>
-            <p className="text-xs text-muted-foreground">
-              适用于群列表中未显示的群，如列表未加载完或搜索不到的情况
+            <p className="text-xs text-muted-foreground/60">
+              适用于群列表中未显示的群
             </p>
           </div>
         ) : (
@@ -1360,14 +1323,13 @@ export function TaskWizard({
         overlayClassName="bg-background/60 backdrop-blur-xl"
         className="flex flex-col h-full p-0"
       >
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Settings className="w-5 h-5" />
+        <DialogHeader className="border-0 px-6 pt-5 pb-0">
+          <DialogTitle className="text-base font-semibold">
             创建导出任务
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 flex gap-8 min-h-0 px-6 py-6">
+        <div className="flex-1 flex gap-8 min-h-0 px-6 py-4">
           {/* 左侧 */}
           <div className="w-2/5 flex flex-col">
             <div className="mb-4">
@@ -1412,28 +1374,18 @@ export function TaskWizard({
         </div>
 
         {/* 底部 */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-black/[0.06] dark:border-white/[0.06]">
-          <div className="text-sm text-muted-foreground">
+        <div className="flex items-center justify-between px-6 py-4">
+          <div className="text-[13px] text-muted-foreground">
             {canSubmit() ? <span className="text-foreground">准备就绪</span> : <span>请完成所有必填项</span>}
           </div>
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={onClose} className="rounded-full">取消</Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} className="rounded-full text-[13px]">取消</Button>
             <Button
               onClick={handleSubmit}
               disabled={!canSubmit() || isLoading}
-              className="bg-blue-600 hover:bg-blue-700 rounded-full"
+              className="rounded-full text-[13px] bg-[#171717] text-white hover:bg-[#171717]/90 dark:bg-white dark:text-[#171717] dark:hover:bg-white/90"
             >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  创建中...
-                </>
-              ) : (
-                <>
-                  <FileText className="w-4 h-4 mr-2" />
-                  创建任务
-                </>
-              )}
+              {isLoading ? '创建中...' : '创建任务'}
             </Button>
           </div>
         </div>

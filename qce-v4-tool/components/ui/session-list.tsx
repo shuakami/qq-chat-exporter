@@ -1,11 +1,11 @@
 "use client"
 
-import { useMemo, useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { Button } from "./button"
 import { Input } from "./input"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
 import { Checkbox } from "./checkbox"
-import { Badge } from "./badge"
+
 import {
   Select,
   SelectContent,
@@ -15,8 +15,6 @@ import {
 } from "./select"
 import {
   Search,
-  Users,
-  User,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -25,7 +23,6 @@ import {
   SortDesc,
   X,
   Filter,
-  Keyboard,
 } from "lucide-react"
 import type { Group, Friend } from "@/types/api"
 import {
@@ -79,14 +76,6 @@ export interface SessionListProps {
   onOpenGroupFilesModal?: (groupCode: string, groupName: string) => void
 }
 
-// Keyboard shortcuts help text
-const KEYBOARD_SHORTCUTS = [
-  { key: '/', description: '聚焦搜索' },
-  { key: 'Esc', description: '清除搜索/退出批量模式' },
-  { key: '←/→', description: '上一页/下一页' },
-  // Issue #344: shift + 点击当前页内两端，区间内的会话会一并切换选中状态。
-  { key: 'Shift+点击', description: '批量模式下区间多选 / 区间反选（同页可见项）' },
-]
 
 export function SessionList({
   groups,
@@ -294,14 +283,6 @@ export function SessionList({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
-            {isGroup ? (
-              <Users className="w-3 h-3 text-muted-foreground/40 flex-shrink-0" />
-            ) : (
-              <User className="w-3 h-3 text-muted-foreground/40 flex-shrink-0" />
-            )}
-            {!isGroup && friend?.isOnline && (
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-            )}
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground/50">
             {isGroup && group && (
@@ -429,9 +410,9 @@ export function SessionList({
   }, [batchMode, selectedItems, avatarExportLoading, onToggleItem, onPreviewChat, onOpenTaskWizard, onExportGroupAvatars, onOpenEssenceModal, onOpenGroupFilesModal])
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-0">
       {/* Search and Filter Bar */}
-      <div className="flex flex-col sm:flex-row gap-2">
+      <div className="flex flex-col sm:flex-row gap-2 px-4 py-2">
         {/* Search Input */}
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60" />
@@ -440,7 +421,7 @@ export function SessionList({
             placeholder="搜索会话名称、备注或 ID... (按 / 聚焦)"
             value={search}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-            className="pl-8 pr-8 h-10 text-sm rounded-lg border-black/[0.06] dark:border-white/[0.06] bg-black/[0.02] dark:bg-white/[0.03]"
+            className="pl-8 pr-8 h-10 text-sm rounded-full border-0 bg-transparent shadow-none focus-visible:ring-0"
           />
           {search && (
             <button
@@ -456,10 +437,10 @@ export function SessionList({
         <div className="flex items-center gap-1.5">
           {/* Type Filter */}
           <Select value={type} onValueChange={(v: string) => setType(v as SessionType)}>
-            <SelectTrigger className="w-[120px] h-10 text-sm rounded-lg">
+            <SelectTrigger className="w-[120px] h-10 text-sm rounded-full border-0 bg-transparent shadow-none">
               <SelectValue placeholder="全部类型" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl">
               <SelectItem value="all">全部 ({groupCount + friendCount})</SelectItem>
               <SelectItem value="group">群组 ({groupCount})</SelectItem>
               <SelectItem value="friend">好友 ({friendCount})</SelectItem>
@@ -468,10 +449,10 @@ export function SessionList({
 
           {/* Sort Field */}
           <Select value={sortField} onValueChange={(v: string) => setSortField(v as SortField)}>
-            <SelectTrigger className="w-[120px] h-10 text-sm rounded-lg">
+            <SelectTrigger className="w-[120px] h-10 text-sm rounded-full border-0 bg-transparent shadow-none">
               <SelectValue placeholder="排序" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl">
               <SelectItem value="name">名称</SelectItem>
               <SelectItem value="memberCount">人数</SelectItem>
               <SelectItem value="id">ID</SelectItem>
@@ -483,9 +464,9 @@ export function SessionList({
 
           {/* Sort Order Toggle */}
           <Button
-            variant="outline"
+            variant="ghost"
             size="icon"
-            className="h-10 w-10 rounded-lg"
+            className="h-10 w-10 rounded-full"
             onClick={handleToggleSort}
           >
             {sortOrder === 'asc' ? (
@@ -500,7 +481,7 @@ export function SessionList({
             <Button
               variant="ghost"
               size="sm"
-              className="h-10 rounded-lg text-sm text-muted-foreground hover:text-foreground"
+              className="h-10 rounded-full text-sm text-muted-foreground hover:text-foreground"
               onClick={resetFilters}
             >
               <X className="w-3.5 h-3.5 mr-1" />
@@ -510,103 +491,19 @@ export function SessionList({
         </div>
       </div>
 
-      {/* Stats and Batch Actions */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground/60">
-            {hasActiveFilters ? (
-              <>找到 <span className="font-medium text-foreground/80">{totalItems}</span> 个会话</>
-            ) : (
-              <>共 <span className="font-medium text-foreground/80">{totalItems}</span> 个会话</>
-            )}
-          </span>
-          {batchMode && selectedItems.size > 0 && (
-            <Badge className="rounded-full text-[11px] bg-secondary text-secondary-foreground">
-              已选 {selectedItems.size}
-            </Badge>
+      {/* Stats */}
+      <div className="flex items-center px-4 pb-3">
+        <span className="text-sm text-muted-foreground/60">
+          {hasActiveFilters ? (
+            <>找到 <span className="font-medium text-foreground/80">{totalItems}</span> 个会话</>
+          ) : (
+            <>共 <span className="font-medium text-foreground/80">{totalItems}</span> 个会话</>
           )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          {batchMode && (
-            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 dark:border-white/[0.08] dark:bg-white/[0.03]">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="rounded-full h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground"
-                onClick={onToggleBatchMode}
-              >
-                取消批量
-              </Button>
-              {/* Issue #344: 当类型筛选为「全部」时，把全选按钮拆成 全选群 / 全选好友 / 全选当前。 */}
-              {type === 'all' ? (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-full h-8 px-3 text-[12px]"
-                    onClick={() => {
-                      const ids = new Set<string>()
-                      filteredItems.forEach((item) => {
-                        if (item.type === 'group') ids.add(`group_${item.id}`)
-                      })
-                      // 加选群类型，保留当前已选（含好友）。
-                      onSelectMany ? onSelectMany(ids, 'add') : onSelectAll?.(ids)
-                    }}
-                  >
-                    全选群
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="rounded-full h-8 px-3 text-[12px]"
-                    onClick={() => {
-                      const ids = new Set<string>()
-                      filteredItems.forEach((item) => {
-                        if (item.type === 'friend') ids.add(`friend_${item.id}`)
-                      })
-                      onSelectMany ? onSelectMany(ids, 'add') : onSelectAll?.(ids)
-                    }}
-                  >
-                    全选好友
-                  </Button>
-                </>
-              ) : null}
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-full h-8 px-3 text-[12px]"
-                onClick={() => {
-                  const ids = new Set<string>()
-                  filteredItems.forEach(item => {
-                    ids.add(item.type === 'group' ? `group_${item.id}` : `friend_${item.id}`)
-                  })
-                  onSelectAll?.(ids)
-                }}
-              >
-                全选当前
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="rounded-full h-8 px-3 text-[12px]"
-                onClick={onClearSelection}
-                disabled={selectedItems.size === 0}
-              >
-                清空
-              </Button>
-              <Button
-                size="sm"
-                className="rounded-full h-8 px-4 text-[12px]"
-                onClick={onOpenBatchExportDialog}
-                disabled={selectedItems.size === 0}
-              >
-                导出选中 ({selectedItems.size})
-              </Button>
-            </div>
-          )}
-        </div>
+        </span>
       </div>
+
+      {/* Divider */}
+      <div className="border-t border-black/[0.06] dark:border-white/[0.06]" />
 
       {/* Session List */}
       {totalItems === 0 ? (
@@ -650,26 +547,86 @@ export function SessionList({
         </div>
       )}
 
-      {/* Keyboard Shortcuts Hint */}
-      {totalItems > 0 && (
-        <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground/40">
-          <Keyboard className="w-3 h-3" />
-          {KEYBOARD_SHORTCUTS.map((shortcut, idx) => (
-            <span key={idx} className="flex items-center gap-1">
-              <kbd className="px-1 py-0.5 rounded bg-muted/40 font-mono text-[10px]">{shortcut.key}</kbd>
-              <span>{shortcut.description}</span>
-            </span>
-          ))}
+      {/* Floating Batch Toolbar */}
+      {batchMode && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in duration-300"
+          style={{ animationTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)' }}
+        >
+          <div className="flex items-center gap-1 rounded-full bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-lg shadow-black/[0.08] border border-black/[0.06] dark:border-white/[0.08] px-2 py-1.5">
+            {selectedItems.size > 0 && (
+              <span className="text-[13px] font-medium text-foreground px-3 tabular-nums">
+                {selectedItems.size} selected
+              </span>
+            )}
+            <span className="w-px h-4 bg-black/[0.08] dark:bg-white/[0.1]" />
+            {type === 'all' && (
+              <>
+                <button
+                  onClick={() => {
+                    const ids = new Set<string>()
+                    filteredItems.forEach((item) => {
+                      if (item.type === 'group') ids.add(`group_${item.id}`)
+                    })
+                    onSelectMany ? onSelectMany(ids, 'add') : onSelectAll?.(ids)
+                  }}
+                  className="px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
+                >
+                  全选群
+                </button>
+                <button
+                  onClick={() => {
+                    const ids = new Set<string>()
+                    filteredItems.forEach((item) => {
+                      if (item.type === 'friend') ids.add(`friend_${item.id}`)
+                    })
+                    onSelectMany ? onSelectMany(ids, 'add') : onSelectAll?.(ids)
+                  }}
+                  className="px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
+                >
+                  全选好友
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => {
+                const ids = new Set<string>()
+                filteredItems.forEach(item => {
+                  ids.add(item.type === 'group' ? `group_${item.id}` : `friend_${item.id}`)
+                })
+                onSelectAll?.(ids)
+              }}
+              className="px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
+            >
+              全选当前
+            </button>
+            <span className="w-px h-4 bg-black/[0.08] dark:bg-white/[0.1]" />
+            <button
+              onClick={onOpenBatchExportDialog}
+              disabled={selectedItems.size === 0}
+              className="px-3 py-1.5 text-[13px] font-medium text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors disabled:opacity-40 disabled:pointer-events-none"
+            >
+              导出
+            </button>
+            <button
+              onClick={onToggleBatchMode}
+              className="p-1.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
 
+
+
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-3 border-t border-black/[0.04] dark:border-white/[0.04]">
+        <div className="flex items-center justify-between pt-3">
           <div className="flex items-center gap-1.5">
             <span className="text-sm text-muted-foreground/60">每页</span>
             <Select value={pageSize.toString()} onValueChange={(v: string) => setPageSize(Number(v))}>
-              <SelectTrigger className="w-[72px] h-8 text-sm rounded-lg">
+              <SelectTrigger className="w-[72px] h-8 text-sm rounded-full border-0 bg-transparent shadow-none">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -685,18 +642,18 @@ export function SessionList({
 
           <div className="flex items-center gap-0.5">
             <Button
-              variant="outline"
+              variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-lg"
+              className="h-8 w-8 rounded-full"
               disabled={page === 1}
               onClick={() => setPage(1)}
             >
               <ChevronsLeft className="w-3.5 h-3.5" />
             </Button>
             <Button
-              variant="outline"
+              variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-lg"
+              className="h-8 w-8 rounded-full"
               disabled={!hasPrevPage}
               onClick={() => setPage(page - 1)}
             >
@@ -710,18 +667,18 @@ export function SessionList({
             </div>
 
             <Button
-              variant="outline"
+              variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-lg"
+              className="h-8 w-8 rounded-full"
               disabled={!hasNextPage}
               onClick={() => setPage(page + 1)}
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </Button>
             <Button
-              variant="outline"
+              variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-lg"
+              className="h-8 w-8 rounded-full"
               disabled={page === totalPages}
               onClick={() => setPage(totalPages)}
             >
