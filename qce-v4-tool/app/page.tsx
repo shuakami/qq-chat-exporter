@@ -1235,7 +1235,7 @@ export default function QCEDashboard() {
                         variants={STAG.item}
                         id={`nav-${item.id}`}
                         onClick={() => setActiveTab(item.id)}
-                        className={`w-full flex items-center gap-2.5 px-2 py-[6px] text-[13px] font-medium rounded-md transition-colors ${
+                        className={`w-full flex items-center gap-2.5 px-2 py-[6px] text-[13px] font-medium rounded-full transition-colors ${
                           isActive 
                             ? "text-foreground bg-black/[0.05] dark:bg-white/[0.05]" 
                             : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
@@ -1266,7 +1266,7 @@ export default function QCEDashboard() {
                         variants={STAG.item}
                         id={`nav-${item.id}`}
                         onClick={() => setActiveTab(item.id)}
-                        className={`w-full flex items-center gap-2.5 px-2 py-[6px] text-[13px] font-medium rounded-md transition-colors ${
+                        className={`w-full flex items-center gap-2.5 px-2 py-[6px] text-[13px] font-medium rounded-full transition-colors ${
                           isActive 
                             ? "text-foreground bg-black/[0.05] dark:bg-white/[0.05]" 
                             : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
@@ -1343,7 +1343,7 @@ export default function QCEDashboard() {
                   setSidebarOpen(!sidebarOpen)
                 }
               }}
-              className="p-1 -ml-1 rounded-md text-muted-foreground/60 hover:text-muted-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+              className="p-1 -ml-1 rounded-full text-muted-foreground/60 hover:text-muted-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
             >
               {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
             </button>
@@ -1436,7 +1436,6 @@ export default function QCEDashboard() {
                   onClick={handleOpenScheduledMergeDialog}
                   disabled={loadingScheduledTasks}
                 >
-                  <Combine className="w-4 h-4 mr-1" />
                   合并
                 </Button>
                 <Button size="sm" className="h-8 text-[13px] rounded-full px-2.5" onClick={() => handleOpenScheduledExportWizard()}>
@@ -1469,7 +1468,6 @@ export default function QCEDashboard() {
                   onClick={handleOpenScheduledMergeDialog}
                   disabled={loadingScheduledTasks}
                 >
-                  <Combine className="w-4 h-4 mr-1" />
                   合并
                 </Button>
               </>
@@ -1500,7 +1498,6 @@ export default function QCEDashboard() {
                   onClick={handleExportAllStickerPacks}
                   disabled={stickerPacksLoading || stickerPacks.length === 0}
                 >
-                  <Download className="w-4 h-4 mr-1" />
                   导出所有
                 </Button>
               </>
@@ -1668,7 +1665,6 @@ export default function QCEDashboard() {
                         className="h-8 text-[13px] rounded-full px-3"
                         onClick={() => setActiveTab("history")}
                       >
-                        <History className="w-3.5 h-3.5 mr-1.5" />
                         浏览聊天记录
                       </Button>
                       <Button
@@ -1677,7 +1673,6 @@ export default function QCEDashboard() {
                         className="h-8 text-[13px] rounded-full px-3"
                         onClick={() => setActiveTab("stickers")}
                       >
-                        <Sticker className="w-3.5 h-3.5 mr-1.5" />
                         表情包
                       </Button>
                       <Button
@@ -1691,7 +1686,6 @@ export default function QCEDashboard() {
                           )
                         }
                       >
-                        <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
                         切换到完整模式
                       </Button>
                     </div>
@@ -1898,7 +1892,7 @@ export default function QCEDashboard() {
                         <button
                           key={tab.id}
                           onClick={() => setScheduledFilter(tab.id as typeof scheduledFilter)}
-                          className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
+                          className={`px-2.5 py-1 rounded-full text-[12px] transition-colors ${
                             isActive 
                               ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium' 
                               : 'text-muted-foreground/60 hover:text-muted-foreground'
@@ -1976,25 +1970,25 @@ export default function QCEDashboard() {
 
                         <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
-                            className="px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-foreground rounded-md hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                            className="px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
                             onClick={() => toggleScheduledExport(scheduledExport.id, !scheduledExport.enabled)}
                           >
                             {scheduledExport.enabled ? "禁用" : "启用"}
                           </button>
                           <button
-                            className="px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-foreground rounded-md hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                            className="px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
                             onClick={() => triggerScheduledExport(scheduledExport.id)}
                           >
                             执行
                           </button>
                           <button
-                            className="px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-foreground rounded-md hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                            className="px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
                             onClick={() => handleOpenHistoryModal(scheduledExport.id, scheduledExport.name)}
                           >
                             历史
                           </button>
                           <button
-                            className="p-1 text-muted-foreground/30 hover:text-red-500 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                            className="p-1 text-muted-foreground/30 hover:text-red-500 rounded-full hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
                             onClick={() => {
                               showDeleteConfirmationToast(`删除定时任务「${scheduledExport.name}」？`, "此操作不可撤销", async () => {
                                 const success = await deleteScheduledExport(scheduledExport.id)
@@ -2026,7 +2020,7 @@ export default function QCEDashboard() {
                 <div className="flex items-center gap-0.5 px-1">
                   <button
                     onClick={() => setHistorySubTab('records')}
-                    className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
+                    className={`px-2.5 py-1 rounded-full text-[12px] transition-colors ${
                       historySubTab === 'records'
                         ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium'
                         : 'text-muted-foreground/60 hover:text-muted-foreground'
@@ -2040,7 +2034,7 @@ export default function QCEDashboard() {
                       // gallerySearchActive 触发首次加载；这里只切 sub tab，避免重复打后端。
                       setHistorySubTab('gallery')
                     }}
-                    className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
+                    className={`px-2.5 py-1 rounded-full text-[12px] transition-colors ${
                       historySubTab === 'gallery'
                         ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium'
                         : 'text-muted-foreground/60 hover:text-muted-foreground'
@@ -2067,7 +2061,7 @@ export default function QCEDashboard() {
                               <button
                                 key={tab.id}
                                 onClick={() => setHistoryFilter(tab.id as 'all' | 'group' | 'friend')}
-                                className={`px-2 py-0.5 rounded-md text-[11px] transition-colors ${
+                                className={`px-2 py-0.5 rounded-full text-[11px] transition-colors ${
                                   isActive 
                                     ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium' 
                                     : 'text-muted-foreground/50 hover:text-muted-foreground'
@@ -2091,7 +2085,7 @@ export default function QCEDashboard() {
                               <button
                                 key={tab.id}
                                 onClick={() => setHistoryFormatFilter(tab.id as 'all' | 'html' | 'json' | 'zip' | 'jsonl')}
-                                className={`px-2 py-0.5 rounded-md text-[11px] transition-colors ${
+                                className={`px-2 py-0.5 rounded-full text-[11px] transition-colors ${
                                   isActive 
                                     ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium' 
                                     : 'text-muted-foreground/50 hover:text-muted-foreground'
@@ -2176,7 +2170,7 @@ export default function QCEDashboard() {
                                   </span>
                                 </div>
                                 <button
-                                  className="p-1 ml-1 rounded-md text-muted-foreground/20 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 opacity-0 group-hover:opacity-100 transition-all"
+                                  className="p-1 ml-1 rounded-full text-muted-foreground/20 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 opacity-0 group-hover:opacity-100 transition-all"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     showDeleteConfirmationToast(`删除这条记录？`, file.displayName || file.sessionName || file.chatId, async () => {
@@ -2217,7 +2211,7 @@ export default function QCEDashboard() {
                               // 自动重新加载，避免和 effect 各打一次。
                               setGalleryType(tab.id as typeof galleryType)
                             }}
-                            className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
+                            className={`px-2.5 py-1 rounded-full text-[12px] transition-colors ${
                               isActive 
                                 ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium' 
                                 : 'text-muted-foreground/60 hover:text-muted-foreground'
@@ -2242,7 +2236,7 @@ export default function QCEDashboard() {
                           value={gallerySearchInput}
                           onChange={(e) => setGallerySearchInput(e.target.value)}
                           placeholder="按文件名搜索..."
-                          className="w-full pl-8 pr-8 py-1.5 text-[12px] rounded-md bg-black/[0.02] dark:bg-white/[0.02] border border-transparent focus:border-black/[0.08] dark:focus:border-white/[0.08] focus:bg-black/[0.03] dark:focus:bg-white/[0.03] outline-none transition-colors"
+                          className="w-full pl-8 pr-8 py-1.5 text-[12px] rounded-full bg-black/[0.02] dark:bg-white/[0.02] border border-transparent focus:border-black/[0.08] dark:focus:border-white/[0.08] focus:bg-black/[0.03] dark:focus:bg-white/[0.03] outline-none transition-colors"
                         />
                         {gallerySearchInput && (
                           <button
@@ -2316,7 +2310,7 @@ export default function QCEDashboard() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 text-[12px] rounded-md"
+                          className="h-7 text-[12px] rounded-full"
                           onClick={() => {
                             const nextPage = galleryPage + 1
                             setGalleryPage(nextPage)
@@ -2496,7 +2490,7 @@ export default function QCEDashboard() {
                         <button
                           key={tab.id}
                           onClick={() => setStickerFilter(tab.id as typeof stickerFilter)}
-                          className={`px-2.5 py-1 rounded-md text-[12px] transition-colors ${
+                          className={`px-2.5 py-1 rounded-full text-[12px] transition-colors ${
                             isActive 
                               ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium' 
                               : 'text-muted-foreground/60 hover:text-muted-foreground'
@@ -2821,7 +2815,6 @@ export default function QCEDashboard() {
                           link.click()
                         }}
                       >
-                        <Download className="w-4 h-4 mr-1.5" />
                         下载
                       </Button>
                       <button
@@ -2885,7 +2878,6 @@ export default function QCEDashboard() {
                           link.click()
                         }}
                       >
-                        <Download className="w-4 h-4 mr-2" />
                         下载文件
                       </Button>
                       
@@ -3170,7 +3162,6 @@ export default function QCEDashboard() {
                     }
                   }}
                 >
-                  <FolderOpen className="w-4 h-4 mr-2" />
                   {helpFilePath ? '打开文件位置' : '打开导出目录'}
                 </Button>
                 <Button
@@ -3274,7 +3265,6 @@ export default function QCEDashboard() {
                     }
                   }}
                 >
-                  <FolderOpen className="w-4 h-4 mr-2" />
                   {helpFilePath ? '打开文件位置' : '打开导出目录'}
                 </Button>
                 <Button

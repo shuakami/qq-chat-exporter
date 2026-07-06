@@ -128,18 +128,16 @@ export function SettingsPanel() {
                 size="sm"
                 onClick={handleSave}
                 disabled={isSaving}
-                className="h-7 text-[12px] rounded-md px-3"
+                className="h-7 text-[12px] rounded-full px-3"
               >
-                <Save className="w-3.5 h-3.5 mr-1.5" />
                 {isSaving ? "保存中..." : "保存更改"}
               </Button>
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={handleReset}
-                className="h-7 text-[12px] rounded-md px-2.5 text-muted-foreground"
+                className="h-7 text-[12px] rounded-full px-2.5 text-muted-foreground"
               >
-                <RotateCcw className="w-3.5 h-3.5 mr-1" />
                 重置
               </Button>
             </div>

@@ -725,7 +725,7 @@ export const Toast = React.memo(({
                   event.stopPropagation()
                   onRemove(toast.id)
                 }}
-                className={`px-3 py-1.5 bg-transparent ${theme.dismissButtonHover} ${theme.textSecondary} text-[12px] font-medium rounded-md transition-all active:scale-95`}
+                className={`px-3 py-1.5 bg-transparent ${theme.dismissButtonHover} ${theme.textSecondary} text-[12px] font-medium rounded-full transition-all active:scale-95`}
               >
                 关闭
               </button>
@@ -742,7 +742,7 @@ export const Toast = React.memo(({
                       event.stopPropagation()
                       action.onClick()
                     }}
-                    className={`px-3 py-1.5 ${actionClassName} text-[12px] font-medium rounded-md transition-all active:scale-95 shadow-sm`}
+                    className={`px-3 py-1.5 ${actionClassName} text-[12px] font-medium rounded-full transition-all active:scale-95 shadow-sm`}
                   >
                     {action.label}
                   </button>
