@@ -317,7 +317,7 @@ export function TaskWizard({
   // 只有 mode 与外层匹配时才展开，确认按钮的写入逻辑见 confirmMemberSelection。
   const renderMemberSelectorPanel = (mode: 'exclude' | 'include') => (
     <div className={`overflow-hidden transition-all duration-300 ease-in-out ${memberSelectorMode === mode ? "max-h-[350px] opacity-100" : "max-h-0 opacity-0"}`}>
-      <div className="border border-black/[0.06] dark:border-white/[0.06] rounded-xl p-3 space-y-2 bg-muted/50">
+      <div className="rounded-xl p-3 space-y-2 bg-muted/50">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
           <Input
@@ -340,7 +340,7 @@ export function TaskWizard({
             </Button>
           )}
         </div>
-        <div className="max-h-[180px] overflow-y-auto border border-black/[0.06] dark:border-white/[0.06] rounded-lg bg-card">
+        <div className="max-h-[180px] overflow-y-auto rounded-lg bg-card">
           {membersLoading ? (
             <div className="flex items-center justify-center h-20">
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/60" />
@@ -621,7 +621,7 @@ export function TaskWizard({
                 placeholder="输入要导出的QQ号"
                 value={manualQQNumber}
                 onChange={(e) => setManualQQNumber(e.target.value.replace(/\D/g, ''))}
-                className="rounded-full font-mono h-9"
+                className="rounded-full h-9"
               />
             </div>
             <div className="space-y-1.5">
@@ -658,7 +658,7 @@ export function TaskWizard({
                   setManualGroupCode(e.target.value.replace(/\D/g, ''))
                   setManualGroupError(null)
                 }}
-                className="rounded-full font-mono h-9"
+                className="rounded-full h-9"
               />
             </div>
             <div className="space-y-1.5">
@@ -721,7 +721,7 @@ export function TaskWizard({
         {/* 列表 */}
         <div
           ref={listRef}
-          className="max-h-96 overflow-y-auto space-y-1 border border-black/[0.06] dark:border-white/[0.06] rounded-2xl p-2 bg-card/70"
+          className="max-h-96 overflow-y-auto space-y-1 rounded-2xl p-2 bg-card/70"
           onScroll={handleScroll}
         >
           {s.loading && displayTargets.length === 0 && (
@@ -864,7 +864,7 @@ export function TaskWizard({
     return (
       <div className="space-y-6">
         {selectedTarget && (
-          <div className="p-4 rounded-2xl border border-black/[0.06] dark:border-white/[0.06] bg-card/70">
+          <div className="p-4 rounded-2xl bg-card/70">
             <div className="flex items-start gap-3">
               <CheckCircle className="w-5 h-5 text-blue-600 dark:text-blue-500 mt-0.5" />
               <div className="flex-1">
@@ -1012,7 +1012,7 @@ export function TaskWizard({
                 placeholder="年/月/日 --:--"
                 value={form.startTime}
                 onChange={(e) => setForm((p) => ({ ...p, startTime: e.target.value }))}
-                className="font-mono rounded-xl"
+                className="rounded-xl"
               />
             </div>
             <div className="space-y-2">
@@ -1023,7 +1023,7 @@ export function TaskWizard({
                 placeholder="年/月/日 --:--"
                 value={form.endTime}
                 onChange={(e) => setForm((p) => ({ ...p, endTime: e.target.value }))}
-                className="font-mono rounded-xl"
+                className="rounded-xl"
               />
             </div>
           </div>
@@ -1129,7 +1129,7 @@ export function TaskWizard({
               placeholder="留空使用默认路径，或输入自定义路径如 D:\exports"
               value={form.outputDir || ""}
               onChange={(e) => setForm((p) => ({ ...p, outputDir: e.target.value }))}
-              className="rounded-xl font-mono text-sm"
+              className="rounded-xl text-sm"
             />
             <p className="text-xs text-muted-foreground">
               默认保存到用户目录下的 .qq-chat-exporter/exports 文件夹

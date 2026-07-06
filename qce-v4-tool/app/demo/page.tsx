@@ -357,7 +357,7 @@ export default function DemoPage() {
                   </Label>
                   <Input
                     placeholder={chatType === 'manual-friend' ? '输入要导出的QQ号' : '输入要导出的群号'}
-                    className="rounded-full font-mono h-9"
+                    className="rounded-full h-9"
                   />
                 </div>
                 <div className="space-y-1.5">

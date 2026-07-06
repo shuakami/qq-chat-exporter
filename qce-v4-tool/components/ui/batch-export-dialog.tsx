@@ -255,7 +255,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
             </div>
             
             <div className="flex-1 overflow-hidden">
-              <ScrollArea className="h-full rounded-2xl border border-black/[0.06] dark:border-white/[0.06] p-2 bg-card/70">
+              <ScrollArea className="h-full rounded-2xl p-2 bg-card/70">
                 <div className="space-y-1">
                   {items.map((item, idx) => (
                     <div 
@@ -388,11 +388,11 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                   <div className="grid grid-cols-2 gap-4 mt-4">
                     <div className="space-y-2">
                       <Label htmlFor="batch-start-date">开始时间</Label>
-                      <Input id="batch-start-date" type="datetime-local" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} disabled={isExporting} className="font-mono rounded-xl" />
+                      <Input id="batch-start-date" type="datetime-local" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} disabled={isExporting} className="rounded-xl" />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="batch-end-date">结束时间</Label>
-                      <Input id="batch-end-date" type="datetime-local" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} disabled={isExporting} className="font-mono rounded-xl" />
+                      <Input id="batch-end-date" type="datetime-local" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} disabled={isExporting} className="rounded-xl" />
                     </div>
                     {dateError && <div className="col-span-2 text-sm text-red-600 dark:text-red-400">{dateError}</div>}
                   </div>
@@ -411,7 +411,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                 <div className="space-y-2">
                   <Label htmlFor="batch-output-dir" className="text-sm">导出路径（可选）</Label>
                   <div className="flex gap-2">
-                    <Input id="batch-output-dir" placeholder="留空使用默认路径，或输入自定义路径如 D:\exports" value={outputDir} onChange={(e) => setOutputDir(e.target.value)} disabled={isExporting} className="rounded-xl font-mono text-sm flex-1" />
+                    <Input id="batch-output-dir" placeholder="留空使用默认路径，或输入自定义路径如 D:\exports" value={outputDir} onChange={(e) => setOutputDir(e.target.value)} disabled={isExporting} className="rounded-xl text-sm flex-1" />
                     <Button variant="outline" size="icon" disabled={isExporting} className="rounded-xl shrink-0" title="选择文件夹"><FolderOpen className="w-4 h-4" /></Button>
                   </div>
                   <p className="text-xs text-muted-foreground">默认保存到用户目录下的 .qq-chat-exporter/exports 文件夹</p>
