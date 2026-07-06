@@ -253,10 +253,10 @@ export function SessionList({
       <div
         key={`${item.type}_${item.id}`}
         className={[
-          "group flex items-center gap-3 py-3 transition-colors text-sm",
+          "group flex items-center gap-3 px-3 py-3 rounded-xl transition-colors text-sm",
           batchMode
             ? isSelected
-              ? "bg-black/[0.045] ring-1 ring-black/[0.06] dark:bg-white/[0.075] dark:ring-white/[0.08] cursor-pointer"
+              ? "bg-black/[0.045] dark:bg-white/[0.075] cursor-pointer"
               : "hover:bg-black/[0.03] dark:hover:bg-white/[0.03] cursor-pointer"
             : "hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
         ].join(" ")}
