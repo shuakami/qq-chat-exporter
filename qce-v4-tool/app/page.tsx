@@ -25,6 +25,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu"
+import {
   Download,
   RefreshCw,
   X,
@@ -1277,43 +1283,45 @@ export default function QCEDashboard() {
               {/* Sidebar footer */}
               <div className="flex-shrink-0 px-2 pb-2 space-y-1">
                 <div className="flex items-center justify-between px-2 py-1">
-                  <div className="relative">
-                    <button
-                      type="button"
-                      aria-label="Help"
-                      onClick={(e) => {
-                        const menu = e.currentTarget.nextElementSibling as HTMLElement
-                        if (menu) menu.classList.toggle('hidden')
-                      }}
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-muted-foreground/60 hover:text-muted-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 12.5a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM9.5 8.4c-.5.34-.75.6-.75 1.1a.75.75 0 0 1-1.5 0c0-1.15.75-1.72 1.27-2.07.4-.27.63-.44.63-.83 0-.55-.45-1-.98-1-.39 0-.73.24-.89.58a.75.75 0 1 1-1.36-.64A2.48 2.48 0 0 1 8.17 4c1.37 0 2.48 1.1 2.48 2.5 0 1.07-.7 1.55-1.15 1.9Z"/>
-                      </svg>
-                    </button>
-                    <div className="hidden absolute left-0 bottom-full mb-1.5 p-1.5 w-44 bg-white dark:bg-neutral-900 rounded-xl border border-black/[0.06] dark:border-white/[0.08] shadow-xl z-50">
-                      <a
-                        href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] rounded-lg transition-colors"
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="Help"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-transparent hover:bg-accent transition-colors"
                       >
-                        <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-                        使用文档
-                      </a>
-                      <a
-                        href="https://github.com/shuakami/qq-chat-exporter"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] rounded-lg transition-colors"
-                      >
-                        <svg className="w-3.5 h-3.5 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="text-muted-foreground">
+                          <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 12.5a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM9.5 8.4c-.5.34-.75.6-.75 1.1a.75.75 0 0 1-1.5 0c0-1.15.75-1.72 1.27-2.07.4-.27.63-.44.63-.83 0-.55-.45-1-.98-1-.39 0-.73.24-.89.58a.75.75 0 1 1-1.36-.64A2.48 2.48 0 0 1 8.17 4c1.37 0 2.48 1.1 2.48 2.5 0 1.07-.7 1.55-1.15 1.9Z"/>
                         </svg>
-                        GitHub {githubStars !== null ? (githubStars >= 1000 ? `${(githubStars / 1000).toFixed(1)}k` : githubStars) : ''}
-                      </a>
-                    </div>
-                  </div>
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="top" align="start" className="w-44 rounded-xl">
+                      <DropdownMenuItem asChild>
+                        <a
+                          href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+                          使用文档
+                        </a>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <a
+                          href="https://github.com/shuakami/qq-chat-exporter"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2"
+                        >
+                          <svg className="w-3.5 h-3.5 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                          </svg>
+                          GitHub {githubStars !== null ? (githubStars >= 1000 ? `${(githubStars / 1000).toFixed(1)}k` : githubStars) : ''}
+                        </a>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <ThemeToggle />
                 </div>
               </div>
@@ -1365,68 +1373,43 @@ export default function QCEDashboard() {
             )}
             {activeTab === "tasks" && (
               <>
-                <div className="relative">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 text-[13px] rounded-full px-2"
-                    onClick={() => setShowExportHelpMenu(!showExportHelpMenu)}
-                  >
-                    <HelpCircle className="w-4 h-4" />
-                  </Button>
-                  <AnimatePresence>
-                    {showExportHelpMenu && (
-                      <>
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          className="fixed inset-0 z-40"
-                          onClick={() => setShowExportHelpMenu(false)}
-                        />
-                        <motion.div
-                          initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                          transition={{ duration: 0.12 }}
-                          className="absolute right-0 top-full mt-1 w-56 bg-card rounded-lg border border-black/[0.06] dark:border-white/[0.06] shadow-lg z-50 overflow-hidden"
-                        >
-                          <div className="p-1">
-                            <button
-                              className="w-full px-3 py-2 text-left text-[13px] rounded-lg hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
-                              onClick={() => { setShowExportHelpMenu(false); setShowHtmlHelp(true); }}
-                            >
-                              <div className="font-medium text-foreground">HTML 导出</div>
-                              <div className="text-[11px] text-muted-foreground/60">可视化聊天记录</div>
-                            </button>
-                            <button
-                              className="w-full px-3 py-2 text-left text-[13px] rounded-lg hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
-                              onClick={() => { setShowExportHelpMenu(false); setShowJsonHelp(true); }}
-                            >
-                              <div className="font-medium text-foreground">JSON 导出</div>
-                              <div className="text-[11px] text-muted-foreground/60">结构化数据格式</div>
-                            </button>
-                            <div className="my-0.5 border-t border-black/[0.04] dark:border-white/[0.04]" />
-                            <button
-                              className="w-full px-3 py-2 text-left text-[13px] rounded-lg hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
-                              onClick={() => { setShowExportHelpMenu(false); setShowStreamingZipHelp(true); }}
-                            >
-                              <div className="font-medium text-foreground">流式 ZIP</div>
-                              <div className="text-[11px] text-muted-foreground/60">大规模 HTML 分块打包</div>
-                            </button>
-                            <button
-                              className="w-full px-3 py-2 text-left text-[13px] rounded-lg hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
-                              onClick={() => { setShowExportHelpMenu(false); setShowJsonlHelp(true); }}
-                            >
-                              <div className="font-medium text-foreground">JSONL 分块</div>
-                              <div className="text-[11px] text-muted-foreground/60">大规模数据处理</div>
-                            </button>
-                          </div>
-                        </motion.div>
-                      </>
-                    )}
-                  </AnimatePresence>
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 text-[13px] rounded-full px-2"
+                    >
+                      <HelpCircle className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 rounded-xl">
+                    <DropdownMenuItem onClick={() => setShowHtmlHelp(true)}>
+                      <div>
+                        <div className="font-medium text-foreground">HTML 导出</div>
+                        <div className="text-[11px] text-muted-foreground/60">可视化聊天记录</div>
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowJsonHelp(true)}>
+                      <div>
+                        <div className="font-medium text-foreground">JSON 导出</div>
+                        <div className="text-[11px] text-muted-foreground/60">结构化数据格式</div>
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowStreamingZipHelp(true)}>
+                      <div>
+                        <div className="font-medium text-foreground">流式 ZIP</div>
+                        <div className="text-[11px] text-muted-foreground/60">大规模 HTML 分块打包</div>
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowJsonlHelp(true)}>
+                      <div>
+                        <div className="font-medium text-foreground">JSONL 分块</div>
+                        <div className="text-[11px] text-muted-foreground/60">大规模数据处理</div>
+                      </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button size="sm" variant="ghost" className="h-8 text-[13px] rounded-full px-2" onClick={handleLoadTasks} disabled={isLoading}>
                   <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                 </Button>
@@ -2824,7 +2807,7 @@ export default function QCEDashboard() {
                   <div className="flex items-center justify-between px-6 py-4">
                     <div className="flex items-center gap-3">
                       <span className="font-medium text-foreground">{selectedFile.sessionName}</span>
-                      <Badge variant="secondary" className="text-xs rounded-md">HTML</Badge>
+                      <span className="text-xs text-muted-foreground">HTML</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
@@ -2932,10 +2915,10 @@ export default function QCEDashboard() {
                     </div>
                   </div>
                   
-                  <div className="px-6 py-4 border-t border-border bg-muted">
+                  <div className="px-6 py-4">
                     <Button
                       variant="ghost"
-                      className="w-full"
+                      className="w-full rounded-full"
                       onClick={() => setIsFilePathModalOpen(false)}
                     >
                       关闭
