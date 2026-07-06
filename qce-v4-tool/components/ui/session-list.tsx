@@ -366,7 +366,7 @@ export function SessionList({
                     <circle cx="13.5" cy="1.5" r="1.5"/>
                   </svg>
                 </button>
-                <div className="hidden absolute right-0 top-full mt-1 p-1.5 w-40 bg-card rounded-xl border border-black/[0.06] dark:border-white/[0.06] shadow-xl z-50" data-session-dropdown>
+                <div className="hidden absolute right-0 top-full mt-1 p-1.5 w-40 bg-card rounded-xl shadow-xl z-50" data-session-dropdown>
                   <button
                     className="w-full px-3 py-2 text-left text-[13px] text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] rounded-lg transition-colors"
                     onClick={(e) => {
@@ -553,7 +553,7 @@ export function SessionList({
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in duration-300"
           style={{ animationTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)' }}
         >
-          <div className="flex items-center gap-1 rounded-full bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-lg shadow-black/[0.08] border border-black/[0.06] dark:border-white/[0.08] px-2 py-1.5">
+          <div className="flex items-center gap-1 rounded-full bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-lg shadow-black/[0.08]  px-2 py-1.5">
             {selectedItems.size > 0 && (
               <span className="text-[13px] font-medium text-foreground px-3 tabular-nums">
                 {selectedItems.size} selected

@@ -1161,7 +1161,7 @@ export default function QCEDashboard() {
     settings: "设置",
     about: "关于",
   }
-  const onboardingPanelClass = "relative overflow-hidden rounded-[24px] border border-black/[0.08] bg-background/95 px-5 py-4 text-foreground shadow-[0_24px_80px_rgba(15,23,42,0.22)] backdrop-blur-2xl dark:border-white/[0.08]"
+  const onboardingPanelClass = "relative overflow-hidden rounded-[24px] bg-background/95 px-5 py-4 text-foreground shadow-[0_24px_80px_rgba(15,23,42,0.22)] backdrop-blur-2xl "
   const onboardingPrimaryButtonClass = "w-full rounded-full bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700"
   const onboardingSecondaryButtonClass = "w-full rounded-full px-4 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
 
@@ -1542,18 +1542,18 @@ export default function QCEDashboard() {
 
                 {/* Stats row */}
                 <div className="grid grid-cols-3 gap-4">
-                  <div className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] p-4">
+                  <div className="rounded-xl p-4">
                     <div className="text-sm text-muted-foreground">导出任务</div>
                     <div className="text-2xl font-semibold tracking-tight mt-1">{getTaskStats().total}</div>
                     <div className="text-xs text-muted-foreground/60 mt-1">
                       进行中 {getTaskStats().running} · 完成 {getTaskStats().completed}
                     </div>
                   </div>
-                  <div className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] p-4">
+                  <div className="rounded-xl p-4">
                     <div className="text-sm text-muted-foreground">群组</div>
                     <div className="text-2xl font-semibold tracking-tight mt-1">{groups.length}</div>
                   </div>
-                  <div className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] p-4">
+                  <div className="rounded-xl p-4">
                     <div className="text-sm text-muted-foreground">好友</div>
                     <div className="text-2xl font-semibold tracking-tight mt-1">{friends.length}</div>
                   </div>
@@ -1584,7 +1584,7 @@ export default function QCEDashboard() {
                         查看全部
                       </button>
                     </div>
-                    <div className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] divide-y divide-black/[0.04] dark:divide-white/[0.04] overflow-hidden">
+                    <div className="rounded-xl divide-y divide-black/[0.04] dark:divide-white/[0.04] overflow-hidden">
                       {tasks.slice(0, 5).map((task) => (
                         <div
                           key={task.id}
@@ -1645,7 +1645,7 @@ export default function QCEDashboard() {
                 {isStandalone ? (
                   <div
                     data-testid="sessions-standalone-banner"
-                    className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] bg-card p-6 space-y-4"
+                    className="rounded-xl bg-card p-6 space-y-4"
                   >
                     <div className="flex items-start gap-3">
                       <div className="w-9 h-9 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 flex items-center justify-center flex-shrink-0">
@@ -2152,7 +2152,7 @@ export default function QCEDashboard() {
                                 className="group flex items-center px-3 py-3 rounded-lg hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors cursor-pointer"
                                 onClick={() => handleOpenFilePathModal(file.filePath, file.displayName || file.sessionName || file.chatId, file.fileName, file.size)}
                               >
-                                <Avatar className="w-9 h-9 rounded-full border border-black/[0.04] dark:border-white/[0.04] flex-shrink-0 mr-3">
+                                <Avatar className="w-9 h-9 rounded-full flex-shrink-0 mr-3">
                                   <AvatarImage src={avatarUrl} className="rounded-full" />
                                   <AvatarFallback className="rounded-full bg-black/[0.02] dark:bg-white/[0.04] text-muted-foreground/40">
                                     {file.chatType === 'group' ? <Users className="w-4 h-4" /> : <User className="w-4 h-4" />}
@@ -2430,13 +2430,13 @@ export default function QCEDashboard() {
                             className="max-w-full max-h-[85vh] rounded-lg"
                           />
                         ) : previewResource.type === 'audio' ? (
-                          <div className="p-10 flex flex-col items-center justify-center bg-background/5 backdrop-blur rounded-2xl border border-white/10">
+                          <div className="p-10 flex flex-col items-center justify-center bg-background/5 backdrop-blur rounded-2xl ">
                             <Music className="w-16 h-16 text-white/40 mb-6" />
                             <p className="text-white/70 mb-6 text-center max-w-xs truncate">{previewResource.name}</p>
                             <audio src={previewResource.url} controls autoPlay className="w-80" />
                           </div>
                         ) : (
-                          <div className="p-10 flex flex-col items-center justify-center bg-background/5 backdrop-blur rounded-2xl border border-white/10">
+                          <div className="p-10 flex flex-col items-center justify-center bg-background/5 backdrop-blur rounded-2xl ">
                             <File className="w-16 h-16 text-white/40 mb-6" />
                             <p className="text-white/70 mb-6 text-center max-w-xs truncate">{previewResource.name}</p>
                             <button
@@ -2619,7 +2619,7 @@ export default function QCEDashboard() {
                 </div>
 
                 {/* NapCat Tribute */}
-                <div className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] p-5 flex items-start gap-6">
+                <div className="rounded-xl p-5 flex items-start gap-6">
                   <div className="space-y-3 flex-1">
                     <h2 className="text-base font-medium text-foreground">致谢 NapCat</h2>
                     <p className="text-sm leading-relaxed text-muted-foreground">
@@ -2949,7 +2949,7 @@ export default function QCEDashboard() {
               transition={{ duration: 0.2 }}
               className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-background rounded-2xl shadow-xl z-50 overflow-hidden"
             >
-              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div className="flex items-center justify-between px-6 py-4">
                 <div>
                   <h3 className="font-medium text-foreground">HTML 导出</h3>
                   <p className="text-xs text-muted-foreground">可视化聊天记录</p>
@@ -3023,7 +3023,7 @@ export default function QCEDashboard() {
               transition={{ duration: 0.2 }}
               className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-background rounded-2xl shadow-xl z-50 overflow-hidden"
             >
-              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div className="flex items-center justify-between px-6 py-4">
                 <div>
                   <h3 className="font-medium text-foreground">JSON 导出</h3>
                   <p className="text-xs text-muted-foreground">结构化数据格式</p>
@@ -3066,7 +3066,7 @@ export default function QCEDashboard() {
                   </ul>
                 </div>
 
-                <div className="p-4 rounded-xl bg-muted border border-border">
+                <div className="p-4 rounded-xl bg-muted">
                   <p className="text-xs text-muted-foreground">
                     JSON 文件可以用任何文本编辑器打开查看，推荐使用 VS Code 等支持语法高亮的编辑器。
                   </p>
@@ -3101,7 +3101,7 @@ export default function QCEDashboard() {
               transition={{ duration: 0.2 }}
               className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-background rounded-2xl shadow-xl z-50 overflow-hidden"
             >
-              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div className="flex items-center justify-between px-6 py-4">
                 <div>
                   <h3 className="font-medium text-foreground">JSONL 分块导出</h3>
                   <p className="text-xs text-muted-foreground">适合大规模数据处理</p>
@@ -3151,7 +3151,7 @@ export default function QCEDashboard() {
                   </ul>
                 </div>
 
-                <div className="p-4 rounded-xl bg-muted border border-border">
+                <div className="p-4 rounded-xl bg-muted">
                   <p className="text-xs text-muted-foreground">
                     每个 .jsonl 文件的每一行都是一条独立的 JSON 消息，可以流式读取，不用一次性加载到内存。
                   </p>
@@ -3203,7 +3203,7 @@ export default function QCEDashboard() {
               transition={{ duration: 0.2 }}
               className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-xl bg-background rounded-2xl shadow-xl z-50 overflow-hidden"
             >
-              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div className="flex items-center justify-between px-6 py-4">
                 <div>
                   <h3 className="font-medium text-foreground">流式 HTML ZIP 导出</h3>
                   <p className="text-xs text-muted-foreground">分块 HTML + 资源打包</p>
@@ -3313,7 +3313,7 @@ export default function QCEDashboard() {
                 initial={{ opacity: 0, scale: 0.96, y: 18, filter: "blur(16px)" }}
                 animate={{ opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
                 transition={onboardingTransition}
-                className="fixed left-1/2 top-1/2 z-[101] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[28px] border border-black/[0.08] bg-background/95 p-6 shadow-[0_28px_110px_rgba(15,23,42,0.28)] backdrop-blur-2xl dark:border-white/[0.08]"
+                className="fixed left-1/2 top-1/2 z-[101] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[28px] bg-background/95 p-6 shadow-[0_28px_110px_rgba(15,23,42,0.28)] backdrop-blur-2xl "
               >
                 <h2 className="text-xl font-medium text-foreground mb-2">欢迎使用</h2>
                 <p className="text-muted-foreground text-sm mb-6">

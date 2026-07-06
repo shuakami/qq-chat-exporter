@@ -226,7 +226,7 @@ export default function DemoPage() {
           <p className="text-sm text-muted-foreground">
             修复了 marketFaceElement、picElement、replyElement 等消息类型的渲染。之前这些类型会显示为"空消息"。
           </p>
-          <div className="rounded-2xl bg-card border border-black/[0.04] dark:border-white/[0.04] overflow-hidden">
+          <div className="rounded-2xl bg-card overflow-hidden">
             <div className="px-6 py-4">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
@@ -293,7 +293,7 @@ export default function DemoPage() {
         {/* Section 3: Export Dialog Header */}
         <section className="space-y-4">
           <h2 className="text-lg font-semibold">3. 导出对话框头部 (无边框/背景)</h2>
-          <div className="rounded-2xl bg-card border border-black/[0.04] dark:border-white/[0.04] overflow-hidden">
+          <div className="rounded-2xl bg-card overflow-hidden">
             <div className="px-6 pt-5 pb-0">
               <h3 className="text-base font-semibold">批量导出聊天记录</h3>
             </div>
@@ -302,7 +302,7 @@ export default function DemoPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl bg-card border border-black/[0.04] dark:border-white/[0.04] overflow-hidden">
+          <div className="rounded-2xl bg-card overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4">
               <div className="flex items-center gap-3">
                 <span className="font-medium text-foreground">Bug 交流群</span>
@@ -412,7 +412,7 @@ export default function DemoPage() {
         {/* Section 6: Preview Modal Header */}
         <section className="space-y-4">
           <h2 className="text-lg font-semibold">6. 预览弹窗头部 (无分割线)</h2>
-          <div className="rounded-2xl bg-card border border-black/[0.04] dark:border-white/[0.04] overflow-hidden">
+          <div className="rounded-2xl bg-card overflow-hidden">
             <div className="px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Avatar className="w-10 h-10 rounded-full">
@@ -437,7 +437,7 @@ export default function DemoPage() {
         {/* Section 7: Task Wizard Header */}
         <section className="space-y-4">
           <h2 className="text-lg font-semibold">7. 创建任务弹窗头部 (无边框/图标)</h2>
-          <div className="rounded-2xl bg-card border border-black/[0.04] dark:border-white/[0.04] overflow-hidden">
+          <div className="rounded-2xl bg-card overflow-hidden">
             <div className="px-6 pt-5 pb-0">
               <h3 className="text-base font-semibold">创建导出任务</h3>
             </div>

@@ -147,7 +147,7 @@ export default function AuthPage() {
             )}
 
             {/* Form Card */}
-            <div className="bg-card rounded-2xl border border-black/[0.05] dark:border-white/[0.06] p-6 shadow-[0_2px_8px_rgba(0,0,0,0.015)]">
+            <div className="bg-card rounded-2xl p-6 shadow-[0_2px_8px_rgba(0,0,0,0.015)]">
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-[13px] font-medium text-foreground mb-2">
@@ -162,7 +162,7 @@ export default function AuthPage() {
                       value={token}
                       onChange={(e) => setToken(e.target.value)}
                       placeholder="粘贴您的访问令牌"
-                      className="w-full pl-10 pr-12 py-3 rounded-xl border border-black/[0.06] dark:border-white/[0.06] bg-black/[0.02] dark:bg-white/[0.03] focus:bg-background focus:border-black/[0.12] dark:focus:border-white/[0.12] focus:outline-none transition-colors text-[14px] text-foreground placeholder:text-muted-foreground/60"
+                      className="w-full pl-10 pr-12 py-3 rounded-xl bg-black/[0.02] dark:bg-white/[0.03] transition-colors text-[14px] text-foreground placeholder:text-muted-foreground/60"
                       autoFocus
                     />
                     <button
@@ -241,7 +241,7 @@ export default function AuthPage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-card rounded-2xl border border-black/[0.05] dark:border-white/[0.06] shadow-[0_2px_8px_rgba(0,0,0,0.015)] z-50 overflow-hidden"
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-card rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.015)] z-50 overflow-hidden"
             >
               {/* Modal Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b border-black/[0.05] dark:border-white/[0.06]">

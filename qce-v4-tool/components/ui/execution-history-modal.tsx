@@ -130,7 +130,7 @@ export function ExecutionHistoryModal({
                   {history.map((item) => (
                     <motion.div
                       key={item.id}
-                      className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] bg-muted/30 overflow-hidden"
+                      className="rounded-xl bg-muted/30 overflow-hidden"
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
                     >

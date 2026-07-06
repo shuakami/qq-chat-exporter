@@ -442,7 +442,7 @@ export function ScheduledExportWizard({
                 {/* 列表 */}
                 <div
                   ref={listRef}
-                  className="max-h-96 overflow-y-auto space-y-1 border border-black/[0.06] dark:border-white/[0.06] rounded-2xl p-2 bg-card/70"
+                  className="max-h-96 overflow-y-auto space-y-1 rounded-2xl p-2 bg-card/70"
                   onScroll={handleScroll}
                 >
                   {(currentChatType === 2 ? groupSearch : friendSearch).loading && getDisplayTargets().length === 0 && (
@@ -556,7 +556,7 @@ export function ScheduledExportWizard({
               </div>
             ) : (
               <div className="flex-1 overflow-hidden">
-                <div className="h-full overflow-y-auto space-y-1 rounded-2xl border border-black/[0.06] dark:border-white/[0.06] p-2 bg-card/70">
+                <div className="h-full overflow-y-auto space-y-1 rounded-2xl p-2 bg-card/70">
                     {selectedTargets.map((target, idx) => (
                       <div 
                         key={`${target.type}_${target.id}`} 

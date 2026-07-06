@@ -76,7 +76,7 @@ export function QqLookupCard({ initialUin = "", onStartExport, onPreview }: QqLo
     }
 
     return (
-        <div className="mt-6 mx-auto max-w-md text-left rounded-xl border border-black/[0.06] dark:border-white/[0.06] bg-card p-4 space-y-3">
+        <div className="mt-6 mx-auto max-w-md text-left rounded-xl bg-card p-4 space-y-3">
             <div>
                 <p className="text-sm font-medium text-foreground">按 QQ 号反查会话</p>
                 <p className="text-xs text-muted-foreground/70 mt-1">

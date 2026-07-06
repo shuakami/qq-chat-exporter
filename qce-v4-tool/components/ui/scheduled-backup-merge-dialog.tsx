@@ -183,7 +183,7 @@ export function ScheduledBackupMergeDialog({
                   </div>
                 </div>
               ) : (
-                <ScrollArea className="h-full rounded-2xl border border-black/[0.06] dark:border-white/[0.06] p-2 bg-card/70">
+                <ScrollArea className="h-full rounded-2xl p-2 bg-card/70">
                   <div className="space-y-3">
                     {scheduledTasks.length > 0 && (
                       <div className="px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
