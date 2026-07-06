@@ -253,7 +253,7 @@ export function SessionList({
       <div
         key={`${item.type}_${item.id}`}
         className={[
-          "group flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-sm",
+          "group flex items-center gap-3 py-3 transition-colors text-sm",
           batchMode
             ? isSelected
               ? "bg-black/[0.045] ring-1 ring-black/[0.06] dark:bg-white/[0.075] dark:ring-white/[0.08] cursor-pointer"
@@ -412,16 +412,16 @@ export function SessionList({
   return (
     <div className="space-y-0">
       {/* Search and Filter Bar */}
-      <div className="flex flex-col sm:flex-row gap-2 px-4 py-2">
+      <div className="flex flex-col sm:flex-row items-center gap-2 py-2">
         {/* Search Input */}
         <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60" />
+          <Search className="absolute left-0 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
           <Input
             ref={searchInputRef}
             placeholder="搜索会话名称、备注或 ID... (按 / 聚焦)"
             value={search}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-            className="pl-8 pr-8 h-10 text-sm rounded-full border-0 bg-transparent shadow-none focus-visible:ring-0"
+            className="pl-6 pr-8 h-10 text-sm border-0 bg-transparent shadow-none focus-visible:ring-0"
           />
           {search && (
             <button
@@ -492,7 +492,7 @@ export function SessionList({
       </div>
 
       {/* Stats */}
-      <div className="flex items-center px-4 pb-3">
+      <div className="flex items-center pb-3">
         <span className="text-sm text-muted-foreground/60">
           {hasActiveFilters ? (
             <>找到 <span className="font-medium text-foreground/80">{totalItems}</span> 个会话</>

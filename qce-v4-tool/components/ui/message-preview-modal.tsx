@@ -18,6 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  ExternalLink,
 } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
@@ -216,30 +217,82 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
         )
         hasContent = true
       } else if (el.textElement?.content) {
-        nodes.push(<span key={`text-${i}`}>{el.textElement.content}</span>)
+        const text = el.textElement.content as string
+        const urlRegex = /(https?:\/\/[^\s<>"']+)/g
+        const parts = text.split(urlRegex)
+        if (parts.length > 1) {
+          const textNodes: React.ReactNode[] = []
+          parts.forEach((part, pi) => {
+            if (urlRegex.test(part) || part.match(/^https?:\/\//)) {
+              textNodes.push(
+                <a key={`link-${i}-${pi}`} href={part} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 text-foreground decoration-dashed underline underline-offset-2 hover:text-blue-600 transition-colors">
+                  <span>{part}</span>
+                  <ExternalLink className="w-3 h-3 shrink-0 opacity-50" />
+                </a>
+              )
+            } else if (part) {
+              textNodes.push(<span key={`t-${i}-${pi}`}>{part}</span>)
+            }
+          })
+          nodes.push(<span key={`text-${i}`}>{textNodes}</span>)
+        } else {
+          nodes.push(<span key={`text-${i}`}>{text}</span>)
+        }
         hasContent = true
       } else if (el.picElement) {
-        const picUrl = el.picElement.sourcePath || el.picElement.thumbPath || ''
+        const picUrl = el.picElement.originImageUrl || el.picElement.sourcePath || el.picElement.thumbPath || ''
+        const w = el.picElement.picWidth || 200
+        const h = el.picElement.picHeight || 200
+        const displayW = Math.min(w, 200)
+        const displayH = Math.round(displayW * (h / w))
         nodes.push(
-          <span key={`pic-${i}`} className="inline-flex items-center gap-1 text-xs text-muted-foreground/70 align-middle">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-            图片
+          <span key={`pic-${i}`} className="inline-block align-middle my-0.5">
+            <img
+              src={picUrl}
+              alt="图片"
+              width={displayW}
+              height={displayH}
+              className="rounded-lg object-cover max-w-[200px] max-h-[150px] bg-muted"
+              loading="lazy"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).insertAdjacentHTML('afterend', '<span class="inline-flex items-center gap-1 text-xs text-muted-foreground/70">[\u56fe\u7247]</span>') }}
+            />
           </span>
         )
         hasContent = true
       } else if (el.marketFaceElement) {
         const faceName = el.marketFaceElement.faceName || '表情'
-        nodes.push(
-          <span key={`mface-${i}`} className="inline-flex items-center gap-0.5 text-sm align-middle">
-            <span className="text-muted-foreground/70">{faceName}</span>
-          </span>
-        )
+        const emojiId = el.marketFaceElement.emojiId || ''
+        const stickerUrl = emojiId ? `https://gxh.vip.qq.com/club/item/parcel/item/${emojiId}/raw300.gif` : ''
+        if (stickerUrl) {
+          nodes.push(
+            <span key={`mface-${i}`} className="inline-block align-middle my-0.5">
+              <img
+                src={stickerUrl}
+                alt={faceName}
+                className="w-16 h-16 object-contain"
+                loading="lazy"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).insertAdjacentHTML('afterend', `<span class="text-muted-foreground/70 text-sm">${faceName}</span>`) }}
+              />
+            </span>
+          )
+        } else {
+          nodes.push(
+            <span key={`mface-${i}`} className="text-muted-foreground/70 text-sm">{faceName}</span>
+          )
+        }
         hasContent = true
       } else if (el.faceElement) {
         const faceId = el.faceElement.faceIndex ?? el.faceElement.faceType ?? ''
-        nodes.push(
-          <span key={`face-${i}`} className="text-muted-foreground/70">[表情{faceId ? ` #${faceId}` : ''}]</span>
-        )
+        const qqFaceUrl = faceId ? `https://res.qlogo.cn/qqface/${faceId}/100` : ''
+        if (qqFaceUrl && faceId) {
+          nodes.push(
+            <img key={`face-${i}`} src={qqFaceUrl} alt={`表情#${faceId}`} className="inline-block w-5 h-5 align-middle" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).outerHTML = `<span class="text-muted-foreground/70">[\u8868\u60c5 #${faceId}]</span>` }} />
+          )
+        } else {
+          nodes.push(
+            <span key={`face-${i}`} className="text-muted-foreground/70">[表情{faceId ? ` #${faceId}` : ''}]</span>
+          )
+        }
         hasContent = true
       } else if (el.pttElement) {
         const duration = el.pttElement.duration ? `${el.pttElement.duration}"` : ''
