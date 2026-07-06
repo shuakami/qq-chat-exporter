@@ -600,7 +600,7 @@ export function TaskWizard({
                 key={tab.key}
                 onClick={tab.onClick}
                 className={[
-                  "flex-1 px-3 py-1.5 text-[13px] font-medium rounded-md transition-all text-center",
+                  "flex-1 px-3 py-1.5 text-[13px] font-medium rounded-full transition-all text-center",
                   tab.active
                     ? "bg-white dark:bg-white/10 text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
                     : "text-muted-foreground hover:text-foreground"
@@ -908,7 +908,6 @@ export function TaskWizard({
                           })
                         }}
                       >
-                        <Eye className="w-3 h-3 mr-1" />
                         预览
                       </Button>
                     )}
@@ -924,7 +923,6 @@ export function TaskWizard({
                       </Button>
                     )}
                     <Button variant="outline" size="sm" className="rounded-full" onClick={handleChangeTarget}>
-                      <RefreshCw className="w-3 h-3 mr-1" />
                       更换
                     </Button>
                   </div>
@@ -1041,9 +1039,7 @@ export function TaskWizard({
                 onClick={() => handleOpenMemberSelector('exclude')}
                 className="text-xs h-7 text-blue-600 hover:text-blue-700"
               >
-                <UserMinus className="w-3 h-3 mr-1" />
                 {memberSelectorMode === 'exclude' ? "收起" : "从群成员选择"}
-                <ChevronDown className={`w-3 h-3 ml-1 transition-transform duration-200 ${memberSelectorMode === 'exclude' ? "rotate-180" : ""}`} />
               </Button>
             )}
           </div>
@@ -1077,9 +1073,7 @@ export function TaskWizard({
                 onClick={() => handleOpenMemberSelector('include')}
                 className="text-xs h-7 text-emerald-600 hover:text-emerald-700"
               >
-                <UserPlus className="w-3 h-3 mr-1" />
                 {memberSelectorMode === 'include' ? "收起" : "从群成员选择"}
-                <ChevronDown className={`w-3 h-3 ml-1 transition-transform duration-200 ${memberSelectorMode === 'include' ? "rotate-180" : ""}`} />
               </Button>
             )}
           </div>
@@ -1314,7 +1308,6 @@ export function TaskWizard({
                     <CheckCircle className="w-12 h-12 mx-auto text-blue-500 mb-3" />
                     <p className="text-sm text-muted-foreground">已选择目标，请在右侧配置导出选项</p>
                     <Button variant="outline" size="sm" onClick={handleChangeTarget} className="mt-2 rounded-full">
-                      <RefreshCw className="w-3 h-3 mr-1" />
                       重新选择
                     </Button>
                   </div>
