@@ -259,7 +259,7 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                     <div className="text-center py-8 text-muted-foreground">暂无相册</div>
                   ) : (
                     albums.map((album) => (
-                      <div key={album.albumId} className="border border-black/[0.06] dark:border-white/[0.06] rounded-lg">
+                      <div key={album.albumId} className="rounded-lg">
                         <div className="flex items-center gap-3 p-3 hover:bg-muted/50">
                           <Checkbox
                             checked={selectedAlbums.has(album.albumId)}
@@ -355,7 +355,7 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                         <button
                           key={folder.folderId}
                           onClick={() => handleEnterFolder(folder)}
-                          className="w-full flex items-center gap-3 p-3 rounded-lg border border-black/[0.06] dark:border-white/[0.06] hover:bg-muted/50 text-left"
+                          className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 text-left"
                         >
                           <FolderOpen className="w-5 h-5 text-yellow-500" />
                           <div className="flex-1 min-w-0">
@@ -368,7 +368,7 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                       {files.map((file) => (
                         <div
                           key={file.fileId}
-                          className="flex items-center gap-3 p-3 rounded-lg border border-black/[0.06] dark:border-white/[0.06] hover:bg-muted/50"
+                          className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50"
                         >
                           <FileText className="w-5 h-5 text-blue-500" />
                           <div className="flex-1 min-w-0">

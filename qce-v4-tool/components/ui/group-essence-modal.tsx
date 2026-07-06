@@ -165,7 +165,7 @@ export function GroupEssenceModal({
                   <select
                     value={exportFormat}
                     onChange={(e) => setExportFormat(e.target.value as 'json' | 'html')}
-                    className="text-sm px-2 py-1 rounded border border-black/[0.06] dark:border-white/[0.06] bg-card text-foreground/80"
+                    className="text-sm px-2 py-1 rounded bg-card text-foreground/80"
                   >
                     <option value="html">HTML</option>
                     <option value="json">JSON</option>
@@ -226,7 +226,7 @@ interface EssenceMessageCardProps {
 function EssenceMessageCard({ message, formatTime, onImageClick }: EssenceMessageCardProps) {
   return (
     <motion.div
-      className="rounded-xl border border-black/[0.06] dark:border-white/[0.06] bg-card overflow-hidden"
+      className="rounded-xl bg-card overflow-hidden"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
     >

@@ -58,7 +58,7 @@ export const DialogContent = React.forwardRef<
               "w-full max-w-lg",
               "bg-card dark:bg-card",
               "rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.08)]",
-              "border border-black/[0.06] dark:border-white/[0.06]",
+              "",
             ],
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",

@@ -126,12 +126,12 @@ export function MergeDialog({
                 <p className="text-xs text-muted-foreground mt-1">请先完成至少2个导出任务</p>
               </div>
             ) : (
-              <ScrollArea className="h-64 rounded-lg border border-black/[0.06] dark:border-white/[0.06] bg-muted/30 p-4">
+              <ScrollArea className="h-64 rounded-lg bg-muted/30 p-4">
                 <div className="space-y-2">
                   {tasks.map(task => (
                     <div 
                       key={task.id}
-                      className="flex items-center gap-3 rounded-lg border border-black/[0.06] dark:border-white/[0.06] bg-card p-3 transition-colors hover:border-blue-200 dark:hover:border-blue-700 hover:bg-blue-50/50 dark:hover:bg-blue-900/20"
+                      className="flex items-center gap-3 rounded-lg bg-card p-3 transition-colors hover:border-blue-200 dark:hover:border-blue-700 hover:bg-blue-50/50 dark:hover:bg-blue-900/20"
                     >
                       <Checkbox 
                         checked={selectedTasks.has(task.id)}
@@ -152,7 +152,7 @@ export function MergeDialog({
             )}
             
             {selectedTasks.size > 0 && (
-              <div className="rounded-lg bg-muted border border-black/[0.06] dark:border-white/[0.06] p-3">
+              <div className="rounded-lg bg-muted p-3">
                 <p className="text-sm font-medium text-foreground">
                   已选择 {selectedTasks.size} 个任务
                 </p>
@@ -164,11 +164,11 @@ export function MergeDialog({
           </div>
 
           {/* 步骤2: 配置合并选项 */}
-          <div className="space-y-4 rounded-lg border border-black/[0.06] dark:border-white/[0.06] bg-muted/50 p-4">
+          <div className="space-y-4 rounded-lg bg-muted/50 p-4">
             <Label className="text-base font-semibold">合并选项</Label>
             
             <div className="space-y-3">
-              <div className="flex items-center justify-between rounded-lg border border-black/[0.06] dark:border-white/[0.06] bg-card p-3">
+              <div className="flex items-center justify-between rounded-lg bg-card p-3">
                 <div>
                   <Label htmlFor="deduplicate" className="font-medium">消息去重</Label>
                   <p className="text-xs text-muted-foreground mt-1">自动移除重复的消息，节约空间</p>
@@ -180,7 +180,7 @@ export function MergeDialog({
                 />
               </div>
               
-              <div className="flex items-center justify-between rounded-lg border border-black/[0.06] dark:border-white/[0.06] bg-card p-3">
+              <div className="flex items-center justify-between rounded-lg bg-card p-3">
                 <div>
                   <Label htmlFor="deleteSource" className="font-medium">删除源文件</Label>
                   <p className="text-xs text-muted-foreground mt-1">合并完成后自动删除原始导出文件</p>
@@ -208,7 +208,7 @@ export function MergeDialog({
 
           {/* 进度显示 */}
           {merging && mergeProgress && (
-            <div className="space-y-3 rounded-lg border border-black/[0.06] dark:border-white/[0.06] bg-muted/50 p-4">
+            <div className="space-y-3 rounded-lg bg-muted/50 p-4">
               <div className="flex justify-between text-sm font-medium">
                 <span>{mergeProgress.phase}</span>
                 <span>{mergeProgress.percentage}%</span>
