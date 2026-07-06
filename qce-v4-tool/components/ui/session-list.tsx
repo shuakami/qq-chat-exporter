@@ -437,7 +437,7 @@ export function SessionList({
         <div className="flex items-center gap-1.5">
           {/* Type Filter */}
           <Select value={type} onValueChange={(v: string) => setType(v as SessionType)}>
-            <SelectTrigger className="w-[120px] h-10 text-sm rounded-full border-0 bg-transparent shadow-none">
+            <SelectTrigger className="w-[120px] h-10 text-sm rounded-full bg-black/[0.04] dark:bg-white/[0.06] shadow-none">
               <SelectValue placeholder="全部类型" />
             </SelectTrigger>
             <SelectContent className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl">
@@ -449,7 +449,7 @@ export function SessionList({
 
           {/* Sort Field */}
           <Select value={sortField} onValueChange={(v: string) => setSortField(v as SortField)}>
-            <SelectTrigger className="w-[120px] h-10 text-sm rounded-full border-0 bg-transparent shadow-none">
+            <SelectTrigger className="w-[120px] h-10 text-sm rounded-full bg-black/[0.04] dark:bg-white/[0.06] shadow-none">
               <SelectValue placeholder="排序" />
             </SelectTrigger>
             <SelectContent className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl">
@@ -466,7 +466,7 @@ export function SessionList({
           <Button
             variant="ghost"
             size="icon"
-            className="h-10 w-10 rounded-full"
+            className="h-10 w-10 rounded-full bg-black/[0.04] dark:bg-white/[0.06]"
             onClick={handleToggleSort}
           >
             {sortOrder === 'asc' ? (
