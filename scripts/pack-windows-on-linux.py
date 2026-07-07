@@ -26,6 +26,28 @@ spec.loader.exec_module(qp)
 
 qp.get_platform_info = lambda: ("Windows", "x64", ".zip")
 
+# GitHub API 可能因速率限制拿不到最新版本，兜底到 v4.18.8（最新稳定版）。
+_orig_get_napcat_latest_version = qp.get_napcat_latest_version
+def get_napcat_latest_version():
+    import urllib.request, json as _json
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/repos/NapNeko/NapCatQQ/releases/latest",
+            headers={"Accept": "application/vnd.github+json"},
+        )
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("TEMP_GITHUB_PAT")
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        with urllib.request.urlopen(req) as resp:
+            version = _json.loads(resp.read())["tag_name"]
+            print(f"[x] Detected NapCat version: {version}")
+            return version
+    except Exception as e:
+        print(f"[!] Failed to get latest version: {e}")
+        print("[!] Using fallback version v4.18.8")
+        return "v4.18.8"
+qp.get_napcat_latest_version = get_napcat_latest_version
+
 _orig_run_command = qp.run_command
 
 def run_command(cmd, cwd=None, shell=False):
