@@ -3,10 +3,13 @@
  */
 
 import { QQChatExporterApiServer } from './ApiServer.js';
+import { RustBridgeServer, RustServerProcess, findRustServerBinary } from './rustBridge.js';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 
 export class QQChatExporterApiLauncher {
     private apiServer: QQChatExporterApiServer | null = null;
+    private rustBridge: RustBridgeServer | null = null;
+    private rustServer: RustServerProcess | null = null;
     private core: NapCatCore;
     private isRunning = false;
 
@@ -17,6 +20,29 @@ export class QQChatExporterApiLauncher {
     async startApiServer(): Promise<void> {
         if (this.isRunning) {
             return;
+        }
+
+        // Rust 版服务端：可执行文件存在（且未显式禁用）时优先启用，
+        // 插件侧只保留 NapCat Core API 桥接。
+        const rustBinary = process.env.QCE_DISABLE_RUST === '1' ? null : findRustServerBinary();
+        if (rustBinary) {
+            try {
+                this.rustBridge = new RustBridgeServer(this.core);
+                await this.rustBridge.start();
+                this.rustServer = new RustServerProcess(rustBinary, (message) =>
+                    this.core.context.logger.log(message)
+                );
+                this.rustServer.start(this.rustBridge.getPort());
+                this.isRunning = true;
+                this.core.context.logger.log(`[QCE] Rust 服务端已启动: ${rustBinary}`);
+                return;
+            } catch (error) {
+                this.core.context.logger.logError('[QCE] Rust 服务端启动失败，回退 TS 服务端:', error);
+                this.rustServer?.stop();
+                this.rustServer = null;
+                await this.rustBridge?.stop();
+                this.rustBridge = null;
+            }
         }
 
         try {
@@ -32,13 +58,23 @@ export class QQChatExporterApiLauncher {
     }
 
     async stopApiServer(): Promise<void> {
-        if (!this.isRunning || !this.apiServer) {
+        if (!this.isRunning) {
             return;
         }
 
         try {
-            await this.apiServer.stop();
-            this.apiServer = null;
+            if (this.rustServer || this.rustBridge) {
+                this.rustServer?.stop();
+                this.rustServer = null;
+                await this.rustBridge?.stop();
+                this.rustBridge = null;
+                this.isRunning = false;
+                return;
+            }
+            if (this.apiServer) {
+                await this.apiServer.stop();
+                this.apiServer = null;
+            }
             this.isRunning = false;
         } catch (error) {
             this.core.context.logger.logError('[QCE] 关闭API服务器失败:', error);
