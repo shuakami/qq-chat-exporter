@@ -61,7 +61,7 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/}"
           [ "$VERSION" = "$GITHUB_REF" ] && VERSION="dev"
           mkdir -p dist-installer
-          cp "src-tauri/target/release/QQChatExporter.exe" \
+          cp "src-tauri/target/release/qce-installer.exe" \
              "dist-installer/QQChatExporter-Installer-${VERSION}.exe"
           ls -lh dist-installer
 
