@@ -29,9 +29,15 @@ pub fn detect_package_kind(state: State<'_, AppState>) -> Result<String, String>
 pub fn kill_stale_runtime() {
     #[cfg(windows)]
     {
-        let _ = util::hidden_command("taskkill")
-            .args(["/IM", "NapCatWinBootMain.exe", "/F", "/T"])
-            .status();
+        // Kill the launcher and its entire process tree (QQ, node, etc.).
+        for image in ["NapCatWinBootMain.exe", "QQ.exe"] {
+            let _ = util::hidden_command("taskkill")
+                .args(["/IM", image, "/F", "/T"])
+                .status();
+        }
+        // Brief pause so Windows releases file handles before we try to
+        // overwrite the files during extraction.
+        std::thread::sleep(std::time::Duration::from_millis(800));
     }
 }
 
