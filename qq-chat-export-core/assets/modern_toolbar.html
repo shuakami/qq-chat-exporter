@@ -1,0 +1,63 @@
+<div class="toolbar">
+        <div class="toolbar-content">
+            <div class="search-container">
+                <button class="search-btn" id="searchBtn">
+                    <i data-lucide="search"></i>
+                </button>
+                <div class="search-input-wrapper" id="searchWrapper">
+                    <input type="text" id="searchInput" class="search-input" placeholder="搜索消息...">
+                    <button class="clear-search" id="clearSearch" style="display: none;">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="toolbar-separator"></div>
+            <div class="toolbar-actions">
+                <div class="filter-container">
+                    <button class="filter-btn" id="filterBtn">
+                        <i data-lucide="user"></i>
+                    </button>
+                    <div class="filter-dropdown" id="filterDropdown">
+                        <div class="filter-search-wrapper">
+                            <input type="text" class="filter-search-input" id="filterSearchInput" placeholder="搜索成员...">
+                        </div>
+                        <div class="filter-options-list" id="filterOptionsList">
+                            <div class="filter-option active" data-value="all">全部成员</div>
+                        </div>
+                        <div class="filter-no-result" id="filterNoResult">未找到匹配的成员</div>
+                    </div>
+                </div>
+                <div class="toolbar-separator"></div>
+                <div class="time-range-container">
+                    <button class="time-range-btn" id="timeRangeBtn">
+                        <i data-lucide="calendar"></i>
+                        <span id="timeRangeLabel">全部时间</span>
+                    </button>
+                    <div class="time-range-dropdown" id="timeRangeDropdown">
+                        <div class="time-range-inputs">
+                            <div class="time-range-input-group">
+                                <label for="startDate">开始日期</label>
+                                <input type="date" id="startDate" class="time-range-input">
+                            </div>
+                            <div class="time-range-input-group">
+                                <label for="endDate">结束日期</label>
+                                <input type="date" id="endDate" class="time-range-input">
+                            </div>
+                        </div>
+                        <div class="time-range-actions">
+                            <button class="apply-btn" id="applyTimeRange">应用</button>
+                            <button class="clear-btn" id="clearTimeRange">清除</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="toolbar-separator"></div>
+                <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank" class="github-btn" title="GitHub">
+                    <i data-lucide="github"></i>
+                </a>
+                <div class="toolbar-separator"></div>
+                <button class="theme-toggle" id="themeToggle" title="切换主题">
+                    <i data-lucide="sun" id="themeIcon"></i>
+                </button>
+            </div>
+        </div>
+    </div>
