@@ -21,6 +21,7 @@ fn base_url(port: u16) -> String {
 
 fn client() -> reqwest::Client {
     reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_millis(800))
         .timeout(std::time::Duration::from_secs(3))
         .user_agent("qce-installer")
         .build()
