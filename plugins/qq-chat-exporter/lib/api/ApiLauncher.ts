@@ -43,6 +43,8 @@ export class QQChatExporterApiLauncher {
                 await this.rustBridge?.stop();
                 this.rustBridge = null;
             }
+        } else if (process.env.QCE_DISABLE_RUST !== '1') {
+            this.core.context.logger.log('[QCE] 未找到 qce-server 可执行文件，使用 TS 服务端');
         }
 
         try {
