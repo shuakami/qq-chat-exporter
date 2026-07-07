@@ -1,0 +1,68 @@
+[package]
+name = "qce-server"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "QQ Chat Exporter — Rust server (HTTP API + WebSocket progress + NapCat Core API bridge client), serving the existing qce-v4-tool webui."
+license = "MIT"
+repository = "https://github.com/shuakami/qq-chat-exporter"
+
+[dependencies]
+qce-exporter = { path = "../rust-exporter" }
+
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["ws", "multipart"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
+hyper = "1"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+
+uuid = { version = "1", features = ["v4"] }
+regex = "1"
+async-trait = "0.1"
+md-5 = "0.10"
+getrandom = "0.2"
+base64 = "0.22"
+percent-encoding = "2"
+mime_guess = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+walkdir = "2"
+sysinfo = "0.32"
+local-ip-address = "0.6"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+match_same_arms = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+doc_markdown = "allow"
+unused_self = "allow"
+too_many_lines = "allow"
+items_after_statements = "allow"
+struct_excessive_bools = "allow"
+single_match_else = "allow"
+similar_names = "allow"
+needless_continue = "allow"
+needless_pass_by_value = "allow"
+format_push_string = "allow"
+assigning_clones = "allow"
+needless_raw_string_hashes = "allow"
