@@ -249,13 +249,13 @@ jobs:
           # 判断是否为预发布版本
           PRERELEASE_NOTE=""
           if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"rc"* ]]; then
-            PRERELEASE_NOTE="> **${VERSION} 为 Beta 版本**，包含大量新功能但可能存在未知问题。如追求稳定，请使用 [最新稳定版](https://github.com/shuakami/qq-chat-exporter/releases?q=NOT+beta+NOT+alpha+NOT+rc&expanded=true)"
+            PRERELEASE_NOTE="> [!WARNING]
+          > **${VERSION} 为 Beta 测试版本**
+          > 本版本包含大量新特性，但可能存在未知问题。如需在生产环境中使用或追求极致稳定，推荐下载 [最新稳定版](https://github.com/shuakami/qq-chat-exporter/releases?q=NOT+beta+NOT+alpha+NOT+rc&expanded=true)。"
           fi
           
           # 写入发布说明
           cat > RELEASE_NOTES.md << EOF
-          集成了 NapCat 和 QQ 聊天记录导出插件的开箱即用完整包。所有依赖已安装完毕，配置文件已预配置好，解压后直接运行即可使用。
-
           ${PRERELEASE_NOTE}
 
           ### ${VERSION} 更新内容
@@ -266,62 +266,62 @@ jobs:
 
           | 包类型 | 平台 | 说明 | 文件 |
           |--------|------|------|------|
-          | **图形安装器（推荐）** | Windows 7+ x64 | 一键安装 + 自动登录 + 自动配置，已内嵌完整包 | \`QQChatExporter-Installer-${VERSION}.exe\` |
-          | **Shell 模式** | Windows x64 | 独立无头 QQ，适合服务器/自动化 | \`NapCat-QCE-Windows-x64-${VERSION}.zip\` |
-          | **Shell 模式** | Linux x64 | 独立无头 QQ，适合服务器/Docker | \`NapCat-QCE-Linux-x64-${VERSION}.tar.gz\` |
-          | **Framework 模式** | Windows | QQNT 插件，与桌面 QQ 共存 | \`NapCat-Framework-QCE-${VERSION}.zip\` |
-          | **NapCat 插件商店包** | 跨平台 | 已有 NapCat 环境，从插件商店一键安装 | \`napcat-plugin-qce.zip\` |
+          | **一键安装包（推荐）** | Windows 7+ x64 | 内嵌完整运行环境，支持一键安装、自动登录与配置 | \`QQChatExporter-Installer-${VERSION}.exe\` |
+          | **Shell 模式** | Windows x64 | 独立无头 (Headless) 运行环境，适合服务器或自动化部署 | \`NapCat-QCE-Windows-x64-${VERSION}.zip\` |
+          | **Shell 模式** | Linux x64 | 独立无头 (Headless) 运行环境，适合服务器或 Docker 部署 | \`NapCat-QCE-Linux-x64-${VERSION}.tar.gz\` |
+          | **Framework 模式** | Windows | 作为 QQNT 插件运行，与桌面端 QQ 共存 | \`NapCat-Framework-QCE-${VERSION}.zip\` |
+          | **NapCat 插件商店包** | 跨平台 | 供已有 NapCat 环境的用户直接在插件商店安装 | \`napcat-plugin-qce.zip\` |
 
-          > **如何选择？**
-          > - **图形安装器**：Windows 用户首选。双击运行，自动完成安装、登录（快速登录/扫码）和配置，装完直接进 WebUI
-          > - **Shell 模式**：独立运行，需要单独登录 QQ，适合服务器部署和自动化备份
-          > - **Framework 模式**：作为 QQNT 插件运行，与正在使用的 QQ 共享登录，适合 Windows 桌面用户
-          > - **NapCat 插件商店包**：如果你已经在用 NapCat（自己装好的、Docker 跑的、宿主机部署的都行），直接在 NapCat WebUI 插件商店里搜 `qq-chat-exporter` 安装即可，无需手动下载这个 zip
+          > **版本选择指南**
+          > - **一键安装包**：Windows 用户的首选。双击即可自动完成环境配置与登录（支持快捷登录或扫码），安装完毕后将自动唤起 WebUI 面板。
+          > - **Shell 模式**：独立运行版本，需单独进行 QQ 登录，适用于服务器环境部署及自动化备份需求。
+          > - **Framework 模式**：作为 QQNT 插件运行，与当前使用的桌面端 QQ 共享登录状态，适合日常使用 Windows 桌面版 QQ 的用户。
+          > - **NapCat 插件商店包**：适用于已部署 NapCat 环境（含本地安装、Docker 或宿主机部署）的用户。请直接在 NapCat WebUI 的插件商店中搜索安装，**无需手动下载此压缩包**。
 
           <details>
           <summary>Shell 模式使用方法</summary>
 
-          **完整模式**（需要登录QQ，支持导出新记录）：
-          - **Windows**：解压后运行 \`launcher-user.bat\`
-          - **Linux**：运行 \`./launcher-user.sh\`
+          **完整模式**（需登录 QQ，支持导出新增聊天记录）：
+          - **Windows**：解压后双击运行 \`launcher-user.bat\`
+          - **Linux**：终端运行 \`./launcher-user.sh\`
 
-          **独立模式**（无需登录QQ，仅浏览已导出文件）：
-          - **Windows**：运行 \`start-standalone.bat\`
-          - **Linux**：运行 \`./start-standalone.sh\`
+          **独立模式**（无需登录 QQ，仅用于浏览已导出的记录文件）：
+          - **Windows**：双击运行 \`start-standalone.bat\`
+          - **Linux**：终端运行 \`./start-standalone.sh\`
 
-          启动后浏览器访问 \`http://localhost:40653/qce-v4-tool\`，完整模式需输入控制台显示的访问令牌。
+          启动后，请在浏览器中访问 \`http://localhost:40653/qce-v4-tool\`。若使用完整模式，需输入控制台输出的访问令牌 (Access Token) 进行验证。
 
           </details>
 
           <details>
           <summary>Framework 模式使用方法</summary>
 
-          **方式 A：直接运行 \`napiLoader.bat\`（推荐）**
+          **方式 A：通过 \`napiLoader.bat\` 运行（推荐）**
 
-          这条路不要求先安装 LiteLoaderQQNT。
+          此方式独立运行，无需预先安装 LiteLoaderQQNT。
 
-          1. 解压下载的 \`NapCat-Framework-QCE-${VERSION}.zip\`
-          2. 如果当前 QQ 正在运行，先完全退出 QQ
-          3. 运行 \`napiLoader.bat\`
-          4. 如果 QQ 弹出登录页，按平时的方式登录 QQ
-          5. 访问 \`http://localhost:40653/qce-v4-tool\`
+          1. 解压下载的 \`NapCat-Framework-QCE-${VERSION}.zip\` 文件
+          2. 确保当前已彻底退出正在运行的 QQ 客户端
+          3. 双击运行 \`napiLoader.bat\` 脚本
+          4. 若弹出 QQ 登录界面，请按常规方式完成登录
+          5. 在浏览器中访问 \`http://localhost:40653/qce-v4-tool\`
 
-          **方式 B：LiteLoaderQQNT 插件方式（只有明确要这样装时才用）**
+          **方式 B：通过 LiteLoaderQQNT 加载（仅限特定需求用户）**
 
-          只有这条路才要求先安装 LiteLoaderQQNT。
+          此方式要求系统已配置好 LiteLoaderQQNT 环境。
 
-          1. 先按 LiteLoaderQQNT 官方文档完成安装：<https://liteloaderqqnt.github.io/>
-          2. 装好以后，确认 QQ 设置左侧已经出现 LiteLoaderQQNT
-          3. 再按 LiteLoaderQQNT / NapCat 的插件安装方式去部署这个包
+          1. 参照 [LiteLoaderQQNT 官方文档](https://liteloaderqqnt.github.io/) 完成前置框架的安装
+          2. 打开 QQ 设置，确认左侧菜单栏已出现 \`LiteLoaderQQNT\` 选项
+          3. 按照 LiteLoaderQQNT 或 NapCat 官方文档中的标准插件安装流程，将本插件部署至对应目录
 
           <details>
           <summary>如何找到访问令牌？</summary>
 
-          按 \`Win + R\`，输入 \`%USERPROFILE%\\.qq-chat-exporter\` 并回车，打开 \`security.json\` 文件，找到 \`accessToken\` 字段：
+          按下 \`Win + R\` 键，输入 \`%USERPROFILE%\\.qq-chat-exporter\` 并回车。打开该目录下的 \`security.json\` 文件，查找 \`accessToken\` 字段的值即可：
 
           \`\`\`json
           {
-            "accessToken": "你的令牌在这里",
+            "accessToken": "此处即为你的访问令牌",
             ...
           }
           \`\`\`
@@ -333,19 +333,20 @@ jobs:
           <details>
           <summary>系统要求</summary>
 
-          需要 QQ 客户端版本 34606 以上（推荐 9.9.19-34740），[下载地址](https://im.qq.com/)
+          需配合 QQ 客户端版本 34606 及以上使用（推荐版本 9.9.19-34740），[前往下载](https://im.qq.com/)。
 
-          - **Windows**：Windows 10/11 x64。如提示缺少 DLL，安装 [Visual C++ 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-          - **Linux**：Ubuntu 20.04+ / Debian 11+ / CentOS 8+，glibc 2.31+
-          - **macOS**：⚠️ 因兼容性问题暂不支持
+          - **Windows**：支持 Windows 10/11 x64。如运行报错提示缺少 DLL 文件，请安装 [Visual C++ 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)。
+          - **Linux**：支持 Ubuntu 20.04+ / Debian 11+ / CentOS 8+，需满足 glibc 2.31+。
+          - **macOS**：⚠️ 受限于兼容性问题，暂不支持。
 
           </details>
 
-          本软件完全免费开源，遵循 GPL-3.0 协议。如果有人向你收费，立即申请退款并举报。
+          > [!CAUTION]
+          > 本项目完全免费且开源，遵循 GPL-3.0 开源协议。如果您是通过付费渠道获取的本软件，请立即申请退款并进行举报。
 
           [使用文档](https://shuakami.github.io/qq-chat-exporter/) | [问题反馈](https://github.com/shuakami/qq-chat-exporter/issues) | [NapCat 项目](https://github.com/NapNeko/NapCatQQ)
 
-          ### Contributors
+          ### 贡献者鸣谢
 
           <a href="https://github.com/shuakami/qq-chat-exporter/graphs/contributors">
             <img src="https://contrib.rocks/image?repo=shuakami/qq-chat-exporter&max=12&columns=12" width="125" />
