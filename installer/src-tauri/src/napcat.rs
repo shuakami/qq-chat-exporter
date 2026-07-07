@@ -61,21 +61,24 @@ fn password_hash(token: &str) -> String {
         .collect()
 }
 
-/// Authenticate and return a bearer credential, caching it in state.
-async fn ensure_login(state: &State<'_, AppState>) -> Result<String, String> {
-    if let Some(c) = cached_credential(state) {
-        return Ok(c);
-    }
-    let tok = token(state)?;
+/// Token as currently stored on disk (`config/webui.json`) — the source of
+/// truth for whatever NapCat instance is actually serving port 6099.
+fn token_from_config(state: &State<'_, AppState>) -> Option<String> {
+    let dir = state.0.lock().ok()?.install_dir()?;
+    let raw = std::fs::read(dir.join("config").join("webui.json")).ok()?;
+    let json: Value = serde_json::from_slice(&raw).ok()?;
+    json.get("token").and_then(Value::as_str).map(str::to_string)
+}
+
+async fn try_login(tok: &str) -> Result<String, String> {
     let resp = client()
         .post(format!("{}/api/auth/login", base()))
-        .json(&serde_json::json!({ "hash": password_hash(&tok) }))
+        .json(&serde_json::json!({ "hash": password_hash(tok) }))
         .send()
         .await
         .map_err(|e| format!("连接 NapCat WebUI 失败：{e}"))?;
     let body: Value = resp.json().await.map_err(|e| e.to_string())?;
-    let cred = body
-        .pointer("/data/Credential")
+    body.pointer("/data/Credential")
         .or_else(|| body.pointer("/data/credential"))
         .and_then(Value::as_str)
         .map(str::to_string)
@@ -85,7 +88,32 @@ async fn ensure_login(state: &State<'_, AppState>) -> Result<String, String> {
                 .and_then(Value::as_str)
                 .unwrap_or("未返回凭证");
             format!("WebUI 登录失败：{msg}")
-        })?;
+        })
+}
+
+/// Authenticate and return a bearer credential, caching it in state.
+async fn ensure_login(state: &State<'_, AppState>) -> Result<String, String> {
+    if let Some(c) = cached_credential(state) {
+        return Ok(c);
+    }
+    let tok = token(state)?;
+    let cred = match try_login(&tok).await {
+        Ok(c) => c,
+        Err(e) => {
+            // The in-memory token may be out of sync with the running NapCat
+            // instance; retry once with the token from config/webui.json.
+            match token_from_config(state) {
+                Some(disk_tok) if disk_tok != tok => {
+                    let c = try_login(&disk_tok).await.map_err(|_| e)?;
+                    if let Ok(mut s) = state.0.lock() {
+                        s.webui_token = Some(disk_tok);
+                    }
+                    c
+                }
+                _ => return Err(e),
+            }
+        }
+    };
     store_credential(state, &cred);
     Ok(cred)
 }
