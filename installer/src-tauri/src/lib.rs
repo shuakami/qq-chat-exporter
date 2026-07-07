@@ -20,8 +20,30 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+/// Windows toast notifications require a registered AppUserModelID.
+/// Non-MSIX portable apps must set one explicitly, otherwise the
+/// notification silently fails.
+#[cfg(windows)]
+fn register_aumid() {
+    extern "system" {
+        fn SetCurrentProcessExplicitAppUserModelID(app_id: *const u16) -> i32;
+    }
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    let id: Vec<u16> = OsStr::new("wiki.sdjz.qce.installer")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        SetCurrentProcessExplicitAppUserModelID(id.as_ptr());
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(windows)]
+    register_aumid();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
