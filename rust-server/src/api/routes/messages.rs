@@ -215,34 +215,16 @@ fn build_resource_summary_message(summary: Option<&ResourceBatchSummary>) -> Opt
         return None;
     }
     let reused = summary.already_available + summary.downloaded;
-    let mut parts = vec![format!("资源 {reused}/{}", summary.attempted)];
-    if summary.skipped > 0 {
-        parts.push(format!("跳过 {}", summary.skipped));
-    }
-    if summary.failed > 0 {
-        let sample_list = summary
-            .failed_samples
-            .iter()
-            .take(3)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("、");
-        let sample = if sample_list.is_empty() {
-            String::new()
-        } else {
-            let more = if summary.failed > 3 { " 等" } else { "" };
-            format!("（含 {sample_list}{more}）")
-        };
-        parts.push(format!("失败 {}{sample}", summary.failed));
-    }
-    let head = parts.join("，");
+    let head = format!("资源 {reused}/{}", summary.attempted);
     if summary.failed == 0 {
         return Some(head);
     }
     Some(format!(
-        "{head}。这通常是 QQ Rkey 服务临时降级导致下载链接拿不到（NapCat 终端会打 \
-         `[Rkey] 所有服务均已禁用，片段使用 fallBack 机制`），文字内容不受影响。\
-         可以在 QQ 客户端重新点开这些消息让 NapCat 拿到新 token，再到 QCE 任务列表点「重试」补齐。"
+        "{head}，失败 {}。文本记录已完整导出。\
+         部分多媒体文件因 QQ 接口限流或暂时降级导致下载失败。\
+         修复：可在 QQ 客户端中手动点开这些图片以刷新缓存，\
+         随后在 QCE 任务列表中点击「重试」补齐。",
+        summary.failed
     ))
 }
 

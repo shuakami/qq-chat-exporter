@@ -112,6 +112,50 @@ fn avatar_url(chat_type: &str, chat_id: &str) -> String {
     }
 }
 
+/// 构建 UID→UIN 查找表（用于将 `u_xxx` 形式的 peerUid 解析为 QQ 号码）。
+async fn build_uid_to_uin_map(state: &SharedState) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    if let Ok(friends) = state.napcat.get_friends(false).await {
+        if let Some(arr) = friends.as_array() {
+            for f in arr {
+                let core = f.get("coreInfo").unwrap_or(f);
+                let uid = core.get("uid").and_then(Value::as_str).unwrap_or_default();
+                let uin = {
+                    let u = core.get("uin").and_then(Value::as_str).unwrap_or_default();
+                    if u.is_empty() {
+                        f.get("uin").and_then(Value::as_str).unwrap_or_default()
+                    } else {
+                        u
+                    }
+                };
+                if !uid.is_empty() && !uin.is_empty() {
+                    map.insert(uid.to_string(), uin.to_string());
+                }
+            }
+        }
+    }
+    map
+}
+
+/// 根据 UID→UIN 查找表修正文件列表中的 avatarUrl（将 `u_xxx` 替换为 QQ 号码）。
+fn fix_avatar_urls(files: &mut [Value], uid_to_uin: &std::collections::HashMap<String, String>) {
+    for file in files.iter_mut() {
+        let chat_type = file.get("chatType").and_then(Value::as_str).unwrap_or_default();
+        if chat_type != "friend" {
+            continue;
+        }
+        let chat_id = file.get("chatId").and_then(Value::as_str).unwrap_or_default();
+        if !chat_id.starts_with("u_") {
+            continue;
+        }
+        if let Some(uin) = uid_to_uin.get(chat_id) {
+            file["avatarUrl"] = Value::String(
+                format!("https://q1.qlogo.cn/g?b=qq&nk={uin}&s=100"),
+            );
+        }
+    }
+}
+
 /// 解析 `(friend|group)_<middle>_<YYYYMMDD>_<HHMMSS>` 结构，返回
 /// `(chatType, chatId, exportDate, displayName)`。
 fn parse_base_name(base: &str) -> Option<(String, String, String, Option<String>)> {
@@ -481,6 +525,9 @@ pub async fn list_export_files(
         &mut files,
     )
     .await;
+    // 将 u_xxx 形式的 peerUid 解析为 QQ 号码以生成正确的头像 URL。
+    let uid_to_uin = build_uid_to_uin_map(&state).await;
+    fix_avatar_urls(&mut files, &uid_to_uin);
     files.sort_by(|a, b| {
         let time_a = a.get("modifyTime").and_then(Value::as_str).unwrap_or("");
         let time_b = b.get("modifyTime").and_then(Value::as_str).unwrap_or("");
