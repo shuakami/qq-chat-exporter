@@ -1,0 +1,79 @@
+name: 构建 QCE 安装器 (Tauri / Windows)
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-alpha.*'
+      - 'v*.*.*-beta.*'
+      - 'v*.*.*-rc.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: installer
+
+    steps:
+      - name: "检出仓库"
+        uses: actions/checkout@v4
+
+      - name: "Setup Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: "Setup Rust"
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: "Rust 缓存"
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: installer/src-tauri
+
+      - name: "同步版本号 (from tag)"
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${VERSION#v}"
+          node -e "const f='src-tauri/tauri.conf.json';const j=require('./'+f);j.version='${VERSION}';require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
+          echo "installer version -> ${VERSION}"
+
+      - name: "安装前端依赖"
+        run: npm install
+
+      - name: "构建 Tauri 安装器 (仅 exe, 不打包 MSI)"
+        run: npm run tauri build -- --no-bundle
+
+      - name: "整理产物"
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          [ "$VERSION" = "$GITHUB_REF" ] && VERSION="dev"
+          mkdir -p dist-installer
+          cp "src-tauri/target/release/QQChatExporter.exe" \
+             "dist-installer/QQChatExporter-Installer-${VERSION}.exe"
+          ls -lh dist-installer
+
+      - name: "上传构建产物"
+        uses: actions/upload-artifact@v4
+        with:
+          name: qce-installer-windows
+          path: installer/dist-installer/*.exe
+          retention-days: 7
+
+      - name: "附加到 GitHub Release"
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: installer/dist-installer/*.exe
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
