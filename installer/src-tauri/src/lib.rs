@@ -25,6 +25,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // A second instance tried to launch — focus the existing window.
+            show_main_window(app);
+        }))
         .manage(AppState::default())
         .setup(|app| {
             let open = MenuItem::with_id(app, "open", "打开面板", true, None::<&str>)?;
@@ -60,10 +65,17 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             // Closing the window hides to the tray; the runtime keeps serving.
-            // Quitting is done from the tray menu.
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+                // Notify the user the app is still running in the background.
+                use tauri_plugin_notification::NotificationExt;
+                let _ = window.app_handle()
+                    .notification()
+                    .builder()
+                    .title("QQ Chat Exporter")
+                    .body("已最小化到系统托盘，服务继续运行中")
+                    .show();
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -71,6 +83,7 @@ pub fn run() {
             install::get_free_space,
             install::validate_install_dir,
             install::get_install_state,
+            install::get_saved_install_dir,
             install::start_install,
             service::detect_package_kind,
             service::start_service,

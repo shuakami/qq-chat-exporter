@@ -204,7 +204,9 @@ export default function App() {
         /* fall through to fresh-install flow */
       }
       try {
-        const path = await api.getDefaultInstallDir();
+        // Prefer the previously-used dir (upgrade scenario) over the default.
+        const saved = await api.getSavedInstallDir();
+        const path = saved || await api.getDefaultInstallDir();
         setInstallPath(path);
         const space = await api.getFreeSpace(path);
         setFreeSpace(space);
