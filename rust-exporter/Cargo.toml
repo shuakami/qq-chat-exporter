@@ -1,0 +1,52 @@
+[package]
+name = "qce-exporter"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "QQ Chat Exporter — production-grade Rust port of the TypeScript exporter module (Text / JSON / JSONL / HTML / Excel / Modern HTML)."
+license = "MIT"
+repository = "https://github.com/shuakami/qq-chat-exporter"
+
+[dependencies]
+tokio = { version = "1", features = ["fs", "io-util", "rt-multi-thread", "macros", "sync", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+base64 = "0.22"
+rust_xlsxwriter = "0.79"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+indexmap = { version = "2", features = ["serde"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# 以下 pedantic 项与「与 TS 版逐行对齐」的移植目标冲突，显式豁免并说明原因：
+# - match_same_arms: QQ 表情 ID 映射表等按 TS 源码逐项排列，合并同值分支会破坏可比对性
+match_same_arms = "allow"
+# - missing_errors_doc / missing_panics_doc: 错误语义统一由 ExportError 文档承载
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# - cast_precision_loss / cast_possible_truncation: Excel/统计的 f64 序列化对齐 JS Number 语义
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+# - doc_markdown: 中文文档注释中的 TS 标识符不逐个加反引号
+doc_markdown = "allow"
+# - unused_self / too_many_lines / items_after_statements / struct_excessive_bools /
+#   single_match_else / similar_names / needless_continue / needless_pass_by_value /
+#   format_push_string / assigning_clones / needless_raw_string_hashes:
+#   保持与 TS 方法结构、选项字段与控制流一一对应，优先可比对性
+unused_self = "allow"
+too_many_lines = "allow"
+items_after_statements = "allow"
+struct_excessive_bools = "allow"
+single_match_else = "allow"
+similar_names = "allow"
+needless_continue = "allow"
+needless_pass_by_value = "allow"
+format_push_string = "allow"
+assigning_clones = "allow"
+needless_raw_string_hashes = "allow"
