@@ -1,6 +1,6 @@
 [package]
 name = "qce-installer"
-version = "1.0.0"
+version = "6.0.0"
 description = "QQ Chat Exporter 自动安装 / 启动器"
 authors = ["shuakami <shuakami@sdjz.wiki>"]
 edition = "2021"

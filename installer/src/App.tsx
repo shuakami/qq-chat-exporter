@@ -462,7 +462,7 @@ export default function App() {
                 本软件为完全免费的开源项目，严禁用于任何商业牟利
               </span>
               <div className="flex items-center justify-center gap-6 w-full text-[11px] font-medium text-[var(--color-text-tertiary)]">
-                <span>v1.0.0</span>
+                <span>v6.0.0 beta</span>
                 <button
                   onClick={() => setShowAdvanced(true)}
                   className="hover:text-[var(--color-text)] transition-colors underline decoration-dotted underline-offset-2"
