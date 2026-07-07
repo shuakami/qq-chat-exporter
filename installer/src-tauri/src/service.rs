@@ -23,6 +23,18 @@ pub fn detect_package_kind(state: State<'_, AppState>) -> Result<String, String>
     }
 }
 
+/// Kill leftover headless runtimes (NapCatWinBootMain and its QQ children).
+/// A stale instance keeps port 6099 with an outdated token and rejects every
+/// login, and repeated launches would otherwise pile up duplicate processes.
+pub fn kill_stale_runtime() {
+    #[cfg(windows)]
+    {
+        let _ = util::hidden_command("taskkill")
+            .args(["/IM", "NapCatWinBootMain.exe", "/F", "/T"])
+            .status();
+    }
+}
+
 #[tauri::command]
 pub fn start_service(state: State<'_, AppState>) -> Result<(), String> {
     let dir = {
@@ -33,6 +45,9 @@ pub fn start_service(state: State<'_, AppState>) -> Result<(), String> {
         }
         inner.install_dir().ok_or_else(|| "尚未安装".to_string())?
     };
+
+    // Clear any stale/duplicate runtime before spawning a fresh one.
+    kill_stale_runtime();
 
     let launcher = util::find_launcher(&dir)
         .ok_or_else(|| "未找到启动脚本（launcher-user.bat）".to_string())?;
@@ -91,22 +106,29 @@ fn build_launch_command(launcher: &std::path::Path, dir: &std::path::Path) -> st
 
 #[tauri::command]
 pub fn stop_service(state: State<'_, AppState>) -> Result<(), String> {
-    let mut inner = state.0.lock().map_err(|_| "state poisoned".to_string())?;
-    if let Some(mut child) = inner.service.take() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    drop(inner);
-    // Best-effort: also stop the headless QQ/NapCat the launcher spawned.
-    #[cfg(windows)]
-    {
-        for image in ["NapCatWinBootMain.exe", "QQ.exe"] {
-            let _ = util::hidden_command("taskkill")
-                .args(["/IM", image, "/F", "/T"])
-                .status();
+    shutdown(&state);
+    Ok(())
+}
+
+/// Explicit quit from the UI: stop everything and terminate the app
+/// (a plain window close only hides to the tray).
+#[tauri::command]
+pub fn exit_app(app: tauri::AppHandle, state: State<'_, AppState>) {
+    shutdown(&state);
+    app.exit(0);
+}
+
+/// Stop the launcher child and every headless runtime it spawned.
+/// Also called when the user exits from the tray.
+pub fn shutdown(state: &AppState) {
+    if let Ok(mut inner) = state.0.lock() {
+        if let Some(mut child) = inner.service.take() {
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
-    Ok(())
+    // Best-effort: also stop the headless QQ/NapCat the launcher spawned.
+    kill_stale_runtime();
 }
 
 /// Best-effort discovery of the desktop QQ executable via the registry.

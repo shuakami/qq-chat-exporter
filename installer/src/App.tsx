@@ -425,11 +425,10 @@ export default function App() {
 
   const handleExit = useCallback(async () => {
     try {
-      await api.stopService();
+      await api.exitApp();
     } catch {
-      /* ignore */
+      await api.closeWindow();
     }
-    await api.closeWindow();
   }, []);
 
   const getAnimationClass = () => (step === 'welcome' ? '' : 'animate-fade-in');
