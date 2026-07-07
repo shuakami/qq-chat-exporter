@@ -53,6 +53,7 @@ async fn main() {
     use tracing_subscriber::util::SubscriberInitExt;
 
     let console_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stdout)
         .without_time()
         .with_target(false)
         .with_level(false);
@@ -90,11 +91,14 @@ async fn run() -> Result<(), String> {
     load_custom_dirs(&path_manager).await;
 
     // ============ 数据库 ============
-    let database_dir = path_manager.database_dir();
-    tokio::fs::create_dir_all(&database_dir)
+    // 与 TS 侧 ConfigManager 对齐：databasePath = ~/.qq-chat-exporter/database.db，
+    // DatabaseManager 取 parent 目录（~/.qq-chat-exporter/）存放 JSONL 文件，
+    // 这样两个版本共享同一份 tasks.jsonl / resources.jsonl 等数据。
+    let db_path = path_manager.default_base_dir().join("database.db");
+    tokio::fs::create_dir_all(path_manager.default_base_dir())
         .await
         .map_err(|e| format!("创建数据库目录失败: {e}"))?;
-    let db = Arc::new(DatabaseManager::new(&database_dir.join("qce.db")));
+    let db = Arc::new(DatabaseManager::new(&db_path));
     db.initialize().await.map_err(|e| format!("数据库初始化失败: {e}"))?;
 
     // ============ NapCat bridge 客户端 ============
