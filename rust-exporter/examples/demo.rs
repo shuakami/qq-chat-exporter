@@ -72,6 +72,7 @@ fn build_messages() -> Vec<CleanMessage> {
     let mut out = Vec::new();
     let mut id = 7_000_000_000_000_000_000u64;
     let mut ts = base;
+    #[allow(clippy::too_many_arguments)]
     fn push(
         out: &mut Vec<CleanMessage>,
         id: &mut u64,
@@ -87,9 +88,11 @@ fn build_messages() -> Vec<CleanMessage> {
         out.push(msg(*id, *ts, s, text, els, system));
     }
 
-    push(&mut out, alice(), "大家早上好！", vec![text_el("大家早上好！")], false, 0);
+    push(&mut out, &mut id, &mut ts, alice(), "大家早上好！", vec![text_el("大家早上好！")], false, 0);
     push(
         &mut out,
+        &mut id,
+        &mut ts,
         bob(),
         "早～今天讨论 Rust 重构的事",
         vec![text_el("早～今天讨论 Rust 重构的事")],
@@ -98,6 +101,8 @@ fn build_messages() -> Vec<CleanMessage> {
     );
     push(
         &mut out,
+        &mut id,
+        &mut ts,
         carol(),
         "[表情]",
         vec![MessageElement { element_type: "face".to_owned(), data: json!({ "id": "21" }) }],
@@ -106,6 +111,8 @@ fn build_messages() -> Vec<CleanMessage> {
     );
     push(
         &mut out,
+        &mut id,
+        &mut ts,
         alice(),
         "看这张架构图",
         vec![
@@ -123,15 +130,18 @@ fn build_messages() -> Vec<CleanMessage> {
         false,
         120_000,
     );
+    let reply_target_id = id;
     push(
         &mut out,
+        &mut id,
+        &mut ts,
         bob(),
         "回复：收到",
         vec![
             MessageElement {
                 element_type: "reply".to_owned(),
                 data: json!({
-                    "replyMsgId": (id - 1).to_string(),
+                    "replyMsgId": reply_target_id.to_string(),
                     "senderName": "Alice",
                     "text": "看这张架构图",
                     "elements": [{ "type": "text", "data": { "text": "看这张架构图" } }]
@@ -144,6 +154,8 @@ fn build_messages() -> Vec<CleanMessage> {
     );
     push(
         &mut out,
+        &mut id,
+        &mut ts,
         carol(),
         "@Alice 排期表发我一下",
         vec![
@@ -158,6 +170,8 @@ fn build_messages() -> Vec<CleanMessage> {
     );
     push(
         &mut out,
+        &mut id,
+        &mut ts,
         alice(),
         "[文件] plan.xlsx",
         vec![MessageElement {
@@ -167,9 +181,11 @@ fn build_messages() -> Vec<CleanMessage> {
         false,
         60_000,
     );
-    push(&mut out, bob(), "撤回测试前的一条消息", vec![text_el("撤回测试前的一条消息")], false, 30_000);
+    push(&mut out, &mut id, &mut ts, bob(), "撤回测试前的一条消息", vec![text_el("撤回测试前的一条消息")], false, 30_000);
     push(
         &mut out,
+        &mut id,
+        &mut ts,
         alice(),
         "Bob 加入了群聊",
         vec![MessageElement {
@@ -192,7 +208,7 @@ fn build_messages() -> Vec<CleanMessage> {
             _ => carol(),
         };
         let t = format!("第二天的测试消息 #{i}：全文搜索关键词 tokio{}", i % 7);
-        push(&mut out, s, &t, vec![text_el(&t)], false, 20_000);
+        push(&mut out, &mut id, &mut ts, s, &t, vec![text_el(&t)], false, 20_000);
     }
 
     // 第三天：转发 + JSON 卡片 + 表情
@@ -202,6 +218,8 @@ fn build_messages() -> Vec<CleanMessage> {
         .timestamp_millis();
     push(
         &mut out,
+        &mut id,
+        &mut ts,
         carol(),
         "[聊天记录]",
         vec![MessageElement {
@@ -220,6 +238,8 @@ fn build_messages() -> Vec<CleanMessage> {
     );
     push(
         &mut out,
+        &mut id,
+        &mut ts,
         bob(),
         "[卡片消息]",
         vec![MessageElement {
@@ -233,6 +253,8 @@ fn build_messages() -> Vec<CleanMessage> {
     );
     push(
         &mut out,
+        &mut id,
+        &mut ts,
         alice(),
         "收工！",
         vec![
