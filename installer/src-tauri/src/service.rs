@@ -53,10 +53,12 @@ pub fn start_service(state: State<'_, AppState>) -> Result<(), String> {
     };
 
     // Clear any stale/duplicate runtime before spawning a fresh one.
+    util::installer_log(&dir, "starting service: killing stale runtime");
     kill_stale_runtime();
 
     let launcher = util::find_launcher(&dir)
         .ok_or_else(|| "未找到启动脚本（launcher-user.bat）".to_string())?;
+    util::installer_log(&dir, &format!("launching {}", launcher.display()));
 
     // Pre-seed the QQ path so the launcher never blocks on interactive input.
     #[cfg(windows)]
@@ -83,7 +85,11 @@ pub fn start_service(state: State<'_, AppState>) -> Result<(), String> {
         .stderr(Stdio::from(err))
         .stdin(Stdio::null())
         .spawn()
-        .map_err(|e| format!("启动失败：{e}"))?;
+        .map_err(|e| {
+            util::installer_log(&dir, &format!("launch failed: {e}"));
+            format!("启动失败：{e}")
+        })?;
+    util::installer_log(&dir, &format!("service launched (pid {})", child.id()));
 
     let mut inner = state.0.lock().map_err(|_| "state poisoned".to_string())?;
     inner.service = Some(child);
@@ -127,6 +133,11 @@ pub fn exit_app(app: tauri::AppHandle, state: State<'_, AppState>) {
 /// Stop the launcher child and every headless runtime it spawned.
 /// Also called when the user exits from the tray.
 pub fn shutdown(state: &AppState) {
+    if let Ok(inner) = state.0.lock() {
+        if let Some(dir) = inner.install_dir() {
+            util::installer_log(&dir, "shutting down service");
+        }
+    }
     if let Ok(mut inner) = state.0.lock() {
         if let Some(mut child) = inner.service.take() {
             let _ = child.kill();
