@@ -273,6 +273,8 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     return actions
   }, [deleteOriginalFilesInternal, openFileLocation])
 
+  const completedToastIdsRef = useRef<Set<string>>(new Set())
+
   const syncTaskToast = useCallback((task: ExportTask, data?: ProgressPayload) => {
     let toastId = taskToastIdsRef.current.get(task.id)
 
@@ -284,7 +286,11 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       taskToastIdsRef.current.set(task.id, toastId)
     }
 
-    if (task.status === "completed") {
+    const isCompleted = task.status === "completed" || data?.status === "completed"
+    const isFailed = task.status === "failed" || data?.status === "failed"
+
+    if (isCompleted) {
+      completedToastIdsRef.current.add(task.id)
       const payload = data || {
         taskId: task.id,
         progress: task.progress,
@@ -302,7 +308,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
 
       toast.update(toastId, {
         type: "success",
-        title: "导出完成~",
+        title: "导出完成",
         description: buildCompletedToastDescription(task, payload),
         actions,
         duration: actions.length > 0 ? Infinity : 8000,
@@ -310,7 +316,8 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       return
     }
 
-    if (task.status === "failed") {
+    if (isFailed) {
+      completedToastIdsRef.current.add(task.id)
       toast.update(toastId, {
         type: "error",
         title: "导出失败",
@@ -320,6 +327,8 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       })
       return
     }
+
+    if (completedToastIdsRef.current.has(task.id)) return
 
     toast.update(toastId, {
       type: "loading",
