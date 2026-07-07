@@ -132,13 +132,13 @@ impl NapCatBridgeClient {
     /// 获取用户详细信息。
     /// `UserApi.getUidByUinV2`（可能不受旧版 NapCat 支持，调用方需容错）。
     pub async fn get_uid_by_uin_v2(&self, uin: &str) -> Result<Value, BridgeError> {
-        self.call("UserApi.getUidByUinV2", serde_json::json!({ "uin": uin }))
+        self.call("UserApi.getUidByUinV2", serde_json::json!([uin]))
             .await
     }
 
     /// `FriendApi.getBuddy`（好友缓存列表）。
     pub async fn get_buddy(&self) -> Result<Value, BridgeError> {
-        self.call("FriendApi.getBuddy", serde_json::json!({})).await
+        self.call("FriendApi.getBuddy", serde_json::json!([])).await
     }
 
     pub async fn get_user_detail_info(&self, uid: &str) -> Result<Value, BridgeError> {
