@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
+import { DateTimeInputGroup } from "@/components/ui/date-input-group"
 import { FileText, Calendar, Download, CheckCircle2, XCircle, Users, User, Package, FolderOpen } from "lucide-react"
 import { Loader } from "@/components/ui/loader"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -388,12 +389,12 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                 {timeRange === 'custom' && (
                   <div className="grid grid-cols-2 gap-4 mt-4">
                     <div className="space-y-2">
-                      <Label htmlFor="batch-start-date">开始时间</Label>
-                      <Input id="batch-start-date" type="datetime-local" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} disabled={isExporting} className="rounded-xl" />
+                      <Label>开始时间</Label>
+                      <DateTimeInputGroup value={customStartDate} onChange={setCustomStartDate} />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="batch-end-date">结束时间</Label>
-                      <Input id="batch-end-date" type="datetime-local" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} disabled={isExporting} className="rounded-xl" />
+                      <Label>结束时间</Label>
+                      <DateTimeInputGroup value={customEndDate} onChange={setCustomEndDate} />
                     </div>
                     {dateError && <div className="col-span-2 text-sm text-red-600 dark:text-red-400">{dateError}</div>}
                   </div>
