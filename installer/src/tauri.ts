@@ -56,6 +56,9 @@ const api = {
     { dir }
   ),
 
+  /** Install dir of an existing installation, or null on first run. */
+  getInstallState: () => invoke<string | null>('get_install_state'),
+
   // --- installation -----------------------------------------------------
   startInstall: (options: InstallOptions) => invoke<void>('start_install', { options }),
 

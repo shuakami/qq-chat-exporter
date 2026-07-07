@@ -169,7 +169,7 @@ export default function App() {
   const [webuiUrl, setWebuiUrl] = useState<string>('');
   const [setupHint, setSetupHint] = useState('请稍候，我们正在为您初始化导出组件...');
 
-  const [options, setOptions] = useState({ shortcut: true, autoStart: true });
+  const [options, setOptions] = useState({ shortcut: true, autoStart: false });
 
   const tipsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const qrPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -187,16 +187,29 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Init default install path
+  // Detect an existing installation (launched from the desktop shortcut or
+  // autostart) and skip straight to the setup flow; otherwise prepare the
+  // default install path for a fresh install.
   useEffect(() => {
     (async () => {
+      try {
+        const installed = await api.getInstallState();
+        if (installed) {
+          setInstallPath(installed);
+          setStep('setup');
+          setSetupStep('login');
+          return;
+        }
+      } catch {
+        /* fall through to fresh-install flow */
+      }
       try {
         const path = await api.getDefaultInstallDir();
         setInstallPath(path);
         const space = await api.getFreeSpace(path);
         setFreeSpace(space);
       } catch {
-        setInstallPath('C:\\Program Files\\QQChatExporter');
+        setInstallPath('C:\\QQChatExporter');
       }
     })();
   }, []);
