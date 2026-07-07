@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -110,25 +110,40 @@ pub async fn start_install(
     let install_dir = PathBuf::from(&options.install_path);
     std::fs::create_dir_all(&install_dir).map_err(|e| format!("创建安装目录失败：{e}"))?;
 
-    emit(&app, "install-progress", 2.0, "正在获取最新版本信息...", "Downloading");
-    let asset = resolve_shell_asset().await.map_err(|e| e.to_string())?;
-
-    // --- download ---------------------------------------------------------
-    let tmp_zip = install_dir.join("_qce_shell.zip");
-    download_with_progress(&app, &asset.url, &tmp_zip)
-        .await
-        .map_err(|e| format!("下载失败：{e}"))?;
-
-    // --- extract (blocking) ----------------------------------------------
-    emit(&app, "install-progress", 70.0, "正在解压核心组件...", "Extracting");
-    let extract_dir = install_dir.clone();
-    let zip_path = tmp_zip.clone();
-    let app_clone = app.clone();
-    tokio::task::spawn_blocking(move || extract_zip_flat(&app_clone, &zip_path, &extract_dir))
+    // The release build appends the full Shell package to the end of this exe,
+    // so a normal run is a single self-contained file with no network download.
+    // If no payload is present (e.g. a dev build), fall back to fetching it.
+    if has_embedded_payload() {
+        emit(&app, "install-progress", 5.0, "正在展开内置组件...", "Extracting");
+        let extract_dir = install_dir.clone();
+        let app_clone = app.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut archive = embedded_shell_archive()
+                .ok_or_else(|| anyhow::anyhow!("内置安装包读取失败"))?;
+            extract_archive(&app_clone, &mut archive, &extract_dir)
+        })
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("解压失败：{e}"))?;
-    let _ = std::fs::remove_file(&tmp_zip);
+    } else {
+        emit(&app, "install-progress", 2.0, "正在获取最新版本信息...", "Downloading");
+        let asset = resolve_shell_asset().await.map_err(|e| e.to_string())?;
+
+        let tmp_zip = install_dir.join("_qce_shell.zip");
+        download_with_progress(&app, &asset.url, &tmp_zip)
+            .await
+            .map_err(|e| format!("下载失败：{e}"))?;
+
+        emit(&app, "install-progress", 70.0, "正在解压核心组件...", "Extracting");
+        let extract_dir = install_dir.clone();
+        let zip_path = tmp_zip.clone();
+        let app_clone = app.clone();
+        tokio::task::spawn_blocking(move || extract_zip_flat(&app_clone, &zip_path, &extract_dir))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| format!("解压失败：{e}"))?;
+        let _ = std::fs::remove_file(&tmp_zip);
+    }
 
     // --- post-install configuration --------------------------------------
     emit(&app, "install-progress", 92.0, "正在写入配置...", "Configuring");
@@ -213,11 +228,53 @@ async fn download_with_progress(app: &AppHandle, url: &str, dest: &Path) -> anyh
     Ok(())
 }
 
-/// Extract a zip. Shell packages wrap everything in a single top-level folder;
-/// we strip that folder so `install_dir` becomes the package root directly.
+/// Try to open the Shell package that the release build appended to this exe.
+/// A zip is located by its end-of-central-directory record, so appending a zip
+/// to the exe yields a file that is both a valid executable and a valid archive;
+/// the `zip` crate transparently handles the executable prefix.
+fn embedded_shell_archive() -> Option<zip::ZipArchive<std::fs::File>> {
+    let exe = std::env::current_exe().ok()?;
+    let file = std::fs::File::open(exe).ok()?;
+    let mut archive = zip::ZipArchive::new(file).ok()?;
+    if archive.is_empty() {
+        return None;
+    }
+    // Guard against a plain exe that happens to contain stray zip-like bytes:
+    // require a recognizable launcher entry.
+    let looks_like_pkg = (0..archive.len()).any(|i| {
+        archive
+            .by_index(i)
+            .map(|e| {
+                let n = e.name().to_ascii_lowercase();
+                n.contains("launcher") || n.contains("napcat")
+            })
+            .unwrap_or(false)
+    });
+    if looks_like_pkg {
+        Some(archive)
+    } else {
+        None
+    }
+}
+
+fn has_embedded_payload() -> bool {
+    embedded_shell_archive().is_some()
+}
+
+/// Extract a zip file from disk (download fallback path).
 fn extract_zip_flat(app: &AppHandle, zip_path: &Path, dest: &Path) -> anyhow::Result<()> {
     let file = std::fs::File::open(zip_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
+    extract_archive(app, &mut archive, dest)
+}
+
+/// Extract an archive. Shell packages wrap everything in a single top-level
+/// folder; we strip that folder so `install_dir` becomes the package root.
+fn extract_archive<R: Read + Seek>(
+    app: &AppHandle,
+    archive: &mut zip::ZipArchive<R>,
+    dest: &Path,
+) -> anyhow::Result<()> {
     let total = archive.len();
 
     // Detect a common top-level directory to strip.
@@ -261,8 +318,8 @@ fn extract_zip_flat(app: &AppHandle, zip_path: &Path, dest: &Path) -> anyhow::Re
             std::io::copy(&mut entry, &mut out)?;
         }
         if i % 20 == 0 || i + 1 == total {
-            let pct = 70.0 + ((i + 1) as f64 / total as f64) * 20.0;
-            emit(app, "install-progress", pct, "正在解压核心组件...", "Extracting");
+            let pct = 5.0 + ((i + 1) as f64 / total as f64) * 85.0;
+            emit(app, "install-progress", pct, "正在展开核心组件...", "Extracting");
         }
     }
     Ok(())
