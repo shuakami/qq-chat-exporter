@@ -391,7 +391,15 @@ fn write_runtime_config(install_dir: &Path, state: &State<'_, AppState>) -> anyh
     let config_dir = install_dir.join("config");
     std::fs::create_dir_all(&config_dir)?;
 
-    let token = util::random_token(16);
+    // Reuse the token of an existing installation: NapCat caches the token at
+    // startup, so an instance left running from a previous session would
+    // reject a freshly generated one.
+    let token = std::fs::read(config_dir.join("webui.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v.get("token").and_then(|t| t.as_str()).map(str::to_string))
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| util::random_token(16));
     let webui = serde_json::json!({
         "host": "127.0.0.1",
         "port": util::NAPCAT_WEBUI_PORT,

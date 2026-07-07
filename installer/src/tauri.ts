@@ -86,7 +86,10 @@ const api = {
   openLogFile: () => invoke<void>('open_log_file'),
   openUrl: (url: string) => openUrl(url),
   pickDirectory: () => openDialog({ directory: true, multiple: false }),
+  /** Hide to the system tray (the runtime keeps serving). */
   closeWindow: () => getCurrentWindow().close(),
+  /** Stop everything and terminate the app. */
+  exitApp: () => invoke<void>('exit_app'),
 
   onInstallProgress: (cb: (p: InstallProgress) => void): Promise<UnlistenFn> =>
     listen<InstallProgress>('install-progress', (e) => cb(e.payload)),
