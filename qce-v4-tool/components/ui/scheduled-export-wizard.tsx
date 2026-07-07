@@ -13,8 +13,9 @@ import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import { Checkbox } from "./checkbox"
 import {
   Settings, Clock, Calendar, FileText, AlertCircle, CheckCircle,
-  RefreshCw, Play, Search, ChevronDown, X, Users, User, Package, Loader2
+  RefreshCw, Play, Search, ChevronDown, X, Users, User, Package
 } from "lucide-react"
+import { Loader } from "@/components/ui/loader"
 import type { CreateScheduledExportForm, Group, Friend } from "@/types/api"
 import { useSearch } from "@/hooks/use-search"
 import { toggleSkipResourceType, type SkipDownloadResourceType } from "@/lib/skip-resource-types"
@@ -416,7 +417,7 @@ export function ScheduledExportWizard({
                       className="rounded-full"
                     >
                       {(currentChatType === 2 ? groupSearch : friendSearch).loading ? 
-                        <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : 
+                        <Loader size={12} className="mr-1" /> : 
                         <RefreshCw className="w-3 h-3 mr-1" />
                       }
                       加载{currentChatType === 1 ? "好友" : "群组"}
@@ -447,7 +448,7 @@ export function ScheduledExportWizard({
                 >
                   {(currentChatType === 2 ? groupSearch : friendSearch).loading && getDisplayTargets().length === 0 && (
                     <div className="text-center py-10 text-muted-foreground">
-                      <Loader2 className="w-6 h-6 mx-auto animate-spin mb-2" />
+                      <Loader size={24} className="mx-auto mb-2" />
                       <p className="text-sm">搜索中...</p>
                     </div>
                   )}
@@ -983,7 +984,7 @@ export function ScheduledExportWizard({
             >
               {isLoading ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader size={16} className="mr-2" />
                   创建中...
                 </>
               ) : (

@@ -80,6 +80,7 @@ import { useStickerPacks } from "@/hooks/use-sticker-packs"
 import { useResourceIndex } from "@/hooks/use-resource-index"
 
 import { ThemeToggle } from "@/components/qce-dashboard/theme-toggle"
+import { Loader } from "@/components/ui/loader"
 
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
 import { DUR, EASE, makeStagger } from "@/components/qce-dashboard/animations"
@@ -1235,7 +1236,7 @@ export default function QCEDashboard() {
                         variants={STAG.item}
                         id={`nav-${item.id}`}
                         onClick={() => setActiveTab(item.id)}
-                        className={`w-full flex items-center gap-2.5 px-2 py-[6px] text-[13px] font-medium rounded-full transition-colors ${
+                        className={`w-full flex items-center gap-2.5 px-2 py-[6px] text-[13px] font-medium rounded-lg transition-colors ${
                           isActive 
                             ? "text-foreground bg-black/[0.05] dark:bg-white/[0.05]" 
                             : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
@@ -1266,7 +1267,7 @@ export default function QCEDashboard() {
                         variants={STAG.item}
                         id={`nav-${item.id}`}
                         onClick={() => setActiveTab(item.id)}
-                        className={`w-full flex items-center gap-2.5 px-2 py-[6px] text-[13px] font-medium rounded-full transition-colors ${
+                        className={`w-full flex items-center gap-2.5 px-2 py-[6px] text-[13px] font-medium rounded-lg transition-colors ${
                           isActive 
                             ? "text-foreground bg-black/[0.05] dark:bg-white/[0.05]" 
                             : "text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04]"
@@ -1283,29 +1284,49 @@ export default function QCEDashboard() {
               {/* Sidebar footer */}
               <div className="flex-shrink-0 px-2 pb-2 space-y-1">
                 <div className="flex items-center justify-between px-2 py-1">
+                  {/* GitHub + star count */}
                   <a
                     href="https://github.com/shuakami/qq-chat-exporter"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-transparent hover:bg-accent transition-colors"
-                    title={`GitHub ${githubStars !== null ? (githubStars >= 1000 ? `${(githubStars / 1000).toFixed(1)}k` : githubStars) : ''}`}
+                    className="inline-flex items-center gap-1.5 h-8 px-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
                   >
-                    <svg className="w-4 h-4 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
                     </svg>
+                    {githubStars !== null && (
+                      <span className="text-[12px] font-medium tabular-nums">
+                        {githubStars >= 1000 ? `${(githubStars / 1000).toFixed(1)}k` : githubStars}
+                      </span>
+                    )}
                   </a>
-                  <a
-                    href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-transparent hover:bg-accent transition-colors"
-                    title="使用文档"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className="text-muted-foreground">
-                      <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 12.5a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM9.5 8.4c-.5.34-.75.6-.75 1.1a.75.75 0 0 1-1.5 0c0-1.15.75-1.72 1.27-2.07.4-.27.63-.44.63-.83 0-.55-.45-1-.98-1-.39 0-.73.24-.89.58a.75.75 0 1 1-1.36-.64A2.48 2.48 0 0 1 8.17 4c1.37 0 2.48 1.1 2.48 2.5 0 1.07-.7 1.55-1.15 1.9Z"/>
-                    </svg>
-                  </a>
-                  <ThemeToggle />
+
+                  <div className="flex items-center gap-0.5">
+                    {/* Help dropdown (docs) */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors">
+                          <HelpCircle className="w-4 h-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl min-w-[140px]">
+                        <DropdownMenuItem asChild>
+                          <a
+                            href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 cursor-pointer"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>使用文档</span>
+                          </a>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+
+                    {/* Theme toggle */}
+                    <ThemeToggle />
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -1340,7 +1361,7 @@ export default function QCEDashboard() {
             {activeTab === "sessions" && !isStandalone && (
               <>
                 <Button size="sm" variant="ghost" className="h-8 text-[13px] rounded-full px-2" onClick={loadChatData} disabled={isLoading}>
-                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                  {isLoading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
                 </Button>
                 {!batchMode && (
                   <Button
@@ -1394,7 +1415,7 @@ export default function QCEDashboard() {
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Button size="sm" variant="ghost" className="h-8 text-[13px] rounded-full px-2" onClick={handleLoadTasks} disabled={isLoading}>
-                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                  {isLoading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
                 </Button>
                 <Button size="sm" className="h-8 text-[13px] rounded-full px-2.5" onClick={() => handleOpenTaskWizard()}>
                   新建任务
@@ -1410,7 +1431,7 @@ export default function QCEDashboard() {
                   onClick={handleLoadScheduledExports}
                   disabled={scheduledLoading}
                 >
-                  <RefreshCw className={`w-4 h-4 ${scheduledLoading ? 'animate-spin' : ''}`} />
+                  {scheduledLoading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
                 </Button>
                 <Button
                   size="sm"
@@ -1441,7 +1462,7 @@ export default function QCEDashboard() {
                   }}
                   disabled={chatHistoryLoading || resourceIndexLoading}
                 >
-                  <RefreshCw className={`w-4 h-4 ${(chatHistoryLoading || resourceIndexLoading) ? 'animate-spin' : ''}`} />
+                  {(chatHistoryLoading || resourceIndexLoading) ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
                 </Button>
                 {/* Issue #163: 在「聊天记录」页也可以打开合并对话框，覆盖手动导出场景。 */}
                 <Button
@@ -1473,7 +1494,7 @@ export default function QCEDashboard() {
                   }}
                   disabled={stickerPacksLoading}
                 >
-                  <RefreshCw className={`w-4 h-4 ${stickerPacksLoading ? 'animate-spin' : ''}`} />
+                  {stickerPacksLoading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
                 </Button>
                 <Button
                   size="sm"
@@ -2236,7 +2257,7 @@ export default function QCEDashboard() {
                     {/* Loading */}
                     {resourceFilesLoading && resourceFiles.length === 0 && (
                       <div className="flex items-center justify-center py-20">
-                        <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground/40" />
+                        <Loader size={16} className="text-muted-foreground/40" />
                         <span className="ml-2 text-muted-foreground/50 text-[13px]">加载中...</span>
                       </div>
                     )}

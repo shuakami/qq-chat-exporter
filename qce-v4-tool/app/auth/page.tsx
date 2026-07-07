@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowRight, X, Eye, EyeOff, Lock, ExternalLink, CheckCircle2 } from 'lucide-react'
 import AuthManager from '@/lib/auth'
+import { Loader } from '@/components/ui/loader'
 
 export default function AuthPage() {
   const [token, setToken] = useState('')
@@ -118,7 +119,7 @@ export default function AuthPage() {
             <div className="text-2xl font-semibold tracking-tight text-foreground">
               QQ Chat Exporter
             </div>
-            <div className="w-5 h-5 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+            <Loader size={20} className="text-muted-foreground" />
           </motion.div>
         ) : (
           <motion.div
@@ -191,7 +192,7 @@ export default function AuthPage() {
                   className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-full bg-foreground text-background font-medium hover:bg-foreground/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[14px]"
                 >
                   {loading ? (
-                    <div className="w-5 h-5 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+                    <Loader size={20} className="text-muted-foreground" />
                   ) : (
                     <>
                       验证并进入

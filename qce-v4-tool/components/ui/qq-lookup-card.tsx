@@ -17,7 +17,8 @@ import { Button } from "./button"
 import { Input } from "./input"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
 import { useApi } from "@/hooks/use-api"
-import { Search, User, AlertCircle, Loader2 } from "lucide-react"
+import { Search, User, AlertCircle } from "lucide-react"
+import { Loader } from "@/components/ui/loader"
 
 interface UserLookupResult {
     found: boolean
@@ -100,7 +101,7 @@ export function QqLookupCard({ initialUin = "", onStartExport, onPreview }: QqLo
                     size="sm"
                     className="h-9 px-3 rounded-lg"
                 >
-                    {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                    {loading ? <Loader size={14} /> : <Search className="w-3.5 h-3.5" />}
                     <span className="ml-1.5">{loading ? "查询中" : "查询"}</span>
                 </Button>
             </div>

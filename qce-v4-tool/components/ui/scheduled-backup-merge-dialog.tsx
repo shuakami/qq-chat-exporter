@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Layers, AlertCircle, FolderOpen, FileText, Clock, HardDrive, ChevronDown, ChevronRight, CheckCircle2, Loader2 } from "lucide-react"
+import { Layers, AlertCircle, FolderOpen, FileText, Clock, HardDrive, ChevronDown, ChevronRight, CheckCircle2 } from "lucide-react"
+import { Loader } from "@/components/ui/loader"
 
 interface ScheduledBackup {
   fileName: string
@@ -465,7 +466,7 @@ export function ScheduledBackupMergeDialog({
             >
               {merging ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader size={16} className="mr-2" />
                   合并中...
                 </>
               ) : (

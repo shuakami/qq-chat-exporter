@@ -9,6 +9,7 @@ import {
   Star,
   Clock
 } from "lucide-react"
+import { Loader } from "@/components/ui/loader"
 import { useGroupEssence } from "@/hooks/use-group-essence"
 import type { EssenceMessage } from "@/types/api"
 
@@ -116,7 +117,7 @@ export function GroupEssenceModal({
                   className="p-2 rounded-full text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
                   title="刷新"
                 >
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  {loading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
                 </button>
                 <button
                   onClick={onClose}
@@ -130,7 +131,7 @@ export function GroupEssenceModal({
             <div className="flex-1 overflow-y-auto p-4">
               {loading ? (
                 <div className="flex items-center justify-center py-16">
-                  <RefreshCw className="w-6 h-6 text-muted-foreground/60 animate-spin" />
+                  <Loader size={24} className="text-muted-foreground/60" />
                 </div>
               ) : error ? (
                 <div className="flex flex-col items-center justify-center py-16">
@@ -183,7 +184,7 @@ export function GroupEssenceModal({
                     disabled={exporting || messages.length === 0}
                     className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-neutral-900 dark:bg-neutral-100 dark:text-neutral-900 hover:bg-neutral-800 dark:hover:bg-neutral-200 rounded-full transition-colors disabled:opacity-50"
                   >
-                    {exporting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                    {exporting ? <Loader size={16} /> : <Download className="w-4 h-4" />}
                     导出
                   </button>
                 </div>

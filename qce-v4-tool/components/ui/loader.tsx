@@ -5,7 +5,7 @@ interface LoaderProps {
   className?: string;
 }
 
-export function Loader({ size = 24, className = '' }: LoaderProps) {
+export function Loader({ size = 16, className = '' }: LoaderProps) {
   return (
     <svg
       className={`animate-spin ${className}`}
