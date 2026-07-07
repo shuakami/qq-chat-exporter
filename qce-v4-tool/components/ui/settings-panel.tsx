@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useConfig } from "@/hooks/use-config"
-import { Save, RotateCcw, RefreshCw } from "lucide-react"
+import { Save, RotateCcw } from "lucide-react"
+import { Loader } from "@/components/ui/loader"
 
 export function SettingsPanel() {
   const { config, loading, loadConfig, updateConfig } = useConfig()
@@ -59,7 +60,7 @@ export function SettingsPanel() {
     <div className="p-5 space-y-5">
       {loading ? (
         <div className="flex flex-col items-center justify-center py-20">
-          <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground/40 mb-2" />
+          <Loader size={16} className="text-muted-foreground/40 mb-2" />
           <p className="text-[13px] text-muted-foreground/60">加载配置中...</p>
         </div>
       ) : (

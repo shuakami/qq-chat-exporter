@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import AuthManager from '@/lib/auth'
+import { Loader } from '@/components/ui/loader'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -101,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           <div className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
             QQ Chat Exporter
           </div>
-          <div className="w-6 h-6 border-2 border-neutral-200 dark:border-neutral-700 border-t-neutral-600 dark:border-t-neutral-300 rounded-full animate-spin" />
+          <Loader size={24} className="text-neutral-600 dark:text-neutral-300" />
         </div>
       </div>
     )

@@ -17,7 +17,6 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Loader2,
   ExternalLink,
 } from "lucide-react"
 import { format } from "date-fns"
@@ -491,7 +490,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
               )}
             </div>
             <Button size="sm" onClick={handleSearch} disabled={loading || !searchQuery.trim()} className="rounded-full h-7 text-xs px-3">
-              {streamSearch.searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '搜索'}
+              {streamSearch.searching ? <Loader size={14} /> : '搜索'}
             </Button>
             {streamSearch.searching && (
               <Button size="sm" variant="ghost" onClick={() => streamSearch.cancelSearch()} className="rounded-full h-7 text-xs px-3">取消</Button>
@@ -602,7 +601,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
               disabled={loading}
               className="rounded-full h-8 text-xs px-4"
             >
-              <RefreshCw className={cn("w-3.5 h-3.5 mr-1.5", loading && "animate-spin")} />
+              {loading ? <Loader size={14} className="mr-1.5" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
               刷新
             </Button>
             {onExport && (

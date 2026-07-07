@@ -412,7 +412,7 @@ export function SessionList({
   return (
     <div className="space-y-0">
       {/* Search and Filter Bar */}
-      <div className="flex flex-col sm:flex-row items-center gap-2 py-2">
+      <div className="flex flex-col sm:flex-row items-center gap-1.5 py-1.5">
         {/* Search Input */}
         <div className="relative flex-1">
           <Search className="absolute left-0 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
@@ -421,7 +421,7 @@ export function SessionList({
             placeholder="搜索会话名称、备注或 ID... (按 / 聚焦)"
             value={search}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-            className="pl-6 pr-8 h-10 text-sm border-0 bg-transparent shadow-none focus-visible:ring-0"
+            className="pl-6 pr-8 h-8 text-sm border-0 bg-transparent shadow-none focus-visible:ring-0"
           />
           {search && (
             <button
@@ -437,7 +437,7 @@ export function SessionList({
         <div className="flex items-center gap-1.5">
           {/* Type Filter */}
           <Select value={type} onValueChange={(v: string) => setType(v as SessionType)}>
-            <SelectTrigger className="w-[120px] h-10 text-sm rounded-full bg-black/[0.04] dark:bg-white/[0.06] shadow-none">
+            <SelectTrigger className="h-8 text-[13px] rounded-full bg-black/[0.04] dark:bg-white/[0.06] shadow-none px-2.5">
               <SelectValue placeholder="全部类型" />
             </SelectTrigger>
             <SelectContent className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl">
@@ -449,7 +449,7 @@ export function SessionList({
 
           {/* Sort Field */}
           <Select value={sortField} onValueChange={(v: string) => setSortField(v as SortField)}>
-            <SelectTrigger className="w-[120px] h-10 text-sm rounded-full bg-black/[0.04] dark:bg-white/[0.06] shadow-none">
+            <SelectTrigger className="h-8 text-[13px] rounded-full bg-black/[0.04] dark:bg-white/[0.06] shadow-none px-2.5">
               <SelectValue placeholder="排序" />
             </SelectTrigger>
             <SelectContent className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl">
@@ -466,7 +466,7 @@ export function SessionList({
           <Button
             variant="ghost"
             size="icon"
-            className="h-10 w-10 rounded-full bg-black/[0.04] dark:bg-white/[0.06]"
+            className="h-8 w-8 rounded-full bg-black/[0.04] dark:bg-white/[0.06]"
             onClick={handleToggleSort}
           >
             {sortOrder === 'asc' ? (
@@ -481,7 +481,7 @@ export function SessionList({
             <Button
               variant="ghost"
               size="sm"
-              className="h-10 rounded-full text-sm text-muted-foreground hover:text-foreground"
+              className="h-8 rounded-full text-[13px] text-muted-foreground hover:text-foreground"
               onClick={resetFilters}
             >
               <X className="w-3.5 h-3.5 mr-1" />
@@ -553,7 +553,7 @@ export function SessionList({
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in duration-300"
           style={{ animationTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)' }}
         >
-          <div className="flex items-center gap-1 rounded-full bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-lg shadow-black/[0.08]  px-2 py-1.5">
+          <div className="flex items-center gap-1 rounded-full bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-[0_4px_24px_rgba(0,0,0,0.06)] border border-black/[0.06] dark:border-white/[0.08] px-2 py-1.5">
             {selectedItems.size > 0 && (
               <span className="text-[13px] font-medium text-foreground px-3 tabular-nums">
                 {selectedItems.size} selected

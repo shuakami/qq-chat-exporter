@@ -8,7 +8,6 @@ import { Badge } from "./badge"
 import { 
   CheckCircle,
   AlertCircle,
-  Loader2,
   Download,
   FolderOpen,
   Package,

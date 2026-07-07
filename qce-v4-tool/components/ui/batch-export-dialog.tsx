@@ -9,7 +9,8 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
-import { FileText, Calendar, Download, CheckCircle2, XCircle, Loader2, Users, User, Package, FolderOpen } from "lucide-react"
+import { FileText, Calendar, Download, CheckCircle2, XCircle, Users, User, Package, FolderOpen } from "lucide-react"
+import { Loader } from "@/components/ui/loader"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toggleSkipResourceType, type SkipDownloadResourceType } from "@/lib/skip-resource-types"
 
@@ -278,7 +279,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                         ) : progress.results[idx]?.status === 'failed' ? (
                           <XCircle className="w-6 h-6 text-red-500" />
                         ) : progress.current === idx && progress.status === 'running' ? (
-                          <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+                          <Loader size={24} className="text-blue-500" />
                         ) : (
                           <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground/60">
                             {idx + 1}
@@ -491,7 +492,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
-                        <Loader2 className="w-4 h-4 animate-spin text-blue-600 dark:text-blue-400" />
+                        <Loader size={16} className="text-blue-600 dark:text-blue-400" />
                       </div>
                       <div>
                         <h4 className="font-medium text-blue-900 dark:text-blue-100">正在导出</h4>

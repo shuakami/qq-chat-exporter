@@ -10,8 +10,9 @@ import { Badge } from "./badge"
 import { Separator } from "./separator"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import {
-  Users, User, Search, Loader2, ChevronDown, RefreshCw, Settings, Eye, FileText, CheckCircle, X, UserMinus, UserPlus, Check
+  Users, User, Search, ChevronDown, RefreshCw, Settings, Eye, FileText, CheckCircle, X, UserMinus, UserPlus, Check
 } from "lucide-react"
+import { Loader } from "@/components/ui/loader"
 import { useSearch } from "@/hooks/use-search"
 import { useApi } from "@/hooks/use-api"
 import type { CreateTaskForm, Group, Friend, GroupMember } from "@/types/api"
@@ -344,7 +345,7 @@ export function TaskWizard({
         <div className="max-h-[180px] overflow-y-auto rounded-lg bg-card">
           {membersLoading ? (
             <div className="flex items-center justify-center h-20">
-              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/60" />
+              <Loader size={20} className="text-muted-foreground/60" />
             </div>
           ) : filteredMembers.length === 0 ? (
             <div className="flex items-center justify-center h-20 text-muted-foreground text-xs">
@@ -701,7 +702,7 @@ export function TaskWizard({
               disabled={s.loading}
               className="rounded-full h-9 shrink-0"
             >
-              {s.loading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+              {s.loading ? <Loader size={12} className="mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
               加载{form.chatType === 1 ? "好友" : "群组"}
             </Button>
             <div className="relative flex-1 min-w-0">
@@ -725,7 +726,7 @@ export function TaskWizard({
         >
           {s.loading && displayTargets.length === 0 && (
             <div className="text-center py-10 text-muted-foreground">
-              <Loader2 className="w-6 h-6 mx-auto animate-spin mb-2" />
+              <Loader size={24} className="mx-auto mb-2" />
               <p className="text-sm">搜索中...</p>
             </div>
           )}
@@ -825,7 +826,7 @@ export function TaskWizard({
             <div className="text-center py-2">
               {s.loading ? (
                 <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader size={16} />
                   <span className="text-sm">加载更多...</span>
                 </div>
               ) : (

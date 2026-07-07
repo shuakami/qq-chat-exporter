@@ -11,6 +11,7 @@ import {
   FileText,
   ChevronRight
 } from "lucide-react"
+import { Loader } from "@/components/ui/loader"
 import type { ScheduledExportHistory } from "@/types/api"
 
 interface ExecutionHistoryModalProps {
@@ -103,7 +104,7 @@ export function ExecutionHistoryModal({
                   disabled={loading}
                   className="p-2 rounded-full text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
                 >
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  {loading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
                 </button>
                 <button
                   onClick={onClose}
@@ -118,7 +119,7 @@ export function ExecutionHistoryModal({
             <div className="flex-1 overflow-y-auto p-4">
               {loading ? (
                 <div className="flex items-center justify-center py-16">
-                  <RefreshCw className="w-6 h-6 text-muted-foreground/60 animate-spin" />
+                  <Loader size={24} className="text-muted-foreground/60" />
                 </div>
               ) : history.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16">

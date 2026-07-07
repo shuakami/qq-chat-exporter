@@ -2,6 +2,7 @@
 
 import { useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import { Loader } from "@/components/ui/loader"
 
 interface LoadingScreenProps {
   isLoading: boolean
@@ -32,7 +33,7 @@ export function LoadingScreen({ isLoading, onComplete }: LoadingScreenProps) {
             <div className="text-[15px] font-semibold tracking-tight text-foreground">
               QQ Chat Exporter
             </div>
-            <div className="w-5 h-5 border-2 border-black/[0.08] dark:border-white/[0.08] border-t-foreground/60 rounded-full animate-spin" />
+            <Loader size={20} className="text-foreground/60" />
           </div>
         </motion.div>
       )}
