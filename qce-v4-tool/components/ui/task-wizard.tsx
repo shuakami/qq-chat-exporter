@@ -577,7 +577,7 @@ export function TaskWizard({
       <div className="space-y-4">
         {/* 类型切换 - 4个按钮一行 */}
         <div>
-          <div className={`flex gap-1 p-0.5 rounded-lg bg-black/[0.03] dark:bg-white/[0.04] ${isStandalone ? '' : ''}`}>
+          <div className={`flex gap-1 p-0.5 rounded-full bg-black/[0.03] dark:bg-white/[0.04] ${isStandalone ? '' : ''}`}>
             {[
               { key: 'friend', label: '好友', onClick: () => {
                 setForm((p) => ({ ...p, chatType: 1 }))
@@ -690,33 +690,31 @@ export function TaskWizard({
         ) : (
           <>
         {/* 加载 & 搜索 */}
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              size="sm"
               onClick={() => {
                 if (currentChatTypeRef.current === 2) groupSearchRef.current.load()
                 else friendSearchRef.current.load()
               }}
               disabled={s.loading}
-              className="rounded-full"
+              className="rounded-full h-9 shrink-0"
             >
               {s.loading ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
               加载{form.chatType === 1 ? "好友" : "群组"}
             </Button>
-            {s.allData.length > 0 && <span className="text-xs text-muted-foreground">已加载 {s.allData.length} 个</span>}
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
+              <Input
+                placeholder={form.chatType === 1 ? "搜索好友昵称、备注..." : "搜索群组名称、群号..."}
+                value={searchTerm}
+                onChange={(e) => handleSearchInput(e.target.value)}
+                className="pl-10 rounded-full h-9"
+              />
+            </div>
           </div>
-
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
-            <Input
-              placeholder={form.chatType === 1 ? "搜索好友昵称、备注..." : "搜索群组名称、群号..."}
-              value={searchTerm}
-              onChange={(e) => handleSearchInput(e.target.value)}
-              className="pl-10 rounded-full"
-            />
-          </div>
+          {s.allData.length > 0 && <span className="block px-1 text-xs text-muted-foreground">已加载 {s.allData.length} 个</span>}
         </div>
 
         {/* 列表 */}
