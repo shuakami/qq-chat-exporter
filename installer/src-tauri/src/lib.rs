@@ -17,6 +17,7 @@ pub fn run() {
             install::get_default_install_dir,
             install::get_free_space,
             install::validate_install_dir,
+            install::get_install_state,
             install::start_install,
             service::detect_package_kind,
             service::start_service,

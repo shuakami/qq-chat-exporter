@@ -46,11 +46,12 @@ pub struct ValidateResult {
 
 #[tauri::command]
 pub fn get_default_install_dir() -> String {
-    // Program Files on Windows; a sensible home fallback elsewhere.
+    // Per-user LocalAppData on Windows: writable without elevation, unlike
+    // Program Files which fails with access-denied for non-admin installs.
     #[cfg(windows)]
     {
-        if let Some(pf) = std::env::var_os("ProgramFiles") {
-            return Path::new(&pf)
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            return Path::new(&local)
                 .join("QQChatExporter")
                 .to_string_lossy()
                 .into_owned();
@@ -98,7 +99,62 @@ pub fn validate_install_dir(dir: String) -> ValidateResult {
             return ValidateResult { ok: false, error: Some("上级目录不存在".into()) };
         }
     }
+    if let Err(e) = check_writable(&path) {
+        return ValidateResult {
+            ok: false,
+            error: Some(format!("该目录无写入权限，请更换安装位置：{e}")),
+        };
+    }
     ValidateResult { ok: true, error: None }
+}
+
+/// Verify the target directory can actually be created and written to.
+fn check_writable(dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let probe = dir.join(".qce-write-test");
+    std::fs::write(&probe, b"ok")?;
+    std::fs::remove_file(&probe)?;
+    Ok(())
+}
+
+/// Location of the small json that remembers where QCE was installed, so a
+/// relaunch (desktop shortcut / autostart) goes straight to the launch flow.
+fn state_file() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join("qce-installer").join("state.json"))
+}
+
+fn save_install_state(install_dir: &Path) {
+    if let Some(file) = state_file() {
+        if let Some(parent) = file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let json = serde_json::json!({ "installDir": install_dir.to_string_lossy() });
+        let _ = std::fs::write(file, serde_json::to_vec_pretty(&json).unwrap_or_default());
+    }
+}
+
+/// Returns the previously installed directory (and rehydrates state) when a
+/// valid installation is found, so the UI can skip the install screens.
+#[tauri::command]
+pub fn get_install_state(state: State<'_, AppState>) -> Option<String> {
+    let file = state_file()?;
+    let raw = std::fs::read(file).ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&raw).ok()?;
+    let dir = PathBuf::from(json.get("installDir")?.as_str()?);
+    if !dir.exists() || util::find_launcher(&dir).is_none() {
+        return None;
+    }
+    // Recover the WebUI token from the config written at install time.
+    let token = std::fs::read(dir.join("config").join("webui.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v.get("token").and_then(|t| t.as_str()).map(str::to_string));
+    let mut inner = state.0.lock().ok()?;
+    inner.install_dir = Some(dir.clone());
+    if inner.webui_token.is_none() {
+        inner.webui_token = token;
+    }
+    Some(dir.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -108,7 +164,8 @@ pub async fn start_install(
     options: InstallOptions,
 ) -> Result<(), String> {
     let install_dir = PathBuf::from(&options.install_path);
-    std::fs::create_dir_all(&install_dir).map_err(|e| format!("创建安装目录失败：{e}"))?;
+    check_writable(&install_dir)
+        .map_err(|e| format!("无法写入安装目录（{e}），请更换安装位置后重试"))?;
 
     // The release build appends the full Shell package to the end of this exe,
     // so a normal run is a single self-contained file with no network download.
@@ -149,14 +206,18 @@ pub async fn start_install(
     emit(&app, "install-progress", 92.0, "正在写入配置...", "Configuring");
     write_runtime_config(&install_dir, &state).map_err(|e| e.to_string())?;
 
+    // Copy this exe into the install dir so shortcuts / autostart survive the
+    // user deleting the original download. On relaunch it detects the saved
+    // install state and goes straight to the launch flow instead of installing.
+    let launcher_exe = install_launcher_exe(&install_dir);
+
     if options.create_shortcut {
-        let _ = create_desktop_shortcut(&install_dir);
+        let _ = create_desktop_shortcut(&install_dir, &launcher_exe);
     }
-    if options.auto_start {
-        let _ = set_auto_start(&install_dir, true);
-    }
+    let _ = set_auto_start(&launcher_exe, options.auto_start);
 
     // Remember where we installed for later launch commands.
+    save_install_state(&install_dir);
     {
         let mut inner = state.0.lock().map_err(|_| "state poisoned".to_string())?;
         inner.install_dir = Some(install_dir.clone());
@@ -354,12 +415,28 @@ fn write_runtime_config(install_dir: &Path, state: &State<'_, AppState>) -> anyh
     Ok(())
 }
 
+/// Copy the running exe into the install dir and return the path shortcuts
+/// should target. Falls back to the current exe if the copy fails.
+fn install_launcher_exe(install_dir: &Path) -> PathBuf {
+    let current = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(_) => return install_dir.join("QQ Chat Exporter.exe"),
+    };
+    let dest = install_dir.join("QQ Chat Exporter.exe");
+    if current == dest {
+        return dest;
+    }
+    match std::fs::copy(&current, &dest) {
+        Ok(_) => dest,
+        Err(_) => current,
+    }
+}
+
 #[cfg(windows)]
-fn create_desktop_shortcut(install_dir: &Path) -> anyhow::Result<()> {
+fn create_desktop_shortcut(install_dir: &Path, target: &Path) -> anyhow::Result<()> {
     // Create a .lnk via a throwaway PowerShell one-liner (WScript.Shell).
     let desktop = dirs::desktop_dir().ok_or_else(|| anyhow::anyhow!("无法定位桌面目录"))?;
     let lnk = desktop.join("QQ Chat Exporter.lnk");
-    let target = std::env::current_exe()?;
     let ps = format!(
         "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{}');$s.TargetPath='{}';$s.WorkingDirectory='{}';$s.Save()",
         lnk.display(),
@@ -373,20 +450,18 @@ fn create_desktop_shortcut(install_dir: &Path) -> anyhow::Result<()> {
 }
 
 #[cfg(not(windows))]
-fn create_desktop_shortcut(_install_dir: &Path) -> anyhow::Result<()> {
+fn create_desktop_shortcut(_install_dir: &Path, _target: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
 #[cfg(windows)]
-fn set_auto_start(install_dir: &Path, enable: bool) -> anyhow::Result<()> {
+fn set_auto_start(target: &Path, enable: bool) -> anyhow::Result<()> {
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (run, _) = hkcu.create_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")?;
     if enable {
-        let exe = std::env::current_exe()?;
-        let _ = install_dir;
-        run.set_value("QQChatExporter", &exe.to_string_lossy().to_string())?;
+        run.set_value("QQChatExporter", &target.to_string_lossy().to_string())?;
     } else {
         let _ = run.delete_value("QQChatExporter");
     }
@@ -394,6 +469,6 @@ fn set_auto_start(install_dir: &Path, enable: bool) -> anyhow::Result<()> {
 }
 
 #[cfg(not(windows))]
-fn set_auto_start(_install_dir: &Path, _enable: bool) -> anyhow::Result<()> {
+fn set_auto_start(_target: &Path, _enable: bool) -> anyhow::Result<()> {
     Ok(())
 }

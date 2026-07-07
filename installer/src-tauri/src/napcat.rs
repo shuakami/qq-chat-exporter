@@ -47,6 +47,20 @@ fn store_credential(state: &State<'_, AppState>, cred: &str) {
     }
 }
 
+/// NapCat's WebUI expects `sha256(token + ".napcat")` as the login hash
+/// (see AuthHelper.generatePasswordHash in napcat-webui-backend).
+fn password_hash(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    hasher.update(b".napcat");
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 /// Authenticate and return a bearer credential, caching it in state.
 async fn ensure_login(state: &State<'_, AppState>) -> Result<String, String> {
     if let Some(c) = cached_credential(state) {
@@ -55,7 +69,7 @@ async fn ensure_login(state: &State<'_, AppState>) -> Result<String, String> {
     let tok = token(state)?;
     let resp = client()
         .post(format!("{}/api/auth/login", base()))
-        .json(&serde_json::json!({ "token": tok, "hash": tok }))
+        .json(&serde_json::json!({ "hash": password_hash(&tok) }))
         .send()
         .await
         .map_err(|e| format!("连接 NapCat WebUI 失败：{e}"))?;
@@ -64,9 +78,14 @@ async fn ensure_login(state: &State<'_, AppState>) -> Result<String, String> {
         .pointer("/data/Credential")
         .or_else(|| body.pointer("/data/credential"))
         .and_then(Value::as_str)
-        .or_else(|| body.get("data").and_then(Value::as_str))
-        .ok_or_else(|| "WebUI 登录失败：未返回凭证".to_string())?
-        .to_string();
+        .map(str::to_string)
+        .ok_or_else(|| {
+            let msg = body
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("未返回凭证");
+            format!("WebUI 登录失败：{msg}")
+        })?;
     store_credential(state, &cred);
     Ok(cred)
 }
@@ -165,7 +184,7 @@ pub async fn napcat_quick_login_list(
 /// Used to decide whether the Shell package must kill QQ first.
 #[tauri::command]
 pub async fn napcat_is_online(state: State<'_, AppState>, uin: String) -> Result<bool, String> {
-    let body = get_json(&state, "/api/QQLogin/CheckLoginStatus").await?;
+    let body = post_json(&state, "/api/QQLogin/CheckLoginStatus", serde_json::json!({})).await?;
     let data = body.get("data").unwrap_or(&body);
     let is_login = data
         .get("isLogin")
@@ -206,7 +225,15 @@ pub async fn napcat_quick_login(
 /// Fetch the current QR-login URL from NapCat and render it to a PNG data URL.
 #[tauri::command]
 pub async fn napcat_qrcode(state: State<'_, AppState>) -> Result<String, String> {
-    let body = get_json(&state, "/api/QQLogin/CheckLoginStatus").await?;
+    // GetQQLoginQrcode returns { data: { qrcode } }; fall back to the URL
+    // included in CheckLoginStatus if the dedicated endpoint has no code yet.
+    if let Ok(body) = post_json(&state, "/api/QQLogin/GetQQLoginQrcode", serde_json::json!({})).await {
+        let data = body.get("data").unwrap_or(&body);
+        if let Some(qr) = str_field(data, &["qrcode", "qrcodeurl", "qrcodeUrl", "url"]) {
+            return render_qr_png(qr);
+        }
+    }
+    let body = post_json(&state, "/api/QQLogin/CheckLoginStatus", serde_json::json!({})).await?;
     let data = body.get("data").unwrap_or(&body);
     let qr = str_field(data, &["qrcodeurl", "qrcodeUrl", "qrcode", "url"])
         .ok_or_else(|| "NapCat 尚未生成登录二维码".to_string())?;
@@ -216,7 +243,7 @@ pub async fn napcat_qrcode(state: State<'_, AppState>) -> Result<String, String>
 /// Poll whether login has completed (QR scanned or quick login done).
 #[tauri::command]
 pub async fn napcat_login_status(state: State<'_, AppState>) -> Result<bool, String> {
-    let body = get_json(&state, "/api/QQLogin/CheckLoginStatus").await?;
+    let body = post_json(&state, "/api/QQLogin/CheckLoginStatus", serde_json::json!({})).await?;
     let data = body.get("data").unwrap_or(&body);
     Ok(data
         .get("isLogin")
