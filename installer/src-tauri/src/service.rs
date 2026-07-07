@@ -64,9 +64,7 @@ pub fn start_service(state: State<'_, AppState>) -> Result<(), String> {
         inner.install_dir().ok_or_else(|| "尚未安装".to_string())?
     };
 
-    // Clear any stale/duplicate runtime before spawning a fresh one.
-    util::installer_log(&dir, "starting service: killing stale runtime");
-    kill_stale_runtime();
+    util::installer_log(&dir, "starting service");
 
     let launcher = util::find_launcher(&dir)
         .ok_or_else(|| "未找到启动脚本（launcher-user.bat）".to_string())?;
