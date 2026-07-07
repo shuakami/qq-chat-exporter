@@ -53,6 +53,7 @@ pub mod once_cell_version {
 }
 
 /// 主版本号。
+#[must_use]
 pub fn major_version() -> &'static str {
     VERSION.get().split('.').next().unwrap_or("5")
 }

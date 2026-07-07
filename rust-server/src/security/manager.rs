@@ -182,6 +182,7 @@ impl SecurityManager {
     }
 
     /// 计算 security.json 所在目录（issue #272 优先级）。
+    #[must_use]
     pub fn resolve_security_dir() -> PathBuf {
         if let Some(env_override) = std::env::var_os("QCE_CONFIG_DIR") {
             let trimmed = env_override.to_string_lossy().trim().to_string();

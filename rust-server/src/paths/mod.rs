@@ -26,6 +26,7 @@ impl Default for PathManager {
 
 impl PathManager {
     /// 创建路径管理器。
+    #[must_use]
     pub fn new() -> Self {
         Self {
             custom_output_dir: RwLock::new(None),
@@ -41,6 +42,7 @@ impl PathManager {
     }
 
     /// 清理用户从文件管理器复制来的路径（去引号、去首尾空白）。
+    #[must_use]
     pub fn sanitize_path(input: &str) -> String {
         let mut cleaned = input.trim();
         if (cleaned.starts_with('"') && cleaned.ends_with('"') && cleaned.len() >= 2)

@@ -29,6 +29,7 @@ pub enum ErrorType {
 
 impl ErrorType {
     /// TS 侧的字符串常量。
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Validation => "VALIDATION_ERROR",
@@ -71,12 +72,14 @@ impl ApiError {
     }
 
     /// 指定 HTTP 状态。
+    #[must_use]
     pub fn with_status(mut self, status: StatusCode) -> Self {
         self.status = status;
         self
     }
 
     /// 附加上下文。
+    #[must_use]
     pub fn with_context(mut self, context: Value) -> Self {
         self.context = Some(context);
         self
@@ -111,6 +114,7 @@ impl std::error::Error for ApiError {}
 pub struct RequestId(pub String);
 
 /// 生成请求 ID（与 TS `generateRequestId` 一致的形态：`req_<ts>_<rand>`）。
+#[must_use]
 pub fn generate_request_id() -> String {
     let now = Utc::now().timestamp_millis();
     let suffix = uuid::Uuid::new_v4().simple().to_string();
@@ -118,6 +122,7 @@ pub fn generate_request_id() -> String {
 }
 
 /// 成功响应。
+#[must_use]
 pub fn success(data: Value, request_id: &str) -> Response {
     Json(json!({
         "success": true,
@@ -129,6 +134,7 @@ pub fn success(data: Value, request_id: &str) -> Response {
 }
 
 /// 错误响应。
+#[must_use]
 pub fn error(err: &ApiError, request_id: &str) -> Response {
     let mut context = json!({
         "code": err.code,

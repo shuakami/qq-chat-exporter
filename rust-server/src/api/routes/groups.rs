@@ -30,6 +30,7 @@ fn page_and_limit(params: &HashMap<String, String>) -> (usize, usize) {
 }
 
 /// 文件名安全化（对应 TS `replace(/[<>:"/\\|?*]/g, '_')`）。
+#[must_use]
 pub fn sanitize_file_component(name: &str, max_len: usize) -> String {
     let replaced: String = name
         .chars()
@@ -45,6 +46,7 @@ pub fn sanitize_file_component(name: &str, max_len: usize) -> String {
 }
 
 /// 时间戳文件名片段（对应 TS `new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)`）。
+#[must_use]
 pub fn timestamp_slug() -> String {
     let iso = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     iso.replace([':', '.'], "-").chars().take(19).collect()
@@ -134,6 +136,7 @@ pub async fn group_detail(
 }
 
 /// bridge 侧把 `Map<uin, info>` 序列化成对象或数组，两种形态都取成员数组。
+#[must_use]
 pub fn extract_member_list(result: &Value) -> Vec<Value> {
     let infos = result
         .get("result")
@@ -212,12 +215,11 @@ pub async fn group_join_requests(
                     .iter()
                     .filter(|item| {
                         item.get("groupId")
-                            .map(|g| match g {
+                            .is_some_and(|g| match g {
                                 Value::String(s) => s == &group_code,
                                 Value::Number(n) => n.to_string() == group_code,
                                 _ => false,
                             })
-                            .unwrap_or(false)
                     })
                     .cloned()
                     .collect()
@@ -481,8 +483,7 @@ pub async fn export_group_essence(
     }
     let file_size = tokio::fs::metadata(&file_path)
         .await
-        .map(|meta| meta.len())
-        .unwrap_or(0);
+        .map_or(0, |meta| meta.len());
 
     response::success(
         json!({
@@ -642,8 +643,7 @@ pub async fn export_group_avatars(
 
     let file_size = tokio::fs::metadata(&zip_file_path)
         .await
-        .map(|meta| meta.len())
-        .unwrap_or(0);
+        .map_or(0, |meta| meta.len());
 
     response::success(
         json!({
