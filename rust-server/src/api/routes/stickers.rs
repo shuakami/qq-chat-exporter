@@ -340,11 +340,10 @@ async fn normalize_sticker_extension(path: &FsPath) -> PathBuf {
         return path.to_path_buf();
     }
     let target = path.with_extension(&detected[1..]);
-    if tokio::fs::remove_file(&target).await.is_ok() || !target.exists() {
-        if tokio::fs::rename(path, &target).await.is_ok() {
+    if (tokio::fs::remove_file(&target).await.is_ok() || !target.exists())
+        && tokio::fs::rename(path, &target).await.is_ok() {
             return target;
         }
-    }
     path.to_path_buf()
 }
 
@@ -356,13 +355,11 @@ fn guess_initial_extension(source: &str) -> String {
         source
     };
     FsPath::new(path_part)
-        .extension()
-        .map(|e| format!(".{}", e.to_string_lossy()))
-        .unwrap_or_else(|| ".gif".to_string())
+        .extension().map_or_else(|| ".gif".to_string(), |e| format!(".{}", e.to_string_lossy()))
 }
 
 /// 下载或复制单个表情文件。
-async fn save_sticker(state: &SharedState, sticker: &Value, stickers_dir: &FsPath) -> bool {
+async fn save_sticker(sticker: &Value, stickers_dir: &FsPath) -> bool {
     let source = str_of(sticker, "path");
     if source.is_empty() {
         return false;
@@ -390,7 +387,7 @@ async fn save_sticker(state: &SharedState, sticker: &Value, stickers_dir: &FsPat
 }
 
 /// 导出单个表情包到目录，返回成功下载数。
-async fn export_pack_to_dir(state: &SharedState, pack: &Value, pack_dir: &FsPath) -> usize {
+async fn export_pack_to_dir(_state: &SharedState, pack: &Value, pack_dir: &FsPath) -> usize {
     let _ = tokio::fs::create_dir_all(pack_dir).await;
     if let Ok(info) = serde_json::to_string_pretty(pack) {
         let _ = tokio::fs::write(pack_dir.join("pack_info.json"), info).await;
@@ -403,7 +400,7 @@ async fn export_pack_to_dir(state: &SharedState, pack: &Value, pack_dir: &FsPath
     // 分批并发下载（并发度 10）。
     for batch in stickers.chunks(10) {
         let results = futures_util::future::join_all(
-            batch.iter().map(|sticker| save_sticker(state, sticker, &stickers_dir)),
+            batch.iter().map(|sticker| save_sticker(sticker, &stickers_dir)),
         )
         .await;
         success += results.into_iter().filter(|ok| *ok).count();

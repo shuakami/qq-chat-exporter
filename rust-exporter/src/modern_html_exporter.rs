@@ -1482,7 +1482,7 @@ async fn start_chunk(
 async fn finish_chunk(
     chunk: &mut ChunkState,
     chunks_meta: &mut Vec<Value>,
-    chunk_file_rel: &dyn Fn(&str) -> String,
+    chunk_file_rel: &(dyn Fn(&str) -> String + Sync),
 ) -> ExportResultT<()> {
     let Some(mut ws) = chunk.writer.take() else {
         return Ok(());

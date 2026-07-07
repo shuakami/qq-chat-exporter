@@ -72,12 +72,9 @@ pub async fn auth(
     request: Request<Body>,
 ) -> Response {
     let ip = client_ip(&request);
-    let body_bytes = match axum::body::to_bytes(request.into_body(), 1024 * 1024).await {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            let err = ApiError::validation("缺少访问令牌", "MISSING_TOKEN");
-            return response::error(&err, &request_id);
-        }
+    let Ok(body_bytes) = axum::body::to_bytes(request.into_body(), 1024 * 1024).await else {
+        let err = ApiError::validation("缺少访问令牌", "MISSING_TOKEN");
+        return response::error(&err, &request_id);
     };
     let body: Value = serde_json::from_slice(&body_bytes).unwrap_or(Value::Null);
     let Some(token) = body.get("token").and_then(Value::as_str).filter(|t| !t.is_empty()) else {

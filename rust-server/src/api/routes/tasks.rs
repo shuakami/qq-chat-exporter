@@ -11,8 +11,7 @@ use crate::api::state::SharedState;
 fn created_at_ms(task: &Value) -> i64 {
     match task.get("createdAt") {
         Some(Value::String(s)) => chrono::DateTime::parse_from_rfc3339(s)
-            .map(|dt| dt.timestamp_millis())
-            .unwrap_or(0),
+            .map_or(0, |dt| dt.timestamp_millis()),
         Some(Value::Number(n)) => n.as_i64().unwrap_or(0),
         _ => 0,
     }

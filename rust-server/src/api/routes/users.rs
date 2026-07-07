@@ -18,7 +18,7 @@ pub async fn lookup_user(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
-    let uin = params.get("uin").map(String::as_str).unwrap_or("");
+    let uin = params.get("uin").map_or("", String::as_str);
     if uin.trim().is_empty() {
         let err = ApiError::validation("uin 参数不能为空", "INVALID_UIN");
         return response::error(&err, &request_id);

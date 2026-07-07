@@ -211,14 +211,15 @@ pub async fn recent_contacts(
             let peer_uid = str_of(contact, "peerUid");
             let peer_uin = str_of(contact, "peerUin");
             let avatar_key = if peer_uin.is_empty() { &peer_uid } else { &peer_uin };
+            let peer_name = {
+                let name = str_of(contact, "peerName");
+                if name.is_empty() { str_of(contact, "remark") } else { name }
+            };
             json!({
                 "chatType": contact.get("chatType").cloned().unwrap_or(Value::Null),
                 "peerUid": peer_uid,
                 "peerUin": peer_uin,
-                "peerName": {
-                    let name = str_of(contact, "peerName");
-                    if name.is_empty() { str_of(contact, "remark") } else { name }
-                },
+                "peerName": peer_name,
                 "remark": str_of(contact, "remark"),
                 "msgTime": contact.get("msgTime").cloned().unwrap_or(Value::Null),
                 "sendNickName": str_of(contact, "sendNickName"),
