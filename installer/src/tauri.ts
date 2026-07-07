@@ -56,8 +56,10 @@ const api = {
     { dir }
   ),
 
-  /** Install dir of an existing installation, or null on first run. */
+  /** Install dir of an existing installation, or null on first run / version mismatch. */
   getInstallState: () => invoke<string | null>('get_install_state'),
+  /** Previously-used install dir (even on version mismatch), for pre-filling. */
+  getSavedInstallDir: () => invoke<string | null>('get_saved_install_dir'),
 
   // --- installation -----------------------------------------------------
   startInstall: (options: InstallOptions) => invoke<void>('start_install', { options }),

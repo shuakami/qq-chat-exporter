@@ -123,18 +123,27 @@ fn state_file() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("qce-installer").join("state.json"))
 }
 
+fn current_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 fn save_install_state(install_dir: &Path) {
     if let Some(file) = state_file() {
         if let Some(parent) = file.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let json = serde_json::json!({ "installDir": install_dir.to_string_lossy() });
+        let json = serde_json::json!({
+            "installDir": install_dir.to_string_lossy(),
+            "version": current_version(),
+        });
         let _ = std::fs::write(file, serde_json::to_vec_pretty(&json).unwrap_or_default());
     }
 }
 
 /// Returns the previously installed directory (and rehydrates state) when a
-/// valid installation is found, so the UI can skip the install screens.
+/// valid installation is found **and** the version matches. If the running
+/// exe is a newer version than what was installed, returns None so the UI
+/// triggers a fresh install (overlay) to update the files.
 #[tauri::command]
 pub fn get_install_state(state: State<'_, AppState>) -> Option<String> {
     let file = state_file()?;
@@ -142,6 +151,15 @@ pub fn get_install_state(state: State<'_, AppState>) -> Option<String> {
     let json: serde_json::Value = serde_json::from_slice(&raw).ok()?;
     let dir = PathBuf::from(json.get("installDir")?.as_str()?);
     if !dir.exists() || util::find_launcher(&dir).is_none() {
+        return None;
+    }
+    // Version mismatch → need re-install to update extracted files.
+    let saved_ver = json.get("version").and_then(|v| v.as_str()).unwrap_or("");
+    if saved_ver != current_version() {
+        // Rehydrate the install dir so the UI can pre-fill the path.
+        if let Ok(mut inner) = state.0.lock() {
+            inner.install_dir = Some(dir.clone());
+        }
         return None;
     }
     // Recover the WebUI token from the config written at install time.
@@ -155,6 +173,20 @@ pub fn get_install_state(state: State<'_, AppState>) -> Option<String> {
         inner.webui_token = token;
     }
     Some(dir.to_string_lossy().into_owned())
+}
+
+/// Return the previously-used install path (even when the version no longer
+/// matches) so the UI can pre-fill the directory on an upgrade.
+#[tauri::command]
+pub fn get_saved_install_dir(state: State<'_, AppState>) -> Option<String> {
+    // First try state (set by get_install_state on version mismatch).
+    if let Some(dir) = state.0.lock().ok().and_then(|s| s.install_dir()) {
+        return Some(dir.to_string_lossy().into_owned());
+    }
+    let file = state_file()?;
+    let raw = std::fs::read(file).ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&raw).ok()?;
+    json.get("installDir").and_then(|v| v.as_str()).map(str::to_string)
 }
 
 #[tauri::command]
