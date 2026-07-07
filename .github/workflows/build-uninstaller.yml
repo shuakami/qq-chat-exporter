@@ -1,12 +1,9 @@
 name: Build QCE Uninstaller (Tauri / Windows)
 
+# The uninstaller is bundled INTO the installer via build-installer.yml.
+# This workflow only runs on PRs touching uninstaller/ for CI validation.
+
 on:
-  push:
-    tags:
-      - 'v*.*.*'
-      - 'v*.*.*-alpha.*'
-      - 'v*.*.*-beta.*'
-      - 'v*.*.*-rc.*'
   pull_request:
     paths:
       - 'uninstaller/**'
@@ -14,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-uninstaller:
@@ -46,42 +43,15 @@ jobs:
         with:
           workspaces: uninstaller/src-tauri
 
-      - name: Sync version (from tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
-          VERSION="${VERSION#v}"
-          node -e "const f='src-tauri/tauri.conf.json';const j=require('./'+f);j.version='${VERSION}';require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
-          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
-          echo "uninstaller version -> ${VERSION}"
-
       - name: Install frontend dependencies
         run: npm install
 
       - name: Build Tauri uninstaller (exe only)
         run: npm run tauri build -- --no-bundle
 
-      - name: Collect artifacts
-        run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
-          [ "$VERSION" = "$GITHUB_REF" ] && VERSION="dev"
-          mkdir -p dist-uninstaller
-          cp "src-tauri/target/release/qce-uninstaller.exe" "dist-uninstaller/QQChatExporter-Uninstaller-${VERSION}.exe"
-          ls -lh dist-uninstaller
-
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: qce-uninstaller-windows
-          path: uninstaller/dist-uninstaller/*.exe
+          path: uninstaller/src-tauri/target/release/qce-uninstaller.exe
           retention-days: 7
-
-      - name: Attach to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: uninstaller/dist-uninstaller/*.exe
-          draft: false
-          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -203,6 +203,8 @@ export default function App() {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
   const [busy, setBusy] = useState(false);
+  const [loginElapsed, setLoginElapsed] = useState(0);
+  const loginTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [exiting, setExiting] = useState(false);
   const [webuiUrl, setWebuiUrl] = useState<string>('');
   const [setupHint, setSetupHint] = useState('请稍候，我们正在为您初始化导出组件...');
@@ -319,6 +321,19 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  // Login elapsed timer — starts when loading accounts, clears when done.
+  useEffect(() => {
+    if (step === 'setup' && setupStep === 'login' && busy) {
+      setLoginElapsed(0);
+      loginTimerRef.current = setInterval(() => setLoginElapsed((s) => s + 1), 1000);
+    } else {
+      if (loginTimerRef.current) clearInterval(loginTimerRef.current);
+    }
+    return () => {
+      if (loginTimerRef.current) clearInterval(loginTimerRef.current);
+    };
+  }, [step, setupStep, busy]);
+
   // When entering the login step, start the service so we can query NapCat.
   useEffect(() => {
     if (step !== 'setup' || setupStep !== 'login') return;
@@ -326,6 +341,7 @@ export default function App() {
     (async () => {
       setBusy(true);
       setLoginError('');
+      setLoginElapsed(0);
       try {
         setPackageKind(await api.detectPackageKind());
         await api.startService();
@@ -724,6 +740,11 @@ export default function App() {
                   <p className="text-[var(--color-text-secondary)] text-[13px]">
                     {loginMethod === 'quick' ? '请选择需要登录的账号' : '请使用手机端扫码授权'}
                   </p>
+                  {busy && (
+                    <p className="text-[11px] text-[var(--color-text-tertiary)] mt-1.5">
+                      正在加载账号列表，可能需要约 20 秒...
+                    </p>
+                  )}
                 </div>
 
                 {loginMethod === 'quick' ? (
@@ -800,6 +821,47 @@ export default function App() {
                     {loginMethod === 'quick' ? '二维码登录' : '快速登录'}
                   </button>
                 </div>
+
+                {busy && loginElapsed >= 30 && (
+                  <div className="mt-3 animate-fade-in">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={async () => {
+                        setBusy(true);
+                        setLoginError('');
+                        setLoginElapsed(0);
+                        try {
+                          await api.stopService();
+                          await new Promise((r) => setTimeout(r, 1500));
+                          await api.startService();
+                          let list: Awaited<ReturnType<typeof api.getQuickLoginList>> = [];
+                          for (let attempt = 0; attempt < 15; attempt++) {
+                            try {
+                              list = await api.getQuickLoginList();
+                              if (list.length > 0) break;
+                            } catch { /* retry */ }
+                            if (attempt < 14) await new Promise((r) => setTimeout(r, 2000));
+                          }
+                          setAccounts(list);
+                          if (list.length > 0) {
+                            setSelectedUin((prev) => prev || list[0].uin);
+                            setLoginMethod('quick');
+                          } else {
+                            setLoginMethod('qrcode');
+                          }
+                        } catch (err) {
+                          setLoginError(String(err));
+                          setLoginMethod('qrcode');
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      加载时间过长？点击修复
+                    </Button>
+                  </div>
+                )}
 
                 {loginMethod === 'quick' && (
                   <div className="w-full mt-auto mb-4 max-w-[240px]">

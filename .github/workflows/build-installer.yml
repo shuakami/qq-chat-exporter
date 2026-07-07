@@ -10,6 +10,7 @@ on:
   pull_request:
     paths:
       - 'installer/**'
+      - 'uninstaller/**'
       - '.github/workflows/build-installer.yml'
   workflow_dispatch:
 
@@ -44,7 +45,9 @@ jobs:
       - name: "Rust 缓存"
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: installer/src-tauri
+          workspaces: |
+            installer/src-tauri
+            uninstaller/src-tauri
 
       - name: "同步版本号 (from tag)"
         if: startsWith(github.ref, 'refs/tags/')
@@ -55,8 +58,18 @@ jobs:
           cd installer
           node -e "const f='src-tauri/tauri.conf.json';const j=require('./'+f);j.version='${VERSION}';require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
           sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
-          echo "installer version -> ${VERSION}"
+          cd ../uninstaller
+          node -e "const f='src-tauri/tauri.conf.json';const j=require('./'+f);j.version='${VERSION}';require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
+          echo "installer + uninstaller version -> ${VERSION}"
         working-directory: .
+
+      # Build the uninstaller first so we can embed it into the Shell package.
+      - name: "构建卸载器"
+        run: |
+          cd ../uninstaller
+          npm install
+          npm run tauri build -- --no-bundle
 
       # 完整 Shell 包会被直接拼接到 exe 尾部（zip 从文件尾部定位，
       # exe 仍可正常执行），安装器运行时从自身解压，无需联网下载。
@@ -68,6 +81,29 @@ jobs:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=4096
           QCE_VERSION: ${{ github.ref_name }}
+
+      # Inject uninstaller exe into the Shell zip so it gets extracted
+      # to the install directory alongside the main application files.
+      - name: "注入卸载器到 Shell 包"
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          UNINSTALLER="../uninstaller/src-tauri/target/release/qce-uninstaller.exe"
+          PKG=$(ls NapCat-QCE-Windows-x64-*.zip 2>/dev/null | head -1 || true)
+          if [ -n "$PKG" ] && [ -f "$UNINSTALLER" ]; then
+            # Determine the top-level directory inside the zip
+            TOP_DIR=$(python3 -c "import zipfile,sys;z=zipfile.ZipFile(sys.argv[1]);print(z.namelist()[0].split('/')[0])" "$PKG")
+            # Add uninstaller exe into the zip under the top-level directory
+            python3 -c "
+import zipfile,sys
+z=zipfile.ZipFile(sys.argv[1],'a')
+z.write(sys.argv[2], f'{sys.argv[3]}/Uninstall QQ Chat Exporter.exe')
+z.close()
+" "$PKG" "$UNINSTALLER" "$TOP_DIR"
+            echo "Injected uninstaller into $PKG under $TOP_DIR/"
+          else
+            echo "Warning: Shell package or uninstaller not found, skipping injection"
+          fi
+        working-directory: .
 
       - name: "安装前端依赖"
         run: npm install
