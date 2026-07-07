@@ -17,13 +17,43 @@ fn created_at_ms(task: &Value) -> i64 {
     }
 }
 
+/// 把内部任务格式转换为前端 `ExportTask` 接口期望的结构：
+/// - `taskId` → 额外加 `id` 字段（前端以 `id` 做匹配）
+/// - `filter.startTime` / `filter.endTime` 提升到顶层（前端直接读 `task.startTime`）
+fn normalize_task_for_frontend(task: &Value) -> Value {
+    let mut t = task.clone();
+    if let Some(obj) = t.as_object_mut() {
+        // id = taskId
+        if let Some(tid) = obj.get("taskId").cloned() {
+            obj.insert("id".to_string(), tid);
+        }
+        // flatten filter.startTime / filter.endTime
+        if let Some(filter) = obj.get("filter").cloned() {
+            if !obj.contains_key("startTime") {
+                if let Some(v) = filter.get("startTime") {
+                    obj.insert("startTime".to_string(), v.clone());
+                }
+            }
+            if !obj.contains_key("endTime") {
+                if let Some(v) = filter.get("endTime") {
+                    obj.insert("endTime".to_string(), v.clone());
+                }
+            }
+        }
+    }
+    t
+}
+
 /// `GET /api/tasks` — 全部导出任务（按创建时间倒序）。
 pub async fn list_tasks(
     State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
 ) -> Response {
     let tasks_guard = state.export_tasks.lock().await;
-    let mut tasks: Vec<Value> = tasks_guard.values().cloned().collect();
+    let mut tasks: Vec<Value> = tasks_guard
+        .values()
+        .map(normalize_task_for_frontend)
+        .collect();
     drop(tasks_guard);
     tasks.sort_by_key(|task| std::cmp::Reverse(created_at_ms(task)));
     response::success(
@@ -43,7 +73,7 @@ pub async fn get_task(
 ) -> Response {
     let tasks = state.export_tasks.lock().await;
     match tasks.get(&task_id) {
-        Some(task) => response::success(task.clone(), &request_id),
+        Some(task) => response::success(normalize_task_for_frontend(task), &request_id),
         None => {
             let err = ApiError::not_found("任务不存在", "TASK_NOT_FOUND");
             response::error(&err, &request_id)
