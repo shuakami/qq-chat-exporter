@@ -32,6 +32,7 @@ chrono = { version = "0.4", features = ["clock"] }
 qrcode = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
 futures-util = "0.3"
+sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
