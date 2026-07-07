@@ -196,6 +196,12 @@ pub async fn start_install(
     options: InstallOptions,
 ) -> Result<(), String> {
     let install_dir = PathBuf::from(&options.install_path);
+
+    // Kill any running NapCat / headless QQ first — they hold file locks on
+    // the install directory that would make extraction fail with "另一个程序
+    // 正在使用此文件".
+    crate::service::kill_stale_runtime();
+
     check_writable(&install_dir)
         .map_err(|e| format!("无法写入安装目录（{e}），请更换安装位置后重试"))?;
 
