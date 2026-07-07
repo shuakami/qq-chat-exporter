@@ -143,6 +143,9 @@ const INSTALL_TIPS = [
 
 const FRAMEWORK_DOWNLOAD_URL = 'https://github.com/shuakami/qq-chat-exporter/releases/latest';
 
+const isAlreadyLoggedIn = (msg: string) =>
+  msg.includes('已登录') || /is\s*logined|already\s*log/i.test(msg);
+
 export default function App() {
   const [step, setStep] = useState<InstallStep>('welcome');
   const [setupStep, setSetupStep] = useState<SetupStep>('intro');
@@ -292,16 +295,19 @@ export default function App() {
         setPackageKind(await api.detectPackageKind());
         await api.startService();
         // NapCat needs a few seconds to boot its WebUI; retry up to 15 times
-        // with a 2-second gap so we don't give up before it's ready.
+        // with a 2-second gap so we don't give up before it's ready. An empty
+        // list right after boot usually means NapCat hasn't enumerated the
+        // login history yet, so keep retrying until it's non-empty.
         let list: Awaited<ReturnType<typeof api.getQuickLoginList>> = [];
         for (let attempt = 0; attempt < 15; attempt++) {
           if (cancelled) return;
           try {
             list = await api.getQuickLoginList();
-            break;
+            if (list.length > 0) break;
           } catch {
-            if (attempt < 14) await new Promise((r) => setTimeout(r, 2000));
+            /* WebUI not up yet, or auth not ready — retry below */
           }
+          if (attempt < 14) await new Promise((r) => setTimeout(r, 2000));
         }
         if (cancelled) return;
         setAccounts(list);
@@ -370,8 +376,9 @@ export default function App() {
         const err = res.error || '快速登录失败';
         // NapCat returns this when the account is already logged in via
         // desktop QQ — route to the kill-QQ confirmation instead of just
-        // showing an error string.
-        if (err.includes('已登录')) {
+        // showing an error string. The WebUI backend replies with the English
+        // "QQ Is Logined" while the shell core uses "当前账号(x)已登录".
+        if (isAlreadyLoggedIn(err)) {
           setSetupStep('warning');
           return;
         }
@@ -381,7 +388,7 @@ export default function App() {
       startConfiguring();
     } catch (err) {
       const msg = String(err);
-      if (msg.includes('已登录')) {
+      if (isAlreadyLoggedIn(msg)) {
         setSetupStep('warning');
         return;
       }

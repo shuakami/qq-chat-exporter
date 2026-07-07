@@ -38,6 +38,12 @@ fn token(state: &State<'_, AppState>) -> Result<String, String> {
         .ok_or_else(|| "尚未初始化 WebUI 令牌（请先完成安装）".to_string())
 }
 
+fn log(state: &State<'_, AppState>, msg: &str) {
+    if let Some(dir) = state.0.lock().ok().and_then(|s| s.install_dir()) {
+        crate::util::installer_log(&dir, msg);
+    }
+}
+
 fn cached_credential(state: &State<'_, AppState>) -> Option<(String, u16)> {
     let inner = state.0.lock().ok()?;
     let cred = inner.credential.clone()?;
@@ -49,6 +55,16 @@ fn store_credential(state: &State<'_, AppState>, cred: &str, port: u16) {
     if let Ok(mut s) = state.0.lock() {
         s.credential = Some(cred.to_string());
         s.webui_port = Some(port);
+    }
+}
+
+/// Drop the cached credential/port so the next call re-probes ports and
+/// re-authenticates. Needed whenever NapCat restarts: the old port may be
+/// gone (connection error) or the old credential rejected (Unauthorized).
+fn invalidate_credential(state: &State<'_, AppState>) {
+    if let Ok(mut s) = state.0.lock() {
+        s.credential = None;
+        s.webui_port = None;
     }
 }
 
@@ -124,6 +140,7 @@ async fn ensure_login(state: &State<'_, AppState>) -> Result<(String, u16), Stri
                         }
                     }
                     store_credential(state, &cred, port);
+                    log(state, &format!("WebUI login ok on port {port}"));
                     return Ok((cred, port));
                 }
                 Err(e) => {
@@ -136,30 +153,70 @@ async fn ensure_login(state: &State<'_, AppState>) -> Result<(String, u16), Stri
             }
         }
     }
+    log(state, &format!("WebUI login failed on all ports: {last_err}"));
     Err(last_err)
 }
 
-async fn get_json(state: &State<'_, AppState>, path: &str) -> Result<Value, String> {
+async fn send_once(
+    state: &State<'_, AppState>,
+    path: &str,
+    body: Option<&Value>,
+) -> Result<Value, String> {
     let (cred, port) = ensure_login(state).await?;
-    let resp = client()
-        .get(format!("{}{}", base_url(port), path))
-        .bearer_auth(&cred)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let url = format!("{}{}", base_url(port), path);
+    let req = match body {
+        Some(b) => client().post(&url).bearer_auth(&cred).json(b),
+        None => client().get(&url).bearer_auth(&cred),
+    };
+    let resp = req.send().await.map_err(|e| e.to_string())?;
     resp.json().await.map_err(|e| e.to_string())
 }
 
+/// Single entry point for WebUI API calls. NapCat restarts whenever a login
+/// attempt fails or QQ relaunches, which kills the port we cached and voids
+/// the credential — so on a connection error or an `Unauthorized` reply we
+/// invalidate the cache and retry once against a freshly probed instance.
+async fn request(
+    state: &State<'_, AppState>,
+    path: &str,
+    body: Option<Value>,
+) -> Result<Value, String> {
+    let mut retried = false;
+    loop {
+        match send_once(state, path, body.as_ref()).await {
+            Ok(v) => {
+                let unauthorized = v
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .map(|m| m.eq_ignore_ascii_case("unauthorized"))
+                    .unwrap_or(false);
+                if unauthorized && !retried {
+                    log(state, &format!("{path}: credential rejected, re-authenticating"));
+                    invalidate_credential(state);
+                    retried = true;
+                    continue;
+                }
+                return Ok(v);
+            }
+            Err(e) if !retried => {
+                log(state, &format!("{path}: request failed ({e}), re-probing NapCat"));
+                invalidate_credential(state);
+                retried = true;
+            }
+            Err(e) => {
+                log(state, &format!("{path}: request failed after retry ({e})"));
+                return Err(e);
+            }
+        }
+    }
+}
+
+async fn get_json(state: &State<'_, AppState>, path: &str) -> Result<Value, String> {
+    request(state, path, None).await
+}
+
 async fn post_json(state: &State<'_, AppState>, path: &str, body: Value) -> Result<Value, String> {
-    let (cred, port) = ensure_login(state).await?;
-    let resp = client()
-        .post(format!("{}{}", base_url(port), path))
-        .bearer_auth(&cred)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    resp.json().await.map_err(|e| e.to_string())
+    request(state, path, Some(body)).await
 }
 
 #[derive(Serialize)]
@@ -191,6 +248,17 @@ pub async fn napcat_quick_login_list(
         Ok(v) if v.get("data").map(|d| !d.is_null()).unwrap_or(false) => v,
         _ => get_json(&state, "/api/QQLogin/GetQuickLoginList").await?,
     };
+    // Auth/API failure must surface as an error so the UI keeps retrying
+    // instead of rendering an empty account list.
+    if body.get("code").and_then(Value::as_i64).unwrap_or(-1) != 0 {
+        let msg = body
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("获取快速登录列表失败")
+            .to_string();
+        log(&state, &format!("quick_login_list failed: {msg}"));
+        return Err(msg);
+    }
     let arr = body
         .get("data")
         .and_then(Value::as_array)
@@ -249,6 +317,7 @@ pub async fn napcat_quick_login(
     state: State<'_, AppState>,
     uin: String,
 ) -> Result<LoginResult, String> {
+    log(&state, &format!("quick login requested for {uin}"));
     let body = post_json(
         &state,
         "/api/QQLogin/SetQuickLogin",
@@ -257,8 +326,16 @@ pub async fn napcat_quick_login(
     .await?;
     let code = body.get("code").and_then(Value::as_i64).unwrap_or(-1);
     if code == 0 {
+        log(&state, &format!("quick login accepted for {uin}"));
         Ok(LoginResult { ok: true, error: None })
     } else {
+        log(
+            &state,
+            &format!(
+                "quick login rejected for {uin}: {}",
+                body.get("message").and_then(Value::as_str).unwrap_or("?")
+            ),
+        );
         Ok(LoginResult {
             ok: false,
             error: Some(

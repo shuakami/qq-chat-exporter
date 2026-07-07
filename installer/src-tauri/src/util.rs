@@ -54,6 +54,28 @@ pub fn log_file_path(install_dir: &Path) -> PathBuf {
     install_dir.join("logs").join("qce-runtime.log")
 }
 
+/// Append a timestamped line from the installer itself into the runtime log,
+/// so "查看运行日志" shows installer activity alongside NapCat/QCE output.
+pub fn installer_log(install_dir: &Path, msg: &str) {
+    use std::io::Write;
+    let path = log_file_path(install_dir);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let line = format!(
+        "{} [installer] {}\n",
+        chrono::Local::now().format("%m-%d %H:%M:%S"),
+        msg
+    );
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
 /// Find the Windows launcher batch file inside an extracted shell package.
 /// Prefers the non-elevated, no-pause variant so nothing blocks the pipe.
 pub fn find_launcher(install_dir: &Path) -> Option<PathBuf> {

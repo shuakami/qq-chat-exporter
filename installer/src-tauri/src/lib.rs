@@ -20,9 +20,14 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(windows)]
+const AUMID: &str = "wiki.sdjz.qce.installer";
+
 /// Windows toast notifications require a registered AppUserModelID.
-/// Non-MSIX portable apps must set one explicitly, otherwise the
-/// notification silently fails.
+/// Setting it on the process is not enough for an unpackaged (non-MSIX)
+/// app: the AUMID must also exist under
+/// `HKCU\Software\Classes\AppUserModelId\<AUMID>` with a DisplayName,
+/// otherwise the toast is silently dropped by the notification platform.
 #[cfg(windows)]
 fn register_aumid() {
     extern "system" {
@@ -30,12 +35,24 @@ fn register_aumid() {
     }
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
-    let id: Vec<u16> = OsStr::new("wiki.sdjz.qce.installer")
+    let id: Vec<u16> = OsStr::new(AUMID)
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
     unsafe {
         SetCurrentProcessExplicitAppUserModelID(id.as_ptr());
+    }
+
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok((key, _)) =
+        hkcu.create_subkey(format!(r"Software\Classes\AppUserModelId\{AUMID}"))
+    {
+        let _ = key.set_value("DisplayName", &"QQ Chat Exporter");
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = key.set_value("IconUri", &exe.to_string_lossy().to_string());
+        }
     }
 }
 
@@ -92,12 +109,19 @@ pub fn run() {
                 let _ = window.hide();
                 // Notify the user the app is still running in the background.
                 use tauri_plugin_notification::NotificationExt;
-                let _ = window.app_handle()
+                let result = window.app_handle()
                     .notification()
                     .builder()
                     .title("QQ Chat Exporter")
                     .body("已最小化到系统托盘，服务继续运行中")
                     .show();
+                let state = window.app_handle().state::<AppState>();
+                if let Some(dir) = state.0.lock().ok().and_then(|s| s.install_dir()) {
+                    match result {
+                        Ok(()) => util::installer_log(&dir, "window hidden to tray, toast shown"),
+                        Err(e) => util::installer_log(&dir, &format!("tray toast failed: {e}")),
+                    }
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
