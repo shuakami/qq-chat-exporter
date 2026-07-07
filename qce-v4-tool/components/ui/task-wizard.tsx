@@ -5,12 +5,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./dialog"
 import { Button } from "./button"
 import { Input } from "./input"
 import { Textarea } from "./textarea"
+import { DateTimeInputGroup } from "./date-input-group"
 import { Label } from "./label"
 import { Badge } from "./badge"
 import { Separator } from "./separator"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import {
-  Users, User, Search, ChevronDown, RefreshCw, Settings, Eye, FileText, CheckCircle, X, UserMinus, UserPlus, Check
+  Users, User, Search, ChevronDown, RefreshCw, Settings, Eye, CheckCircle, X, UserMinus, UserPlus, Check
 } from "lucide-react"
 import { Loader } from "@/components/ui/loader"
 import { useSearch } from "@/hooks/use-search"
@@ -575,7 +576,7 @@ export function TaskWizard({
     const s = form.chatType === 2 ? groupSearch : friendSearch
 
     return (
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4 h-full min-h-0">
         {/* 类型切换 - 4个按钮一行 */}
         <div>
           <div className={`flex gap-1 p-0.5 rounded-full bg-black/[0.03] dark:bg-white/[0.04] ${isStandalone ? '' : ''}`}>
@@ -693,6 +694,15 @@ export function TaskWizard({
         {/* 加载 & 搜索 */}
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
+              <Input
+                placeholder={form.chatType === 1 ? "搜索好友昵称、备注..." : "搜索群组名称、群号..."}
+                value={searchTerm}
+                onChange={(e) => handleSearchInput(e.target.value)}
+                className="pl-10 rounded-full h-9"
+              />
+            </div>
             <Button
               variant="outline"
               onClick={() => {
@@ -705,15 +715,6 @@ export function TaskWizard({
               {s.loading ? <Loader size={12} className="mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
               加载{form.chatType === 1 ? "好友" : "群组"}
             </Button>
-            <div className="relative flex-1 min-w-0">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
-              <Input
-                placeholder={form.chatType === 1 ? "搜索好友昵称、备注..." : "搜索群组名称、群号..."}
-                value={searchTerm}
-                onChange={(e) => handleSearchInput(e.target.value)}
-                className="pl-10 rounded-full h-9"
-              />
-            </div>
           </div>
           {s.allData.length > 0 && <span className="block px-1 text-xs text-muted-foreground">已加载 {s.allData.length} 个</span>}
         </div>
@@ -721,7 +722,7 @@ export function TaskWizard({
         {/* 列表 */}
         <div
           ref={listRef}
-          className="max-h-96 overflow-y-auto space-y-1 rounded-2xl p-2 bg-card/70"
+          className="flex-1 min-h-0 overflow-y-auto space-y-1 rounded-2xl p-2 bg-card/70"
           onScroll={handleScroll}
         >
           {s.loading && displayTargets.length === 0 && (
@@ -952,7 +953,7 @@ export function TaskWizard({
             <p className="text-sm text-muted-foreground mt-1">选择最适合您需求的格式</p>
           </div>
 
-          <div className="flex items-center gap-2 p-1 rounded-full bg-muted w-fit">
+          <div className="flex items-center gap-1 p-0.5 rounded-full bg-black/[0.03] dark:bg-white/[0.04] w-fit">
             {(["JSON", "HTML", "TXT", "EXCEL"] as const).map((fmt) => {
               const active = form.format === fmt
               return (
@@ -960,9 +961,9 @@ export function TaskWizard({
                   key={fmt}
                   type="button"
                   className={[
-                    "px-4 py-1.5 text-sm font-medium rounded-full transition-all",
+                    "px-4 py-1.5 text-[13px] font-medium rounded-full transition-all",
                     active
-                      ? "bg-background text-foreground shadow-sm"
+                      ? "bg-white dark:bg-white/10 text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
                       : "text-muted-foreground hover:text-foreground"
                   ].join(" ")}
                   onClick={() => setForm((p) => ({ ...p, format: fmt }))}
@@ -985,25 +986,17 @@ export function TaskWizard({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="startTime">开始时间</Label>
-              <Input
-                id="startTime"
-                type="datetime-local"
-                placeholder="年/月/日 --:--"
+              <Label>开始时间</Label>
+              <DateTimeInputGroup
                 value={form.startTime}
-                onChange={(e) => setForm((p) => ({ ...p, startTime: e.target.value }))}
-                className="rounded-xl"
+                onChange={(v) => setForm((p) => ({ ...p, startTime: v }))}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="endTime">结束时间</Label>
-              <Input
-                id="endTime"
-                type="datetime-local"
-                placeholder="年/月/日 --:--"
+              <Label>结束时间</Label>
+              <DateTimeInputGroup
                 value={form.endTime}
-                onChange={(e) => setForm((p) => ({ ...p, endTime: e.target.value }))}
-                className="rounded-xl"
+                onChange={(v) => setForm((p) => ({ ...p, endTime: v }))}
               />
             </div>
           </div>
@@ -1323,10 +1316,9 @@ export function TaskWizard({
               <h3 className="text-base font-medium mb-1">配置导出选项</h3>
               <p className="text-sm text-muted-foreground">设置导出格式、时间范围和过滤条件</p>
             </div>
-            <div className="flex-1 overflow-y-auto pr-1">{selectedTarget ? renderConfigPanel() : (
+            <div className="flex-1 overflow-y-auto pr-4">{selectedTarget ? renderConfigPanel() : (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center text-muted-foreground">
-                  <FileText className="w-12 h-12 mx-auto text-muted-foreground/40 mb-3" />
                   <p className="text-sm">请先在左侧选择要导出的群组或好友</p>
                 </div>
               </div>

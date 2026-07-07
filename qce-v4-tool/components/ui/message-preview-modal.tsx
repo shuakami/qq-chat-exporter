@@ -379,6 +379,22 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
     }
   }, [open])
 
+  // Intercept Escape key so it only closes the preview modal, not the
+  // underlying Radix Dialog (TaskWizard). We capture in the capture phase
+  // to beat Radix's own keydown listener.
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        e.preventDefault()
+        onClose()
+      }
+    }
+    document.addEventListener('keydown', handler, true)
+    return () => document.removeEventListener('keydown', handler, true)
+  }, [open, onClose])
+
   if (!chat) return null
 
   return (
