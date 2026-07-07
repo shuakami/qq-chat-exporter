@@ -208,8 +208,17 @@ export class RustServerProcess {
             },
             stdio: ['ignore', 'pipe', 'pipe']
         });
-        child.stdout?.on('data', (data: Buffer) => this.log(data.toString().trimEnd()));
-        child.stderr?.on('data', (data: Buffer) => this.log(data.toString().trimEnd()));
+        // Rust 服务端日志走 stdout（console_layer 已配置 with_writer(stdout)）。
+        // 直接写出到 process.stdout 而不走 NapCat 的 logger.log()：
+        //   logger.log() 会同时输出 NapCat 格式行 + console 行，导致双份日志。
+        child.stdout?.on('data', (data: Buffer) => {
+            const msg = data.toString().trimEnd();
+            if (msg) process.stdout.write(msg + '\n');
+        });
+        child.stderr?.on('data', (data: Buffer) => {
+            const msg = data.toString().trimEnd();
+            if (msg) process.stderr.write(`[qce-server:stderr] ${msg}\n`);
+        });
         child.on('exit', (code) => {
             this.log(`[QCE] qce-server 已退出，code=${code}`);
             this.child = null;

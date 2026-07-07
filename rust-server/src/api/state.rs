@@ -85,7 +85,15 @@ impl AppState {
 
     /// 向所有 WebSocket 客户端广播 JSON 消息。
     pub fn broadcast_ws(&self, payload: &Value) {
-        // 无订阅者时 send 返回 Err，属正常情况，静默忽略。
-        let _ = self.ws_tx.send(payload.to_string());
+        let msg_type = payload.get("type").and_then(Value::as_str).unwrap_or("?");
+        let receivers = self.ws_tx.receiver_count();
+        match self.ws_tx.send(payload.to_string()) {
+            Ok(n) => tracing::info!(
+                "[WS] 广播 {msg_type} → {n}/{receivers} 个客户端收到"
+            ),
+            Err(_) => tracing::debug!(
+                "[WS] 广播 {msg_type} 无订阅者 (receivers={receivers})"
+            ),
+        }
     }
 }
