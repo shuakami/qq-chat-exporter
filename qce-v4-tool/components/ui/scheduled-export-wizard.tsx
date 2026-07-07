@@ -348,7 +348,7 @@ export function ScheduledExportWizard({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
         fullScreen
-        overlayClassName="bg-white/60 dark:bg-neutral-950/60 backdrop-blur-xl"
+        overlayClassName="bg-background/60 backdrop-blur-xl"
         className="flex flex-col h-full p-0"
       >
         <DialogHeader>
@@ -370,36 +370,34 @@ export function ScheduledExportWizard({
               <div className="flex-1 overflow-hidden space-y-4">
                 {/* 类型切换 */}
                 <div>
-                  <Label className="text-sm font-medium mb-2 block">选择聊天类型</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      variant={currentChatType === 1 ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => {
+                  <div className="flex gap-1 p-0.5 rounded-full bg-black/[0.03] dark:bg-white/[0.04]">
+                    {[
+                      { key: 1 as const, label: '好友', onClick: () => {
                         setCurrentChatType(1)
                         setSearchTerm("")
                         if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
                         friendSearchRef.current.search("")
-                      }}
-                      className="justify-center rounded-full"
-                    >
-                      <User className="w-4 h-4 mr-2" />
-                      好友聊天
-                    </Button>
-                    <Button
-                      variant={currentChatType === 2 ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => {
+                      }},
+                      { key: 2 as const, label: '群组', onClick: () => {
                         setCurrentChatType(2)
                         setSearchTerm("")
                         if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
                         groupSearchRef.current.search("")
-                      }}
-                      className="justify-center rounded-full"
-                    >
-                      <Users className="w-4 h-4 mr-2" />
-                      群组聊天
-                    </Button>
+                      }},
+                    ].map((tab) => (
+                      <button
+                        key={tab.key}
+                        onClick={tab.onClick}
+                        className={[
+                          "flex-1 px-3 py-1.5 text-[13px] font-medium rounded-full transition-all text-center",
+                          currentChatType === tab.key
+                            ? "bg-white dark:bg-white/10 text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+                            : "text-muted-foreground hover:text-foreground"
+                        ].join(" ")}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -714,43 +712,23 @@ export function ScheduledExportWizard({
                   <p className="text-sm text-muted-foreground mt-1">设置导出格式和时间范围</p>
                 </div>
 
-                <div className="space-y-3">
-                  {/* 导出格式 */}
+                <div className="flex items-center gap-1 p-0.5 rounded-full bg-black/[0.03] dark:bg-white/[0.04] w-fit">
                   {(["HTML", "JSON", "TXT", "EXCEL"] as const).map((fmt) => {
                     const active = baseForm.format === fmt
-                    const chip =
-                      fmt === "HTML" ? { txt: "推荐", cls: "bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300" } :
-                      fmt === "JSON" ? { txt: "结构化", cls: "bg-muted text-muted-foreground" } :
-                      fmt === "EXCEL" ? { txt: "数据分析", cls: "bg-purple-100 dark:bg-purple-900 text-purple-600 dark:text-purple-300" } :
-                      { txt: "兼容", cls: "bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-300" }
-                    const desc =
-                      fmt === "HTML" ? "网页格式，便于浏览器查看和打印" :
-                      fmt === "JSON" ? "适合程序处理的结构化数据格式" :
-                      fmt === "EXCEL" ? "Excel格式，便于数据分析和统计" :
-                      "纯文本格式，兼容性最好"
                     return (
-                      <div
+                      <button
                         key={fmt}
+                        type="button"
                         className={[
-                          "relative cursor-pointer rounded-2xl border-2 p-3 transition-all",
-                          active ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/30 shadow-sm" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]"
+                          "px-4 py-1.5 text-[13px] font-medium rounded-full transition-all",
+                          active
+                            ? "bg-white dark:bg-white/10 text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+                            : "text-muted-foreground hover:text-foreground"
                         ].join(" ")}
                         onClick={() => setBaseForm(p => ({ ...p, format: fmt }))}
                       >
-                        <div className="flex items-start gap-3">
-                          <div className={active ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}>
-                            <FileText className="w-4 h-4" />
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium text-foreground text-sm">{fmt}</h4>
-                              <span className={`text-xs px-2 py-0.5 rounded ${chip.cls}`}>{chip.txt}</span>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1">{desc}</p>
-                          </div>
-                          {active && <div className="w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full" />}
-                        </div>
-                      </div>
+                        {fmt}
+                      </button>
                     )
                   })}
                 </div>
@@ -907,11 +885,11 @@ export function ScheduledExportWizard({
                           <div className={[
                             "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
                             opt.checked 
-                              ? "border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100" 
+                              ? "border-foreground bg-foreground" 
                               : "border-black/[0.08] dark:border-white/[0.08] hover:border-black/[0.12] dark:hover:border-white/[0.12]"
                           ].join(" ")}>
                             {opt.checked && (
-                              <svg className="w-3 h-3 text-white dark:text-neutral-900" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg className="w-3 h-3 text-background" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                               </svg>
                             )}

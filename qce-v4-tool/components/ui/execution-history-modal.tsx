@@ -77,7 +77,7 @@ export function ExecutionHistoryModal({
         >
           {/* Backdrop */}
           <motion.div 
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 bg-background/80"
             onClick={onClose}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -86,7 +86,7 @@ export function ExecutionHistoryModal({
           
           {/* Modal */}
           <motion.div
-            className="relative w-full max-w-2xl max-h-[85vh] mx-4 bg-card rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+            className="relative w-full max-w-2xl max-h-[85vh] mx-4 bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden flex flex-col"
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -170,10 +170,10 @@ export function ExecutionHistoryModal({
                         </div>
 
                         {/* Status Text */}
-                        <span className={`text-xs px-2 py-0.5 rounded ${
-                          item.status === 'success' ? 'bg-muted text-muted-foreground' :
-                          item.status === 'failed' ? 'bg-muted text-foreground/80' :
-                          'bg-muted text-muted-foreground'
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          item.status === 'success' ? 'bg-black/[0.04] dark:bg-white/[0.06] text-muted-foreground' :
+                          item.status === 'failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' :
+                          'bg-black/[0.04] dark:bg-white/[0.06] text-muted-foreground'
                         }`}>
                           {item.status === 'success' ? '成功' : item.status === 'failed' ? '失败' : '部分'}
                         </span>

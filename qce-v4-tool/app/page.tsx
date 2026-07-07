@@ -545,6 +545,10 @@ export default function QCEDashboard() {
   }
 
   const handleCloseFilePathModal = () => {
+    // Clear iframe content first to prevent browser freeze on large files
+    // (compositing 3MB+ content during exit animation causes hang)
+    const iframes = document.querySelectorAll('iframe[title^="预览"]')
+    iframes.forEach(f => { (f as HTMLIFrameElement).src = 'about:blank' })
     setIsFilePathModalOpen(false)
     setSelectedFile(null)
   }
@@ -2794,7 +2798,7 @@ export default function QCEDashboard() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.15 }}
                 className="fixed inset-0 bg-background/80 z-[110]"
-                onClick={() => setIsFilePathModalOpen(false)}
+                onClick={handleCloseFilePathModal}
               />
               {canPreview ? (
                 <motion.div
@@ -2824,7 +2828,7 @@ export default function QCEDashboard() {
                         下载
                       </Button>
                       <button
-                        onClick={() => setIsFilePathModalOpen(false)}
+                        onClick={handleCloseFilePathModal}
                         className="p-2 text-muted-foreground/70 hover:text-muted-foreground hover:bg-muted rounded-lg transition-colors"
                       >
                         <X className="w-5 h-5" />
@@ -2918,7 +2922,7 @@ export default function QCEDashboard() {
                     <Button
                       variant="ghost"
                       className="w-full rounded-full"
-                      onClick={() => setIsFilePathModalOpen(false)}
+                      onClick={handleCloseFilePathModal}
                     >
                       关闭
                     </Button>
