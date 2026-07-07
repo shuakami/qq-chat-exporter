@@ -20,7 +20,7 @@ qp = importlib.util.module_from_spec(spec)
 qp.__dict__["__name__"] = "quick_pack"
 sys.modules["quick_pack"] = qp
 
-RUST_EXE = os.path.join(ROOT, "rust-server", "target", "x86_64-pc-windows-gnu", "release", "qce-server.exe")
+RUST_EXE = os.path.join(ROOT, "qq-chat-export-server", "target", "x86_64-pc-windows-gnu", "release", "qce-server.exe")
 
 spec.loader.exec_module(qp)
 
