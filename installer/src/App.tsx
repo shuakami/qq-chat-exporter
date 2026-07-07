@@ -291,7 +291,18 @@ export default function App() {
       try {
         setPackageKind(await api.detectPackageKind());
         await api.startService();
-        const list = await api.getQuickLoginList();
+        // NapCat needs a few seconds to boot its WebUI; retry up to 15 times
+        // with a 2-second gap so we don't give up before it's ready.
+        let list: Awaited<ReturnType<typeof api.getQuickLoginList>> = [];
+        for (let attempt = 0; attempt < 15; attempt++) {
+          if (cancelled) return;
+          try {
+            list = await api.getQuickLoginList();
+            break;
+          } catch {
+            if (attempt < 14) await new Promise((r) => setTimeout(r, 2000));
+          }
+        }
         if (cancelled) return;
         setAccounts(list);
         if (list.length > 0) {
@@ -356,12 +367,25 @@ export default function App() {
       }
       const res = await api.quickLogin(selectedAccount.uin);
       if (!res.ok) {
-        setLoginError(res.error || '快速登录失败');
+        const err = res.error || '快速登录失败';
+        // NapCat returns this when the account is already logged in via
+        // desktop QQ — route to the kill-QQ confirmation instead of just
+        // showing an error string.
+        if (err.includes('已登录')) {
+          setSetupStep('warning');
+          return;
+        }
+        setLoginError(err);
         return;
       }
       startConfiguring();
     } catch (err) {
-      setLoginError(String(err));
+      const msg = String(err);
+      if (msg.includes('已登录')) {
+        setSetupStep('warning');
+        return;
+      }
+      setLoginError(msg);
     } finally {
       setBusy(false);
     }
@@ -373,6 +397,8 @@ export default function App() {
     setLoginError('');
     try {
       await api.killQq();
+      // Give NapCat a moment to detect the process exit before retrying.
+      await new Promise((r) => setTimeout(r, 2000));
       const res = await api.quickLogin(selectedAccount.uin);
       if (!res.ok) {
         setLoginError(res.error || '快速登录失败');
