@@ -77,7 +77,8 @@ fn map_verify_token_failure(
 
 /// 判断路径是否为公开路由（无需认证）。
 fn is_public_route(path: &str) -> bool {
-    const PUBLIC_ROUTES: [&str; 5] = ["/", "/health", "/auth", "/security-status", "/qce-v4-tool"];
+    const PUBLIC_ROUTES: [&str; 6] =
+        ["/", "/health", "/auth", "/auth/", "/security-status", "/qce-v4-tool"];
     const STATIC_EXTENSIONS: [&str; 11] = [
         ".png", ".jpg", ".jpeg", ".svg", ".gif", ".ico", ".css", ".js", ".woff", ".woff2", ".ttf",
     ];
