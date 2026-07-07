@@ -14,6 +14,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
+import { fileURLToPath } from 'url';
 import { NapCatCore } from 'NapCatQQ/src/core/index.js';
 
 const DEFAULT_BRIDGE_PORT = 40654;
@@ -156,12 +157,16 @@ export function findRustServerBinary(): string | null {
     if (explicit && fs.existsSync(explicit)) return explicit;
 
     const names = process.platform === 'win32' ? ['qce-server.exe'] : ['qce-server'];
-    const roots = [
-        process.cwd(),
-        path.join(process.cwd(), 'bin'),
-        path.join(currentDir(), '..', '..', 'bin'),
-        path.join(currentDir(), '..', '..')
-    ];
+    const roots: string[] = [process.cwd(), path.join(process.cwd(), 'bin')];
+    // 从本文件所在目录逐级向上找（lib/api → lib → 插件根 → plugins → 包根），
+    // 插件宿主进程的 cwd 可能是 QQ 安装目录而不是包根。
+    let dir = currentDir();
+    for (let i = 0; i < 6; i++) {
+        roots.push(dir, path.join(dir, 'bin'));
+        const parent = path.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+    }
     for (const root of roots) {
         for (const name of names) {
             const candidate = path.join(root, name);
@@ -173,7 +178,7 @@ export function findRustServerBinary(): string | null {
 
 function currentDir(): string {
     try {
-        return path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+        return path.dirname(fileURLToPath(import.meta.url));
     } catch {
         return process.cwd();
     }
@@ -192,9 +197,10 @@ export class RustServerProcess {
 
     start(bridgePort: number): void {
         if (this.child) return;
-        const staticDir = path.join(process.cwd(), 'static', 'qce-v4-tool');
+        const packageRoot = path.dirname(this.binaryPath);
+        const staticDir = path.join(packageRoot, 'static', 'qce-v4-tool');
         const child = spawn(this.binaryPath, [], {
-            cwd: process.cwd(),
+            cwd: packageRoot,
             env: {
                 ...process.env,
                 QCE_BRIDGE_ENDPOINT: `http://127.0.0.1:${bridgePort}`,
