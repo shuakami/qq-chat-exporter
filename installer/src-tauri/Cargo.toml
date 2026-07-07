@@ -38,6 +38,7 @@ sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+tauri-winrt-notification = "0.7"
 
 [profile.release]
 panic = "abort"

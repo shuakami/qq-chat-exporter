@@ -26,6 +26,7 @@ pub fn detect_package_kind(state: State<'_, AppState>) -> Result<String, String>
 /// Kill leftover headless runtimes (NapCatWinBootMain and its QQ children).
 /// A stale instance keeps port 6099 with an outdated token and rejects every
 /// login, and repeated launches would otherwise pile up duplicate processes.
+/// **Only called before starting a fresh service**, never on shutdown.
 pub fn kill_stale_runtime() {
     #[cfg(windows)]
     {
@@ -38,6 +39,17 @@ pub fn kill_stale_runtime() {
         // Brief pause so Windows releases file handles before we try to
         // overwrite the files during extraction.
         std::thread::sleep(std::time::Duration::from_millis(800));
+    }
+}
+
+/// Kill only the NapCat launcher process — NOT QQ.exe.
+/// Used on shutdown so the user's desktop QQ keeps running.
+fn kill_napcat_only() {
+    #[cfg(windows)]
+    {
+        let _ = util::hidden_command("taskkill")
+            .args(["/IM", "NapCatWinBootMain.exe", "/F", "/T"])
+            .status();
     }
 }
 
@@ -130,8 +142,8 @@ pub fn exit_app(app: tauri::AppHandle, state: State<'_, AppState>) {
     app.exit(0);
 }
 
-/// Stop the launcher child and every headless runtime it spawned.
-/// Also called when the user exits from the tray.
+/// Stop the launcher child and the NapCat process it spawned.
+/// Does **not** kill QQ.exe — the user's desktop QQ should keep running.
 pub fn shutdown(state: &AppState) {
     if let Ok(inner) = state.0.lock() {
         if let Some(dir) = inner.install_dir() {
@@ -144,8 +156,8 @@ pub fn shutdown(state: &AppState) {
             let _ = child.wait();
         }
     }
-    // Best-effort: also stop the headless QQ/NapCat the launcher spawned.
-    kill_stale_runtime();
+    // Stop the headless NapCat the launcher spawned, but leave QQ alone.
+    kill_napcat_only();
 }
 
 /// Best-effort discovery of the desktop QQ executable via the registry.

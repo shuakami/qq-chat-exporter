@@ -54,6 +54,41 @@ fn register_aumid() {
             let _ = key.set_value("IconUri", &exe.to_string_lossy().to_string());
         }
     }
+
+    // Also create a Start Menu shortcut with AUMID so the toast notification
+    // platform can find the app icon (required for unpackaged apps).
+    if let (Ok(exe), Some(start_menu)) = (std::env::current_exe(), dirs::data_dir()) {
+        let programs = start_menu
+            .parent()
+            .unwrap_or(&start_menu)
+            .join("Microsoft")
+            .join("Windows")
+            .join("Start Menu")
+            .join("Programs");
+        let lnk = programs.join("QQ Chat Exporter.lnk");
+        if !lnk.exists() {
+            let ps = format!(
+                "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{}');$s.TargetPath='{}';$s.Save()",
+                lnk.display(),
+                exe.display(),
+            );
+            let _ = util::hidden_command("powershell")
+                .args(["-NoProfile", "-Command", &ps])
+                .status();
+        }
+    }
+}
+
+/// Save the embedded app icon to a persistent location and return its path.
+/// The WinRT toast notification needs a file path for the AppLogoOverride.
+#[cfg(windows)]
+fn notification_icon_path() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let icon_path = exe.parent()?.join("qce-notification-icon.png");
+    if !icon_path.exists() {
+        let _ = std::fs::write(&icon_path, include_bytes!("../icons/32x32.png"));
+    }
+    Some(icon_path)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -108,19 +143,38 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
                 // Notify the user the app is still running in the background.
-                use tauri_plugin_notification::NotificationExt;
-                let result = window.app_handle()
-                    .notification()
-                    .builder()
-                    .title("QQ Chat Exporter")
-                    .body("已最小化到系统托盘，服务继续运行中")
-                    .show();
-                let state = window.app_handle().state::<AppState>();
-                if let Some(dir) = state.0.lock().ok().and_then(|s| s.install_dir()) {
-                    match result {
-                        Ok(()) => util::installer_log(&dir, "window hidden to tray, toast shown"),
-                        Err(e) => util::installer_log(&dir, &format!("tray toast failed: {e}")),
+                #[cfg(windows)]
+                {
+                    let result = {
+                        let mut toast = tauri_winrt_notification::Toast::new(AUMID)
+                            .title("QQ Chat Exporter")
+                            .text1("已最小化到系统托盘，服务继续运行中");
+                        if let Some(icon) = notification_icon_path() {
+                            toast = toast.icon(
+                                &icon,
+                                tauri_winrt_notification::IconCrop::Square,
+                                "QCE",
+                            );
+                        }
+                        toast.show()
+                    };
+                    let state = window.app_handle().state::<AppState>();
+                    if let Some(dir) = state.0.lock().ok().and_then(|s| s.install_dir()) {
+                        match result {
+                            Ok(()) => util::installer_log(&dir, "window hidden to tray, toast shown"),
+                            Err(e) => util::installer_log(&dir, &format!("tray toast failed: {e}")),
+                        }
                     }
+                }
+                #[cfg(not(windows))]
+                {
+                    use tauri_plugin_notification::NotificationExt;
+                    let _ = window.app_handle()
+                        .notification()
+                        .builder()
+                        .title("QQ Chat Exporter")
+                        .body("已最小化到系统托盘，服务继续运行中")
+                        .show();
                 }
             }
         })

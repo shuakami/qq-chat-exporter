@@ -20,6 +20,40 @@ type InstallStep = 'welcome' | 'installing' | 'complete' | 'setup';
 type SetupStep = 'intro' | 'login' | 'warning' | 'configuring' | 'done' | 'running';
 type Direction = 'forward' | 'back' | 'none';
 
+interface LoaderProps {
+  size?: number;
+  className?: string;
+}
+
+const Loader = ({ size = 16, className = '' }: LoaderProps) => (
+  <svg
+    className={`animate-spin ${className}`}
+    height={size}
+    width={size}
+    strokeLinejoin="round"
+    style={{ color: 'currentcolor' }}
+    viewBox="0 0 16 16"
+  >
+    <g clipPath="url(#loader-clip)">
+      <path d="M8 0V4" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 16V12" opacity="0.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M3.29773 1.52783L5.64887 4.7639" opacity="0.9" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M12.7023 1.52783L10.3511 4.7639" opacity="0.1" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M12.7023 14.472L10.3511 11.236" opacity="0.4" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M3.29773 14.472L5.64887 11.236" opacity="0.6" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M15.6085 5.52783L11.8043 6.7639" opacity="0.2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M0.391602 10.472L4.19583 9.23598" opacity="0.7" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M15.6085 10.4722L11.8043 9.2361" opacity="0.3" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M0.391602 5.52783L4.19583 6.7639" opacity="0.8" stroke="currentColor" strokeWidth="1.5" />
+    </g>
+    <defs>
+      <clipPath id="loader-clip">
+        <rect fill="white" height="16" width="16" />
+      </clipPath>
+    </defs>
+  </svg>
+);
+
 // --- Modern Components ---
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -169,6 +203,7 @@ export default function App() {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
   const [busy, setBusy] = useState(false);
+  const [exiting, setExiting] = useState(false);
   const [webuiUrl, setWebuiUrl] = useState<string>('');
   const [setupHint, setSetupHint] = useState('请稍候，我们正在为您初始化导出组件...');
 
@@ -701,7 +736,8 @@ export default function App() {
                         {selectedAccount?.faceUrl && (
                           <img src={selectedAccount.faceUrl} alt="avatar" className="w-6 h-6 rounded-full bg-[var(--color-bg-secondary)] shrink-0" />
                         )}
-                        <span className="text-[13px] font-medium text-[var(--color-text)] truncate">
+                        <span className="text-[13px] font-medium text-[var(--color-text)] truncate inline-flex items-center gap-1.5">
+                          {busy && <Loader size={13} />}
                           {selectedAccount ? selectedAccount.nickName || '未命名' : busy ? '正在获取账号...' : '无可用账号'}
                           {selectedAccount && (
                             <span className="text-[12px] text-[var(--color-text-tertiary)] font-normal ml-1">({selectedAccount.uin})</span>
@@ -768,7 +804,7 @@ export default function App() {
                 {loginMethod === 'quick' && (
                   <div className="w-full mt-auto mb-4 max-w-[240px]">
                     <Button fullWidth size="lg" onClick={handleQuickAuthorize} disabled={!selectedAccount || busy} className="h-9 text-[13px] font-medium">
-                      {busy ? '处理中...' : '授权登录'}
+                      {busy ? <><Loader size={14} className="mr-1.5" /> 处理中...</> : '授权登录'}
                     </Button>
                   </div>
                 )}
@@ -793,7 +829,7 @@ export default function App() {
                 </div>
                 <div className="w-full max-w-[240px] flex flex-col gap-3">
                   <Button fullWidth size="lg" onClick={handleConfirmKillAndLogin} disabled={busy} className="h-9 font-medium">
-                    {busy ? '处理中...' : '同意退出 QQ 并继续'}
+                    {busy ? <><Loader size={14} className="mr-1.5" /> 处理中...</> : '同意退出 QQ 并继续'}
                   </Button>
                   <button onClick={() => setSetupStep('login')} className="text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors py-1">
                     返回上一步
@@ -887,11 +923,15 @@ export default function App() {
                     退出后后台服务将停止，无法继续导出与搜索聊天记录。确定要退出吗？
                   </p>
                   <div className="flex gap-3 justify-center">
-                    <button onClick={() => setShowExitConfirm(false)} className="px-6 py-2 rounded-md bg-transparent hover:bg-[var(--color-hover)] text-[13px] font-medium text-[var(--color-text)] border border-[var(--color-border)] transition-colors">
+                    <button onClick={() => setShowExitConfirm(false)} disabled={exiting} className="px-6 py-2 rounded-md bg-transparent hover:bg-[var(--color-hover)] text-[13px] font-medium text-[var(--color-text)] border border-[var(--color-border)] transition-colors disabled:opacity-50">
                       取消
                     </button>
-                    <button onClick={handleExit} className="px-6 py-2 rounded-md text-[13px] font-medium text-white bg-[#E54D2E] hover:bg-[#ce4529] transition-colors">
-                      确认退出
+                    <button
+                      onClick={async () => { setExiting(true); await handleExit(); }}
+                      disabled={exiting}
+                      className="px-6 py-2 rounded-md text-[13px] font-medium text-white bg-[#E54D2E] hover:bg-[#ce4529] transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {exiting ? <><Loader size={14} /> 退出中...</> : '确认退出'}
                     </button>
                   </div>
                 </div>
