@@ -61,7 +61,7 @@ const Button: React.FC<ButtonProps> = ({
     danger:
       'bg-[var(--color-danger)] text-white hover:bg-[var(--color-danger-hover)] active:bg-[#b83a20] border border-transparent',
     secondary:
-      'bg-white text-[var(--color-text)] border border-[var(--color-border)] hover:bg-[#F7F7F5] active:bg-[#EFEFEE]',
+      'bg-[var(--color-card-bg)] text-[var(--color-text)] border border-[var(--color-border)] hover:bg-[var(--color-hover)] active:bg-[var(--color-bg-secondary)]',
     ghost:
       'bg-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-hover)]',
   };
