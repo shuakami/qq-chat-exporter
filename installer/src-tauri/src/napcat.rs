@@ -4,8 +4,8 @@
 //! NapCat is up we authenticate against its loopback WebUI REST API and drive
 //! the quick-login / QR flow without the user ever seeing a console.
 //!
-//! Endpoint shapes follow NapCat's current WebUI API. Responses are parsed
-//! defensively (tolerant of field-name variants across NapCat versions).
+//! NapCat may auto-increment the port when the configured one is already in
+//! use, so the first API call probes ports 6099-6120 to find the live instance.
 
 use base64::Engine;
 use serde::Serialize;
@@ -15,12 +15,13 @@ use tauri::State;
 use crate::state::AppState;
 use crate::util::NAPCAT_WEBUI_PORT;
 
-fn base() -> String {
-    format!("http://127.0.0.1:{NAPCAT_WEBUI_PORT}")
+fn base_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}")
 }
 
 fn client() -> reqwest::Client {
     reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
         .user_agent("qce-installer")
         .build()
         .expect("reqwest client")
@@ -37,13 +38,17 @@ fn token(state: &State<'_, AppState>) -> Result<String, String> {
         .ok_or_else(|| "尚未初始化 WebUI 令牌（请先完成安装）".to_string())
 }
 
-fn cached_credential(state: &State<'_, AppState>) -> Option<String> {
-    state.0.lock().ok().and_then(|s| s.credential.clone())
+fn cached_credential(state: &State<'_, AppState>) -> Option<(String, u16)> {
+    let inner = state.0.lock().ok()?;
+    let cred = inner.credential.clone()?;
+    let port = inner.webui_port?;
+    Some((cred, port))
 }
 
-fn store_credential(state: &State<'_, AppState>, cred: &str) {
+fn store_credential(state: &State<'_, AppState>, cred: &str, port: u16) {
     if let Ok(mut s) = state.0.lock() {
         s.credential = Some(cred.to_string());
+        s.webui_port = Some(port);
     }
 }
 
@@ -61,8 +66,7 @@ fn password_hash(token: &str) -> String {
         .collect()
 }
 
-/// Token as currently stored on disk (`config/webui.json`) — the source of
-/// truth for whatever NapCat instance is actually serving port 6099.
+/// Token as currently stored on disk (`config/webui.json`).
 fn token_from_config(state: &State<'_, AppState>) -> Option<String> {
     let dir = state.0.lock().ok()?.install_dir()?;
     let raw = std::fs::read(dir.join("config").join("webui.json")).ok()?;
@@ -70,9 +74,9 @@ fn token_from_config(state: &State<'_, AppState>) -> Option<String> {
     json.get("token").and_then(Value::as_str).map(str::to_string)
 }
 
-async fn try_login(tok: &str) -> Result<String, String> {
+async fn try_login_on(port: u16, tok: &str) -> Result<String, String> {
     let resp = client()
-        .post(format!("{}/api/auth/login", base()))
+        .post(format!("{}/api/auth/login", base_url(port)))
         .json(&serde_json::json!({ "hash": password_hash(tok) }))
         .send()
         .await
@@ -91,37 +95,54 @@ async fn try_login(tok: &str) -> Result<String, String> {
         })
 }
 
-/// Authenticate and return a bearer credential, caching it in state.
-async fn ensure_login(state: &State<'_, AppState>) -> Result<String, String> {
-    if let Some(c) = cached_credential(state) {
-        return Ok(c);
+/// Probe ports starting from NAPCAT_WEBUI_PORT to find the live NapCat
+/// instance, authenticate, and cache the credential + actual port.
+async fn ensure_login(state: &State<'_, AppState>) -> Result<(String, u16), String> {
+    if let Some((c, p)) = cached_credential(state) {
+        return Ok((c, p));
     }
+
     let tok = token(state)?;
-    let cred = match try_login(&tok).await {
-        Ok(c) => c,
-        Err(e) => {
-            // The in-memory token may be out of sync with the running NapCat
-            // instance; retry once with the token from config/webui.json.
-            match token_from_config(state) {
-                Some(disk_tok) if disk_tok != tok => {
-                    let c = try_login(&disk_tok).await.map_err(|_| e)?;
-                    if let Ok(mut s) = state.0.lock() {
-                        s.webui_token = Some(disk_tok);
+    let disk_tok = token_from_config(state);
+
+    let tokens: Vec<&str> = if let Some(ref dt) = disk_tok {
+        if *dt != tok { vec![&tok, dt] } else { vec![&tok] }
+    } else {
+        vec![&tok]
+    };
+
+    // Probe the configured port first, then a range above it.
+    let mut last_err = String::from("NapCat WebUI 未响应");
+    for port in NAPCAT_WEBUI_PORT..NAPCAT_WEBUI_PORT + 20 {
+        for t in &tokens {
+            match try_login_on(port, t).await {
+                Ok(cred) => {
+                    // Sync in-memory token if disk token won.
+                    if *t != tok {
+                        if let Ok(mut s) = state.0.lock() {
+                            s.webui_token = Some(t.to_string());
+                        }
                     }
-                    c
+                    store_credential(state, &cred, port);
+                    return Ok((cred, port));
                 }
-                _ => return Err(e),
+                Err(e) => {
+                    // Connection refused → port not serving, skip remaining tokens.
+                    if e.contains("connect") || e.contains("Connect") {
+                        break;
+                    }
+                    last_err = e;
+                }
             }
         }
-    };
-    store_credential(state, &cred);
-    Ok(cred)
+    }
+    Err(last_err)
 }
 
 async fn get_json(state: &State<'_, AppState>, path: &str) -> Result<Value, String> {
-    let cred = ensure_login(state).await?;
+    let (cred, port) = ensure_login(state).await?;
     let resp = client()
-        .get(format!("{}{}", base(), path))
+        .get(format!("{}{}", base_url(port), path))
         .bearer_auth(&cred)
         .send()
         .await
@@ -130,9 +151,9 @@ async fn get_json(state: &State<'_, AppState>, path: &str) -> Result<Value, Stri
 }
 
 async fn post_json(state: &State<'_, AppState>, path: &str, body: Value) -> Result<Value, String> {
-    let cred = ensure_login(state).await?;
+    let (cred, port) = ensure_login(state).await?;
     let resp = client()
-        .post(format!("{}{}", base(), path))
+        .post(format!("{}{}", base_url(port), path))
         .bearer_auth(&cred)
         .json(&body)
         .send()

@@ -16,6 +16,9 @@ pub struct Inner {
     pub credential: Option<String>,
     /// Handle to the launched NapCat process (so we can stop it on exit).
     pub service: Option<Child>,
+    /// Actual port NapCat WebUI ended up listening on (may differ from the
+    /// configured default when the preferred port was already in use).
+    pub webui_port: Option<u16>,
 }
 
 impl Inner {
