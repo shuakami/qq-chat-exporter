@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<!-- QCE_METADATA: {{METADATA_JSON}} -->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>聊天记录 - {{CHAT_NAME_ESC}}</title>
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="assets/app.js" defer></script>
+<script src="data/manifest.js" defer></script>
+</head>
+<body>
+    <!-- Toolbar -->
+    {{TOOLBAR}}
+    <div class="chat-layout">
+        <div class="chat-main">
+            <!-- Hero Section -->
+{{HEADER}}
+            <!-- Chat Messages -->
+            <div class="chat-content" id="chatContent"></div>
+{{FOOTER}}
+        </div>
+    </div>
+
+    <!-- Image Modal -->
+    <div class="image-modal" id="imageModal">
+        <img src="" alt="" id="modalImage">
+    </div>
+</body>
+</html>
