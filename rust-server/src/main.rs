@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Extension, State};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::Router;
 use serde_json::{json, Map, Value};
@@ -36,12 +36,38 @@ mod scheduled_executor;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
-        )
+    // 日志双层：控制台简洁输出 + 文件持久化（~/.qq-chat-exporter/logs/）。
+    let log_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".qq-chat-exporter")
+        .join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "info".into());
+
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "qce-server.log");
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let console_layer = tracing_subscriber::fmt::layer()
+        .without_time()
+        .with_target(false)
+        .with_level(false);
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_writer(non_blocking)
+        .with_ansi(false);
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(console_layer)
+        .with(file_layer)
         .init();
+
+    // guard 必须在 main 存活期间保持，否则日志丢失。
+    let _log_guard = guard;
 
     tracing::info!("[QCE] qce-server v{VERSION} 启动中...");
 
@@ -167,6 +193,7 @@ fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &st
         .route("/health", get(system::health))
         .route("/security-status", get(security::security_status))
         .route("/auth", post(security::auth))
+        .route("/auth/", post(security::auth))
         .route("/api/server/host", post(security::update_server_host))
         .route(
             "/api/security/ip-whitelist",
@@ -338,7 +365,7 @@ fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &st
         )
         .route("/api/merge-resources", post(resources::merge_resources));
 
-    // 静态托管（对应 TS express.static）。
+    // 静态托管（对应 TS express.static + FrontendBuilder.setupStaticRoutes）。
     let frontend = ServeDir::new(static_dir)
         .append_index_html_on_directories(true);
     let router = api
@@ -351,8 +378,26 @@ fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &st
             ServeDir::new(path_manager.scheduled_exports_dir()),
         )
         .nest_service("/resources", ServeDir::new(path_manager.resources_dir()))
-        .nest_service("/qce-v4-tool", frontend.clone())
-        .nest_service("/static/qce-v4-tool", frontend);
+        .nest_service("/static/qce-v4-tool", frontend)
+        // 前端入口 / 认证页 / SPA 回退（Next 静态导出 basePath 是
+        // /static/qce-v4-tool，页面路由需要显式回退到 index.html）。
+        .route("/qce-v4-tool", get(frontend_index))
+        .route("/qce-v4-tool/", get(frontend_index))
+        .route("/qce-v4-tool/auth", get(frontend_auth))
+        .route("/qce-v4-tool/auth/", get(frontend_auth))
+        .route("/qce-v4-tool/*rest", get(frontend_index))
+        // Next trailingSlash 重定向兼容：/auth/?token=... 也回到认证页。
+        .route("/auth", get(frontend_auth))
+        .route("/auth/", get(frontend_auth))
+        // 前端根级静态资源与分析脚本占位。
+        .route("/text-logo.png", get(frontend_root_asset))
+        .route("/text-full-logo.png", get(frontend_root_asset))
+        .route("/placeholder-logo.png", get(frontend_root_asset))
+        .route("/placeholder-logo.svg", get(frontend_root_asset))
+        .route("/placeholder-user.jpg", get(frontend_root_asset))
+        .route("/placeholder.jpg", get(frontend_root_asset))
+        .route("/placeholder.svg", get(frontend_root_asset))
+        .route("/_vercel/insights/script.js", get(vercel_stub));
 
     router
         .layer(axum::middleware::from_fn_with_state(
@@ -362,6 +407,63 @@ fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &st
         .layer(axum::middleware::from_fn(request_id_middleware))
         .layer(CorsLayer::permissive())
         .with_state(Arc::clone(state))
+}
+
+/// `GET /qce-v4-tool[/*]` — 前端应用入口 / SPA 回退。
+async fn frontend_index(State(state): State<SharedState>) -> Response {
+    serve_static_file(&state.static_dir.join("index.html"), "text/html; charset=utf-8").await
+}
+
+/// `GET /qce-v4-tool/auth`、`GET /auth[/]` — Next.js 构建的认证页面。
+async fn frontend_auth(State(state): State<SharedState>) -> Response {
+    let auth_page = state.static_dir.join("auth").join("index.html");
+    if auth_page.is_file() {
+        serve_static_file(&auth_page, "text/html; charset=utf-8").await
+    } else {
+        serve_static_file(&state.static_dir.join("index.html"), "text/html; charset=utf-8").await
+    }
+}
+
+/// 前端根级静态资源（logo / placeholder 图片）。
+async fn frontend_root_asset(
+    State(state): State<SharedState>,
+    uri: axum::http::Uri,
+) -> Response {
+    let name = uri.path().trim_start_matches('/');
+    let content_type = match name.rsplit('.').next() {
+        Some("png") => "image/png",
+        Some("svg") => "image/svg+xml",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        _ => "application/octet-stream",
+    };
+    serve_static_file(&state.static_dir.join(name), content_type).await
+}
+
+/// Vercel 分析脚本（本地环境返回空脚本）。
+async fn vercel_stub() -> Response {
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/javascript")],
+        "// Vercel Analytics disabled in local environment",
+    )
+        .into_response()
+}
+
+async fn serve_static_file(path: &std::path::Path, content_type: &str) -> Response {
+    match tokio::fs::read(path).await {
+        Ok(bytes) => (
+            [(
+                axum::http::header::CONTENT_TYPE,
+                content_type.to_string(),
+            )],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => (
+            axum::http::StatusCode::NOT_FOUND,
+            "前端应用未构建或文件不存在",
+        )
+            .into_response(),
+    }
 }
 
 /// `GET /` — 有 WebSocket 升级头时走 WS（TS 的 WebSocketServer 挂在 server
