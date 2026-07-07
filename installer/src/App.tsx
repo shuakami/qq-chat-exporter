@@ -877,7 +877,7 @@ export default function App() {
               <div className="flex-1 flex flex-col items-center justify-center text-center w-full px-6">
                 <h2 className="text-[19px] font-bold tracking-tight text-[var(--color-text)] mb-3">环境冲突警告</h2>
                 <p className="text-[var(--color-text-secondary)] text-[13px] leading-relaxed mb-6 max-w-[280px]">
-                  检测到您安装的是 Shell 版本，且该账号的 QQ 正在运行中。为了保证导出数据的完整性，我们必须先退出您当前运行的 QQ。
+                  检测到您安装的是 Shell 版本，且该账号的 QQ 正在运行中。Shell 版本与桌面 QQ 无法同时运行，需要先退出当前的 QQ。
                 </p>
                 <div className="text-[12px] text-[var(--color-text-tertiary)] mb-8 flex flex-col items-center gap-1.5">
                   <span>如果您需要两者同时运行，请下载</span>
