@@ -126,9 +126,10 @@ pub fn open_log_file(state: State<'_, AppState>) -> Result<(), String> {
 fn open_path(path: &std::path::Path) -> Result<(), String> {
     #[cfg(windows)]
     {
-        util::hidden_command("cmd")
-            .args(["/C", "start", "", &path.to_string_lossy()])
-            .status()
+        // 用记事本直接打开：`cmd /C start` 依赖文件关联，某些环境下会静默失败。
+        std::process::Command::new("notepad")
+            .arg(path)
+            .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "macos")]

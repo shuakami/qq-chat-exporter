@@ -68,7 +68,7 @@ async fn main() {
     // guard 必须在 main 存活期间保持，否则日志丢失。
     let _log_guard = guard;
 
-    tracing::info!("[QCE] qce-server v{VERSION} 启动中...");
+    tracing::info!("[QCE] QQ Chat Exporter Server v{VERSION} (Rust) 启动中...");
 
     if let Err(error) = run().await {
         tracing::error!("[QCE] 服务启动失败: {error}");
@@ -541,6 +541,8 @@ async fn reconcile_and_load_tasks(db: &Arc<DatabaseManager>) -> HashMap<String, 
             }
         }
 
+        normalize_legacy_task(&mut merged);
+
         let status = merged
             .get("status")
             .and_then(Value::as_str)
@@ -571,6 +573,90 @@ async fn reconcile_and_load_tasks(db: &Arc<DatabaseManager>) -> HashMap<String, 
         tracing::info!("[QCE] 已将 {orphan_count} 个孤儿任务标记为 failed（issue #144）");
     }
     tasks
+}
+
+/// 把 TS 时代持久化的任务字段映射成前端视图（对应 TS `loadExistingTasks`）：
+/// `chatName`→`sessionName`、`formats[0]`→`format`、`processedMessages`→
+/// `messageCount`、按消息数补算 `progress`、`state.endTime`→`completedAt`，
+/// 并把顶层 `startTime`/`endTime`（旧版是任务运行时间）替换为 `filter` 里的
+/// 消息时间范围，避免前端显示 Invalid Date。
+fn normalize_legacy_task(merged: &mut Map<String, Value>) {
+    let is_legacy = merged.contains_key("formats") || merged.contains_key("chatName");
+    if !is_legacy {
+        return;
+    }
+
+    if !merged.contains_key("sessionName") {
+        let name = merged
+            .get("chatName")
+            .or_else(|| merged.get("taskName"))
+            .filter(|v| v.as_str().is_some_and(|s| !s.is_empty()))
+            .cloned()
+            .or_else(|| merged.get("peer").and_then(|p| p.get("peerUid")).cloned());
+        if let Some(name) = name {
+            merged.insert("sessionName".to_string(), name);
+        }
+    }
+
+    if !merged.contains_key("format") {
+        if let Some(format) = merged.get("formats").and_then(|v| v.get(0)).cloned() {
+            merged.insert("format".to_string(), format);
+        }
+    }
+
+    if !merged.contains_key("messageCount") {
+        if let Some(count) = merged.get("processedMessages").cloned() {
+            merged.insert("messageCount".to_string(), count);
+        }
+    }
+
+    if !merged.contains_key("progress") {
+        let processed = merged.get("processedMessages").and_then(Value::as_f64).unwrap_or(0.0);
+        let total = merged.get("totalMessages").and_then(Value::as_f64).unwrap_or(0.0);
+        let progress = if total > 0.0 {
+            (processed / total * 100.0).round() as i64
+        } else {
+            0
+        };
+        merged.insert("progress".to_string(), json!(progress));
+    }
+
+    // 旧版 state.endTime 是任务结束时间 → completedAt。
+    if !merged.contains_key("completedAt") {
+        if let Some(end) = merged.get("endTime").cloned() {
+            merged.insert("completedAt".to_string(), end);
+        }
+    }
+
+    // 顶层 startTime/endTime 一律以 filter 的消息时间范围为准，没有就移除。
+    let filter_start = merged.get("filter").and_then(|f| f.get("startTime")).cloned();
+    let filter_end = merged.get("filter").and_then(|f| f.get("endTime")).cloned();
+    match filter_start {
+        Some(v) if !v.is_null() => {
+            merged.insert("startTime".to_string(), v);
+        }
+        _ => {
+            merged.remove("startTime");
+        }
+    }
+    match filter_end {
+        Some(v) if !v.is_null() => {
+            merged.insert("endTime".to_string(), v);
+        }
+        _ => {
+            merged.remove("endTime");
+        }
+    }
+
+    if !merged.contains_key("downloadUrl") {
+        if let Some(file_name) = merged
+            .get("fileName")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
+            merged.insert("downloadUrl".to_string(), json!(format!("/downloads/{file_name}")));
+        }
+    }
 }
 
 /// 解析前端静态目录：`QCE_STATIC_DIR` 环境变量 → 可执行文件旁的

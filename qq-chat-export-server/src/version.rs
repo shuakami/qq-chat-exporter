@@ -29,6 +29,8 @@ pub mod once_cell_version {
                 std::env::var("QCE_VERSION")
                     .ok()
                     .filter(|v| !v.trim().is_empty())
+                    .or_else(|| option_env!("QCE_VERSION").map(str::to_string))
+                    .filter(|v| !v.trim().is_empty())
                     .map_or_else(
                         || env!("CARGO_PKG_VERSION").to_string(),
                         |v| v.trim().trim_start_matches('v').to_string(),
