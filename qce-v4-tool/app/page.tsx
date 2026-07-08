@@ -1190,18 +1190,18 @@ export default function QCEDashboard() {
       <AnimatePresence initial={false}>
         {(sidebarOpen || sidebarMobileOpen) && (
           <motion.div
-            initial={{ width: 0, opacity: 0, x: reduceMotion ? 0 : -18, scaleX: 0.985, filter: "blur(10px)" }}
-            animate={{ width: SIDEBAR_WIDTH, opacity: 1, x: 0, scaleX: 1, filter: "blur(0px)" }}
-            exit={{ width: 0, opacity: 0, x: reduceMotion ? 0 : -24, scaleX: 0.98, filter: "blur(12px)" }}
+            initial={{ width: 0, opacity: 0, filter: "blur(10px)" }}
+            animate={{ width: SIDEBAR_WIDTH, opacity: 1, filter: "blur(0px)" }}
+            exit={{ width: 0, opacity: 0, filter: "blur(12px)" }}
             transition={sidebarTransition}
             className={`h-full flex flex-col flex-shrink-0 overflow-hidden select-none ${
               sidebarMobileOpen ? 'fixed left-0 top-0 z-50 bg-background/95 shadow-[0_24px_80px_rgba(15,23,42,0.22)] backdrop-blur-2xl' : 'relative'
             }`}
           >
             <motion.div
-              initial={{ opacity: 0, x: reduceMotion ? 0 : -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: reduceMotion ? 0 : -12 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               transition={sidebarContentTransition}
               className="w-[240px] h-full flex flex-col"
             >
@@ -1316,13 +1316,24 @@ export default function QCEDashboard() {
                       <DropdownMenuContent align="end" className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl min-w-[140px]">
                         <DropdownMenuItem asChild>
                           <a
-                            href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C"
+                            href="https://shuakami.github.io/qq-chat-exporter/"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-2 cursor-pointer"
                           >
                             <ExternalLink className="w-3.5 h-3.5" />
                             <span>使用文档</span>
+                          </a>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <a
+                            href="https://github.com/shuakami/qq-chat-exporter/releases"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 cursor-pointer"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>Release</span>
                           </a>
                         </DropdownMenuItem>
                       </DropdownMenuContent>
