@@ -40,6 +40,10 @@ jobs:
             platform: Linux
             arch: x64
             artifact_ext: tar.gz
+          - os: macos-latest
+            platform: macOS
+            arch: arm64
+            artifact_ext: tar.gz
     
     runs-on: ${{ matrix.os }}
     
