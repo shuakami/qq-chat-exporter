@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import {
   Download,
+  Trash2,
   RefreshCw,
   X,
   Star,
@@ -1942,10 +1943,10 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
 
             {/* ==================== SCHEDULED ==================== */}
             {activeTab === "scheduled" && (
-              <div className="p-5 space-y-4">
+              <div className="p-5 space-y-4 max-w-4xl mx-auto w-full">
                 {/* Filter Tabs */}
                 {scheduledExports.length > 0 && (
-                  <div className="flex items-center gap-0.5 px-1">
+                  <div className="flex items-center gap-1 px-1">
                     {[
                       { id: 'all', label: `全部 ${getScheduledStats().total}` },
                       { id: 'enabled', label: `启用 ${getScheduledStats().enabled}` },
@@ -1956,10 +1957,10 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                         <button
                           key={tab.id}
                           onClick={() => setScheduledFilter(tab.id as typeof scheduledFilter)}
-                          className={`px-2.5 py-1 rounded-full text-[12px] transition-colors ${
-                            isActive 
-                              ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium' 
-                              : 'text-muted-foreground/60 hover:text-muted-foreground'
+                          className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
+                            isActive
+                              ? 'bg-black/[0.06] dark:bg-white/[0.08] text-foreground'
+                              : 'text-muted-foreground/70 hover:text-foreground'
                           }`}
                         >
                           {tab.label}
@@ -1977,20 +1978,17 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                     <p className="text-[12px] text-muted-foreground/60 mt-1">点击右上角「新建定时任务」开始</p>
                   </div>
                 ) : (
-                  <div className="space-y-0.5">
+                  <div className="space-y-1">
                     {scheduledExports
                       .filter(se => scheduledFilter === 'all' || (scheduledFilter === 'enabled' ? se.enabled : !se.enabled))
                       .map((scheduledExport) => (
                       <div
                         key={scheduledExport.id}
-                        className="group flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors"
+                        className="group flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors"
                       >
                         <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                            scheduledExport.enabled ? 'bg-blue-500' : 'bg-neutral-300 dark:bg-neutral-600'
-                          }`} />
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2.5">
                               <span className="text-[13px] font-medium text-foreground truncate">
                                 {scheduledExport.name}
                               </span>
@@ -2002,57 +2000,52 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                                 {scheduledExport.enabled ? "启用" : "禁用"}
                               </span>
                             </div>
-                            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground/50">
+                            <div className="flex items-center gap-3 mt-0.5 text-[11px] text-muted-foreground/50">
                               <span>
                                 {scheduledExport.scheduleType === "daily" && "每天"}
                                 {scheduledExport.scheduleType === "weekly" && "每周"}
                                 {scheduledExport.scheduleType === "monthly" && "每月"}
                                 {scheduledExport.scheduleType === "custom" && "自定义"}
-                              </span>
-                              <span className="text-muted-foreground/20">·</span>
-                              <span>
+                                {" "}
                                 {scheduledExport.scheduleType === "custom" && scheduledExport.cronExpression
                                   ? scheduledExport.cronExpression
                                   : scheduledExport.executeTime}
                               </span>
                               {scheduledExport.nextRun && (
-                                <>
-                                  <span className="text-muted-foreground/20">·</span>
-                                  <span>
-                                    下次 {new Date(scheduledExport.nextRun).toLocaleString("zh-CN", {
-                                      month: "numeric",
-                                      day: "numeric",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}
-                                  </span>
-                                </>
+                                <span className="text-muted-foreground/40">
+                                  下次 {new Date(scheduledExport.nextRun).toLocaleString("zh-CN", {
+                                    month: "numeric",
+                                    day: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
                               )}
                             </div>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
-                            className="px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                            className="px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground/60 hover:text-foreground rounded-full hover:bg-black/[0.05] dark:hover:bg-white/[0.06] transition-colors"
                             onClick={() => toggleScheduledExport(scheduledExport.id, !scheduledExport.enabled)}
                           >
                             {scheduledExport.enabled ? "禁用" : "启用"}
                           </button>
                           <button
-                            className="px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                            className="px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground/60 hover:text-foreground rounded-full hover:bg-black/[0.05] dark:hover:bg-white/[0.06] transition-colors"
                             onClick={() => triggerScheduledExport(scheduledExport.id)}
                           >
                             执行
                           </button>
                           <button
-                            className="px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                            className="px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground/60 hover:text-foreground rounded-full hover:bg-black/[0.05] dark:hover:bg-white/[0.06] transition-colors"
                             onClick={() => handleOpenHistoryModal(scheduledExport.id, scheduledExport.name)}
                           >
                             历史
                           </button>
                           <button
-                            className="p-1 text-muted-foreground/30 hover:text-red-500 rounded-full hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                            className="p-1.5 ml-1 text-muted-foreground/40 hover:text-red-500 rounded-full hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
                             onClick={() => {
                               showDeleteConfirmationToast(`删除定时任务「${scheduledExport.name}」？`, "此操作不可撤销", async () => {
                                 const success = await deleteScheduledExport(scheduledExport.id)
@@ -2061,7 +2054,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                               })
                             }}
                           >
-                            <X className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>

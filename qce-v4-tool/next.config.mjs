@@ -1,6 +1,7 @@
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
+import { execSync } from 'child_process'
 
 // 从后端 package.json 读取版本
 function getVersionFromPlugin() {
@@ -34,7 +35,19 @@ const nextConfig = {
   // 环境变量注入
   env: {
     QCE_VERSION: process.env.QCE_VERSION || getVersionFromPlugin(),
+    QCE_BUILD: getBuildHash(),
   },
+}
+
+// 构建短哈希：优先 CI 注入的 commit sha，其次本地 git，最后 unknown。
+function getBuildHash() {
+  const sha = process.env.QCE_BUILD || process.env.GITHUB_SHA
+  if (sha) return sha.slice(0, 7)
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim()
+  } catch {
+    return 'unknown'
+  }
 }
 
 export default nextConfig

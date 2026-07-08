@@ -5,10 +5,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./dialog"
 import { Button } from "./button"
 import { Input } from "./input"
 import { Textarea } from "./textarea"
-import { DateTimeInputGroup } from "./date-input-group"
+import { DateRangePicker } from "./date-range-picker"
 import { Label } from "./label"
 import { Badge } from "./badge"
-import { Separator } from "./separator"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import {
   Users, User, Search, ChevronDown, RefreshCw, Settings, Eye, CheckCircle, X, UserMinus, UserPlus, Check
@@ -628,7 +627,7 @@ export function TaskWizard({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="manualName" className="text-[13px] text-muted-foreground">备注名称（可选）</Label>
+              <Label htmlFor="manualName" className="text-[13px] text-muted-foreground">备注名称</Label>
               <Input
                 id="manualName"
                 placeholder="给这个聊天起个名字"
@@ -665,7 +664,7 @@ export function TaskWizard({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="manualGroupName" className="text-[13px] text-muted-foreground">备注名称（可选）</Label>
+              <Label htmlFor="manualGroupName" className="text-[13px] text-muted-foreground">备注名称</Label>
               <Input
                 id="manualGroupName"
                 placeholder="给这个群聊起个名字"
@@ -940,11 +939,9 @@ export function TaskWizard({
             placeholder="为这个导出任务起个名字"
             value={form.sessionName}
             onChange={(e) => setForm((p) => ({ ...p, sessionName: e.target.value }))}
-            className="rounded-xl"
+            className="rounded-xl border-0"
           />
         </div>
-
-        <Separator />
 
         {/* 导出格式 */}
         <div className="space-y-3">
@@ -975,54 +972,37 @@ export function TaskWizard({
           </div>
         </div>
 
-        <Separator />
-
         {/* 时间范围 */}
         <div className="space-y-3">
           <div>
-            <Label className="text-base font-medium">时间范围（可选）</Label>
+            <Label className="text-base font-medium">时间范围</Label>
             <p className="text-sm text-muted-foreground mt-1">留空则导出全部历史记录</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>开始时间</Label>
-              <DateTimeInputGroup
-                value={form.startTime}
-                onChange={(v) => setForm((p) => ({ ...p, startTime: v }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>结束时间</Label>
-              <DateTimeInputGroup
-                value={form.endTime}
-                onChange={(v) => setForm((p) => ({ ...p, endTime: v }))}
-              />
-            </div>
-          </div>
+          <DateRangePicker
+            startTime={form.startTime}
+            endTime={form.endTime}
+            onChange={(start, end) => setForm((p) => ({ ...p, startTime: start, endTime: end }))}
+          />
         </div>
-
-        <Separator />
 
         {/* 关键词过滤 */}
         <div className="space-y-2">
-          <Label htmlFor="keywords">关键词过滤（可选）</Label>
+          <Label htmlFor="keywords">关键词过滤</Label>
           <Textarea
             id="keywords"
             placeholder="用逗号分隔多个关键词，如：重要,会议,通知"
             value={form.keywords}
             onChange={(e) => setForm((p) => ({ ...p, keywords: e.target.value }))}
             rows={3}
-            className="rounded-2xl"
+            className="rounded-2xl border-0"
           />
         </div>
-
-        <Separator />
 
         {/* 排除用户 */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label htmlFor="excludeUserUins">排除用户（可选）</Label>
+            <Label htmlFor="excludeUserUins">排除用户</Label>
             {selectedTarget && "groupCode" in selectedTarget && (
               <Button
                 type="button"
@@ -1044,7 +1024,7 @@ export function TaskWizard({
             value={form.excludeUserUins || ""}
             onChange={(e) => setForm((p) => ({ ...p, excludeUserUins: e.target.value }))}
             rows={2}
-            className="rounded-2xl"
+            className="rounded-2xl border-0"
           />
           {form.excludeUserUins && (
             <p className="text-xs text-muted-foreground">
@@ -1056,7 +1036,7 @@ export function TaskWizard({
         {/* Issue #369：仅导出指定 QQ 号的消息（与排除互不冲突；同一 QQ 同时出现时，排除优先生效） */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label htmlFor="includeUserUins">仅导出这些用户的消息（可选）</Label>
+            <Label htmlFor="includeUserUins">仅导出这些用户的消息</Label>
             {selectedTarget && "groupCode" in selectedTarget && (
               <Button
                 type="button"
@@ -1078,7 +1058,7 @@ export function TaskWizard({
             value={form.includeUserUins || ""}
             onChange={(e) => setForm((p) => ({ ...p, includeUserUins: e.target.value }))}
             rows={2}
-            className="rounded-2xl"
+            className="rounded-2xl border-0"
           />
           {form.includeUserUins && (
             <p className="text-xs text-muted-foreground">
@@ -1086,8 +1066,6 @@ export function TaskWizard({
             </p>
           )}
         </div>
-
-        <Separator />
 
         {/* 高级选项 */}
         <div className="space-y-3">
@@ -1098,13 +1076,13 @@ export function TaskWizard({
 
           {/* Issue #192: 自定义导出路径 */}
           <div className="space-y-2">
-            <Label htmlFor="outputDir">导出路径（可选）</Label>
+            <Label htmlFor="outputDir">导出路径</Label>
             <Input
               id="outputDir"
               placeholder="留空使用默认路径，或输入自定义路径如 D:\exports"
               value={form.outputDir || ""}
               onChange={(e) => setForm((p) => ({ ...p, outputDir: e.target.value }))}
-              className="rounded-xl text-sm"
+              className="rounded-xl text-sm border-0"
             />
             <p className="text-xs text-muted-foreground">
               默认保存到用户目录下的 .qq-chat-exporter/exports 文件夹
@@ -1261,7 +1239,6 @@ export function TaskWizard({
                     />
                   </div>
                 </div>
-                {idx < arr.length - 1 && <Separator />}
               </div>
             ))}
           </div>
@@ -1275,8 +1252,8 @@ export function TaskWizard({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
         fullScreen
-        overlayClassName="bg-background/60 backdrop-blur-xl"
-        className="flex flex-col h-full p-0"
+        overlayClassName="bg-background/80 dark:bg-background/80"
+        className="inset-4 w-auto h-auto rounded-2xl border border-black/[0.06] dark:border-white/[0.08] shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden flex flex-col p-0"
       >
         <DialogHeader className="border-0 px-6 pt-5 pb-0">
           <DialogTitle className="text-base font-semibold">
@@ -1307,8 +1284,6 @@ export function TaskWizard({
               )}
             </div>
           </div>
-
-          <Separator orientation="vertical" className="h-full" />
 
           {/* 右侧 */}
           <div className="w-3/5 flex flex-col">

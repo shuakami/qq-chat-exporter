@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
-import { RefreshCw, ExternalLink } from 'lucide-react'
+import { RefreshCw, ExternalLink, Copy, Check } from 'lucide-react'
+import { BuildFooter } from '@/components/ui/build-footer'
 
 export default function Error({
   error,
@@ -17,8 +17,9 @@ export default function Error({
     stack: '',
     url: '',
     userAgent: '',
-    time: ''
+    time: '',
   })
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     setErrorData({
@@ -27,47 +28,48 @@ export default function Error({
       stack: error.stack || '',
       url: typeof window !== 'undefined' ? window.location.href : '',
       userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
-      time: new Date().toISOString()
+      time: new Date().toISOString(),
     })
     console.error('应用错误:', error)
   }, [error])
 
+  const detail = errorData.digest
+    ? `${errorData.message}\n\ndigest: ${errorData.digest}`
+    : errorData.message
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(detail).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
   const handleReport = () => {
     const title = encodeURIComponent(`[BUG] 应用错误: ${errorData.message.slice(0, 50)}`)
-    const body = encodeURIComponent(`## 🐛 错误信息
+    const body = encodeURIComponent(`## 错误信息
 
 \`\`\`
 ${errorData.message}
 \`\`\`
 
-## 📋 错误详情
+## 错误详情
 
 - **错误摘要**: ${errorData.digest || '无'}
 - **时间**: ${errorData.time}
 - **URL**: ${errorData.url}
 
-## 📜 堆栈跟踪
+## 堆栈跟踪
 
 \`\`\`
 ${errorData.stack || '无'}
 \`\`\`
 
-## 💻 环境信息
+## 环境信息
 
 - **浏览器**: ${errorData.userAgent}
-- **QCE 版本**: v5.0.x
-
-## 🔄 复现步骤
-
-1. 
-2. 
-3. 
-
-## ✨ 期望结果
-
-应用正常运行，不出现错误。
+- **QCE 版本**: v${process.env.QCE_VERSION || 'unknown'}
 `)
-    
+
     window.open(
       `https://github.com/shuakami/qq-chat-exporter/issues/new?title=${title}&body=${body}&labels=bug`,
       '_blank'
@@ -75,54 +77,52 @@ ${errorData.stack || '无'}
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 flex items-center justify-center p-6">
-      <motion.div
-        className="w-full max-w-[400px]"
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-      >
-        <div className="text-center mb-6">
-          <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100 mb-1.5">
-            出了点问题
-          </h1>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            应用遇到了意外错误
-          </p>
-        </div>
+    <div className="flex flex-col h-screen w-full bg-[#fbfbfb] dark:bg-neutral-950 text-[#111111] dark:text-neutral-100 font-sans">
+      <main className="flex-1 flex flex-col items-start justify-center max-w-lg w-full mx-auto px-8 pb-32">
+        <h1 className="text-[20px] font-medium text-[#111111] dark:text-neutral-100 mb-3">出了点问题</h1>
+        <p className="text-[14px] text-[#737373] dark:text-neutral-400 mb-8 leading-relaxed">
+          应用遇到了意外错误。
+          <br />
+          请尝试刷新页面。
+        </p>
 
-        <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5">
-          <div className="bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 rounded-xl p-4 mb-4">
-            <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">
-              Error
+        {errorData.message && (
+          <div className="w-full bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 rounded-xl shadow-[0_1px_2px_rgba(0,0,0,0.02)] p-4 mb-8">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[12px] font-medium text-neutral-500 dark:text-neutral-400">Error details</div>
+              <button
+                onClick={handleCopy}
+                className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors p-1 -mr-1"
+                title="复制错误信息"
+              >
+                {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
             </div>
-            <div className="text-sm text-neutral-900 dark:text-neutral-100 leading-relaxed break-words">
-              {errorData.message}
+            <div className="text-[13px] text-[#444444] dark:text-neutral-300 leading-relaxed break-all font-mono whitespace-pre-wrap">
+              {detail}
             </div>
-            {errorData.digest && (
-              <div className="text-[11px] text-neutral-400 dark:text-neutral-500 font-mono mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-800">
-                digest: {errorData.digest}
-              </div>
-            )}
           </div>
+        )}
 
+        <div className="flex items-center gap-3">
           <button
             onClick={reset}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-sm font-medium hover:opacity-90 transition-opacity mb-2.5"
+            className="inline-flex items-center justify-center gap-1.5 h-8 px-4 text-[13px] font-medium text-neutral-700 dark:text-neutral-200 bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:border-black/10 hover:bg-neutral-50 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white rounded-full transition-all"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="w-3.5 h-3.5" />
             重试
           </button>
-
           <button
             onClick={handleReport}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+            className="inline-flex items-center justify-center gap-1.5 h-8 px-4 text-[13px] font-medium text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-all"
           >
-            <ExternalLink className="w-4 h-4" />
+            <ExternalLink className="w-3.5 h-3.5" />
             反馈问题
           </button>
         </div>
-      </motion.div>
+      </main>
+
+      <BuildFooter />
     </div>
   )
 }

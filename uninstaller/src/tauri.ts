@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 export interface UninstallProgress {
   percent: number;
@@ -18,6 +19,7 @@ const api = {
   startUninstall: (keepData: boolean) =>
     invoke<void>('start_uninstall', { keepData }),
   openInstallDir: () => invoke<void>('open_install_dir'),
+  openUrl: (url: string) => openUrl(url),
   closeWindow: () => getCurrentWindow().close(),
   onUninstallProgress: (cb: (p: UninstallProgress) => void): Promise<UnlistenFn> =>
     listen<UninstallProgress>('uninstall-progress', (e) => cb(e.payload)),

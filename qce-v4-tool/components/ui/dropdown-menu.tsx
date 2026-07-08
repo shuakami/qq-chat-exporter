@@ -42,7 +42,7 @@ function DropdownMenuContent({
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         className={cn(
-          "z-[9999] min-w-[180px] overflow-hidden rounded-[10px] border border-black/[0.08] dark:border-white/[0.14] bg-white/95 dark:bg-[#0A0A0A] p-1 text-[#171717] dark:text-[#EDEDED] shadow-[0_4px_24px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.03)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.4)] backdrop-blur-[8px] origin-[var(--radix-dropdown-menu-content-transform-origin)] data-[state=open]:animate-[dropdown-in_240ms_cubic-bezier(0.34,1.56,0.64,1)] data-[state=closed]:animate-[dropdown-out_100ms_ease-in]",
+          "z-[9999] min-w-[180px] overflow-hidden rounded-[10px] border border-black/[0.08] dark:border-white/[0.14] bg-white/95 dark:bg-[#0A0A0A] p-1 text-[#171717] dark:text-[#EDEDED] shadow-[0_4px_24px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.03)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.4)] backdrop-blur-[8px] origin-[var(--radix-dropdown-menu-content-transform-origin)] data-[state=open]:animate-[dropdown-in_240ms_cubic-bezier(0.34,1.56,0.64,1)] data-[state=closed]:animate-[dropdown-out_150ms_ease-in]",
           className
         )}
         {...props}
@@ -231,7 +231,7 @@ function DropdownMenuSubContent({
     <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
       className={cn(
-        "z-50 min-w-[180px] overflow-hidden rounded-[10px] border border-black/[0.08] dark:border-white/[0.14] bg-white/95 dark:bg-[#0A0A0A] p-1 text-[#171717] dark:text-[#EDEDED] shadow-[0_4px_24px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.03)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.4)] backdrop-blur-[8px] origin-[var(--radix-dropdown-menu-content-transform-origin)] data-[state=open]:animate-[dropdown-in_240ms_cubic-bezier(0.34,1.56,0.64,1)] data-[state=closed]:animate-[dropdown-out_100ms_ease-in]",
+        "z-50 min-w-[180px] overflow-hidden rounded-[10px] border border-black/[0.08] dark:border-white/[0.14] bg-white/95 dark:bg-[#0A0A0A] p-1 text-[#171717] dark:text-[#EDEDED] shadow-[0_4px_24px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.03)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.4)] backdrop-blur-[8px] origin-[var(--radix-dropdown-menu-content-transform-origin)] data-[state=open]:animate-[dropdown-in_240ms_cubic-bezier(0.34,1.56,0.64,1)] data-[state=closed]:animate-[dropdown-out_150ms_ease-in]",
         className
       )}
       {...props}
