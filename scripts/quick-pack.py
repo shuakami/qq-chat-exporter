@@ -75,6 +75,20 @@ def run_command(cmd, cwd=None, shell=False):
         return False
     return True
 
+def build_rust_server(pack_dir):
+    """Build the Rust server (qce-server) and place it in the package root."""
+    exe_name = "qce-server.exe" if platform.system() == "Windows" else "qce-server"
+    if not run_command(["cargo", "build", "--release"], cwd="qq-chat-export-server"):
+        print("[!] Rust server build failed")
+        sys.exit(1)
+    src = os.path.join("qq-chat-export-server", "target", "release", exe_name)
+    if not os.path.exists(src):
+        print(f"[!] Rust server binary not found: {src}")
+        sys.exit(1)
+    dest = os.path.join(pack_dir, exe_name)
+    shutil.copy2(src, dest)
+    print(f"[x] Added Rust server binary: {dest}")
+
 def extract_zip(zip_path, dest_dir):
     """Extract ZIP file"""
     print(f"[->] Extracting: {zip_path}")
@@ -408,6 +422,12 @@ echo.
 
 set NAPCAT_MAIN_PATH=%NAPCAT_MAIN_PATH:\\=/%
 echo (async () =^> {await import("file:///%NAPCAT_MAIN_PATH%")})() > "%NAPCAT_LOAD_PATH%"
+
+rem 兜底：部分新版 QQNT 的注入 hook 不再重定向 loadNapCat.js 的读取，
+rem 物理复制一份到 QQ 的 resources\\app 目录，避免 "Cannot find module ... loadNapCat.js"。
+if not "!QQPackageJson!"=="" (
+    for %%f in ("!QQPackageJson!") do copy /y "%NAPCAT_LOAD_PATH%" "%%~dpfloadNapCat.js" >nul 2>&1
+)
 
 "%NAPCAT_LAUNCHER_PATH%" "!QQPath!" "%NAPCAT_INJECT_PATH%" %*
 goto :end_script
@@ -1078,6 +1098,11 @@ QCE 版本: {VERSION}
     print("[x] Created")
     print()
     
+    # Build and bundle the Rust server binary
+    print("[10.5/11] Building Rust server (qce-server)...")
+    build_rust_server(pack_dir)
+    print()
+
     # Create main archive (with version in filename)
     print("[11/11] Creating main archive...")
     output_file = f"{output_basename}{archive_ext}"

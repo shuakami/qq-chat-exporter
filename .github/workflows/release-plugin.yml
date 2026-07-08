@@ -59,6 +59,14 @@ jobs:
         with:
           version: 8
       
+      - name: "Setup Rust"
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: "Rust 缓存"
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: qq-chat-export-server
+      
       - name: "Sync version from tag"
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
