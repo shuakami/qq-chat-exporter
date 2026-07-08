@@ -423,6 +423,12 @@ echo.
 set NAPCAT_MAIN_PATH=%NAPCAT_MAIN_PATH:\\=/%
 echo (async () =^> {await import("file:///%NAPCAT_MAIN_PATH%")})() > "%NAPCAT_LOAD_PATH%"
 
+rem 兜底：部分新版 QQNT 的注入 hook 不再重定向 loadNapCat.js 的读取，
+rem 物理复制一份到 QQ 的 resources\\app 目录，避免 "Cannot find module ... loadNapCat.js"。
+if not "!QQPackageJson!"=="" (
+    for %%f in ("!QQPackageJson!") do copy /y "%NAPCAT_LOAD_PATH%" "%%~dpfloadNapCat.js" >nul 2>&1
+)
+
 "%NAPCAT_LAUNCHER_PATH%" "!QQPath!" "%NAPCAT_INJECT_PATH%" %*
 goto :end_script
 
