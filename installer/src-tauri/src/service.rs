@@ -64,7 +64,10 @@ pub fn start_service(state: State<'_, AppState>) -> Result<(), String> {
         inner.install_dir().ok_or_else(|| "尚未安装".to_string())?
     };
 
-    util::installer_log(&dir, "starting service");
+    util::installer_log(
+        &dir,
+        &format!("starting service (installer v{})", env!("CARGO_PKG_VERSION")),
+    );
 
     let launcher = util::find_launcher(&dir)
         .ok_or_else(|| "未找到启动脚本（launcher-user.bat）".to_string())?;
