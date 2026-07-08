@@ -1644,7 +1644,7 @@ export default function QCEDashboard() {
 
             {/* ==================== SESSIONS ==================== */}
             {activeTab === "sessions" && (
-              <div className="p-5 space-y-4">
+              <div className="px-4 pt-2 pb-5 space-y-2">
                 {/* Issue #340：独立模式下没有 NapCat / QQ 登录态，无法拉群组和好友列表。
                     用一张引导卡片替换原来的 SessionList，避免红色错误 toast 把用户吓退。 */}
                 {isStandalone ? (

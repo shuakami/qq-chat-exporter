@@ -412,7 +412,7 @@ export function SessionList({
   return (
     <div className="space-y-0">
       {/* Search and Filter Bar */}
-      <div className="flex flex-col sm:flex-row items-center gap-1.5 py-1.5">
+      <div className="flex flex-col sm:flex-row items-center gap-1.5">
         {/* Search Input */}
         <div className="relative flex-1">
           <Search className="absolute left-0 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
@@ -437,7 +437,7 @@ export function SessionList({
         <div className="flex items-center gap-1.5">
           {/* Type Filter */}
           <Select value={type} onValueChange={(v: string) => setType(v as SessionType)}>
-            <SelectTrigger className="h-8 text-[13px] rounded-full bg-black/[0.04] dark:bg-white/[0.06] shadow-none px-2.5">
+            <SelectTrigger size="sm" className="text-[13px] rounded-full bg-black/[0.04] dark:bg-white/[0.06] shadow-none px-2.5 border-0">
               <SelectValue placeholder="全部类型" />
             </SelectTrigger>
             <SelectContent className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl">
@@ -449,7 +449,7 @@ export function SessionList({
 
           {/* Sort Field */}
           <Select value={sortField} onValueChange={(v: string) => setSortField(v as SortField)}>
-            <SelectTrigger className="h-8 text-[13px] rounded-full bg-black/[0.04] dark:bg-white/[0.06] shadow-none px-2.5">
+            <SelectTrigger size="sm" className="text-[13px] rounded-full bg-black/[0.04] dark:bg-white/[0.06] shadow-none px-2.5 border-0">
               <SelectValue placeholder="排序" />
             </SelectTrigger>
             <SelectContent className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl">
@@ -492,7 +492,7 @@ export function SessionList({
       </div>
 
       {/* Stats */}
-      <div className="flex items-center pb-3">
+      <div className="flex items-center pb-1.5">
         <span className="text-sm text-muted-foreground/60">
           {hasActiveFilters ? (
             <>找到 <span className="font-medium text-foreground/80">{totalItems}</span> 个会话</>
