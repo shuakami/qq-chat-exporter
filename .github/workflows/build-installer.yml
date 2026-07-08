@@ -93,12 +93,7 @@ jobs:
             # Determine the top-level directory inside the zip
             TOP_DIR=$(python3 -c "import zipfile,sys;z=zipfile.ZipFile(sys.argv[1]);print(z.namelist()[0].split('/')[0])" "$PKG")
             # Add uninstaller exe into the zip under the top-level directory
-            python3 -c "
-import zipfile,sys
-z=zipfile.ZipFile(sys.argv[1],'a')
-z.write(sys.argv[2], f'{sys.argv[3]}/Uninstall QQ Chat Exporter.exe')
-z.close()
-" "$PKG" "$UNINSTALLER" "$TOP_DIR"
+            python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'a'); z.write(sys.argv[2], sys.argv[3]+'/Uninstall QQ Chat Exporter.exe'); z.close()" "$PKG" "$UNINSTALLER" "$TOP_DIR"
             echo "Injected uninstaller into $PKG under $TOP_DIR/"
           else
             echo "Warning: Shell package or uninstaller not found, skipping injection"
