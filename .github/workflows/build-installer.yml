@@ -87,7 +87,7 @@ jobs:
       - name: "注入卸载器到 Shell 包"
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          UNINSTALLER="../uninstaller/src-tauri/target/release/qce-uninstaller.exe"
+          UNINSTALLER="uninstaller/src-tauri/target/release/qce-uninstaller.exe"
           PKG=$(ls NapCat-QCE-Windows-x64-*.zip 2>/dev/null | head -1 || true)
           if [ -n "$PKG" ] && [ -f "$UNINSTALLER" ]; then
             # Determine the top-level directory inside the zip
@@ -96,7 +96,8 @@ jobs:
             python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'a'); z.write(sys.argv[2], sys.argv[3]+'/Uninstall QQ Chat Exporter.exe'); z.close()" "$PKG" "$UNINSTALLER" "$TOP_DIR"
             echo "Injected uninstaller into $PKG under $TOP_DIR/"
           else
-            echo "Warning: Shell package or uninstaller not found, skipping injection"
+            echo "Error: Shell package or uninstaller not found (PKG=$PKG, UNINSTALLER=$UNINSTALLER)"
+            exit 1
           fi
         working-directory: .
 
