@@ -7,6 +7,10 @@
     "core:default",
     "core:window:allow-close",
     "core:window:allow-start-dragging",
-    "opener:default"
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://github.com/*" }]
+    }
   ]
 }

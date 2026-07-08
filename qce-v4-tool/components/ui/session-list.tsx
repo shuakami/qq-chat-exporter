@@ -19,11 +19,18 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  SortAsc,
-  SortDesc,
+  ChevronDown,
+  ArrowUpNarrowWide,
+  ArrowDownWideNarrow,
   X,
   Filter,
 } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "./dropdown-menu"
 import type { Group, Friend } from "@/types/api"
 import {
   useSessionFilter,
@@ -227,20 +234,6 @@ export function SessionList({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [search, setSearch, batchMode, onToggleBatchMode, page, setPage, hasPrevPage, hasNextPage])
 
-  // Close dropdown menus when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const dropdowns = document.querySelectorAll('[data-session-dropdown]:not(.hidden)')
-      dropdowns.forEach((dropdown) => {
-        if (!dropdown.contains(e.target as Node) && !dropdown.previousElementSibling?.contains(e.target as Node)) {
-          dropdown.classList.add('hidden')
-        }
-      })
-    }
-    document.addEventListener('click', handleClickOutside)
-    return () => document.removeEventListener('click', handleClickOutside)
-  }, [])
-
   const hasActiveFilters = search || type !== 'all'
 
   const renderSessionItem = useCallback((item: SessionItem) => {
@@ -320,88 +313,73 @@ export function SessionList({
         </div>
 
         {!batchMode && (
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2.5 text-xs rounded-full justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <button
+              className="inline-flex items-center justify-center h-7 px-3 text-[12px] font-medium text-muted-foreground bg-transparent hover:text-foreground rounded-full transition-colors opacity-0 group-hover:opacity-100"
               onClick={(e: React.MouseEvent) => {
                 e.stopPropagation()
-                onPreviewChat?.(item.type, item.id, item.name, { 
-                  chatType: isGroup ? 2 : 1, 
-                  peerUid: item.id 
+                onPreviewChat?.(item.type, item.id, item.name, {
+                  chatType: isGroup ? 2 : 1,
+                  peerUid: item.id,
                 })
               }}
             >
               预览
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2.5 text-xs rounded-full justify-center"
-              onClick={(e: React.MouseEvent) => {
-                e.stopPropagation()
-                onOpenTaskWizard?.({
-                  chatType: isGroup ? 2 : 1,
-                  peerUid: item.id,
-                  sessionName: item.name,
-                })
-              }}
-            >
-              导出
-            </Button>
+            </button>
             {isGroup && group ? (
-              <div className="relative h-8 w-8">
+              <div className="flex items-center bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.04)] rounded-full overflow-hidden hover:border-black/10 transition-all">
                 <button
-                  className="h-8 w-8 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                  className="inline-flex items-center justify-center h-7 pl-3 pr-2 text-[12px] font-medium text-neutral-700 dark:text-neutral-200 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-50 dark:hover:bg-white/5 transition-colors border-r border-neutral-200/80 dark:border-white/10"
                   onClick={(e: React.MouseEvent) => {
                     e.stopPropagation()
-                    const menu = e.currentTarget.nextElementSibling as HTMLElement
-                    if (menu) menu.classList.toggle('hidden')
+                    onOpenTaskWizard?.({
+                      chatType: 2,
+                      peerUid: item.id,
+                      sessionName: item.name,
+                    })
                   }}
                 >
-                  <svg width="15" height="3" viewBox="0 0 15 3" fill="currentColor" className="text-muted-foreground">
-                    <circle cx="1.5" cy="1.5" r="1.5"/>
-                    <circle cx="7.5" cy="1.5" r="1.5"/>
-                    <circle cx="13.5" cy="1.5" r="1.5"/>
-                  </svg>
+                  导出
                 </button>
-                <div className="hidden absolute right-0 top-full mt-1 p-1.5 w-40 bg-card rounded-xl shadow-xl z-50" data-session-dropdown>
-                  <button
-                    className="w-full px-3 py-2 text-left text-[13px] text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] rounded-lg transition-colors"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onExportGroupAvatars?.(group.groupCode, group.groupName)
-                      ;(e.currentTarget.parentElement as HTMLElement)?.classList.add('hidden')
-                    }}
-                    disabled={avatarExportLoading === group.groupCode}
-                  >
-                    {avatarExportLoading === group.groupCode ? '导出中...' : '导出头像'}
-                  </button>
-                  <button
-                    className="w-full px-3 py-2 text-left text-[13px] text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] rounded-lg transition-colors"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onOpenEssenceModal?.(group.groupCode, group.groupName)
-                      ;(e.currentTarget.parentElement as HTMLElement)?.classList.add('hidden')
-                    }}
-                  >
-                    精华消息
-                  </button>
-                  <button
-                    className="w-full px-3 py-2 text-left text-[13px] text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] rounded-lg transition-colors"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onOpenGroupFilesModal?.(group.groupCode, group.groupName)
-                      ;(e.currentTarget.parentElement as HTMLElement)?.classList.add('hidden')
-                    }}
-                  >
-                    群文件
-                  </button>
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="inline-flex items-center justify-center h-7 pl-1.5 pr-2 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-50 dark:hover:bg-white/5 transition-colors outline-none"
+                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuItem
+                      disabled={avatarExportLoading === group.groupCode}
+                      onClick={() => onExportGroupAvatars?.(group.groupCode, group.groupName)}
+                    >
+                      {avatarExportLoading === group.groupCode ? '导出中...' : '导出头像'}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onOpenEssenceModal?.(group.groupCode, group.groupName)}>
+                      精华消息
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onOpenGroupFilesModal?.(group.groupCode, group.groupName)}>
+                      群文件
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             ) : (
-              <span className="block h-8 w-8 opacity-0 pointer-events-none" aria-hidden="true" />
+              <button
+                className="inline-flex items-center justify-center h-7 px-3 text-[12px] font-medium text-neutral-700 dark:text-neutral-200 bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:border-black/10 hover:bg-neutral-50 dark:hover:bg-white/5 hover:text-neutral-900 dark:hover:text-white rounded-full transition-all"
+                onClick={(e: React.MouseEvent) => {
+                  e.stopPropagation()
+                  onOpenTaskWizard?.({
+                    chatType: isGroup ? 2 : 1,
+                    peerUid: item.id,
+                    sessionName: item.name,
+                  })
+                }}
+              >
+                导出
+              </button>
             )}
           </div>
         )}
@@ -414,30 +392,30 @@ export function SessionList({
       {/* Search and Filter Bar */}
       <div className="flex flex-col sm:flex-row items-center gap-1.5">
         {/* Search Input */}
-        <div className="relative flex-1">
-          <Search className="absolute left-0 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
+        <div className="relative w-full flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60 pointer-events-none" />
           <Input
             ref={searchInputRef}
-            placeholder="搜索会话名称、备注或 ID... (按 / 聚焦)"
+            placeholder="搜索会话名称、备注或 ID..."
             value={search}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-            className="pl-6 pr-8 h-8 text-sm border-0 bg-transparent shadow-none focus-visible:ring-0"
+            className="h-8 pl-9 pr-8 text-[13px] rounded-full bg-white dark:bg-neutral-900 border border-black/[0.03] dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-black/[0.08] focus-visible:ring-0 focus-visible:border-black/[0.12] transition-all"
           />
           {search && (
             <button
               onClick={() => setSearch("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
             >
-              <X className="w-3 h-3" />
+              <X className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
 
         {/* Filter Controls */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           {/* Type Filter */}
           <Select value={type} onValueChange={(v: string) => setType(v as SessionType)}>
-            <SelectTrigger size="sm" className="text-[13px] rounded-full bg-black/[0.04] dark:bg-white/[0.06] shadow-none px-2.5 border-0">
+            <SelectTrigger size="sm" className="h-8 text-[13px] font-medium rounded-full bg-white dark:bg-neutral-900 border border-black/[0.03] dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-black/[0.08] hover:bg-neutral-50 dark:hover:bg-white/5 px-3 transition-all">
               <SelectValue placeholder="全部类型" />
             </SelectTrigger>
             <SelectContent className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl">
@@ -449,7 +427,7 @@ export function SessionList({
 
           {/* Sort Field */}
           <Select value={sortField} onValueChange={(v: string) => setSortField(v as SortField)}>
-            <SelectTrigger size="sm" className="text-[13px] rounded-full bg-black/[0.04] dark:bg-white/[0.06] shadow-none px-2.5 border-0">
+            <SelectTrigger size="sm" className="h-8 text-[13px] font-medium rounded-full bg-white dark:bg-neutral-900 border border-black/[0.03] dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-black/[0.08] hover:bg-neutral-50 dark:hover:bg-white/5 px-3 transition-all">
               <SelectValue placeholder="排序" />
             </SelectTrigger>
             <SelectContent className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl">
@@ -463,18 +441,16 @@ export function SessionList({
           </Select>
 
           {/* Sort Order Toggle */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-full bg-black/[0.04] dark:bg-white/[0.06]"
+          <button
+            className="flex-shrink-0 h-8 w-8 rounded-full bg-white dark:bg-neutral-900 border border-black/[0.03] dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex items-center justify-center text-neutral-600 dark:text-neutral-300 hover:border-black/[0.08] hover:bg-neutral-50 dark:hover:bg-white/5 hover:text-neutral-900 dark:hover:text-white transition-all"
             onClick={handleToggleSort}
           >
             {sortOrder === 'asc' ? (
-              <SortAsc className="w-3.5 h-3.5" />
+              <ArrowUpNarrowWide className="w-4 h-4" />
             ) : (
-              <SortDesc className="w-3.5 h-3.5" />
+              <ArrowDownWideNarrow className="w-4 h-4" />
             )}
-          </Button>
+          </button>
 
           {/* Clear Filters */}
           {hasActiveFilters && (
@@ -491,23 +467,9 @@ export function SessionList({
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="flex items-center pb-1.5">
-        <span className="text-sm text-muted-foreground/60">
-          {hasActiveFilters ? (
-            <>找到 <span className="font-medium text-foreground/80">{totalItems}</span> 个会话</>
-          ) : (
-            <>共 <span className="font-medium text-foreground/80">{totalItems}</span> 个会话</>
-          )}
-        </span>
-      </div>
-
-      {/* Divider */}
-      <div className="border-t border-black/[0.06] dark:border-white/[0.06]" />
-
       {/* Session List */}
       {totalItems === 0 ? (
-        <div className="py-16 text-center">
+        <div className="py-16 mt-4 text-center">
           {groups.length === 0 && friends.length === 0 ? (
             <>
               <p className="text-sm text-foreground">暂无会话数据</p>
@@ -542,7 +504,7 @@ export function SessionList({
           )}
         </div>
       ) : (
-        <div className="divide-y divide-black/[0.04] dark:divide-white/[0.04]">
+        <div className="flex flex-col mt-4">
           {paginatedItems.map(renderSessionItem)}
         </div>
       )}

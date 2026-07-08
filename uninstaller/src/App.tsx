@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Folder } from 'lucide-react';
+import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import api, { type UninstallProgress, type InstallInfo } from './tauri';
+import api, { type UninstallProgress } from './tauri';
 
 type Step = 'loading' | 'confirm' | 'uninstalling' | 'complete' | 'not-found';
 
@@ -173,7 +173,6 @@ const SuccessAnimation = () => (
 
 export default function App() {
   const [step, setStep] = useState<Step>('loading');
-  const [installInfo, setInstallInfo] = useState<InstallInfo | null>(null);
   const [keepData, setKeepData] = useState(true);
   const [progress, setProgress] = useState(0);
   const [currentLog, setCurrentLog] = useState('');
@@ -184,7 +183,6 @@ export default function App() {
       try {
         const info = await api.getInstallInfo();
         if (info) {
-          setInstallInfo(info);
           setStep('confirm');
         } else {
           setStep('not-found');
@@ -274,26 +272,6 @@ export default function App() {
                 即将从您的计算机中移除此软件
               </p>
 
-              {/* Install info card */}
-              {installInfo && (
-                <div className="w-full max-w-[300px] mb-6 animate-fade-in delay-75 opacity-0 fill-mode-forwards">
-                  <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg p-3">
-                    <div className="flex items-center gap-2.5 mb-2">
-                      <Folder
-                        size={14}
-                        className="text-[var(--color-text-tertiary)] shrink-0"
-                      />
-                      <span className="text-[12px] font-mono text-[var(--color-text)] truncate">
-                        {installInfo.installDir}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-[var(--color-text-tertiary)]">
-                      版本：{installInfo.version}
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* Options */}
               <div className="w-full max-w-[300px] mb-6 text-left animate-fade-in delay-100 opacity-0 fill-mode-forwards">
                 <ModernCheckbox
@@ -369,9 +347,22 @@ export default function App() {
             <h2 className="text-xl font-bold text-[var(--color-text)] mb-2 animate-fade-in delay-100 opacity-0 fill-mode-forwards">
               卸载完成
             </h2>
-            <p className="text-[var(--color-text-secondary)] text-[13px] max-w-xs leading-relaxed mb-8 animate-fade-in delay-150 opacity-0 fill-mode-forwards">
-              QQ Chat Exporter 已从您的计算机中移除。
-              {keepData && '已导出的聊天记录已保留。'}
+            <p className="text-[var(--color-text-secondary)] text-[13px] max-w-[300px] leading-relaxed mb-8 animate-fade-in delay-150 opacity-0 fill-mode-forwards">
+              QQ Chat Exporter 已从电脑中移除。根据您的选择，我们
+              {keepData ? '没有清理' : '已一并清理了'}导出的聊天记录。如果您是因为某些原因卸载了这个软件，可以在
+              <a
+                href="https://github.com/shuakami/qq-chat-exporter/issues/new/choose"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                  e.preventDefault()
+                  void api.openUrl('https://github.com/shuakami/qq-chat-exporter/issues/new/choose')
+                }}
+                className="text-[var(--color-text)] underline underline-offset-2 hover:opacity-80 transition-opacity"
+              >
+                这里
+              </a>
+              告诉我们，或者提提建议。再次感谢您的使用~
             </p>
             <div className="w-full max-w-[200px] animate-fade-in delay-200 opacity-0 fill-mode-forwards">
               <Button
