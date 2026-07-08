@@ -42,7 +42,7 @@ COPY --from=build /build/plugins/qq-chat-exporter /app/napcat/plugins/napcat-plu
 RUN sed -i 's/"name": *"[^"]*"/"name": "napcat-plugin-qce"/' /app/napcat/plugins/napcat-plugin-qce/package.json
 
 # Copy frontend static export
-COPY --from=build /build/qce-v4-tool/out /app/napcat/static/qce-v4-tool
+COPY --from=build /build/qce-v4-tool/out /app/napcat/static/qce
 
 # ============================================================
 # Create NapCatQQ stub module for plugin import resolution

@@ -54,7 +54,7 @@ pub async fn root(
                     "GET /api/system/status - 系统状态"
                 ],
                 "前端应用": [
-                    "GET /qce-v4-tool - Web界面入口"
+                    "GET /qce - Web界面入口"
                 ],
                 "表情包管理": [
                     "GET /api/sticker-packs?types=favorite_emoji,market_pack,system_pack - 获取表情包（可选类型筛选）",
@@ -79,7 +79,7 @@ pub async fn root(
             },
             "websocket": format!("ws://localhost:{port}"),
             "frontend": {
-                "url": format!("http://localhost:{port}/qce-v4-tool"),
+                "url": format!("http://localhost:{port}/qce"),
                 "mode": "production",
                 "status": "running"
             },

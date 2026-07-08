@@ -1,22 +1,24 @@
 "use client"
 
-import { useState, useEffect, useRef, useMemo, useCallback } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from "react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "@/components/ui/toast"
-import { TaskWizard } from "@/components/ui/task-wizard"
-import { ScheduledExportWizard } from "@/components/ui/scheduled-export-wizard"
-import { ExecutionHistoryModal } from "@/components/ui/execution-history-modal"
-import { MessagePreviewModal } from "@/components/ui/message-preview-modal"
-import { BatchExportDialog, type BatchExportItem, type BatchExportConfig } from "@/components/ui/batch-export-dialog"
+import type { BatchExportItem, BatchExportConfig } from "@/components/ui/batch-export-dialog"
 import { SessionList } from "@/components/ui/session-list"
-import { ScheduledBackupMergeDialog } from "@/components/ui/scheduled-backup-merge-dialog"
-import { GroupEssenceModal } from "@/components/ui/group-essence-modal"
-import { GroupFilesModal } from "@/components/ui/group-files-modal"
-import { SettingsPanel } from "@/components/ui/settings-panel"
+
+const TaskWizard = lazy(() => import("@/components/ui/task-wizard").then(m => ({ default: m.TaskWizard })))
+const ScheduledExportWizard = lazy(() => import("@/components/ui/scheduled-export-wizard").then(m => ({ default: m.ScheduledExportWizard })))
+const ExecutionHistoryModal = lazy(() => import("@/components/ui/execution-history-modal").then(m => ({ default: m.ExecutionHistoryModal })))
+const MessagePreviewModal = lazy(() => import("@/components/ui/message-preview-modal").then(m => ({ default: m.MessagePreviewModal })))
+const BatchExportDialog = lazy(() => import("@/components/ui/batch-export-dialog").then(m => ({ default: m.BatchExportDialog })))
+const ScheduledBackupMergeDialog = lazy(() => import("@/components/ui/scheduled-backup-merge-dialog").then(m => ({ default: m.ScheduledBackupMergeDialog })))
+const GroupEssenceModal = lazy(() => import("@/components/ui/group-essence-modal").then(m => ({ default: m.GroupEssenceModal })))
+const GroupFilesModal = lazy(() => import("@/components/ui/group-files-modal").then(m => ({ default: m.GroupFilesModal })))
+const SettingsPanel = lazy(() => import("@/components/ui/settings-panel").then(m => ({ default: m.SettingsPanel })))
 import {
   Dialog,
   DialogContent,
@@ -85,8 +87,34 @@ import { Loader } from "@/components/ui/loader"
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
 import { DUR, EASE, makeStagger } from "@/components/qce-dashboard/animations"
 
-export default function QCEDashboard() {
-  const [activeTab, setActiveTabState] = useState("overview")
+const VALID_TABS = ["overview", "sessions", "tasks", "scheduled", "history", "stickers", "settings", "about"] as const
+type TabId = typeof VALID_TABS[number]
+
+const TAB_PATH_MAP: Record<string, TabId> = {
+  "": "overview",
+  "overview": "overview",
+  "sessions": "sessions",
+  "tasks": "tasks",
+  "scheduled": "scheduled",
+  "history": "history",
+  "stickers": "stickers",
+  "settings": "settings",
+  "about": "about",
+}
+
+function getTabFromPath(): TabId {
+  if (typeof window === "undefined") return "overview"
+  const path = window.location.pathname.replace(/\/+$/, "")
+  const segments = path.split("/")
+  const last = segments[segments.length - 1] || ""
+  return TAB_PATH_MAP[last] || "overview"
+}
+
+export default function QCEDashboard({ initialTab }: { initialTab?: string } = {}) {
+  const [activeTab, setActiveTabState] = useState<TabId>(() => {
+    if (typeof window !== "undefined") return getTabFromPath()
+    return (initialTab as TabId) || "overview"
+  })
   const [isTaskWizardOpen, setIsTaskWizardOpen] = useState(false)
   const [selectedPreset, setSelectedPreset] = useState<Partial<CreateTaskForm> | undefined>()
   const [isScheduledExportWizardOpen, setIsScheduledExportWizardOpen] = useState(false)
@@ -164,19 +192,36 @@ export default function QCEDashboard() {
   const reduceMotion = useReducedMotion() ?? false
 
   const setActiveTab = (tabId: string) => {
-    setActiveTabState(tabId)
+    setActiveTabState(tabId as TabId)
     if (typeof window !== "undefined") {
       localStorage.setItem("qce-active-tab", tabId)
+      const basePath = tabId === "overview" ? "/qce" : `/qce/${tabId}`
+      if (window.location.pathname.replace(/\/+$/, "") !== basePath) {
+        window.history.pushState(null, "", basePath + "/")
+      }
     }
     // On mobile, close sidebar when navigating
     setSidebarMobileOpen(false)
   }
 
   useEffect(() => {
+    const onPopState = () => {
+      setActiveTabState(getTabFromPath())
+    }
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [])
+
+  useEffect(() => {
       if (typeof window !== "undefined") {
-        const savedTab = localStorage.getItem("qce-active-tab")
-        if (savedTab && ["overview", "sessions", "tasks", "scheduled", "history", "stickers", "settings", "about"].includes(savedTab)) {
-          setActiveTabState(savedTab)
+        const urlTab = getTabFromPath()
+        if (urlTab !== "overview" || window.location.pathname.replace(/\/+$/, "").endsWith("/overview")) {
+          setActiveTabState(urlTab)
+        } else {
+          const savedTab = localStorage.getItem("qce-active-tab")
+          if (savedTab && VALID_TABS.includes(savedTab as TabId)) {
+            setActiveTabState(savedTab as TabId)
+          }
         }
         // 检查是否需要显示新手引导
         const hasSeenOnboarding = localStorage.getItem("qce-onboarding-completed")
@@ -2616,7 +2661,7 @@ export default function QCEDashboard() {
 
             {/* ==================== SETTINGS ==================== */}
             {activeTab === "settings" && (
-              <SettingsPanel />
+              <Suspense><SettingsPanel /></Suspense>
             )}
 
             {/* ==================== ABOUT ==================== */}
@@ -2687,6 +2732,7 @@ export default function QCEDashboard() {
       </div>
 
       {/* Modals */}
+      <Suspense>
       <TaskWizard
         isOpen={isTaskWizardOpen}
         onClose={handleCloseTaskWizard}
@@ -2781,6 +2827,7 @@ export default function QCEDashboard() {
           onNotification={addNotification}
         />
       )}
+      </Suspense>
 
       {/* 聊天记录预览模态框 */}
       <AnimatePresence>

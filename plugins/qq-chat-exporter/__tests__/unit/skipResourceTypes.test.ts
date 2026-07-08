@@ -10,7 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-// `qce-v4-tool/package.json` 没有 `"type": "module"`，所以 tsx 把它下面的 .ts 文件
+// `qce/package.json` 没有 `"type": "module"`，所以 tsx 把它下面的 .ts 文件
 // 当作 CJS 编译，命名导出会被收进 `default`。这里用命名空间 import 兼容两边
 // （ESM 真命名导出 / CJS interop default）。
 import * as skipResourceTypesMod from '../../../../qce-v4-tool/lib/skip-resource-types';

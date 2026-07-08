@@ -895,7 +895,7 @@ export class QCEStandaloneServer {
                 this.server.listen(this.port, () => {
                     console.log('');
                     console.log('[QCE] 独立模式已启动');
-                    console.log(`[QCE] Web界面: http://127.0.0.1:${this.port}/qce-v4-tool`);
+                    console.log(`[QCE] Web界面: http://127.0.0.1:${this.port}/qce`);
                     console.log(`[QCE] 数据目录: ${this.baseDir}`);
                     console.log('[QCE] 此模式仅支持查看已导出的文件，不支持新建导出任务');
                     console.log('');

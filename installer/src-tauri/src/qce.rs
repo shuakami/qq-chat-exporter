@@ -54,7 +54,7 @@ fn read_access_token(state: &State<'_, AppState>) -> Option<String> {
 }
 
 fn get_webui_url_inner(state: &State<'_, AppState>) -> Option<String> {
-    let base = format!("http://127.0.0.1:{QCE_PORT}/qce-v4-tool");
+    let base = format!("http://127.0.0.1:{QCE_PORT}/qce");
     match read_access_token(state) {
         Some(token) => Some(format!("{base}/auth?token={}", urlencode(&token))),
         None => Some(base),
@@ -103,7 +103,7 @@ async fn probe_qce() -> bool {
     };
     // The frontend route returns 200 once QCE is serving.
     client
-        .get(format!("http://127.0.0.1:{QCE_PORT}/qce-v4-tool"))
+        .get(format!("http://127.0.0.1:{QCE_PORT}/qce"))
         .send()
         .await
         .map(|r| r.status().is_success() || r.status().is_redirection())
@@ -126,10 +126,9 @@ pub fn open_log_file(state: State<'_, AppState>) -> Result<(), String> {
 fn open_path(path: &std::path::Path) -> Result<(), String> {
     #[cfg(windows)]
     {
-        // 用记事本直接打开：`cmd /C start` 依赖文件关联，某些环境下会静默失败。
-        std::process::Command::new("notepad")
-            .arg(path)
-            .spawn()
+        util::hidden_command("cmd")
+            .args(["/C", "start", "", &path.to_string_lossy()])
+            .status()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "macos")]

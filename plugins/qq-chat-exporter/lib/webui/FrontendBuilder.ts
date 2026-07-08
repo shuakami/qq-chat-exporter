@@ -50,14 +50,14 @@ export class FrontendBuilder {
         
         // 检测可能的静态资源路径（优先使用基于模块位置的路径）
         // 1) 插件商店安装场景：前端打包在插件 zip 内的 webui/ 子目录
-        // 2) 集成包安装场景：前端在 NapCat 根目录的 static/qce-v4-tool 下
+        // 2) 集成包安装场景：前端在 NapCat 根目录的 static/qce 下
         // 3) 其他历史路径兼容
         const possiblePaths = [
             path.join(pluginRoot, 'webui'),
-            path.join(napCatRoot, 'static', 'qce-v4-tool'),
-            path.join(cwd, 'static', 'qce-v4-tool'),
-            path.join(cwd, 'dist', 'static', 'qce-v4-tool'),
-            path.join(cwd, '..', 'static', 'qce-v4-tool'),
+            path.join(napCatRoot, 'static', 'qce'),
+            path.join(cwd, 'static', 'qce'),
+            path.join(cwd, 'dist', 'static', 'qce'),
+            path.join(cwd, '..', 'static', 'qce'),
         ];
         
         this.staticPath = possiblePaths.find(p => fs.existsSync(p)) || possiblePaths[0]!;
@@ -136,7 +136,7 @@ export class FrontendBuilder {
     setupStaticRoutes(app: express.Application): void {
         if (!this.isDevMode && fs.existsSync(this.staticPath)) {
             // 生产模式：提供静态文件服务
-            app.use('/static/qce-v4-tool', express.static(this.staticPath, {
+            app.use('/static/qce', express.static(this.staticPath, {
                 maxAge: '1d',
                 setHeaders: (res, path) => {
                     // 为HTML文件设置正确的Content-Type
@@ -217,7 +217,7 @@ export class FrontendBuilder {
             });
 
             // 认证页面路由 - 使用 Next.js 构建的 auth 页面
-            app.get('/qce-v4-tool/auth', (_req, res) => {
+            app.get('/qce/auth', (_req, res) => {
                 const authIndexPath = path.join(this.staticPath, 'auth', 'index.html');
                 if (fs.existsSync(authIndexPath)) {
                     res.sendFile(authIndexPath);
@@ -228,7 +228,7 @@ export class FrontendBuilder {
             });
 
             // 添加前端应用的入口路由
-            app.get('/qce-v4-tool', (_req, res) => {
+            app.get('/qce', (_req, res) => {
                 const indexPath = path.join(this.staticPath, 'index.html');
                 if (fs.existsSync(indexPath)) {
                     // 总是返回前端应用，让前端自己处理认证
@@ -239,7 +239,7 @@ export class FrontendBuilder {
             });
 
             // 处理前端应用的所有路由（SPA路由支持）
-            app.get(/^\/qce-v4-tool\/.*/, (_req, res) => {
+            app.get(/^\/qce\/.*/, (_req, res) => {
                 const indexPath = path.join(this.staticPath, 'index.html');
                 if (fs.existsSync(indexPath)) {
                     res.sendFile(indexPath);
@@ -251,7 +251,7 @@ export class FrontendBuilder {
             // 静态文件路由设置完成
         } else if (this.isDevMode) {
             // 开发模式：代理到NextJS开发服务器
-            app.get('/qce-v4-tool', (_req, res) => {
+            app.get('/qce', (_req, res) => {
                 res.redirect(`http://localhost:${this.frontendPort}`);
             });
 
@@ -266,7 +266,7 @@ export class FrontendBuilder {
         if (this.isDevMode) {
             return `http://localhost:${this.frontendPort}`;
         } else {
-            return '/qce-v4-tool';
+            return '/qce';
         }
     }
 
@@ -451,7 +451,7 @@ export class FrontendBuilder {
                 if (result.success) {
                     // 认证成功后，存储token到localStorage供后续API调用使用
                     localStorage.setItem('qce_access_token', token);
-                    window.location.href = '/qce-v4-tool?token=' + encodeURIComponent(token);
+                    window.location.href = '/qce?token=' + encodeURIComponent(token);
                 } else {
                     showError(result.error?.message || '认证失败');
                 }

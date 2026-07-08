@@ -50,11 +50,11 @@ cd ..
 
 ```powershell
 # 删除旧的前端文件
-Remove-Item -Recurse -Force "NapCat-QCE-Windows-x64\static\qce-v4-tool" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "NapCat-QCE-Windows-x64\static\qce" -ErrorAction SilentlyContinue
 
 # 创建目录并复制新编译的前端文件
-New-Item -ItemType Directory -Force -Path "NapCat-QCE-Windows-x64\static\qce-v4-tool"
-Copy-Item -Recurse -Force "qce-v4-tool\out\*" "NapCat-QCE-Windows-x64\static\qce-v4-tool\"
+New-Item -ItemType Directory -Force -Path "NapCat-QCE-Windows-x64\static\qce"
+Copy-Item -Recurse -Force "qce-v4-tool\out\*" "NapCat-QCE-Windows-x64\static\qce\"
 ```
 
 ## 3. 注意事项
@@ -62,8 +62,8 @@ Copy-Item -Recurse -Force "qce-v4-tool\out\*" "NapCat-QCE-Windows-x64\static\qce
 1. **NapCatQQ Overlay Runtime**: 修改任何导入 `NapCatQQ` 的代码后，必须重新运行构建工具
 2. **复制 NapCatQQ 时注意**: 必须复制整个文件夹，保持 `src/core/` 目录结构完整
 3. **前端构建产物**: 必须保持 `_next/static/` 完整层级
-4. **路径引用**: index.html 中的路径引用是 `/static/qce-v4-tool/_next/static/...`
-5. **静态路径映射**: FrontendBuilder 将 staticPath 映射到 `/static/qce-v4-tool`
+4. **路径引用**: index.html 中的路径引用是 `/static/qce/_next/static/...`
+5. **静态路径映射**: FrontendBuilder 将 staticPath 映射到 `/static/qce`
 6. **新增依赖**: 如果安装了新的 npm 包，需要同步复制 node_modules（通常不需要，因为测试环境已有）
 
 ## 4. 常见错误

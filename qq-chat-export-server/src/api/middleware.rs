@@ -76,7 +76,7 @@ fn map_verify_token_failure(
 /// 判断路径是否为公开路由（无需认证）。
 fn is_public_route(path: &str) -> bool {
     const PUBLIC_ROUTES: [&str; 6] =
-        ["/", "/health", "/auth", "/auth/", "/security-status", "/qce-v4-tool"];
+        ["/", "/health", "/auth", "/auth/", "/security-status", "/qce"];
     const STATIC_EXTENSIONS: [&str; 11] = [
         ".png", ".jpg", ".jpeg", ".svg", ".gif", ".ico", ".css", ".js", ".woff", ".woff2", ".ttf",
     ];
@@ -99,7 +99,7 @@ fn is_public_route(path: &str) -> bool {
 
     PUBLIC_ROUTES.contains(&path)
         || path.starts_with("/static/")
-        || path.starts_with("/qce-v4-tool/")
+        || path.starts_with("/qce/")
         || is_static_file
         || path == "/api/exports/files"
         || preview_like()
@@ -191,7 +191,7 @@ mod tests {
     fn public_route_detection() {
         assert!(is_public_route("/"));
         assert!(is_public_route("/health"));
-        assert!(is_public_route("/qce-v4-tool/index.html"));
+        assert!(is_public_route("/qce/index.html"));
         assert!(is_public_route("/static/app.css"));
         assert!(is_public_route("/api/exports/files"));
         assert!(is_public_route("/api/exports/files/abc.html/preview"));

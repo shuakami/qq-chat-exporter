@@ -19,7 +19,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!isMounted) return
 
     // 如果是 auth 页面，不需要认证检查
-    if (pathname === '/auth' || pathname === '/qce-v4-tool/auth') {
+    if (pathname === '/auth' || pathname === '/qce/auth') {
       setAuthState('authenticated')
       return
     }
@@ -32,7 +32,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // 未认证，显示重定向状态后跳转
       setAuthState('redirecting')
       setTimeout(() => {
-        window.location.href = '/qce-v4-tool/auth'
+        window.location.href = '/qce/auth'
       }, 300)
       return
     }
@@ -67,7 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           authManager.clearToken()
           setAuthState('redirecting')
           setTimeout(() => {
-            window.location.href = '/qce-v4-tool/auth'
+            window.location.href = '/qce/auth'
           }, 300)
           return
         }

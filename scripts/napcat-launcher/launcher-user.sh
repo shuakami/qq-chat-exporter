@@ -215,7 +215,7 @@ __QQMAGIC__
 
     echo "Starting NapCat + QCE (Linux Electron mode, issue #433)..."
     echo "Press Ctrl+C to stop."
-    echo "After QQ login, open http://localhost:40653/qce-v4-tool/ in your browser."
+    echo "After QQ login, open http://localhost:40653/qce/ in your browser."
     echo ""
 
     exec "${XVFB_PREFIX[@]}" "$NAPCAT_QQ_PATH" --no-sandbox
@@ -240,7 +240,7 @@ export NAPCAT_MAIN_PATH="$SCRIPT_DIR/napcat-bootstrap.mjs"
 
 echo "Starting NapCat + QCE..."
 echo "Press Ctrl+C to stop."
-echo "After QQ login, open http://localhost:40653/qce-v4-tool/ in your browser."
+echo "After QQ login, open http://localhost:40653/qce/ in your browser."
 echo ""
 
 exec node "$NAPCAT_MAIN_PATH"

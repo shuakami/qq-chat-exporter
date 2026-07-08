@@ -33,7 +33,7 @@ docker logs napcat-qce 2>&1 | grep -i token
 
 ### 访问前端
 
-打开浏览器访问：`http://localhost:40653/qce-v4-tool`
+打开浏览器访问：`http://localhost:40653/qce`
 
 ### 使用预构建镜像（发布后可用）
 
@@ -82,7 +82,7 @@ napcat/
 ├── plugins/
 │   ├── napcat-plugin-builtin/ ← 从容器复制
 │   └── napcat-plugin-qce/      ← QCE 插件
-└── qce-v4-tool/               ← 前端静态文件
+└── qce/               ← 前端静态文件
 ```
 
 ## 部署步骤
@@ -108,7 +108,7 @@ tar -xzf NapCat-QCE-*.tar.gz -C /tmp/qce-release
 cp -r /tmp/qce-release/plugins/napcat-plugin-qce plugins/
 
 # 复制前端静态文件
-cp -r /tmp/qce-release/static/qce-v4-tool ./qce-v4-tool
+cp -r /tmp/qce-release/static/qce ./qce
 ```
 
 ### 3. ARM64 架构适配
@@ -152,7 +152,7 @@ services:
       - ./config:/app/napcat/config
       - /app/.config/QQ:/app/.config/QQ
       - ./plugins:/app/napcat/plugins
-      - ./qce-v4-tool:/app/napcat/static/qce-v4-tool
+      - ./qce:/app/napcat/static/qce
     networks:
       - web-internal
 
@@ -163,7 +163,7 @@ networks:
 
 关键挂载：
 - `./plugins:/app/napcat/plugins` — 插件目录（含内置插件 + QCE）
-- `./qce-v4-tool:/app/napcat/static/qce-v4-tool` — 前端静态文件
+- `./qce:/app/napcat/static/qce` — 前端静态文件
 
 ### 6. 启动并验证
 
@@ -209,7 +209,7 @@ server {
 
 ## 访问
 
-打开 `http://<服务器IP>:40653/qce-v4-tool` 或反向代理域名，使用控制台日志中的 Token 登录。
+打开 `http://<服务器IP>:40653/qce` 或反向代理域名，使用控制台日志中的 Token 登录。
 
 ## 常见问题
 
@@ -220,7 +220,7 @@ server {
 检查 `config/plugins.json` 是否存在且 `"napcat-plugin-qce": true`。
 
 ### 前端 404
-检查 `qce-v4-tool/` 目录是否包含 `index.html` 和 `_next/` 目录，且已正确挂载到 `/app/napcat/static/qce-v4-tool`。
+检查 `qce/` 目录是否包含 `index.html` 和 `_next/` 目录，且已正确挂载到 `/app/napcat/static/qce`。
 
 ### 导出的文件在哪里
 导出文件保存在容器内的 `~/.qq-chat-exporter/exports/`，可通过 Web UI 下载。

@@ -403,7 +403,7 @@ export class QQChatExporterApiServer {
                 '/health',
                 '/auth',
                 '/security-status',
-                '/qce-v4-tool'
+                '/qce'
             ];
             
             // 静态资源文件（图片等）
@@ -413,7 +413,7 @@ export class QQChatExporterApiServer {
             const isPublicRoute = publicRoutes.some(route => {
                 return req.path === route || 
                        req.path.startsWith('/static/') ||
-                       req.path.startsWith('/qce-v4-tool/');
+                       req.path.startsWith('/qce/');
             }) || isStaticFile || 
                req.path === '/api/exports/files' || // 允许离线查看聊天记录索引
                req.path.match(/^\/api\/exports\/files\/[^\/]+\/preview$/) || // 允许预览接口公开访问
@@ -842,7 +842,7 @@ export class QQChatExporterApiServer {
                         'GET /api/system/status - 系统状态'
                     ],
                     '前端应用': [
-                        'GET /qce-v4-tool - Web界面入口'
+                        'GET /qce - Web界面入口'
                     ],
                     '表情包管理': [
                         'GET /api/sticker-packs?types=favorite_emoji,market_pack,system_pack - 获取表情包（可选类型筛选）',
@@ -867,7 +867,7 @@ export class QQChatExporterApiServer {
                 },
                 websocket: 'ws://localhost:40653',
                 frontend: {
-                    url: frontendStatus.mode === 'production' ? 'http://localhost:40653/qce-v4-tool' : frontendStatus.frontendUrl,
+                    url: frontendStatus.mode === 'production' ? 'http://localhost:40653/qce' : frontendStatus.frontendUrl,
                     mode: frontendStatus.mode,
                     status: frontendStatus.isRunning ? 'running' : 'stopped'
                 },
@@ -5738,12 +5738,12 @@ export class QQChatExporterApiServer {
                     const baseUrl = serverAddresses.external
                         ? serverAddresses.external
                         : serverAddresses.local;
-                    const toolUrl = `${baseUrl}/qce-v4-tool`;
+                    const toolUrl = `${baseUrl}/qce`;
                     console.log(`${green}[QCE]${reset} Web界面: ${green}${toolUrl}${reset}`);
                     // Issue #287: Framework 用户没有内嵌登录入口，每次都得手动从 security.json
                     // 抠 token。这里直接把 token 拼进 auth 页 URL，复制到浏览器一次到位。
                     if (accessToken) {
-                        const oneClickUrl = `${baseUrl}/qce-v4-tool/auth?token=${encodeURIComponent(accessToken)}`;
+                        const oneClickUrl = `${baseUrl}/qce/auth?token=${encodeURIComponent(accessToken)}`;
                         console.log(`${green}[QCE]${reset} 一键登录: ${green}${oneClickUrl}${reset}`);
                     }
                 } else if (frontendStatus.mode === 'development') {

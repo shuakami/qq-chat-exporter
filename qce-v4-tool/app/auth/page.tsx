@@ -59,7 +59,7 @@ export default function AuthPage() {
 
     const authManager = AuthManager.getInstance()
     if (authManager.isAuthenticated()) {
-      window.location.href = '/qce-v4-tool'
+      window.location.href = '/qce'
       return
     }
 
@@ -73,7 +73,7 @@ export default function AuthPage() {
       setTimeout(async () => {
         const ok = await verifyAndStoreToken(urlToken!)
         if (ok) {
-          window.location.href = '/qce-v4-tool'
+          window.location.href = '/qce'
         } else {
           // URL token 失效（比如换了 security.json）就退回手动表单。
           setAutoFromUrl(false)
@@ -98,7 +98,7 @@ export default function AuthPage() {
 
     const ok = await verifyAndStoreToken(token.trim())
     if (ok) {
-      window.location.href = '/qce-v4-tool'
+      window.location.href = '/qce'
       return
     }
     setLoading(false)
@@ -270,8 +270,8 @@ export default function AuthPage() {
                   <div className="rounded-lg bg-neutral-900 dark:bg-neutral-950 p-4 font-mono text-xs overflow-x-auto leading-relaxed">
                     <div className="text-neutral-400">[QCE] QQChatExporter v5.x.x</div>
                     <div className="text-green-400">[QCE] Token: WgZt3v*UMTqT#i!qleEO!76n02Y^ns$X</div>
-                    <div className="text-neutral-500">[QCE] Web界面: http://127.0.0.1:40653/qce-v4-tool</div>
-                    <div className="text-green-400">[QCE] 一键登录: http://127.0.0.1:40653/qce-v4-tool/auth?token=...</div>
+                    <div className="text-neutral-500">[QCE] Web界面: http://127.0.0.1:40653/qce</div>
+                    <div className="text-green-400">[QCE] 一键登录: http://127.0.0.1:40653/qce/auth?token=...</div>
                   </div>
                 </div>
 

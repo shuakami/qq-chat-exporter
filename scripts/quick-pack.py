@@ -75,20 +75,6 @@ def run_command(cmd, cwd=None, shell=False):
         return False
     return True
 
-def build_rust_server(pack_dir):
-    """Build the Rust server (qce-server) and place it in the package root."""
-    exe_name = "qce-server.exe" if platform.system() == "Windows" else "qce-server"
-    if not run_command(["cargo", "build", "--release"], cwd="qq-chat-export-server"):
-        print("[!] Rust server build failed")
-        sys.exit(1)
-    src = os.path.join("qq-chat-export-server", "target", "release", exe_name)
-    if not os.path.exists(src):
-        print(f"[!] Rust server binary not found: {src}")
-        sys.exit(1)
-    dest = os.path.join(pack_dir, exe_name)
-    shutil.copy2(src, dest)
-    print(f"[x] Added Rust server binary: {dest}")
-
 def extract_zip(zip_path, dest_dir):
     """Extract ZIP file"""
     print(f"[->] Extracting: {zip_path}")
@@ -423,12 +409,6 @@ echo.
 set NAPCAT_MAIN_PATH=%NAPCAT_MAIN_PATH:\\=/%
 echo (async () =^> {await import("file:///%NAPCAT_MAIN_PATH%")})() > "%NAPCAT_LOAD_PATH%"
 
-rem 兜底：部分新版 QQNT 的注入 hook 不再重定向 loadNapCat.js 的读取，
-rem 物理复制一份到 QQ 的 resources\\app 目录，避免 "Cannot find module ... loadNapCat.js"。
-if not "!QQPackageJson!"=="" (
-    for %%f in ("!QQPackageJson!") do copy /y "%NAPCAT_LOAD_PATH%" "%%~dpfloadNapCat.js" >nul 2>&1
-)
-
 "%NAPCAT_LAUNCHER_PATH%" "!QQPath!" "%NAPCAT_INJECT_PATH%" %*
 goto :end_script
 
@@ -667,7 +647,7 @@ pause
         pnpm_cmd = "pnpm.cmd" if os_name == "Windows" else "pnpm"
         run_command([pnpm_cmd, "install"], cwd="qce-v4-tool")
         run_command([pnpm_cmd, "run", "build"], cwd="qce-v4-tool")
-    copy_directory(frontend_out, f"{pack_dir}/static/qce-v4-tool")
+    copy_directory(frontend_out, f"{pack_dir}/static/qce")
     print("[x] Copied")
     print()
     
@@ -1019,7 +999,7 @@ await import(napcatUrl);
 1. 解压到任意目录
 2. 完整模式: 运行 launcher-user.bat (需要登录QQ，支持导出新记录，第一次接触项目的小白用户优先用这个)
 3. 独立模式: 运行 start-standalone.bat (无需登录，仅浏览已导出文件)
-4. 浏览器访问: http://localhost:40653/qce-v4-tool
+4. 浏览器访问: http://localhost:40653/qce
    完整模式需输入控制台显示的访问令牌
 
 独立模式说明:
@@ -1032,7 +1012,7 @@ await import(napcatUrl);
 1. 解压到任意目录
 2. 完整模式: 运行 ./launcher-user.sh (需要登录QQ，支持导出新记录)
 3. 独立模式: 运行 ./start-standalone.sh (无需登录，仅浏览已导出文件)
-4. 浏览器访问: http://localhost:40653/qce-v4-tool
+4. 浏览器访问: http://localhost:40653/qce
    完整模式需输入控制台显示的访问令牌
 
 注意: 首次运行需执行: chmod +x launcher-user.sh start-standalone.sh
@@ -1098,11 +1078,6 @@ QCE 版本: {VERSION}
     print("[x] Created")
     print()
     
-    # Build and bundle the Rust server binary
-    print("[10.5/11] Building Rust server (qce-server)...")
-    build_rust_server(pack_dir)
-    print()
-
     # Create main archive (with version in filename)
     print("[11/11] Creating main archive...")
     output_file = f"{output_basename}{archive_ext}"
@@ -1129,7 +1104,7 @@ QCE 版本: {VERSION}
     print("1. Extract to any directory")
     print(f"2. Full mode: launcher-user.{'bat' if os_name == 'Windows' else 'sh'}")
     print(f"3. Standalone mode: start-standalone.{'bat' if os_name == 'Windows' else 'sh'}")
-    print("4. Visit http://localhost:40653/qce-v4-tool")
+    print("4. Visit http://localhost:40653/qce")
     print()
     print("=" * 50)
 

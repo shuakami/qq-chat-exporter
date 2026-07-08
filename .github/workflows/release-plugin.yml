@@ -59,14 +59,6 @@ jobs:
         with:
           version: 8
       
-      - name: "Setup Rust"
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: "Rust 缓存"
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: qq-chat-export-server
-      
       - name: "Sync version from tag"
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
@@ -297,7 +289,7 @@ jobs:
           - **Windows**：双击运行 \`start-standalone.bat\`
           - **Linux**：终端运行 \`./start-standalone.sh\`
 
-          启动后，请在浏览器中访问 \`http://localhost:40653/qce-v4-tool\`。若使用完整模式，需输入控制台输出的访问令牌 (Access Token) 进行验证。
+          启动后，请在浏览器中访问 \`http://localhost:40653/qce\`。若使用完整模式，需输入控制台输出的访问令牌 (Access Token) 进行验证。
 
           </details>
 
@@ -312,7 +304,7 @@ jobs:
           2. 确保当前已彻底退出正在运行的 QQ 客户端
           3. 双击运行 \`napiLoader.bat\` 脚本
           4. 若弹出 QQ 登录界面，请按常规方式完成登录
-          5. 在浏览器中访问 \`http://localhost:40653/qce-v4-tool\`
+          5. 在浏览器中访问 \`http://localhost:40653/qce\`
 
           **方式 B：通过 LiteLoaderQQNT 加载（仅限特定需求用户）**
 

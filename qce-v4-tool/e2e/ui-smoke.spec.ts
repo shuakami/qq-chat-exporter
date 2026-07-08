@@ -5,11 +5,11 @@
  *
  * To run these locally:
  *   1. `cd qce-v4-tool && pnpm build`
- *   2. `mkdir -p ../static && rm -rf ../static/qce-v4-tool && cp -r out ../static/qce-v4-tool`
+ *   2. `mkdir -p ../static && rm -rf ../static/qce && cp -r out ../static/qce`
  *   3. `cd ../plugins/qq-chat-exporter && pnpm mock:server`
  *   4. `cd ../../qce-v4-tool && E2E_FRONTEND_URL=http://localhost:40653 pnpm exec playwright test e2e/ui-smoke.spec.ts`
  *
- * The mock server serves the built frontend under `/qce-v4-tool/...` plus the
+ * The mock server serves the built frontend under `/qce/...` plus the
  * REST API on the same origin, which matches production routing far more
  * closely than `next dev` does.
  */
@@ -18,9 +18,9 @@ import { test, expect } from '@playwright/test';
 
 const TOKEN = process.env.QCE_MOCK_TOKEN ?? 'qce_mock_token_for_tests';
 const FRONTEND_BASE = process.env.E2E_FRONTEND_URL ?? 'http://localhost:40653';
-// Production URL has the frontend living under `/qce-v4-tool/`.
-const AUTH_PATH = `/qce-v4-tool/auth`;
-const SHELL_PATH = `/qce-v4-tool`;
+// Production URL has the frontend living under `/qce/`.
+const AUTH_PATH = `/qce/auth`;
+const SHELL_PATH = `/qce`;
 
 async function clearLocalStorage(page: import('@playwright/test').Page) {
     // We can't use addInitScript here – that runs on EVERY navigation in the
@@ -43,7 +43,7 @@ test.describe('Auth flow', () => {
 
     /**
      * Issue #287: the server prints a one-click login URL like
-     * `…/qce-v4-tool/auth?token=<accessToken>`. The auth page should detect
+     * `…/qce/auth?token=<accessToken>`. The auth page should detect
      * that token, strip it from the URL bar (so history doesn't keep a copy),
      * verify it against the API, persist it to localStorage and forward the
      * user out of `/auth`.

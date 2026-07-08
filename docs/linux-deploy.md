@@ -72,7 +72,7 @@ cd NapCat-QCE-Linux-x64
 启动成功后控制台会打印二维码（同时保存到 `cache/qrcode.png`），用手机 QQ 扫码登录。NapCat WebUI 监听 6099，QCE 监听 40653：
 
 ```
-http://<服务器IP>:40653/qce-v4-tool/
+http://<服务器IP>:40653/qce/
 ```
 
 远端服务器建议通过 SSH 端口转发或反向代理（nginx / caddy）暴露 40653，不直接公网放出。

@@ -39,7 +39,7 @@ export function useApi() {
     // 如果返回401或403，清除token并重定向（双重保险）
     if (response.status === 401 || response.status === 403) {
       authManager.clearToken()
-      window.location.href = '/qce-v4-tool/auth'
+      window.location.href = '/qce/auth'
       const data = await response.json()
       throw new Error(data.error?.message || `HTTP ${response.status}`)
     }
