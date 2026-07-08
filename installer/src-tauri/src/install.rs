@@ -252,6 +252,8 @@ pub async fn start_install(
     if options.create_shortcut {
         let _ = create_desktop_shortcut(&install_dir, &launcher_exe);
     }
+    let _ = create_start_menu_shortcut(&install_dir, &launcher_exe);
+    let _ = register_uninstall_entry(&install_dir, &launcher_exe);
     let _ = set_auto_start(&launcher_exe, options.auto_start);
 
     // Remember where we installed for later launch commands.
@@ -497,6 +499,64 @@ fn create_desktop_shortcut(install_dir: &Path, target: &Path) -> anyhow::Result<
 
 #[cfg(not(windows))]
 fn create_desktop_shortcut(_install_dir: &Path, _target: &Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
+/// Start Menu shortcut: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\QQ Chat Exporter.lnk`.
+#[cfg(windows)]
+fn create_start_menu_shortcut(install_dir: &Path, target: &Path) -> anyhow::Result<()> {
+    let programs = dirs::data_dir()
+        .ok_or_else(|| anyhow::anyhow!("无法定位 AppData 目录"))?
+        .join("Microsoft")
+        .join("Windows")
+        .join("Start Menu")
+        .join("Programs");
+    std::fs::create_dir_all(&programs)?;
+    let lnk = programs.join("QQ Chat Exporter.lnk");
+    let ps = format!(
+        "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{}');$s.TargetPath='{}';$s.WorkingDirectory='{}';$s.Save()",
+        lnk.display(),
+        target.display(),
+        install_dir.display()
+    );
+    util::hidden_command("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &ps])
+        .status()?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn create_start_menu_shortcut(_install_dir: &Path, _target: &Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
+/// Register in `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall` so the
+/// app shows up in Settings → Apps and can be uninstalled from there.
+#[cfg(windows)]
+fn register_uninstall_entry(install_dir: &Path, launcher: &Path) -> anyhow::Result<()> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (key, _) = hkcu.create_subkey(
+        r"Software\Microsoft\Windows\CurrentVersion\Uninstall\QQChatExporter",
+    )?;
+    key.set_value("DisplayName", &"QQ Chat Exporter")?;
+    key.set_value("DisplayVersion", &current_version())?;
+    key.set_value("Publisher", &"shuakami")?;
+    key.set_value("InstallLocation", &install_dir.to_string_lossy().to_string())?;
+    key.set_value("DisplayIcon", &launcher.to_string_lossy().to_string())?;
+    let uninstaller = install_dir.join("Uninstall QQ Chat Exporter.exe");
+    key.set_value(
+        "UninstallString",
+        &format!("\"{}\"", uninstaller.display()),
+    )?;
+    key.set_value("NoModify", &1u32)?;
+    key.set_value("NoRepair", &1u32)?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn register_uninstall_entry(_install_dir: &Path, _launcher: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 

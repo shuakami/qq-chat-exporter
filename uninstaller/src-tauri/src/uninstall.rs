@@ -116,6 +116,7 @@ pub async fn start_uninstall(app: AppHandle, keep_data: bool) -> Result<(), Stri
     // 5. Remove AUMID registry key
     emit(&app, 35.0, "正在清理通知注册...", "Cleaning");
     remove_aumid_registry();
+    remove_uninstall_entry();
 
     // 6. Remove installed files
     emit(&app, 40.0, "正在删除程序文件...", "Removing");
@@ -144,7 +145,6 @@ pub async fn start_uninstall(app: AppHandle, keep_data: bool) -> Result<(), Stri
 fn kill_runtime() {
     #[cfg(windows)]
     {
-        use std::process::Command;
         // Kill NapCat and QQ processes that QCE might have spawned.
         for image in ["NapCatWinBootMain.exe", "QQ Chat Exporter.exe"] {
             let _ = hidden_command("taskkill")
@@ -195,8 +195,6 @@ fn remove_start_menu_shortcut() {
     {
         if let Some(data_dir) = dirs::data_dir() {
             let programs = data_dir
-                .parent()
-                .unwrap_or(&data_dir)
                 .join("Microsoft")
                 .join("Windows")
                 .join("Start Menu")
@@ -214,6 +212,19 @@ fn remove_aumid_registry() {
         use winreg::RegKey;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let _ = hkcu.delete_subkey_all(r"Software\Classes\AppUserModelId\wiki.sdjz.qce.installer");
+    }
+}
+
+/// Remove the Settings → Apps uninstall entry written by the installer.
+fn remove_uninstall_entry() {
+    #[cfg(windows)]
+    {
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let _ = hkcu.delete_subkey_all(
+            r"Software\Microsoft\Windows\CurrentVersion\Uninstall\QQChatExporter",
+        );
     }
 }
 
