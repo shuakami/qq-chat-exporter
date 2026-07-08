@@ -61,7 +61,7 @@ pub struct AppState {
     pub message_cache: Mutex<HashMap<String, MessageCacheEntry>>,
     /// 服务器启动时间。
     pub started_at: Instant,
-    /// 静态前端目录（`static/qce-v4-tool`）。
+    /// 静态前端目录（`static/qce`）。
     pub static_dir: PathBuf,
     /// 服务器监听端口。
     pub port: u16,

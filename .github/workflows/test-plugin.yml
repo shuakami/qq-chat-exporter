@@ -96,8 +96,8 @@ jobs:
       - name: Stage built frontend for the mock server
         run: |
           mkdir -p static
-          rm -rf static/qce-v4-tool
-          cp -r qce-v4-tool/out static/qce-v4-tool
+          rm -rf static/qce
+          cp -r qce-v4-tool/out static/qce
 
       - name: Start mock API server
         working-directory: plugins/qq-chat-exporter
@@ -113,8 +113,8 @@ jobs:
           done
           curl -fsS http://localhost:40653/health
           # Confirm the static frontend is being served too.
-          curl -fsS -o /dev/null -w '[ci] /qce-v4-tool/auth -> %{http_code}\n' \
-            http://localhost:40653/qce-v4-tool/auth
+          curl -fsS -o /dev/null -w '[ci] /qce/auth -> %{http_code}\n' \
+            http://localhost:40653/qce/auth
         env:
           QCE_MOCK_TOKEN: qce_mock_token_for_tests
 

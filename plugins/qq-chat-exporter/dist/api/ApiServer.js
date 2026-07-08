@@ -189,7 +189,7 @@ export class QQChatExporterApiServer {
                 '/health',
                 '/auth',
                 '/security-status',
-                '/qce-v4-tool'
+                '/qce'
             ];
             // 静态资源文件（图片等）
             const staticFileExtensions = ['.png', '.jpg', '.jpeg', '.svg', '.gif', '.ico', '.css', '.js', '.woff', '.woff2', '.ttf'];
@@ -197,7 +197,7 @@ export class QQChatExporterApiServer {
             const isPublicRoute = publicRoutes.some(route => {
                 return req.path === route ||
                     req.path.startsWith('/static/') ||
-                    req.path.startsWith('/qce-v4-tool/');
+                    req.path.startsWith('/qce/');
             }) || isStaticFile ||
                 req.path === '/api/exports/files' || // 允许离线查看聊天记录索引
                 req.path.match(/^\/api\/exports\/files\/[^\/]+\/preview$/) || // 允许预览接口公开访问
@@ -372,7 +372,7 @@ export class QQChatExporterApiServer {
                         'GET /api/system/status - 系统状态'
                     ],
                     '前端应用': [
-                        'GET /qce-v4-tool - Web界面入口'
+                        'GET /qce - Web界面入口'
                     ],
                     '表情包管理': [
                         'GET /api/sticker-packs?types=favorite_emoji,market_pack,system_pack - 获取表情包（可选类型筛选）',
@@ -383,7 +383,7 @@ export class QQChatExporterApiServer {
                 },
                 websocket: 'ws://localhost:40653',
                 frontend: {
-                    url: frontendStatus.mode === 'production' ? 'http://localhost:40653/qce-v4-tool' : frontendStatus.frontendUrl,
+                    url: frontendStatus.mode === 'production' ? 'http://localhost:40653/qce' : frontendStatus.frontendUrl,
                     mode: frontendStatus.mode,
                     status: frontendStatus.isRunning ? 'running' : 'stopped'
                 },
@@ -2099,9 +2099,9 @@ export class QQChatExporterApiServer {
                 const frontendStatus = this.frontendBuilder.getStatus();
                 if (frontendStatus.isRunning && frontendStatus.mode === 'production') {
                     if (serverAddresses.external) {
-                        this.core.context.logger.log(`[API] 🎨 打开工具: ${serverAddresses.external}/qce-v4-tool`);
+                        this.core.context.logger.log(`[API] 🎨 打开工具: ${serverAddresses.external}/qce`);
                     }
-                    this.core.context.logger.log(`[API] 🎨 打开工具: ${serverAddresses.local}/qce-v4-tool`);
+                    this.core.context.logger.log(`[API] 🎨 打开工具: ${serverAddresses.local}/qce`);
                 }
                 else if (frontendStatus.mode === 'development') {
                     this.core.context.logger.log(`[API] 🔧 前端开发服务器: ${frontendStatus.frontendUrl}`);

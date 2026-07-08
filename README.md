@@ -14,7 +14,7 @@
 2. 运行 `launcher-user.bat` (Windows) 或 `./launcher-user.sh` (Linux)
 3. 用 QQ 扫码登录
 4. 复制控制台的 Token
-5. 打开 `http://localhost:40653/qce-v4-tool`
+5. 打开 `http://localhost:40653/qce`
 
 ### Docker 一键部署
 
@@ -23,7 +23,7 @@
 1. 克隆仓库：`git clone https://github.com/shuakami/qq-chat-exporter.git`
 2. 启动：`cd qq-chat-exporter/docker && docker compose up -d`
 3. 查看 Token：`docker logs napcat-qce 2>&1 | grep -i token`
-4. 访问：`http://localhost:40653/qce-v4-tool`
+4. 访问：`http://localhost:40653/qce`
 
 > Apple Silicon (M1/M2/M3/M4) 通过 Rosetta 模拟运行，首次启动可能稍慢。
 

@@ -207,7 +207,7 @@ def main():
     # Copy frontend
     print("[7.6/8] Copying frontend...")
     frontend_out = "qce-v4-tool/out"
-    static_dir = os.path.join(output_dir, "static", "qce-v4-tool")
+    static_dir = os.path.join(output_dir, "static", "qce")
     
     if os.path.exists(f"{frontend_out}/index.html"):
         shutil.copytree(frontend_out, static_dir)
@@ -245,7 +245,7 @@ def main():
 2. 如果当前 QQ 正在运行，先完全退出 QQ
 3. 在解压后的目录里运行 `napiLoader.bat`
 4. 如果 QQ 弹出登录页，按平时的方式登录 QQ
-5. 访问 <http://localhost:40653/qce-v4-tool>
+5. 访问 <http://localhost:40653/qce>
 
 ### 方式 B：LiteLoaderQQNT 插件方式（只有明确要这样装时才用）
 
@@ -282,7 +282,7 @@ QCE 版本: {qce_version}
 2. 如果当前 QQ 正在运行，先完全退出 QQ
 3. 在解压后的目录里运行 napiLoader.bat
 4. 如果 QQ 弹出登录页，按平时的方式登录 QQ
-5. 访问 http://localhost:40653/qce-v4-tool
+5. 访问 http://localhost:40653/qce
 
 方式 B: LiteLoaderQQNT 插件方式（只有明确要这样装时才用）
 只有这条路才要求先安装 LiteLoaderQQNT。

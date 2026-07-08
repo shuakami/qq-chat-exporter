@@ -24,7 +24,7 @@ export default function NotFound() {
 
         <div className="flex gap-2.5 justify-center">
           <Link
-            href="/qce-v4-tool"
+            href="/qce"
             className="flex items-center justify-center px-6 py-3 rounded-xl bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-sm font-medium hover:opacity-90 transition-opacity"
           >
             返回首页

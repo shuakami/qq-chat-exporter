@@ -15,7 +15,7 @@
  *
  * Set `E2E_FRONTEND_URL` to point at a different frontend host (e.g. the
  * built bundle served by the mock server itself at
- * http://localhost:40653/qce-v4-tool/).
+ * http://localhost:40653/qce/).
  */
 
 import { defineConfig, devices } from '@playwright/test';

@@ -109,7 +109,7 @@ export class AuthManager {
         // 外部请求（例如 GitHub Star 数）失败不应该影响登录态。
         if (isApiRequest && (response.status === 401 || response.status === 403)) {
           this.clearToken();
-          window.location.href = '/qce-v4-tool/auth';
+          window.location.href = '/qce/auth';
           return response;
         }
         

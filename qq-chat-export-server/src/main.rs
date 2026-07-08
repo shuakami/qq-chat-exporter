@@ -171,10 +171,10 @@ async fn run() -> Result<(), String> {
         .await
         .map_err(|e| format!("端口 {port} 绑定失败: {e}"))?;
     tracing::info!("[QCE] HTTP 服务已启动: http://localhost:{port}");
-    tracing::info!("[QCE] Web 界面: http://localhost:{port}/qce-v4-tool");
+    tracing::info!("[QCE] Web 界面: http://localhost:{port}/qce");
     if let Some(token) = state.security_manager.access_token() {
         tracing::info!(
-            "[QCE] 一键登录: http://localhost:{port}/qce-v4-tool/auth?token={token}"
+            "[QCE] 一键登录: http://localhost:{port}/qce/auth?token={token}"
         );
     }
 
@@ -380,14 +380,14 @@ fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &st
             ServeDir::new(path_manager.scheduled_exports_dir()),
         )
         .nest_service("/resources", ServeDir::new(path_manager.resources_dir()))
-        .nest_service("/static/qce-v4-tool", frontend)
+        .nest_service("/static/qce", frontend)
         // 前端入口 / 认证页 / SPA 回退（Next 静态导出 basePath 是
-        // /static/qce-v4-tool，页面路由需要显式回退到 index.html）。
-        .route("/qce-v4-tool", get(frontend_index))
-        .route("/qce-v4-tool/", get(frontend_index))
-        .route("/qce-v4-tool/auth", get(frontend_auth))
-        .route("/qce-v4-tool/auth/", get(frontend_auth))
-        .route("/qce-v4-tool/*rest", get(frontend_index))
+        // /static/qce，页面路由需要显式回退到 index.html）。
+        .route("/qce", get(frontend_index))
+        .route("/qce/", get(frontend_index))
+        .route("/qce/auth", get(frontend_auth))
+        .route("/qce/auth/", get(frontend_auth))
+        .route("/qce/*rest", get(frontend_index))
         // Next trailingSlash 重定向兼容：/auth/?token=... 也回到认证页。
         .route("/auth", get(frontend_auth))
         .route("/auth/", get(frontend_auth))
@@ -411,12 +411,24 @@ fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &st
         .with_state(Arc::clone(state))
 }
 
-/// `GET /qce-v4-tool[/*]` — 前端应用入口 / SPA 回退。
-async fn frontend_index(State(state): State<SharedState>) -> Response {
+/// `GET /qce[/*]` — 前端应用入口 / SPA 回退。
+/// 优先返回子路由的 index.html（如 /qce/sessions → sessions/index.html），
+/// 找不到时回退到根 index.html（SPA 兜底）。
+async fn frontend_index(
+    State(state): State<SharedState>,
+    uri: axum::http::Uri,
+) -> Response {
+    let path = uri.path().trim_start_matches("/qce").trim_matches('/');
+    if !path.is_empty() && !path.contains('.') {
+        let sub = state.static_dir.join(path).join("index.html");
+        if sub.is_file() {
+            return serve_static_file(&sub, "text/html; charset=utf-8").await;
+        }
+    }
     serve_static_file(&state.static_dir.join("index.html"), "text/html; charset=utf-8").await
 }
 
-/// `GET /qce-v4-tool/auth`、`GET /auth[/]` — Next.js 构建的认证页面。
+/// `GET /qce/auth`、`GET /auth[/]` — Next.js 构建的认证页面。
 async fn frontend_auth(State(state): State<SharedState>) -> Response {
     let auth_page = state.static_dir.join("auth").join("index.html");
     if auth_page.is_file() {
@@ -562,7 +574,7 @@ async fn reconcile_and_load_tasks(db: &Arc<DatabaseManager>) -> HashMap<String, 
 }
 
 /// 解析前端静态目录：`QCE_STATIC_DIR` 环境变量 → 可执行文件旁的
-/// `static/qce-v4-tool` → 当前目录下的 `static/qce-v4-tool`。
+/// `static/qce` → 当前目录下的 `static/qce`。
 fn resolve_static_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("QCE_STATIC_DIR") {
         let path = PathBuf::from(dir);
@@ -572,11 +584,11 @@ fn resolve_static_dir() -> PathBuf {
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            let candidate = parent.join("static").join("qce-v4-tool");
+            let candidate = parent.join("static").join("qce");
             if candidate.is_dir() {
                 return candidate;
             }
         }
     }
-    PathBuf::from("static").join("qce-v4-tool")
+    PathBuf::from("static").join("qce")
 }

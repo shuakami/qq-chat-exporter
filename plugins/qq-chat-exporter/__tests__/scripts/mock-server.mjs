@@ -4,7 +4,7 @@
  * MockNapCatCore instead of a live NapCatQQ instance.
  *
  * Use this for:
- *   - Frontend development: `npm run mock:server` then point qce-v4-tool dev
+ *   - Frontend development: `npm run mock:server` then point qce dev
  *     server at http://localhost:40653.
  *   - Manual smoke testing: hit the same REST/WS endpoints production exposes
  *     without needing to scan a QR code.

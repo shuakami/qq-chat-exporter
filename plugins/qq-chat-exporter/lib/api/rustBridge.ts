@@ -198,7 +198,7 @@ export class RustServerProcess {
     start(bridgePort: number): void {
         if (this.child) return;
         const packageRoot = path.dirname(this.binaryPath);
-        const staticDir = path.join(packageRoot, 'static', 'qce-v4-tool');
+        const staticDir = path.join(packageRoot, 'static', 'qce');
         const child = spawn(this.binaryPath, [], {
             cwd: packageRoot,
             env: {
