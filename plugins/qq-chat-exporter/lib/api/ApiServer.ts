@@ -4124,7 +4124,7 @@ export class QQChatExporterApiServer {
                     // 使用流式API：逐条解析、更新资源路径、写入HTML，全程低内存
                     // 🔧 修复 Issue #29: 传入已排序的消息，确保时间顺序正确
                     const messageStream = parser.parseMessagesStream(sortedMessages, resourceMap);
-                    const copiedResourcePaths = await htmlExporter.exportFromIterable(messageStream, chatInfo);
+                    const copiedResourcePaths = await htmlExporter.exportSingleInlineFromIterable(messageStream, chatInfo);
                     // 保存资源列表供ZIP打包使用
                     (exportOptions as any)._copiedResourcePaths = copiedResourcePaths;
                     break;

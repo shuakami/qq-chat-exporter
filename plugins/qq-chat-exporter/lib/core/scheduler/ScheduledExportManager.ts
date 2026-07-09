@@ -665,7 +665,7 @@ export class ScheduledExportManager {
                             : {})
                     });
                     const htmlMessageStream = parser.parseMessagesStream(allMessages, resourceMap);
-                    await htmlExporter.exportFromIterable(htmlMessageStream, chatInfo);
+                    await htmlExporter.exportSingleInlineFromIterable(htmlMessageStream, chatInfo);
                     break;
                 case 'JSON':
                     // JsonExporter 会自己处理消息解析（流式），直接传原始消息
