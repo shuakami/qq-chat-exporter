@@ -447,7 +447,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                     .map(({ groupName, opts }) => (
                       <div key={groupName} className="space-y-2.5">
                         <h3 className="text-[12px] font-medium text-muted-foreground pl-1">{groupName}</h3>
-                        <div className="bg-black/[0.02] dark:bg-white/[0.03] rounded-2xl border border-black/[0.05] dark:border-white/[0.08] overflow-hidden divide-y divide-black/[0.05] dark:divide-white/[0.08]">
+                        <div className="bg-neutral-50/50 dark:bg-white/[0.03] rounded-2xl border border-neutral-100/80 dark:border-white/[0.06] overflow-hidden divide-y divide-neutral-100/80 dark:divide-white/[0.06]">
                           {opts.map((opt) => (
                             <div
                               key={opt.id}
