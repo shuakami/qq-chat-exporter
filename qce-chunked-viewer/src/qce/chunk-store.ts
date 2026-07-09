@@ -63,7 +63,7 @@ export interface QceManifest {
   chunking: { maxMessagesPerChunk: number };
   bloom: { textBits: number; textHashes: number; senderBits: number; senderHashes: number };
   msgidIndex?: { bucketCount: number; dir: string; filePrefix: string; fileExt: string };
-  senders: Array<{ uid: string; displayName: string; aliases?: string[]; count: number }>;
+  senders: Array<{ uid: string; displayName: string; aliases?: string[]; count: number; avatar?: string | null }>;
   chunks: QceChunkMeta[];
 }
 
