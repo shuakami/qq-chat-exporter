@@ -72,11 +72,23 @@ interface QceChunkPayload {
   messages: QceRecord[];
 }
 
+/**
+ * Single-file inline exports pre-register all JSONP payloads into this stash
+ * (via a bootstrap script that runs before the data scripts), so the store
+ * can resolve everything synchronously without script injection.
+ */
+interface QceInlineData {
+  manifest?: QceManifest;
+  chunks: Record<string, QceRecord[]>;
+  msgid: Record<number, Array<[string, string]>>;
+}
+
 declare global {
   interface Window {
     __QCE_MANIFEST__?: (m: QceManifest) => void;
     __QCE_CHUNK__?: (c: QceChunkPayload) => void;
     __QCE_MSGID_INDEX__?: (bucket: number, pairs: Array<[string, string]>) => void;
+    __QCE_INLINE__?: QceInlineData;
   }
 }
 
@@ -103,6 +115,8 @@ function loadScript(src: string): Promise<void> {
 }
 
 export function loadManifest(baseUrl: string): Promise<QceManifest> {
+  const inline = window.__QCE_INLINE__;
+  if (inline?.manifest) return Promise.resolve(inline.manifest);
   return new Promise((res, rej) => {
     window.__QCE_MANIFEST__ = (m) => {
       delete window.__QCE_MANIFEST__;
@@ -160,7 +174,8 @@ export class ChunkStore {
   /** Synchronous lookup; returns null (and schedules a load) when not cached. */
   get(index: number): QceRecord | null {
     const c = this.chunkOf(index);
-    const records = this.cache.get(c);
+    let records = this.cache.get(c);
+    if (!records) records = this.insertInline(c) ?? undefined;
     if (records) {
       // refresh LRU position
       this.cache.delete(c);
@@ -169,6 +184,29 @@ export class ChunkStore {
     }
     this.want(c);
     return null;
+  }
+
+  /** Hydrates a chunk from the inline stash (single-file exports), if present. */
+  private insertInline(chunk: number): QceRecord[] | null {
+    const meta = this.manifest.chunks[chunk];
+    if (!meta) return null;
+    const messages = window.__QCE_INLINE__?.chunks[meta.id];
+    if (!messages) return null;
+    for (const r of messages) {
+      if (!r.kind) r.kind = kindOf(r.html);
+    }
+    this.cache.set(chunk, messages);
+    this.loadedCount += 1;
+    this.trimLru();
+    return messages;
+  }
+
+  private trimLru(): void {
+    while (this.cache.size > LRU_CAPACITY) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest === undefined) break;
+      this.cache.delete(oldest);
+    }
   }
 
   /**
@@ -212,6 +250,8 @@ export class ChunkStore {
   load(chunk: number): Promise<QceRecord[]> {
     const cached = this.cache.get(chunk);
     if (cached) return Promise.resolve(cached);
+    const inline = this.insertInline(chunk);
+    if (inline) return Promise.resolve(inline);
     const inflight = this.pending.get(chunk);
     if (inflight) return inflight;
     const meta = this.manifest.chunks[chunk]!;
@@ -250,11 +290,7 @@ export class ChunkStore {
       }
       this.cache.set(chunk, messages);
       this.loadedCount += 1;
-      while (this.cache.size > LRU_CAPACITY) {
-        const oldest = this.cache.keys().next().value;
-        if (oldest === undefined) break;
-        this.cache.delete(oldest);
-      }
+      this.trimLru();
       this.onChunkLoaded?.();
       return messages;
     })().finally(() => this.pending.delete(chunk));
@@ -269,6 +305,12 @@ export class ChunkStore {
   msgIdToChunkId(msgId: string, bucket: number): Promise<string | null> {
     const loaded = this.msgIdBuckets.get(bucket);
     if (loaded) return Promise.resolve(loaded.get(msgId) ?? null);
+    const inlinePairs = window.__QCE_INLINE__?.msgid[bucket];
+    if (inlinePairs) {
+      const map = new Map(inlinePairs);
+      this.msgIdBuckets.set(bucket, map);
+      return Promise.resolve(map.get(msgId) ?? null);
+    }
     const idx = this.manifest.msgidIndex;
     if (!idx) return Promise.resolve(null);
     let inflight = this.pendingBuckets.get(bucket);
