@@ -1,13 +1,10 @@
 "use client"
 
 import React, { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./dialog"
+import { Dialog, DialogContent, DialogTitle } from "./dialog"
 import { Button } from "./button"
 import { Progress } from "./progress"
-import { Badge } from "./badge"
 import { 
-  CheckCircle,
-  AlertCircle,
   Download,
   FolderOpen,
   Package,
@@ -94,15 +91,17 @@ export function StickerExportModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent fullScreen className="flex flex-col h-full bg-card">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Package className="w-5 h-5" />
-            {exportType === 'all' ? '导出所有表情包' : `导出 ${packName}`}
-          </DialogTitle>
-        </DialogHeader>
+      <DialogContent
+        fullScreen
+        overlayClassName="bg-background/80 dark:bg-background/80"
+        className="inset-4 w-auto h-auto rounded-[24px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.14)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col p-0"
+      >
+        <DialogTitle className="sr-only">
+          {exportType === 'all' ? '导出所有表情包' : `导出 ${packName}`}
+        </DialogTitle>
 
-        <div className="space-y-4 py-4">
+        <div className="flex-1 flex items-center justify-center px-10">
+          <div className="w-full max-w-[420px]">
           <AnimatePresence mode="wait">
             {/* Idle State */}
             {status === 'idle' && (
@@ -239,6 +238,7 @@ export function StickerExportModal({
               </motion.div>
             )}
           </AnimatePresence>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

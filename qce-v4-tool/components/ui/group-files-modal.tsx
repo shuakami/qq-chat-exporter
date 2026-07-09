@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { FolderOpen, Image, Download, RefreshCw, FileText, AlertCircle, ChevronRight, ChevronDown, Video } from "lucide-react"
@@ -191,31 +191,36 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent fullScreen className="flex flex-col h-full p-0">
-        <DialogHeader className="px-6 py-4 border-b border-black/[0.06] dark:border-white/[0.06]">
-          <DialogTitle>{groupName} - 群文件与相册</DialogTitle>
-        </DialogHeader>
+      <DialogContent
+        fullScreen
+        overlayClassName="bg-background/80 dark:bg-background/80"
+        className="inset-4 w-auto h-auto rounded-[24px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.14)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col p-0"
+      >
+        <div className="px-10 pt-10 pb-6 flex-shrink-0">
+          <DialogTitle className="text-[20px] font-semibold text-foreground">{groupName}</DialogTitle>
+          <p className="text-[13px] text-muted-foreground mt-1.5">浏览并导出群相册与群文件。</p>
+        </div>
 
-        <div className="flex-1 flex min-h-0">
+        <div className="flex-1 flex min-h-0 px-6">
           {/* 左侧导航 */}
-          <div className="w-48 border-r border-black/[0.06] dark:border-white/[0.06] p-4 space-y-2">
+          <div className="w-52 flex-shrink-0 px-4 space-y-1.5">
             <button
               onClick={() => setActiveTab('albums')}
-              className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                activeTab === 'albums' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600' : 'hover:bg-muted'
+              className={`w-full text-left px-3.5 py-2.5 rounded-2xl transition-colors ${
+                activeTab === 'albums' ? 'bg-black/[0.05] dark:bg-white/[0.08] text-foreground' : 'text-muted-foreground hover:bg-black/[0.03] dark:hover:bg-white/[0.04]'
               }`}
             >
-              <div className="font-medium">群相册</div>
-              <div className="text-xs text-muted-foreground">{albums.length} 个相册</div>
+              <div className="font-medium text-[13px]">群相册</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{albums.length} 个相册</div>
             </button>
             <button
               onClick={() => setActiveTab('files')}
-              className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                activeTab === 'files' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600' : 'hover:bg-muted'
+              className={`w-full text-left px-3.5 py-2.5 rounded-2xl transition-colors ${
+                activeTab === 'files' ? 'bg-black/[0.05] dark:bg-white/[0.08] text-foreground' : 'text-muted-foreground hover:bg-black/[0.03] dark:hover:bg-white/[0.04]'
               }`}
             >
-              <div className="font-medium">群文件</div>
-              <div className="text-xs text-muted-foreground">{fileCount > 0 ? `${fileCount} 个文件` : '浏览文件'}</div>
+              <div className="font-medium text-[13px]">群文件</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{fileCount > 0 ? `${fileCount} 个文件` : '浏览文件'}</div>
             </button>
           </div>
 
@@ -397,7 +402,7 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                   )}
                 </div>
 
-                <div className="flex justify-end gap-2 pt-4 border-t border-black/[0.06] dark:border-white/[0.06] mt-4">
+                <div className="flex justify-end gap-2 pt-4 mt-4">
                   <Button variant="outline" onClick={handleExportFilesList} disabled={loading || exporting} className="rounded-full">
                     {exporting ? <Loader size={16} className="mr-1" /> : <FileText className="w-4 h-4 mr-1" />}
                     导出列表
@@ -412,8 +417,8 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
           </div>
         </div>
 
-        <div className="px-6 py-3 border-t border-black/[0.06] dark:border-white/[0.06] flex justify-end">
-          <Button variant="outline" onClick={onClose} className="rounded-full">关闭</Button>
+        <div className="h-[72px] flex items-center justify-end px-10 flex-shrink-0">
+          <Button variant="outline" onClick={onClose} className="rounded-full text-[13px] h-8">关闭</Button>
         </div>
       </DialogContent>
     </Dialog>

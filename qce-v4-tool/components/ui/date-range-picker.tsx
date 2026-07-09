@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { isSameDay } from "date-fns"
-import { CornerDownLeft } from "lucide-react"
+import { CornerDownLeft, Calendar as CalendarIcon } from "lucide-react"
 import type { DateRange } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
@@ -84,10 +84,11 @@ export function DateRangePicker({ startTime, endTime, onChange, className }: Dat
         <button
           type="button"
           className={cn(
-            "flex items-center w-full h-9 px-3 rounded-lg bg-black/[0.02] dark:bg-white/[0.03] text-[13px] text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors outline-none text-left",
+            "flex items-center gap-2 w-full h-[36px] px-4 rounded-full bg-black/[0.04] dark:bg-white/[0.06] text-[13px] text-foreground hover:bg-black/[0.06] dark:hover:bg-white/[0.09] transition-colors outline-none text-left",
             className
           )}
         >
+          <CalendarIcon className="w-4 h-4 text-muted-foreground shrink-0" />
           {from ? (
             <span className="flex items-center gap-2 tabular-nums">
               <span>{formatDisplay(from)}</span>
@@ -99,7 +100,7 @@ export function DateRangePicker({ startTime, endTime, onChange, className }: Dat
               )}
             </span>
           ) : (
-            <span className="text-muted-foreground">选择时间范围</span>
+            <span className="text-muted-foreground/70">选择时间范围（留空导出全部）</span>
           )}
         </button>
       </PopoverTrigger>

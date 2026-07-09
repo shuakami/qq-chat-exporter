@@ -1,13 +1,12 @@
 "use client"
 
 import React, { useState, useEffect, useRef, useCallback } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./dialog"
+import { Dialog, DialogContent, DialogTitle } from "./dialog"
 import { Button } from "./button"
 import { Input } from "./input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./select"
 import { Label } from "./label"
 import { Switch } from "./switch"
-import { Separator } from "./separator"
 import { Badge } from "./badge"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import { Checkbox } from "./checkbox"
@@ -19,6 +18,11 @@ import { Loader } from "@/components/ui/loader"
 import type { CreateScheduledExportForm, Group, Friend } from "@/types/api"
 import { useSearch } from "@/hooks/use-search"
 import { toggleSkipResourceType, type SkipDownloadResourceType } from "@/lib/skip-resource-types"
+
+// 统一的药丸输入样式（与新版模态框 UI 对齐）
+const PILL_INPUT =
+  "h-[36px] px-3.5 rounded-full border-0 bg-black/[0.04] dark:bg-white/[0.06] text-[13px] outline-none placeholder:text-muted-foreground/70 focus:bg-black/[0.06] dark:focus:bg-white/[0.09] transition-colors"
+const SECTION_TITLE = "text-[14px] font-medium text-foreground mb-5"
 
 interface ScheduledExportWizardProps {
   isOpen: boolean
@@ -348,22 +352,17 @@ export function ScheduledExportWizard({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
         fullScreen
-        overlayClassName="bg-background/60 backdrop-blur-xl"
-        className="flex flex-col h-full p-0"
+        overlayClassName="bg-background/80 dark:bg-background/80"
+        className="inset-4 w-auto h-auto rounded-[24px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.14)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col p-0"
       >
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Package className="w-5 h-5" />
-            批量创建定时导出任务
-          </DialogTitle>
-        </DialogHeader>
+        <DialogTitle className="sr-only">批量创建定时导出任务</DialogTitle>
 
-        <div className="flex-1 flex gap-8 min-h-0 px-6 py-6">
+        <div className="flex-1 flex gap-8 min-h-0 pl-12 pr-8 pt-12 pb-6">
           {/* 左侧 - 目标选择 */}
-          <div className="w-2/5 flex flex-col">
-            <div className="mb-4">
-              <h3 className="text-base font-medium mb-1 text-foreground">选择导出目标</h3>
-              <p className="text-sm text-muted-foreground">选择要创建定时任务的群组或好友</p>
+          <div className="w-2/5 max-w-[500px] min-w-[300px] flex-shrink-0 flex flex-col">
+            <div className="mb-6">
+              <h1 className="text-[20px] font-semibold text-foreground mb-2">批量创建定时任务</h1>
+              <p className="text-[13px] text-muted-foreground leading-relaxed">选择要创建定时任务的群组或好友，右侧配置调度规则。</p>
             </div>
             
             {showTargetSelector ? (
@@ -620,49 +619,44 @@ export function ScheduledExportWizard({
             )}
           </div>
 
-          <Separator orientation="vertical" className="h-full" />
-
           {/* 右侧 - 配置选项 */}
-          <div className="w-3/5 flex flex-col">
-            <div className="mb-4">
-              <h3 className="text-base font-medium mb-1 text-foreground">配置定时任务</h3>
-              <p className="text-sm text-muted-foreground">设置调度规则、导出格式和其他选项</p>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto pr-1 space-y-6">
-              {/* 任务名称前缀 */}
-              <div className="space-y-2">
-                <Label htmlFor="namePrefix">任务名称前缀（可选）</Label>
-                <Input
-                  id="namePrefix"
-                  placeholder="例如：每日备份"
-                  value={baseForm.namePrefix}
-                  onChange={(e) => setBaseForm(p => ({ ...p, namePrefix: e.target.value }))}
-                  className="rounded-xl"
-                />
-                <p className="text-xs text-muted-foreground">
-                  {selectedTargets.length > 1 
-                    ? `将为每个会话创建任务，格式：${baseForm.namePrefix || "任务名称"}-会话名称`
-                    : "留空则使用会话名称作为任务名称"
-                  }
-                </p>
-              </div>
+          <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto pr-2 space-y-10">
+              {/* 基础配置 */}
+              <section>
+                <h2 className={SECTION_TITLE}>基础配置</h2>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[13px] font-medium text-foreground/80">任务名称前缀</label>
+                    <Input
+                      id="namePrefix"
+                      placeholder="例如：每日备份"
+                      value={baseForm.namePrefix}
+                      onChange={(e) => setBaseForm(p => ({ ...p, namePrefix: e.target.value }))}
+                      className={PILL_INPUT + " w-full"}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {selectedTargets.length > 1 
+                        ? `将为每个会话创建任务，格式：${baseForm.namePrefix || "任务名称"}-会话名称`
+                        : "留空则使用会话名称作为任务名称"
+                      }
+                    </p>
+                  </div>
+                </div>
+              </section>
 
               {/* 调度设置 */}
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-base font-medium text-foreground">调度设置</Label>
-                  <p className="text-sm text-muted-foreground mt-1">设置任务执行的时间规则</p>
-                </div>
-
+              <section>
+                <h2 className={SECTION_TITLE}>调度设置</h2>
+                <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>调度类型</Label>
+                    <label className="text-[13px] font-medium text-foreground/80">调度类型</label>
                     <Select 
                       value={baseForm.scheduleType} 
                       onValueChange={(v: any) => setBaseForm(p => ({ ...p, scheduleType: v }))}
                     >
-                      <SelectTrigger className="rounded-xl">
+                      <SelectTrigger className={PILL_INPUT + " w-full"}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -676,43 +670,41 @@ export function ScheduledExportWizard({
 
                   {baseForm.scheduleType === "custom" ? (
                     <div className="space-y-2">
-                      <Label>Cron 表达式</Label>
+                      <label className="text-[13px] font-medium text-foreground/80">Cron 表达式</label>
                       <Input
                         placeholder="0 2 * * * (分 时 日 月 周)"
                         value={baseForm.cronExpression}
                         onChange={(e) => setBaseForm(p => ({ ...p, cronExpression: e.target.value }))}
-                        className="rounded-xl"
+                        className={PILL_INPUT + " w-full"}
                       />
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <Label>执行时间</Label>
+                      <label className="text-[13px] font-medium text-foreground/80">执行时间</label>
                       <Input
                         type="time"
                         value={baseForm.executeTime}
                         onChange={(e) => setBaseForm(p => ({ ...p, executeTime: e.target.value }))}
-                        className="rounded-xl"
+                        className={PILL_INPUT + " w-full"}
                       />
                     </div>
                   )}
                 </div>
 
-                <div className="p-3 rounded-2xl border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/30">
-                  <p className="text-sm text-green-800 dark:text-green-300 flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    {getScheduleDescription()}
-                  </p>
+                <div className="flex items-center gap-2 text-[13px] text-muted-foreground px-1">
+                  <Calendar className="w-4 h-4 text-[#317CFF]" />
+                  {getScheduleDescription()}
                 </div>
-              </div>
+                </div>
+              </section>
 
               {/* 导出设置 */}
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-base font-medium text-foreground">导出设置</Label>
-                  <p className="text-sm text-muted-foreground mt-1">设置导出格式和时间范围</p>
-                </div>
-
-                <div className="flex items-center gap-1 p-0.5 rounded-full bg-black/[0.03] dark:bg-white/[0.04] w-fit">
+              <section>
+                <h2 className={SECTION_TITLE}>导出设置</h2>
+                <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[13px] font-medium text-foreground/80">导出格式</label>
+                  <div className="inline-flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] w-fit">
                   {(["HTML", "JSON", "TXT", "EXCEL"] as const).map((fmt) => {
                     const active = baseForm.format === fmt
                     return (
@@ -731,15 +723,16 @@ export function ScheduledExportWizard({
                       </button>
                     )
                   })}
+                  </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>时间范围</Label>
+                  <label className="text-[13px] font-medium text-foreground/80">时间范围</label>
                   <Select 
                     value={baseForm.timeRangeType} 
                     onValueChange={(v: any) => setBaseForm(p => ({ ...p, timeRangeType: v }))}
                   >
-                    <SelectTrigger className="rounded-xl">
+                    <SelectTrigger className={PILL_INPUT + " w-full"}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -756,7 +749,7 @@ export function ScheduledExportWizard({
                 {baseForm.timeRangeType === "custom" && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>相对开始时间（秒）</Label>
+                      <label className="text-[13px] font-medium text-foreground/80">相对开始时间（秒）</label>
                       <Input
                         type="number"
                         placeholder="-86400 (昨天开始)"
@@ -770,11 +763,11 @@ export function ScheduledExportWizard({
                             }
                           }))
                         }
-                        className="rounded-xl"
+                        className={PILL_INPUT + " w-full"}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>相对结束时间（秒）</Label>
+                      <label className="text-[13px] font-medium text-foreground/80">相对结束时间（秒）</label>
                       <Input
                         type="number"
                         placeholder="0 (现在)"
@@ -788,25 +781,23 @@ export function ScheduledExportWizard({
                             }
                           }))
                         }
-                        className="rounded-xl"
+                        className={PILL_INPUT + " w-full"}
                       />
                     </div>
                   </div>
                 )}
 
-                <div className="p-3 rounded-2xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30">
-                  <p className="text-sm text-blue-800 dark:text-blue-300">将导出：{getTimeRangeDescription()}</p>
+                <div className="flex items-center gap-2 text-[13px] text-muted-foreground px-1">
+                  <Clock className="w-4 h-4 text-[#317CFF]" />
+                  将导出：{getTimeRangeDescription()}
                 </div>
-              </div>
+                </div>
+              </section>
 
               {/* 高级选项 */}
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-base font-medium text-foreground">高级选项</Label>
-                  <p className="text-sm text-muted-foreground mt-1">自定义导出内容的详细设置</p>
-                </div>
-
-                <div className="space-y-3">
+              <section>
+                <h2 className={SECTION_TITLE}>高级选项</h2>
+                <div className="space-y-2.5">
                   {[
                     {
                       id: "includeResourceLinks",
@@ -874,103 +865,76 @@ export function ScheduledExportWizard({
                   ].filter((opt) => (opt as any).visible !== false).map((opt) => (
                     <div
                       key={opt.id}
-                      className={[
-                        "relative cursor-pointer rounded-2xl border p-4 transition-all",
-                        opt.checked ? "border-black/[0.08] dark:border-white/[0.08] bg-muted/30" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]"
-                      ].join(" ")}
-                      onClick={() => opt.set(!opt.checked)}
+                      className="flex items-center justify-between gap-6 group p-3.5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.05] dark:hover:bg-white/[0.06] transition-colors"
                     >
-                      <div className="flex items-start gap-4">
-                        <div className="flex-shrink-0 pt-0.5">
-                          <div className={[
-                            "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
-                            opt.checked 
-                              ? "border-foreground bg-foreground" 
-                              : "border-black/[0.08] dark:border-white/[0.08] hover:border-black/[0.12] dark:hover:border-white/[0.12]"
-                          ].join(" ")}>
-                            {opt.checked && (
-                              <svg className="w-3 h-3 text-background" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex-1">
-                          <h4 className="font-medium text-foreground text-sm">{opt.title}</h4>
-                          <p className="text-muted-foreground text-sm mt-1 leading-relaxed">{opt.desc}</p>
-                        </div>
+                      <div className="flex flex-col gap-0.5 flex-1 pr-4">
+                        <div className="text-[13px] font-medium text-foreground">{opt.title}</div>
+                        {opt.desc && (
+                          <div className="text-[12px] text-muted-foreground leading-snug mt-0.5">{opt.desc}</div>
+                        )}
+                      </div>
+                      <div className="flex-shrink-0">
+                        <Switch checked={opt.checked} onCheckedChange={(v) => opt.set(v)} />
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
+              </section>
 
               {/* 其他选项 */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="enabled"
-                    checked={baseForm.enabled}
-                    onCheckedChange={(checked) => setBaseForm(p => ({ ...p, enabled: checked }))}
-                  />
-                  <Label htmlFor="enabled" className="flex items-center gap-2">
-                    启用任务
-                    <Badge variant={baseForm.enabled ? "default" : "secondary"}>
-                      {baseForm.enabled ? "已启用" : "已禁用"}
-                    </Badge>
-                  </Label>
-                </div>
+              <section>
+                <h2 className={SECTION_TITLE}>其他选项</h2>
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-6 p-3.5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04]">
+                    <div className="flex flex-col gap-0.5 flex-1 pr-4">
+                      <div className="text-[13px] font-medium text-foreground">启用任务</div>
+                      <div className="text-[12px] text-muted-foreground leading-snug mt-0.5">
+                        {baseForm.enabled ? "创建后立即按计划执行" : "创建后暂不执行，可稍后手动启用"}
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <Switch
+                        checked={baseForm.enabled}
+                        onCheckedChange={(checked) => setBaseForm(p => ({ ...p, enabled: checked }))}
+                      />
+                    </div>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label>输出目录（可选）</Label>
-                  <Input
-                    placeholder="留空使用默认目录"
-                    value={baseForm.outputDir}
-                    onChange={(e) => setBaseForm(p => ({ ...p, outputDir: e.target.value }))}
-                    className="rounded-xl"
-                  />
+                  <div className="space-y-2 pt-1">
+                    <label className="text-[13px] font-medium text-foreground/80">输出目录</label>
+                    <Input
+                      placeholder="留空使用默认目录"
+                      value={baseForm.outputDir}
+                      onChange={(e) => setBaseForm(p => ({ ...p, outputDir: e.target.value }))}
+                      className={PILL_INPUT + " w-full"}
+                    />
+                  </div>
                 </div>
-              </div>
+              </section>
             </div>
           </div>
         </div>
 
         {/* 底部操作栏 */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-black/[0.06] dark:border-white/[0.06]">
-          <div className="text-sm text-muted-foreground">
+        <div className="h-[72px] flex items-center justify-between px-10 flex-shrink-0">
+          <div className="text-[13px] font-medium text-muted-foreground">
             {canSubmit() ? (
-              <span className="text-green-600 dark:text-green-400 flex items-center gap-2">
-                <CheckCircle className="w-4 h-4" />
-                准备就绪，将为 {selectedTargets.length} 个会话创建定时任务
-              </span>
+              <span className="text-foreground">配置就绪，将为 {selectedTargets.length} 个会话创建定时任务</span>
             ) : (
-              <span className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4" />
-                请选择至少一个会话，然后填写任务名称前缀
-              </span>
+              <span>请选择会话并填写任务名称前缀</span>
             )}
           </div>
 
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={onClose} className="rounded-full">
+          <div className="flex items-center gap-3">
+            <Button variant="outline" onClick={onClose} className="rounded-full text-[13px] h-8">
               取消
             </Button>
             <Button
               onClick={handleSubmit}
               disabled={!canSubmit() || isLoading}
-              className="bg-blue-600 hover:bg-blue-700 rounded-full"
+              className="rounded-full text-[13px] h-8 px-6 bg-[#317CFF] text-white hover:bg-[#2867d6]"
             >
-              {isLoading ? (
-                <>
-                  <Loader size={16} className="mr-2" />
-                  创建中...
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 mr-2" />
-                  批量创建任务
-                </>
-              )}
+              {isLoading ? "创建中..." : "批量创建任务"}
             </Button>
           </div>
         </div>
