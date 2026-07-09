@@ -122,14 +122,18 @@ for (let i = 0; i < TOTAL; i++) {
     content = `<div class="image-content"><img src="${IMG}" alt="图片" loading="lazy" onclick="showImageModal(this.src)"></div>`;
     text = '[图片]';
   } else if (mod === 11) {
-    content = `<div class="audio-wrapper"><audio class="message-audio" src="resources/voice_${i}.wav" controls preload="none"></audio><a class="audio-download-link" href="resources/voice_${i}.wav" download>下载语音</a></div>`;
+    const bars = Array.from({ length: 18 }, (_, k) => `<i style="height:${30 + ((k * 37 + 13 * 8) % 60)}%"></i>`).join('');
+    content = `<div class="voice-bubble" data-src="${IMG}" data-name="voice_${i}.wav" role="button" tabindex="0"><span class="vplay"></span><span class="vbars">${bars}</span><span class="vsec">8"</span><span class="vdl" title="下载语音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span></div>`;
     text = '[语音]';
   } else if (mod === 17) {
-    content = `<video class="message-video" src="resources/video_${i}.mp4" controls preload="none"></video>`;
+    content = `<div class="video-bubble" data-src="${IMG}" data-name="video_${i}.mp4" role="button" tabindex="0"><video class="img" src="${IMG}" preload="metadata" muted playsinline></video><span class="vbadge"><span class="vtri"></span>视频</span><span class="vname">video_${i}.mp4</span></div>`;
     text = '[视频]';
   } else if (mod === 23) {
-    content = `<div class="message-file"><a href="resources/file_${i}.zip" download="报表_${i}.zip">📄 报表_${i}.zip (1.2 MB)</a></div>`;
+    content = `<a href="resources/file_${i}.zip" class="message-file file-bubble" download="报表_${i}.zip"><span class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M9 6h1M9 9h1M9 12h1"/></svg></span><span class="fmeta"><span class="fname">报表_${i}.zip</span><span class="fsize">1.2 MB</span></span></a>`;
     text = '[文件] 报表_' + i + '.zip';
+  } else if (mod === 30) {
+    content = `<span class="sticker-wrap"><img src="${IMG}" alt="表情" class="sticker sticker-img market-face" loading="lazy"></span>`;
+    text = '[表情]';
   } else if (mod === 29 && i > 40) {
     const target = 100000 + i - 40;
     content = `<div class="reply-content" data-reply-to="msg-${target}" onclick="scrollToMessage('msg-${target}')"><div class="reply-content-header"><strong>${esc(name)}</strong></div><div class="reply-content-text">回复上面的消息</div></div><div class="text-content">${esc(text)}</div>`;
@@ -236,11 +240,12 @@ const manifest = {
     indexDir: 'data/index',
     resourcesDir: 'resources',
   },
-  senders: SENDERS.map(([uid, name]) => ({
+  senders: SENDERS.map(([uid, name, uin]) => ({
     uid,
     displayName: name,
     aliases: [name],
     count: senderCounts[uid] ?? 0,
+    avatar: uin ? `https://q.qlogo.cn/g?b=qq&nk=${uin}&s=100` : null,
   })),
   chunks: chunksMeta,
 };

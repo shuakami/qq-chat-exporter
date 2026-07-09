@@ -10,7 +10,7 @@ import { Label } from "./label"
 import { Badge } from "./badge"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import {
-  Users, User, Search, ChevronDown, RefreshCw, Settings, Eye, CheckCircle, X, UserMinus, UserPlus, Check, HelpCircle
+  Users, User, Search, SearchX, ChevronDown, RefreshCw, Settings, Eye, CheckCircle, X, UserMinus, UserPlus, Check, HelpCircle
 } from "lucide-react"
 import { Tooltip, TooltipTrigger, TooltipContent } from "./tooltip"
 import { Loader } from "@/components/ui/loader"
@@ -590,17 +590,15 @@ export function TaskWizard({
             {[
               { key: 'friend', label: '好友', onClick: () => {
                 setForm((p) => ({ ...p, chatType: 1 }))
-                setSearchTerm("")
                 setManualInputMode(null)
                 if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-                friendSearchRef.current.search("")
+                friendSearchRef.current.search(searchTerm)
               }, active: form.chatType === 1 && !manualInputMode },
               { key: 'group', label: '群组', onClick: () => {
                 setForm((p) => ({ ...p, chatType: 2 }))
-                setSearchTerm("")
                 setManualInputMode(null)
                 if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-                groupSearchRef.current.search("")
+                groupSearchRef.current.search(searchTerm)
               }, active: form.chatType === 2 && !manualInputMode },
               { key: 'manual-friend', label: '输入QQ号', onClick: openManualFriendInput, active: manualInputMode === 'friend' },
               ...(!isStandalone ? [{ key: 'manual-group', label: '输入群号', onClick: openManualGroupInput, active: manualInputMode === 'group' }] : []),
@@ -707,7 +705,7 @@ export function TaskWizard({
                 placeholder={form.chatType === 1 ? "搜索好友昵称、备注..." : "搜索群组名称、群号..."}
                 value={searchTerm}
                 onChange={(e) => handleSearchInput(e.target.value)}
-                className="pl-10 rounded-full h-9"
+                className="pl-10 rounded-full h-9 border-0 bg-black/[0.03] dark:bg-white/[0.05] shadow-none focus-visible:ring-0 focus-visible:border-0"
               />
             </div>
             <Button
@@ -746,13 +744,11 @@ export function TaskWizard({
           )}
 
           {!s.loading && !s.error && displayTargets.length === 0 && (
-            <div className="text-center py-10 text-muted-foreground">
-              <div className="mb-2">
-                {form.chatType === 1 ? (
-                  <User className="w-8 h-8 mx-auto text-muted-foreground/40" />
-                ) : (
-                  <Users className="w-8 h-8 mx-auto text-muted-foreground/40" />
-                )}
+            <div className="text-center py-12 text-muted-foreground">
+              <div className="mb-3 flex justify-center">
+                <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-black/[0.03] dark:bg-white/[0.05]">
+                  <SearchX className="w-5 h-5 text-muted-foreground/50" strokeWidth={1.75} />
+                </div>
               </div>
               <p className="text-sm">
                 {searchTerm.trim()
@@ -888,7 +884,7 @@ export function TaskWizard({
 
             <div className="space-y-2">
               <label className="text-[13px] font-medium text-foreground/80">导出格式</label>
-              <div className="inline-flex items-center flex-wrap gap-1 p-1 rounded-[20px] bg-black/[0.04] dark:bg-white/[0.06] w-fit max-w-full">
+              <div className="flex items-center flex-wrap gap-1 p-1 rounded-[20px] bg-black/[0.04] dark:bg-white/[0.06] w-fit max-w-full">
                 {(["JSON", "HTML", "TXT", "EXCEL"] as const).map((fmt) => {
                   const active = form.format === fmt
                   return (
@@ -1177,7 +1173,7 @@ export function TaskWizard({
               .map(({ groupName, opts }) => (
                 <div key={groupName} className="space-y-2.5">
                   <h3 className="text-[12px] font-medium text-muted-foreground pl-1">{groupName}</h3>
-                  <div className="bg-black/[0.02] dark:bg-white/[0.03] rounded-2xl border border-black/[0.05] dark:border-white/[0.08] overflow-hidden divide-y divide-black/[0.05] dark:divide-white/[0.08]">
+                  <div className="bg-neutral-50/50 dark:bg-white/[0.03] rounded-2xl border border-neutral-100/80 dark:border-white/[0.06] overflow-hidden divide-y divide-neutral-100/80 dark:divide-white/[0.06]">
                     {opts.map((opt) => (
                       <div
                         key={opt.id}
