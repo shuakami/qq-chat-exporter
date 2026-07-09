@@ -1020,21 +1020,9 @@ export function TaskWizard({
         {/* 高级选项 */}
         <section>
           <h2 className={SECTION_TITLE}>高级选项</h2>
-          <div className="space-y-4">
-          {/* Issue #192: 自定义导出路径 */}
-          <div className="space-y-2">
-            <label className="text-[13px] font-medium text-foreground/80">自定义存储路径</label>
-            <Input
-              id="outputDir"
-              placeholder="默认: .qq-chat-exporter/exports"
-              value={form.outputDir || ""}
-              onChange={(e) => setForm((p) => ({ ...p, outputDir: e.target.value }))}
-              className={PILL_INPUT + " w-full"}
-            />
-          </div>
-
-          <div className="space-y-2.5">
-            {[
+          <div className="space-y-6">
+          {(() => {
+            const allOptions = [
               {
                 id: "streamingZipMode",
                 checked: form.streamingZipMode || false,
@@ -1044,7 +1032,8 @@ export function TaskWizard({
                   ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式，适合导出超大群聊记录。"
                   : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式，适合导出超大群聊记录。",
                 visible: form.format === "HTML" || form.format === "JSON",
-                highlight: true
+                highlight: true,
+                group: "性能与处理"
               },
               {
                 id: "includeSystemMessages",
@@ -1052,7 +1041,8 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, includeSystemMessages: v })),
                 title: "包含系统消息",
                 desc: "包含入群通知、撤回提示等系统提示消息",
-                visible: true
+                visible: true,
+                group: "导出内容"
               },
               {
                 id: "filterPureImageMessages",
@@ -1060,7 +1050,8 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, filterPureImageMessages: v })),
                 title: "快速导出（跳过资源下载）",
                 desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度",
-                visible: true
+                visible: true,
+                group: "导出内容"
               },
               // Issue #344：仅保留文件元数据，不下载文件
               {
@@ -1072,7 +1063,8 @@ export function TaskWizard({
                 })),
                 title: "仅保留文件元数据，不下载文件",
                 desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。适合不需要本地副本的备份场景。",
-                visible: !form.filterPureImageMessages
+                visible: !form.filterPureImageMessages,
+                group: "导出内容"
               },
               // Issue #344：按资源类型逐项跳过，让用户在不开启「快速导出」的前提下也能精确控制要不要下载图片 / 视频 / 音频。
               {
@@ -1084,7 +1076,8 @@ export function TaskWizard({
                 })),
                 title: "不下载图片",
                 desc: "导出时跳过图片资源的下载，HTML 中以占位形式显示，JSON / TXT 仅保留消息文本与元数据。需要保留图片可关闭此项。",
-                visible: !form.filterPureImageMessages
+                visible: !form.filterPureImageMessages,
+                group: "导出内容"
               },
               {
                 id: "skipVideoDownload",
@@ -1095,7 +1088,8 @@ export function TaskWizard({
                 })),
                 title: "不下载视频",
                 desc: "导出时跳过视频资源的下载。视频文件通常体积较大，长时间或群聊导出时容易占用大量带宽和磁盘空间。",
-                visible: !form.filterPureImageMessages
+                visible: !form.filterPureImageMessages,
+                group: "导出内容"
               },
               {
                 id: "skipAudioDownload",
@@ -1106,7 +1100,8 @@ export function TaskWizard({
                 })),
                 title: "不下载语音",
                 desc: "导出时跳过 SILK / AMR 等语音消息的下载。对只想保留文字记录的备份场景很有用。",
-                visible: !form.filterPureImageMessages
+                visible: !form.filterPureImageMessages,
+                group: "导出内容"
               },
               {
                 id: "preferGroupMemberName",
@@ -1114,7 +1109,8 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, preferGroupMemberName: v })),
                 title: "优先使用群成员名称",
                 desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。",
-                visible: form.chatType === 2
+                visible: form.chatType === 2,
+                group: "导出内容"
               },
               {
                 id: "exportAsZip",
@@ -1122,7 +1118,8 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, exportAsZip: v })),
                 title: "导出为ZIP压缩包",
                 desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）",
-                visible: form.format === "HTML" && !form.streamingZipMode
+                visible: form.format === "HTML" && !form.streamingZipMode,
+                group: "性能与处理"
               },
               {
                 id: "useNameInFileName",
@@ -1136,7 +1133,8 @@ export function TaskWizard({
                   })),
                 title: "文件名包含聊天名称",
                 desc: "在导出文件名中包含群名或好友昵称，方便批量导出后识别文件",
-                visible: true
+                visible: true,
+                group: "文件命名"
               },
               {
                 // Issue #134: 友好文件名格式
@@ -1150,7 +1148,8 @@ export function TaskWizard({
                   })),
                 title: "使用友好命名（名称(QQ号).html）",
                 desc: "导出文件名使用 `名称(QQ号).<扩展名>` 格式，去掉 friend_/group_ 前缀与时间戳。多次导出同一会话同名碰撞时，会自动追加 `_<日期>_<时间>` 后缀避免覆盖。启用后与「文件名包含聊天名称」互斥。",
-                visible: true
+                visible: true,
+                group: "文件命名"
               },
               {
                 id: "embedAvatarsAsBase64",
@@ -1158,7 +1157,8 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, embedAvatarsAsBase64: v })),
                 title: "嵌入头像为Base64",
                 desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）",
-                visible: form.format === "JSON"
+                visible: form.format === "JSON",
+                group: "导出内容"
               },
               {
                 // Issue #311: 自包含 HTML
@@ -1167,36 +1167,60 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, embedResourcesAsDataUri: v })),
                 title: "生成自包含 HTML",
                 desc: "将图片、语音、视频、小于 50 MB 的文件以 base64 内联到单个 HTML文件中，不再产出 resources 目录。适合需要单独发送 / 在手机上丢进文件传输查看的场景。资源较多时 HTML 体积会明显增大。",
-                visible: form.format === "HTML" && !form.exportAsZip && !form.streamingZipMode
+                visible: form.format === "HTML" && !form.exportAsZip && !form.streamingZipMode,
+                group: "导出内容"
               }
-            ].filter((opt) => opt.visible).map((opt) => (
-              <div
-                key={opt.id}
-                className="flex items-center justify-between gap-6 group p-3.5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.05] dark:hover:bg-white/[0.06] transition-colors"
-              >
-                <div className="flex flex-col gap-0.5 flex-1 pr-4">
-                  <div className="flex items-center gap-1.5">
-                    <div className="text-[13px] font-medium text-foreground">{opt.title}</div>
-                    {opt.desc && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
-                        </TooltipTrigger>
-                        <TooltipContent side="top" sideOffset={6} className="max-w-[250px]">
-                          {opt.desc}
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
+            ].filter((opt) => opt.visible)
+            return ["导出内容", "文件命名", "性能与处理"]
+              .map((groupName) => ({ groupName, opts: allOptions.filter((o) => o.group === groupName) }))
+              .filter(({ opts }) => opts.length > 0)
+              .map(({ groupName, opts }) => (
+                <div key={groupName} className="space-y-2.5">
+                  <h3 className="text-[12px] font-medium text-muted-foreground pl-1">{groupName}</h3>
+                  <div className="bg-black/[0.02] dark:bg-white/[0.03] rounded-2xl border border-black/[0.05] dark:border-white/[0.08] overflow-hidden divide-y divide-black/[0.05] dark:divide-white/[0.08]">
+                    {opts.map((opt) => (
+                      <div
+                        key={opt.id}
+                        className="flex items-center justify-between gap-6 group p-4 transition-colors"
+                      >
+                        <div className="flex flex-col gap-0.5 flex-1 pr-4">
+                          <div className="flex items-center gap-1.5">
+                            <div className="text-[13px] font-medium text-foreground">{opt.title}</div>
+                            {opt.desc && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" sideOffset={6} className="max-w-[250px]">
+                                  {opt.desc}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                          {opt.desc && (
+                            <div className="text-[12px] text-muted-foreground leading-snug mt-0.5">{opt.desc}</div>
+                          )}
+                        </div>
+                        <div className="flex-shrink-0">
+                          <Switch checked={opt.checked} onCheckedChange={(v) => opt.set(v)} />
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  {opt.desc && (
-                    <div className="text-[12px] text-muted-foreground leading-snug mt-0.5">{opt.desc}</div>
-                  )}
                 </div>
-                <div className="flex-shrink-0">
-                  <Switch checked={opt.checked} onCheckedChange={(v) => opt.set(v)} />
-                </div>
-              </div>
-            ))}
+              ))
+          })()}
+
+          {/* Issue #192: 自定义导出路径 */}
+          <div className="space-y-2.5">
+            <label className="block text-[12px] font-medium text-muted-foreground pl-1">自定义存储路径</label>
+            <Input
+              id="outputDir"
+              placeholder="默认: .qq-chat-exporter/exports"
+              value={form.outputDir || ""}
+              onChange={(e) => setForm((p) => ({ ...p, outputDir: e.target.value }))}
+              className={PILL_INPUT + " w-full"}
+            />
           </div>
           </div>
         </section>

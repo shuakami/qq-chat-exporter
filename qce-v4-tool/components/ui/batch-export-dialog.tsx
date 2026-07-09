@@ -401,38 +401,20 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
               {/* 高级选项 */}
               <section>
                 <h2 className={SECTION_TITLE}>高级选项</h2>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-[13px] font-medium text-foreground/80">导出路径</label>
-                    <div className="flex gap-2">
-                      <Input placeholder="留空使用默认路径，或输入自定义路径如 D:\exports" value={outputDir} onChange={(e) => setOutputDir(e.target.value)} disabled={isExporting} className={PILL_INPUT + " flex-1"} />
-                      <Button variant="outline" size="icon" disabled={isExporting} className="rounded-full shrink-0" title="选择文件夹"><FolderOpen className="w-4 h-4" /></Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[13px] font-medium text-foreground/80">关键词过滤</label>
-                    <Textarea placeholder="用逗号分隔多个关键词，如：重要,会议,通知" value={keywords} onChange={(e) => setKeywords(e.target.value)} disabled={isExporting} rows={2} className={PILL_TEXTAREA + " w-full"} />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[13px] font-medium text-foreground/80">排除用户</label>
-                    <Textarea placeholder="用逗号分隔多个QQ号，如：123456789,987654321" value={excludeUserUins} onChange={(e) => setExcludeUserUins(e.target.value)} disabled={isExporting} rows={2} className={PILL_TEXTAREA + " w-full"} />
-                  </div>
-
-                {/* 开关选项 */}
-                <div className="space-y-2.5">
-                  {[
-                    { id: "streamingZipMode", checked: streamingZipMode, set: setStreamingZipMode, title: "流式导出（超大消息量专用）", desc: format === "HTML" ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式。" : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式。", visible: format === "HTML" || format === "JSON", highlight: true },
-                    { id: "includeSystemMessages", checked: includeSystemMessages, set: setIncludeSystemMessages, title: "包含系统消息", desc: "包含入群通知、撤回提示等系统提示消息", visible: true, highlight: false },
-                    { id: "filterPureImageMessages", checked: filterPureImageMessages, set: setFilterPureImageMessages, title: "快速导出（跳过资源下载）", desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度", visible: true, highlight: false },
+                <div className="space-y-6">
+                {/* 开关选项（分组卡片） */}
+                {(() => {
+                  const allOptions = [
+                    { id: "streamingZipMode", checked: streamingZipMode, set: setStreamingZipMode, title: "流式导出（超大消息量专用）", desc: format === "HTML" ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式。" : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式。", visible: format === "HTML" || format === "JSON", highlight: true, group: "性能与处理" },
+                    { id: "includeSystemMessages", checked: includeSystemMessages, set: setIncludeSystemMessages, title: "包含系统消息", desc: "包含入群通知、撤回提示等系统提示消息", visible: true, highlight: false, group: "导出内容" },
+                    { id: "filterPureImageMessages", checked: filterPureImageMessages, set: setFilterPureImageMessages, title: "快速导出（跳过资源下载）", desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度", visible: true, highlight: false, group: "导出内容" },
                     // Issue #344：分别控制图片 / 视频 / 音频 / 文件四种资源是否参与下载。
-                    { id: "skipFileDownloadOnly", checked: !!skipDownloadResourceTypes?.includes('file'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'file', v)), title: "仅保留文件元数据，不下载文件", desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。", visible: !filterPureImageMessages, highlight: false },
-                    { id: "skipImageDownload", checked: !!skipDownloadResourceTypes?.includes('image'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'image', v)), title: "不下载图片", desc: "批量导出时跳过图片，HTML 中以占位形式显示。需要保留图片可关闭此项。", visible: !filterPureImageMessages, highlight: false },
-                    { id: "skipVideoDownload", checked: !!skipDownloadResourceTypes?.includes('video'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'video', v)), title: "不下载视频", desc: "批量导出时跳过视频，避免长时间或群聊导出时占用大量带宽和磁盘空间。", visible: !filterPureImageMessages, highlight: false },
-                    { id: "skipAudioDownload", checked: !!skipDownloadResourceTypes?.includes('audio'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'audio', v)), title: "不下载语音", desc: "批量导出时跳过 SILK / AMR 等语音消息。对只想保留文字记录的场景很有用。", visible: !filterPureImageMessages, highlight: false },
-                    { id: "preferGroupMemberName", checked: preferGroupMemberName, set: setPreferGroupMemberName, title: "优先使用群成员名称", desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。这个选项仅对群聊生效。", visible: true, highlight: false },
-                    { id: "exportAsZip", checked: exportAsZip, set: setExportAsZip, title: "导出为ZIP压缩包", desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）", visible: format === "HTML" && !streamingZipMode, highlight: false },
+                    { id: "skipFileDownloadOnly", checked: !!skipDownloadResourceTypes?.includes('file'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'file', v)), title: "仅保留文件元数据，不下载文件", desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。", visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
+                    { id: "skipImageDownload", checked: !!skipDownloadResourceTypes?.includes('image'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'image', v)), title: "不下载图片", desc: "批量导出时跳过图片，HTML 中以占位形式显示。需要保留图片可关闭此项。", visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
+                    { id: "skipVideoDownload", checked: !!skipDownloadResourceTypes?.includes('video'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'video', v)), title: "不下载视频", desc: "批量导出时跳过视频，避免长时间或群聊导出时占用大量带宽和磁盘空间。", visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
+                    { id: "skipAudioDownload", checked: !!skipDownloadResourceTypes?.includes('audio'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'audio', v)), title: "不下载语音", desc: "批量导出时跳过 SILK / AMR 等语音消息。对只想保留文字记录的场景很有用。", visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
+                    { id: "preferGroupMemberName", checked: preferGroupMemberName, set: setPreferGroupMemberName, title: "优先使用群成员名称", desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。这个选项仅对群聊生效。", visible: true, highlight: false, group: "导出内容" },
+                    { id: "exportAsZip", checked: exportAsZip, set: setExportAsZip, title: "导出为ZIP压缩包", desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）", visible: format === "HTML" && !streamingZipMode, highlight: false, group: "性能与处理" },
                     {
                       id: "useNameInFileName",
                       checked: useNameInFileName,
@@ -442,6 +424,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                       desc: "导出文件名中包含聊天对象的名称，方便识别",
                       visible: true,
                       highlight: false,
+                      group: "文件命名",
                     },
                     {
                       // Issue #134: 友好命名 `名称(QQ号).<ext>`
@@ -452,37 +435,67 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                       desc: "导出文件名使用 `名称(QQ号).<扩展名>` 格式，去掉前缀与时间戳；同名碰撞时自动追加 `_<日期>_<时间>` 后缀。与「文件名包含聊天名称」互斥。",
                       visible: true,
                       highlight: false,
+                      group: "文件命名",
                     },
-                    { id: "embedAvatarsAsBase64", checked: embedAvatarsAsBase64, set: setEmbedAvatarsAsBase64, title: "嵌入头像为Base64", desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）", visible: format === "JSON", highlight: false },
+                    { id: "embedAvatarsAsBase64", checked: embedAvatarsAsBase64, set: setEmbedAvatarsAsBase64, title: "嵌入头像为Base64", desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）", visible: format === "JSON", highlight: false, group: "导出内容" },
                     // Issue #311: 自包含 HTML
-                    { id: "embedResourcesAsDataUri", checked: embedResourcesAsDataUri, set: setEmbedResourcesAsDataUri, title: "生成自包含 HTML", desc: "将图片、语音、视频、小于 50 MB 的文件以 base64 内联到单个 HTML中，不再产出 resources 目录。适合需要单独发送的场景。", visible: format === "HTML" && !exportAsZip && !streamingZipMode, highlight: false }
-                  ].filter((opt) => opt.visible).map((opt) => (
-                    <div
-                      key={opt.id}
-                      className={["flex items-center justify-between gap-6 group p-3.5 rounded-2xl transition-colors", opt.highlight ? "bg-orange-50/60 dark:bg-orange-950/25 hover:bg-orange-50 dark:hover:bg-orange-950/40" : "bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.05] dark:hover:bg-white/[0.06]", isExporting ? "opacity-50" : ""].join(" ")}
-                    >
-                      <div className="flex flex-col gap-0.5 flex-1 pr-4">
-                        <div className="flex items-center gap-1.5">
-                          <div className={`text-[13px] font-medium ${opt.highlight ? 'text-orange-700 dark:text-orange-400' : 'text-foreground'}`}>{opt.title}</div>
-                          {opt.desc && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
-                              </TooltipTrigger>
-                              <TooltipContent side="top" sideOffset={6} className="max-w-[250px]">
-                                {opt.desc}
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
+                    { id: "embedResourcesAsDataUri", checked: embedResourcesAsDataUri, set: setEmbedResourcesAsDataUri, title: "生成自包含 HTML", desc: "将图片、语音、视频、小于 50 MB 的文件以 base64 内联到单个 HTML中，不再产出 resources 目录。适合需要单独发送的场景。", visible: format === "HTML" && !exportAsZip && !streamingZipMode, highlight: false, group: "导出内容" }
+                  ].filter((opt) => opt.visible)
+                  return ["导出内容", "文件命名", "性能与处理"]
+                    .map((groupName) => ({ groupName, opts: allOptions.filter((o) => o.group === groupName) }))
+                    .filter(({ opts }) => opts.length > 0)
+                    .map(({ groupName, opts }) => (
+                      <div key={groupName} className="space-y-2.5">
+                        <h3 className="text-[12px] font-medium text-muted-foreground pl-1">{groupName}</h3>
+                        <div className="bg-black/[0.02] dark:bg-white/[0.03] rounded-2xl border border-black/[0.05] dark:border-white/[0.08] overflow-hidden divide-y divide-black/[0.05] dark:divide-white/[0.08]">
+                          {opts.map((opt) => (
+                            <div
+                              key={opt.id}
+                              className={["flex items-center justify-between gap-6 group p-4 transition-colors", isExporting ? "opacity-50" : ""].join(" ")}
+                            >
+                              <div className="flex flex-col gap-0.5 flex-1 pr-4">
+                                <div className="flex items-center gap-1.5">
+                                  <div className={`text-[13px] font-medium ${opt.highlight ? 'text-orange-700 dark:text-orange-400' : 'text-foreground'}`}>{opt.title}</div>
+                                  {opt.desc && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" sideOffset={6} className="max-w-[250px]">
+                                        {opt.desc}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                </div>
+                                <div className={`text-[12px] leading-snug mt-0.5 ${opt.highlight ? 'text-orange-600/90 dark:text-orange-500/90' : 'text-muted-foreground'}`}>{opt.desc}</div>
+                              </div>
+                              <div className="flex-shrink-0">
+                                <Switch checked={opt.checked} disabled={isExporting} onCheckedChange={(v) => opt.set(v)} />
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                        <div className={`text-[12px] leading-snug mt-0.5 ${opt.highlight ? 'text-orange-600/90 dark:text-orange-500/90' : 'text-muted-foreground'}`}>{opt.desc}</div>
                       </div>
-                      <div className="flex-shrink-0">
-                        <Switch checked={opt.checked} disabled={isExporting} onCheckedChange={(v) => opt.set(v)} />
-                      </div>
+                    ))
+                })()}
+
+                  <div className="space-y-2.5">
+                    <label className="block text-[12px] font-medium text-muted-foreground pl-1">导出路径</label>
+                    <div className="flex gap-2">
+                      <Input placeholder="留空使用默认路径，或输入自定义路径如 D:\exports" value={outputDir} onChange={(e) => setOutputDir(e.target.value)} disabled={isExporting} className={PILL_INPUT + " flex-1"} />
+                      <Button variant="outline" size="icon" disabled={isExporting} className="rounded-full shrink-0" title="选择文件夹"><FolderOpen className="w-4 h-4" /></Button>
                     </div>
-                  ))}
-                </div>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    <label className="block text-[12px] font-medium text-muted-foreground pl-1">关键词过滤</label>
+                    <Textarea placeholder="用逗号分隔多个关键词，如：重要,会议,通知" value={keywords} onChange={(e) => setKeywords(e.target.value)} disabled={isExporting} rows={2} className={PILL_TEXTAREA + " w-full"} />
+                  </div>
+
+                  <div className="space-y-2.5">
+                    <label className="block text-[12px] font-medium text-muted-foreground pl-1">排除用户</label>
+                    <Textarea placeholder="用逗号分隔多个QQ号，如：123456789,987654321" value={excludeUserUins} onChange={(e) => setExcludeUserUins(e.target.value)} disabled={isExporting} rows={2} className={PILL_TEXTAREA + " w-full"} />
+                  </div>
                 </div>
               </section>
 
