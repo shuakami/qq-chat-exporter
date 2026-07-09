@@ -62,6 +62,8 @@ export const DialogContent = React.forwardRef<
             ],
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+        "data-[state=open]:zoom-in-[0.97] data-[state=closed]:zoom-out-[0.97]",
+        "data-[state=open]:duration-300 data-[state=closed]:duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",
         "outline-none",
         className
       )}

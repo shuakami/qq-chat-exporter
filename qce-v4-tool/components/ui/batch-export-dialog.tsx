@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { DateRangePicker } from "@/components/ui/date-range-picker"
-import { CheckCircle2, XCircle, Users, User, FolderOpen } from "lucide-react"
+import { CheckCircle2, XCircle, Users, User, FolderOpen, HelpCircle } from "lucide-react"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { Loader } from "@/components/ui/loader"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toggleSkipResourceType, type SkipDownloadResourceType } from "@/lib/skip-resource-types"
@@ -322,7 +323,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
               {/* 导出格式 */}
               <section>
                 <h2 className={SECTION_TITLE}>导出格式</h2>
-                <div className="inline-flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] w-fit">
+                <div className="inline-flex items-center flex-wrap gap-1 p-1 rounded-[20px] bg-black/[0.04] dark:bg-white/[0.06] w-fit max-w-full">
                   {(["HTML", "JSON", "TXT", "EXCEL"] as const).map((fmt) => {
                     const active = format === fmt
                     return (
@@ -347,9 +348,19 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
 
               {/* 时间范围 */}
               <section>
-                <h2 className={SECTION_TITLE}>时间范围</h2>
+                <h2 className={SECTION_TITLE + " flex items-center gap-1.5"}>
+                  时间范围
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[250px]">
+                      选择全部消息则导出全部记录
+                    </TooltipContent>
+                  </Tooltip>
+                </h2>
                 <div className="space-y-4">
-                  <div className="inline-flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] w-fit">
+                  <div className="inline-flex items-center flex-wrap gap-1 p-1 rounded-[20px] bg-black/[0.04] dark:bg-white/[0.06] w-fit max-w-full">
                     {[
                       { value: 'all', label: '全部消息' },
                       { value: 'recent', label: '最近 3 个月' },
@@ -451,7 +462,19 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                       className={["flex items-center justify-between gap-6 group p-3.5 rounded-2xl transition-colors", opt.highlight ? "bg-orange-50/60 dark:bg-orange-950/25 hover:bg-orange-50 dark:hover:bg-orange-950/40" : "bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.05] dark:hover:bg-white/[0.06]", isExporting ? "opacity-50" : ""].join(" ")}
                     >
                       <div className="flex flex-col gap-0.5 flex-1 pr-4">
-                        <div className={`text-[13px] font-medium ${opt.highlight ? 'text-orange-700 dark:text-orange-400' : 'text-foreground'}`}>{opt.title}</div>
+                        <div className="flex items-center gap-1.5">
+                          <div className={`text-[13px] font-medium ${opt.highlight ? 'text-orange-700 dark:text-orange-400' : 'text-foreground'}`}>{opt.title}</div>
+                          {opt.desc && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" sideOffset={6} className="max-w-[250px]">
+                                {opt.desc}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
                         <div className={`text-[12px] leading-snug mt-0.5 ${opt.highlight ? 'text-orange-600/90 dark:text-orange-500/90' : 'text-muted-foreground'}`}>{opt.desc}</div>
                       </div>
                       <div className="flex-shrink-0">

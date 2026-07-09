@@ -10,8 +10,9 @@ import { Label } from "./label"
 import { Badge } from "./badge"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import {
-  Users, User, Search, ChevronDown, RefreshCw, Settings, Eye, CheckCircle, X, UserMinus, UserPlus, Check
+  Users, User, Search, ChevronDown, RefreshCw, Settings, Eye, CheckCircle, X, UserMinus, UserPlus, Check, HelpCircle
 } from "lucide-react"
+import { Tooltip, TooltipTrigger, TooltipContent } from "./tooltip"
 import { Loader } from "@/components/ui/loader"
 import { useSearch } from "@/hooks/use-search"
 import { useApi } from "@/hooks/use-api"
@@ -887,7 +888,7 @@ export function TaskWizard({
 
             <div className="space-y-2">
               <label className="text-[13px] font-medium text-foreground/80">导出格式</label>
-              <div className="inline-flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] w-fit">
+              <div className="inline-flex items-center flex-wrap gap-1 p-1 rounded-[20px] bg-black/[0.04] dark:bg-white/[0.06] w-fit max-w-full">
                 {(["JSON", "HTML", "TXT", "EXCEL"] as const).map((fmt) => {
                   const active = form.format === fmt
                   return (
@@ -910,7 +911,17 @@ export function TaskWizard({
             </div>
 
             <div className="space-y-2">
-              <label className="text-[13px] font-medium text-foreground/80">时间范围</label>
+              <label className="text-[13px] font-medium text-foreground/80 flex items-center gap-1.5">
+                时间范围
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[250px]">
+                    留空则导出全部记录
+                  </TooltipContent>
+                </Tooltip>
+              </label>
               <DateRangePicker
                 startTime={form.startTime}
                 endTime={form.endTime}
@@ -1164,7 +1175,19 @@ export function TaskWizard({
                 className="flex items-center justify-between gap-6 group p-3.5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.05] dark:hover:bg-white/[0.06] transition-colors"
               >
                 <div className="flex flex-col gap-0.5 flex-1 pr-4">
-                  <div className="text-[13px] font-medium text-foreground">{opt.title}</div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="text-[13px] font-medium text-foreground">{opt.title}</div>
+                    {opt.desc && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" sideOffset={6} className="max-w-[250px]">
+                          {opt.desc}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                  </div>
                   {opt.desc && (
                     <div className="text-[12px] text-muted-foreground leading-snug mt-0.5">{opt.desc}</div>
                   )}
