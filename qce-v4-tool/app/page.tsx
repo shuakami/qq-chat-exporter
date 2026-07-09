@@ -582,7 +582,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
 
   const handleCloseHistoryModal = () => {
     setIsHistoryModalOpen(false)
-    setSelectedHistoryTask(null)
+    setTimeout(() => setSelectedHistoryTask(null), 300)
   }
 
   const handleOpenFilePathModal = (filePath: string, sessionName: string, fileName: string, size?: number) => {
@@ -1931,7 +1931,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                             }}
                             title="删除"
                           >
-                            <X className="w-4 h-4" />
+                            <Trash2 className="w-4 h-4" />
                           </Button>
                         )}
                       </div>
@@ -2237,7 +2237,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                                     })
                                   }}
                                 >
-                                  <X className="w-3.5 h-3.5" />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </div>
                             );

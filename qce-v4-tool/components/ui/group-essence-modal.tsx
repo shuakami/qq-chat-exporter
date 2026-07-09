@@ -10,13 +10,10 @@ import {
 } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { PillDropdown } from "@/components/ui/pill-dropdown"
 import { Loader } from "@/components/ui/loader"
 import { useGroupEssence } from "@/hooks/use-group-essence"
 import type { EssenceMessage } from "@/types/api"
-
-const PILL_INPUT =
-  "h-[36px] px-3.5 rounded-full border-0 bg-black/[0.04] dark:bg-white/[0.06] text-[13px] outline-none placeholder:text-muted-foreground/70 focus:bg-black/[0.06] dark:focus:bg-white/[0.09] transition-colors"
 
 interface GroupEssenceModalProps {
   isOpen: boolean
@@ -140,15 +137,15 @@ export function GroupEssenceModal({
         <div className="h-[72px] flex items-center justify-between px-10 flex-shrink-0">
           <div className="flex items-center gap-3">
             <span className="text-[13px] text-muted-foreground">共 {messages.length} 条</span>
-            <Select value={exportFormat} onValueChange={(v) => setExportFormat(v as 'json' | 'html')}>
-              <SelectTrigger className={PILL_INPUT + " w-[110px]"}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="html">HTML</SelectItem>
-                <SelectItem value="json">JSON</SelectItem>
-              </SelectContent>
-            </Select>
+            <PillDropdown
+              value={exportFormat}
+              onChange={(v) => setExportFormat(v)}
+              align="start"
+              options={[
+                { value: 'html', label: 'HTML' },
+                { value: 'json', label: 'JSON' },
+              ]}
+            />
           </div>
           <div className="flex items-center gap-3">
             <Button variant="outline" onClick={onClose} className="rounded-full text-[13px] h-8">关闭</Button>

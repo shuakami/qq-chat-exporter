@@ -1,18 +1,11 @@
 "use client"
 
 import { useCallback, useEffect, useRef } from "react"
+import { motion, AnimatePresence } from "framer-motion"
 import { Button } from "./button"
 import { Input } from "./input"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
-import { Checkbox } from "./checkbox"
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./select"
 import {
   Search,
   ChevronLeft,
@@ -31,6 +24,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "./dropdown-menu"
+import { PillDropdown } from "./pill-dropdown"
 import type { Group, Friend } from "@/types/api"
 import {
   useSessionFilter,
@@ -236,8 +230,12 @@ export function SessionList({
 
   const hasActiveFilters = search || type !== 'all'
 
-  const renderSessionItem = useCallback((item: SessionItem) => {
+  const renderSessionItem = useCallback((item: SessionItem, index: number, items: SessionItem[]) => {
     const isSelected = selectedItems.has(`${item.type}_${item.id}`)
+    const isPreviousSelected =
+      index > 0 && selectedItems.has(`${items[index - 1].type}_${items[index - 1].id}`)
+    const isNextSelected =
+      index < items.length - 1 && selectedItems.has(`${items[index + 1].type}_${items[index + 1].id}`)
     const isGroup = item.type === 'group'
     const group = isGroup ? (item.raw as Group) : null
     const friend = !isGroup ? (item.raw as Friend) : null
@@ -246,26 +244,55 @@ export function SessionList({
       <div
         key={`${item.type}_${item.id}`}
         className={[
-          "group flex items-center gap-3 px-3 py-3 rounded-xl transition-colors text-sm",
+          "group flex items-center gap-3 px-3 py-3 transition-colors text-sm",
           batchMode
             ? isSelected
               ? "bg-black/[0.045] dark:bg-white/[0.075] cursor-pointer"
               : "hover:bg-black/[0.03] dark:hover:bg-white/[0.03] cursor-pointer"
-            : "hover:bg-black/[0.03] dark:hover:bg-white/[0.03]"
+            : "hover:bg-black/[0.03] dark:hover:bg-white/[0.03]",
+          isSelected && batchMode
+            ? `${isPreviousSelected ? "rounded-t-none" : "rounded-t-xl"} ${isNextSelected ? "rounded-b-none" : "rounded-b-xl"}`
+            : "rounded-xl",
         ].join(" ")}
         onClick={(e: React.MouseEvent) => batchMode && handleRowClick(e, item)}
       >
-        {batchMode && (
-          <Checkbox
-            checked={isSelected}
-            onCheckedChange={() => onToggleItem?.(item.type, item.id)}
-            onClick={(e: React.MouseEvent) => {
-              // 阻止冒泡到 row，避免双触发；shift+click 仍由 row 的 onClick 处理。
-              e.stopPropagation()
-            }}
-          />
-        )}
-        
+        <AnimatePresence initial={false}>
+          {batchMode && (
+            <motion.div
+              initial={{ width: 0, opacity: 0, marginRight: 0 }}
+              animate={{ width: 14, opacity: 1, marginRight: 0 }}
+              exit={{ width: 0, opacity: 0, marginRight: 0 }}
+              transition={{ type: "tween", duration: 0.2, ease: "easeOut" }}
+              className="flex-shrink-0 overflow-hidden"
+            >
+              <div
+                className={[
+                  "flex items-center justify-center w-[14px] h-[14px] rounded-[3.5px] transition-colors cursor-pointer border",
+                  isSelected
+                    ? "bg-[#317CFF] border-[#317CFF]"
+                    : "bg-white dark:bg-neutral-900 border-neutral-300 dark:border-neutral-600 hover:border-[#317CFF]",
+                ].join(" ")}
+              >
+                <AnimatePresence>
+                  {isSelected && (
+                    <motion.svg
+                      initial={{ scale: 0.5, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.5, opacity: 0 }}
+                      transition={{ type: "tween", duration: 0.15, ease: "easeOut" }}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      className="w-2.5 h-2.5 text-white"
+                    >
+                      <path d="M4.5 12.75l6 6 9-13.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                    </motion.svg>
+                  )}
+                </AnimatePresence>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <Avatar className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
           <AvatarImage src={item.avatarUrl} alt={item.name} />
           <AvatarFallback className="rounded-full text-xs">
@@ -414,31 +441,29 @@ export function SessionList({
         {/* Filter Controls */}
         <div className="flex items-center gap-2">
           {/* Type Filter */}
-          <Select value={type} onValueChange={(v: string) => setType(v as SessionType)}>
-            <SelectTrigger size="sm" className="h-8 text-[13px] font-medium rounded-full bg-white dark:bg-neutral-900 border border-black/[0.03] dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-black/[0.08] hover:bg-neutral-50 dark:hover:bg-white/5 px-3 transition-all">
-              <SelectValue placeholder="全部类型" />
-            </SelectTrigger>
-            <SelectContent className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl">
-              <SelectItem value="all">全部 ({groupCount + friendCount})</SelectItem>
-              <SelectItem value="group">群组 ({groupCount})</SelectItem>
-              <SelectItem value="friend">好友 ({friendCount})</SelectItem>
-            </SelectContent>
-          </Select>
+          <PillDropdown
+            value={type}
+            onChange={(v) => setType(v as SessionType)}
+            options={[
+              { value: "all", label: `全部 (${groupCount + friendCount})` },
+              { value: "group", label: `群组 (${groupCount})` },
+              { value: "friend", label: `好友 (${friendCount})` },
+            ]}
+          />
 
           {/* Sort Field */}
-          <Select value={sortField} onValueChange={(v: string) => setSortField(v as SortField)}>
-            <SelectTrigger size="sm" className="h-8 text-[13px] font-medium rounded-full bg-white dark:bg-neutral-900 border border-black/[0.03] dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.02)] hover:border-black/[0.08] hover:bg-neutral-50 dark:hover:bg-white/5 px-3 transition-all">
-              <SelectValue placeholder="排序" />
-            </SelectTrigger>
-            <SelectContent className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl">
-              <SelectItem value="name">名称</SelectItem>
-              <SelectItem value="memberCount">人数</SelectItem>
-              <SelectItem value="id">ID</SelectItem>
-              {/* Issue #344: 按最近一条消息时间 / 已导出消息数排序。 */}
-              <SelectItem value="lastActivity">最近活跃</SelectItem>
-              <SelectItem value="exportedCount">已导出条数</SelectItem>
-            </SelectContent>
-          </Select>
+          <PillDropdown
+            value={sortField}
+            onChange={(v) => setSortField(v as SortField)}
+            options={[
+              { value: "name", label: "名称" },
+              { value: "memberCount", label: "人数" },
+              { value: "id", label: "ID" },
+              // Issue #344: 按最近一条消息时间 / 已导出消息数排序。
+              { value: "lastActivity", label: "最近活跃" },
+              { value: "exportedCount", label: "已导出条数" },
+            ]}
+          />
 
           {/* Sort Order Toggle */}
           <button
@@ -510,75 +535,86 @@ export function SessionList({
       )}
 
       {/* Floating Batch Toolbar */}
-      {batchMode && (
-        <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in duration-300"
-          style={{ animationTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)' }}
-        >
-          <div className="flex items-center gap-1 rounded-full bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-[0_4px_24px_rgba(0,0,0,0.06)] border border-black/[0.06] dark:border-white/[0.08] px-2 py-1.5">
-            {selectedItems.size > 0 && (
+      <AnimatePresence>
+        {batchMode && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.94 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.94 }}
+            transition={{ type: "spring", stiffness: 400, damping: 35, mass: 0.8 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50"
+          >
+            <div className="flex items-center gap-1 rounded-full bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.08)] border border-black/[0.06] dark:border-white/[0.08] px-2 py-1.5">
               <span className="text-[13px] font-medium text-foreground px-3 tabular-nums">
-                {selectedItems.size} selected
+                已选择 {selectedItems.size} 项
               </span>
-            )}
-            <span className="w-px h-4 bg-black/[0.08] dark:bg-white/[0.1]" />
-            {type === 'all' && (
-              <>
+              {selectedItems.size > 0 && (
                 <button
-                  onClick={() => {
-                    const ids = new Set<string>()
-                    filteredItems.forEach((item) => {
-                      if (item.type === 'group') ids.add(`group_${item.id}`)
-                    })
-                    onSelectMany ? onSelectMany(ids, 'add') : onSelectAll?.(ids)
-                  }}
-                  className="px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
+                  onClick={onClearSelection}
+                  className="px-2 py-0.5 text-[12px] text-muted-foreground/60 hover:text-muted-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors mr-1"
                 >
-                  全选群
+                  清空
                 </button>
-                <button
-                  onClick={() => {
-                    const ids = new Set<string>()
-                    filteredItems.forEach((item) => {
-                      if (item.type === 'friend') ids.add(`friend_${item.id}`)
-                    })
-                    onSelectMany ? onSelectMany(ids, 'add') : onSelectAll?.(ids)
-                  }}
-                  className="px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
-                >
-                  全选好友
-                </button>
-              </>
-            )}
-            <button
-              onClick={() => {
-                const ids = new Set<string>()
-                filteredItems.forEach(item => {
-                  ids.add(item.type === 'group' ? `group_${item.id}` : `friend_${item.id}`)
-                })
-                onSelectAll?.(ids)
-              }}
-              className="px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
-            >
-              全选当前
-            </button>
-            <span className="w-px h-4 bg-black/[0.08] dark:bg-white/[0.1]" />
-            <button
-              onClick={onOpenBatchExportDialog}
-              disabled={selectedItems.size === 0}
-              className="px-3 py-1.5 text-[13px] font-medium text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors disabled:opacity-40 disabled:pointer-events-none"
-            >
-              导出
-            </button>
-            <button
-              onClick={onToggleBatchMode}
-              className="p-1.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
+              )}
+              <span className="w-px h-4 bg-black/[0.08] dark:bg-white/[0.1]" />
+              {type === 'all' && (
+                <>
+                  <button
+                    onClick={() => {
+                      const ids = new Set<string>()
+                      filteredItems.forEach((item) => {
+                        if (item.type === 'group') ids.add(`group_${item.id}`)
+                      })
+                      onSelectMany ? onSelectMany(ids, 'add') : onSelectAll?.(ids)
+                    }}
+                    className="px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
+                  >
+                    全选群
+                  </button>
+                  <button
+                    onClick={() => {
+                      const ids = new Set<string>()
+                      filteredItems.forEach((item) => {
+                        if (item.type === 'friend') ids.add(`friend_${item.id}`)
+                      })
+                      onSelectMany ? onSelectMany(ids, 'add') : onSelectAll?.(ids)
+                    }}
+                    className="px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
+                  >
+                    全选好友
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => {
+                  const ids = new Set<string>()
+                  filteredItems.forEach(item => {
+                    ids.add(item.type === 'group' ? `group_${item.id}` : `friend_${item.id}`)
+                  })
+                  onSelectAll?.(ids)
+                }}
+                className="px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
+              >
+                全选当前
+              </button>
+              <span className="w-px h-4 bg-black/[0.08] dark:bg-white/[0.1]" />
+              <button
+                onClick={onOpenBatchExportDialog}
+                disabled={selectedItems.size === 0}
+                className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#317CFF] rounded-full hover:bg-[#2867d6] transition-colors disabled:opacity-40 disabled:pointer-events-none"
+              >
+                导出
+              </button>
+              <button
+                onClick={onToggleBatchMode}
+                className="p-1.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors ml-1"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
 
 
@@ -587,18 +623,14 @@ export function SessionList({
         <div className="flex items-center justify-between pt-3">
           <div className="flex items-center gap-1.5">
             <span className="text-sm text-muted-foreground/60">每页</span>
-            <Select value={pageSize.toString()} onValueChange={(v: string) => setPageSize(Number(v))}>
-              <SelectTrigger className="w-[72px] h-8 text-sm rounded-full border-0 bg-transparent shadow-none">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <SelectItem key={size} value={size.toString()}>
-                    {size}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <PillDropdown
+              value={pageSize.toString()}
+              onChange={(v) => setPageSize(Number(v))}
+              options={PAGE_SIZE_OPTIONS.map((size) => ({
+                value: size.toString(),
+                label: size.toString(),
+              }))}
+            />
             <span className="text-sm text-muted-foreground/60">条</span>
           </div>
 
