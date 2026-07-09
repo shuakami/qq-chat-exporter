@@ -446,7 +446,7 @@ export class ResourceMerger {
             }
 
             const messageStream = parser.parseMessagesStream(messages, resourceMap);
-            await htmlExporter.exportFromIterable(messageStream, chatInfo);
+            await htmlExporter.exportSingleInlineFromIterable(messageStream, chatInfo);
             
             console.log(`[ResourceMerger] HTML文件生成完成: ${htmlPath}`);
         } catch (error) {

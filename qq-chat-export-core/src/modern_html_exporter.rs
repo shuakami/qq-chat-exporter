@@ -322,6 +322,129 @@ impl ModernHtmlExporter {
         Ok(copied_resources)
     }
 
+    /// 导出为自包含单文件 HTML：HyperScroll viewer + manifest + 全部数据
+    /// chunk + msgId 索引全部内联进一个 `.html`（虚拟滚动照常工作）。
+    ///
+    /// 实现方式：先用 [`Self::export_chunked`] 导出到隐藏临时目录，再把
+    /// 数据脚本按 JSONP 收集形式内联拼装进单个 HTML；`resources/` 目录
+    /// （若未启用 data URI 内联）会移动到最终 HTML 同级。
+    ///
+    /// # Errors
+    /// 输出文件 / 目录 I/O 失败时返回 [`ExportError::Io`]。
+    pub async fn export_single_inline(
+        &mut self,
+        messages: &[CleanMessage],
+        chat_info: &ChatInfo,
+    ) -> ExportResultT<Vec<String>> {
+        let output_path = self.options.output_path.clone();
+        let output_dir = output_path
+            .parent()
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+        fs::create_dir_all(&output_dir)
+            .await
+            .map_err(|e| ExportError::io("mkdir", &output_dir, e))?;
+
+        let stem = output_path
+            .file_stem()
+            .map_or_else(|| "export".to_owned(), |s| s.to_string_lossy().into_owned());
+        let temp_dir = output_dir.join(format!(".{stem}.qce-inline-tmp"));
+        if fs::try_exists(&temp_dir).await.unwrap_or(false) {
+            let _ = fs::remove_dir_all(&temp_dir).await;
+        }
+
+        // 1) chunked 导出到临时目录
+        self.options.output_path = temp_dir.join("index.html");
+        let chunked_result = self
+            .export_chunked(
+                messages,
+                chat_info,
+                &ChunkedHtmlExportOptions {
+                    write_manifest_json: Some(false),
+                    ..ChunkedHtmlExportOptions::default()
+                },
+            )
+            .await;
+        self.options.output_path = output_path.clone();
+        let chunked = match chunked_result {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = fs::remove_dir_all(&temp_dir).await;
+                return Err(e);
+            }
+        };
+
+        // 2) resources/ 移动到最终 HTML 同级（data URI 内联模式下不存在）
+        let temp_resources = temp_dir.join("resources");
+        if fs::try_exists(&temp_resources).await.unwrap_or(false) {
+            move_dir_merge(&temp_resources, &output_dir.join("resources")).await?;
+        }
+
+        // 3) 拼装单文件 HTML：外壳 head + 内联数据脚本 + 内联 app.js + 外壳尾部
+        let index_html = fs::read_to_string(&chunked.index_html_path)
+            .await
+            .map_err(|e| ExportError::io("readFile", &chunked.index_html_path, e))?;
+        const APP_SCRIPT_TAG: &str = "<script src=\"assets/app.js\" defer></script>";
+        let (shell_head, shell_tail) = index_html.split_once(APP_SCRIPT_TAG).ok_or_else(|| {
+            ExportError::InvalidOptions(
+                "chunked index.html 中缺少 app.js 引用，无法内联".to_owned(),
+            )
+        })?;
+
+        let file = fs::File::create(&output_path)
+            .await
+            .map_err(|e| ExportError::io("createWriteStream", &output_path, e))?;
+        let mut ws = BufWriter::new(file);
+        write_chunk(&mut ws, &output_path, shell_head).await?;
+
+        // 3a) bootstrap：先注册 JSONP 回调，把随后内联的数据收进 __QCE_INLINE__
+        write_chunk(
+            &mut ws,
+            &output_path,
+            concat!(
+                "<script>",
+                "window.__QCE_INLINE__={chunks:{},msgid:{}};",
+                "window.__QCE_MANIFEST__=function(m){window.__QCE_INLINE__.manifest=m};",
+                "window.__QCE_CHUNK__=function(c){window.__QCE_INLINE__.chunks[c.id]=c.messages};",
+                "window.__QCE_MSGID_INDEX__=function(b,p){window.__QCE_INLINE__.msgid[b]=p};",
+                "</script>\n",
+            ),
+        )
+        .await?;
+
+        // 3b) manifest + chunks + msgid 索引（逐文件读入、转义、写出）
+        inline_script_file(&mut ws, &output_path, &chunked.manifest_js_path).await?;
+        let chunks_dir = temp_dir.join("data").join("chunks");
+        for path in sorted_js_files(&chunks_dir).await? {
+            inline_script_file(&mut ws, &output_path, &path).await?;
+        }
+        let index_dir = temp_dir.join("data").join("index");
+        for path in sorted_js_files(&index_dir).await? {
+            inline_script_file(&mut ws, &output_path, &path).await?;
+        }
+
+        // 3c) viewer 应用脚本
+        write_chunk(&mut ws, &output_path, "<script>").await?;
+        write_chunk(
+            &mut ws,
+            &output_path,
+            &escape_inline_script(MODERN_CHUNKED_APP_JS),
+        )
+        .await?;
+        write_chunk(&mut ws, &output_path, "</script>\n").await?;
+
+        write_chunk(&mut ws, &output_path, shell_tail).await?;
+        ws.flush()
+            .await
+            .map_err(|e| ExportError::io("flush", &output_path, e))?;
+        ws.into_inner()
+            .sync_all()
+            .await
+            .map_err(|e| ExportError::io("finish", &output_path, e))?;
+
+        let _ = fs::remove_dir_all(&temp_dir).await;
+        Ok(chunked.copied_resources)
+    }
+
     /// Chunked Viewer 导出（Issue #467）。
     ///
     /// 输出 `index.html + assets/ + data/manifest(.js/.json) + data/chunks/*.js +
@@ -371,8 +494,10 @@ impl ModernHtmlExporter {
             .await
             .map_err(|e| ExportError::io("writeFile", &app_js_path, e))?;
 
-        // resource dirs
-        if self.options.include_resource_links {
+        // resource dirs（data URI 内联模式下不生成 resources/ 目录）
+        let use_data_uri =
+            self.options.include_resource_links && self.options.embed_resources_as_data_uri;
+        if self.options.include_resource_links && !use_data_uri {
             for type_dir in ["images", "videos", "audios", "files"] {
                 let dir = output_dir.join("resources").join(type_dir);
                 fs::create_dir_all(&dir)
@@ -621,6 +746,13 @@ impl ModernHtmlExporter {
             chunk.end_date = date_key.clone();
             chunk.last_msg_id = format!("msg-{}", message.id);
 
+            // data URI 内联模式：渲染前预载本条消息的资源
+            if self.options.include_resource_links && self.options.embed_resources_as_data_uri {
+                for res in iter_resources(message) {
+                    self.preload_data_uri(&res).await;
+                }
+            }
+
             // render HTML
             let html = self.render_message(message);
 
@@ -688,7 +820,7 @@ impl ModernHtmlExporter {
             chunk.count += 1;
 
             // resource copy
-            if self.options.include_resource_links {
+            if self.options.include_resource_links && !self.options.embed_resources_as_data_uri {
                 for res in iter_resources(message) {
                     while running.len() >= concurrency {
                         drain_one_copy(running, copied_resources).await;
@@ -1569,6 +1701,79 @@ async fn drain_one_copy(running: &mut JoinSet<Option<String>>, copied: &mut Vec<
     if let Some(Ok(Some(resource_path))) = running.join_next().await {
         copied.push(resource_path);
     }
+}
+
+/* ------------------------ 单文件内联辅助 ------------------------ */
+
+/// 内联进 `<script>` 前的转义：防止 JS 字符串里的 `</script` 提前闭合标签。
+/// 该序列只会出现在 JSON/JS 字符串字面量内，`<\/` 是等价的合法转义。
+fn escape_inline_script(source: &str) -> String {
+    source.replace("</script", "<\\/script")
+}
+
+/// 读取一个 JSONP 数据脚本文件并以内联 `<script>` 形式写出。
+async fn inline_script_file(
+    ws: &mut BufWriter<fs::File>,
+    output_path: &Path,
+    file_path: &Path,
+) -> ExportResultT<()> {
+    let content = fs::read_to_string(file_path)
+        .await
+        .map_err(|e| ExportError::io("readFile", file_path, e))?;
+    write_chunk(ws, output_path, "<script>").await?;
+    write_chunk(ws, output_path, &escape_inline_script(&content)).await?;
+    write_chunk(ws, output_path, "</script>\n").await?;
+    Ok(())
+}
+
+/// 列出目录下的 `.js` 文件并按文件名排序（chunk id / bucket 编号有序）。
+async fn sorted_js_files(dir: &Path) -> ExportResultT<Vec<PathBuf>> {
+    let mut entries = fs::read_dir(dir)
+        .await
+        .map_err(|e| ExportError::io("readdir", dir, e))?;
+    let mut files: Vec<PathBuf> = Vec::new();
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|e| ExportError::io("readdir", dir, e))?
+    {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "js") {
+            files.push(path);
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// 把 `src` 目录的内容合并移动到 `dst`（同名文件覆盖，子目录递归）。
+async fn move_dir_merge(src: &Path, dst: &Path) -> ExportResultT<()> {
+    let src = src.to_path_buf();
+    let dst = dst.to_path_buf();
+    tokio::task::spawn_blocking(move || move_dir_merge_sync(&src, &dst)).await??;
+    Ok(())
+}
+
+fn move_dir_merge_sync(src: &Path, dst: &Path) -> ExportResultT<()> {
+    std::fs::create_dir_all(dst).map_err(|e| ExportError::io("mkdir", dst, e))?;
+    for entry in std::fs::read_dir(src).map_err(|e| ExportError::io("readdir", src, e))? {
+        let entry = entry.map_err(|e| ExportError::io("readdir", src, e))?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        let is_dir = entry
+            .file_type()
+            .map_err(|e| ExportError::io("stat", &from, e))?
+            .is_dir();
+        if is_dir {
+            move_dir_merge_sync(&from, &to)?;
+            let _ = std::fs::remove_dir(&from);
+        } else if std::fs::rename(&from, &to).is_err() {
+            // 跨设备 / 目标被占用等情况回退为复制
+            std::fs::copy(&from, &to).map_err(|e| ExportError::io("copyFile", &to, e))?;
+            let _ = std::fs::remove_file(&from);
+        }
+    }
+    Ok(())
 }
 
 /* ------------------------ 资源枚举与复制 ------------------------ */

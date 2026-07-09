@@ -208,6 +208,103 @@ export class ModernHtmlExporter {
     }
 
     /**
+     * 单文件内联导出：HyperScroll viewer + manifest + 全部数据 chunk +
+     * msgId 索引全部内联进一个自包含 `.html`（虚拟滚动照常工作）。
+     *
+     * 实现方式：先用 chunked 导出到隐藏临时目录，再把数据脚本按 JSONP
+     * 收集形式内联拼装进单个 HTML；`resources/` 目录（若未启用 data URI
+     * 内联）会移动到最终 HTML 同级。
+     */
+    async exportSingleInline(messages: CleanMessage[], chatInfo: ChatInfo): Promise<string[]> {
+        return await this.exportSingleInlineFromIterable(messages, chatInfo);
+    }
+
+    /**
+     * 从 Iterable/AsyncIterable 进行单文件内联导出（流式低内存）。
+     */
+    async exportSingleInlineFromIterable(
+        messages: Iterable<CleanMessage> | AsyncIterable<CleanMessage>,
+        chatInfo: ChatInfo
+    ): Promise<string[]> {
+        const encoding = (this.options.encoding || 'utf8') as BufferEncoding;
+        const outputPath = this.options.outputPath;
+        const outputDir = path.dirname(outputPath);
+        await fsp.mkdir(outputDir, { recursive: true });
+
+        const stem = path.basename(outputPath, path.extname(outputPath)) || 'export';
+        const tempDir = path.join(outputDir, `.${stem}.qce-inline-tmp`);
+        await fsp.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+
+        // 1) chunked 导出到临时目录
+        this.options.outputPath = path.join(tempDir, 'index.html');
+        let chunked: ChunkedHtmlExportResult;
+        try {
+            chunked = await this.exportChunkedFromIterable(messages, chatInfo, { writeManifestJson: false });
+        } catch (e) {
+            await fsp.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+            throw e;
+        } finally {
+            this.options.outputPath = outputPath;
+        }
+
+        // 2) resources/ 移动到最终 HTML 同级（data URI 内联模式下不存在）
+        const tempResources = path.join(tempDir, 'resources');
+        if (fs.existsSync(tempResources)) {
+            await moveDirMerge(tempResources, path.join(outputDir, 'resources'));
+        }
+
+        // 3) 拼装单文件 HTML：外壳 head + 内联数据脚本 + 内联 app.js + 外壳尾部
+        const indexHtml = await fsp.readFile(chunked.indexHtmlPath, encoding);
+        const APP_SCRIPT_TAG = '<script src="assets/app.js" defer></script>';
+        const splitAt = indexHtml.indexOf(APP_SCRIPT_TAG);
+        if (splitAt < 0) {
+            throw new Error('chunked index.html 中缺少 app.js 引用，无法内联');
+        }
+        const shellHead = indexHtml.slice(0, splitAt);
+        const shellTail = indexHtml.slice(splitAt + APP_SCRIPT_TAG.length);
+
+        const ws = fs.createWriteStream(outputPath, { encoding, flags: 'w' });
+        await this.writeChunk(ws, shellHead);
+
+        // 3a) bootstrap：先注册 JSONP 回调，把随后内联的数据收进 __QCE_INLINE__
+        await this.writeChunk(ws,
+            '<script>' +
+            'window.__QCE_INLINE__={chunks:{},msgid:{}};' +
+            'window.__QCE_MANIFEST__=function(m){window.__QCE_INLINE__.manifest=m};' +
+            'window.__QCE_CHUNK__=function(c){window.__QCE_INLINE__.chunks[c.id]=c.messages};' +
+            'window.__QCE_MSGID_INDEX__=function(b,p){window.__QCE_INLINE__.msgid[b]=p};' +
+            '</scr' + 'ipt>\n');
+
+        const inlineScriptFile = async (filePath: string) => {
+            const content = await fsp.readFile(filePath, encoding);
+            await this.writeChunk(ws, '<script>');
+            await this.writeChunk(ws, escapeInlineScript(content));
+            await this.writeChunk(ws, '</scr' + 'ipt>\n');
+        };
+
+        // 3b) manifest + chunks + msgid 索引（逐文件读入、转义、写出）
+        await inlineScriptFile(chunked.manifestJsPath);
+        for (const f of await sortedJsFiles(path.join(tempDir, 'data', 'chunks'))) {
+            await inlineScriptFile(f);
+        }
+        for (const f of await sortedJsFiles(path.join(tempDir, 'data', 'index'))) {
+            await inlineScriptFile(f);
+        }
+
+        // 3c) viewer 应用脚本
+        await this.writeChunk(ws, '<script>');
+        await this.writeChunk(ws, escapeInlineScript(MODERN_CHUNKED_APP_JS));
+        await this.writeChunk(ws, '</scr' + 'ipt>\n');
+
+        await this.writeChunk(ws, shellTail);
+        ws.end();
+        await once(ws, 'finish');
+
+        await fsp.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+        return chunked.copiedResources;
+    }
+
+    /**
      * 新增：从 Iterable/AsyncIterable 进行 Chunked 导出（最低内存占用）
      */
     async exportChunkedFromIterable(
@@ -242,8 +339,9 @@ export class ModernHtmlExporter {
         await fsp.writeFile(path.join(assetsDir, 'style.css'), MODERN_CSS, encoding);
         await fsp.writeFile(path.join(assetsDir, 'app.js'), MODERN_CHUNKED_APP_JS, encoding);
 
-        // resource dirs
-        if (this.options.includeResourceLinks) {
+        // resource dirs（data URI 内联模式下不生成 resources/ 目录）
+        const useDataUri = this.options.includeResourceLinks === true && this.options.embedResourcesAsDataUri === true;
+        if (this.options.includeResourceLinks && !useDataUri) {
             const resourceTypes = ['images', 'videos', 'audios', 'files'];
             await Promise.all(
                 resourceTypes.map(type =>
@@ -480,6 +578,13 @@ export class ModernHtmlExporter {
                 chunkEndDate = dateKey;
                 chunkLastMsgId = `msg-${message.id}`;
 
+                // data URI 内联模式：渲染前预加载本条消息的资源
+                if (useDataUri) {
+                    for (const res of this.iterResources(message)) {
+                        await this.preloadDataUri(res);
+                    }
+                }
+
                 // render HTML
                 const html = this.renderMessage(message);
 
@@ -533,7 +638,7 @@ export class ModernHtmlExporter {
                 chunkCount++;
 
                 // resource copy
-                if (this.options.includeResourceLinks) {
+                if (this.options.includeResourceLinks && !useDataUri) {
                     for (const res of this.iterResources(message)) {
                         while (running.length >= concurrency) await Promise.race(running);
                         scheduleCopy(() => this.copyResourceFileStream(res, outputDir));
@@ -2042,6 +2147,47 @@ export class ModernHtmlExporter {
      */
     public isSystemMessagePublic(message: CleanMessage): boolean {
         return this.isSystemMessage(message);
+    }
+}
+
+/* ------------------------ 单文件内联辅助 ------------------------ */
+
+/**
+ * 内联进 `<script>` 前的转义：防止 JS 字符串里的 `</script` 提前闭合标签。
+ * 该序列只会出现在 JSON/JS 字符串字面量内，`<\/` 是等价的合法转义。
+ */
+function escapeInlineScript(source: string): string {
+    return source.split('</scr' + 'ipt').join('<\\/scr' + 'ipt');
+}
+
+/** 列出目录下的 `.js` 文件并按文件名排序（chunk id / bucket 编号有序）。 */
+async function sortedJsFiles(dir: string): Promise<string[]> {
+    const entries = await fsp.readdir(dir);
+    return entries
+        .filter(f => f.endsWith('.js'))
+        .sort()
+        .map(f => path.join(dir, f));
+}
+
+/** 把 `src` 目录的内容合并移动到 `dst`（同名文件覆盖，子目录递归）。 */
+async function moveDirMerge(src: string, dst: string): Promise<void> {
+    await fsp.mkdir(dst, { recursive: true });
+    const entries = await fsp.readdir(src, { withFileTypes: true });
+    for (const entry of entries) {
+        const from = path.join(src, entry.name);
+        const to = path.join(dst, entry.name);
+        if (entry.isDirectory()) {
+            await moveDirMerge(from, to);
+            await fsp.rmdir(from).catch(() => undefined);
+        } else {
+            try {
+                await fsp.rename(from, to);
+            } catch {
+                // 跨设备 / 目标被占用等情况回退为复制
+                await fsp.copyFile(from, to);
+                await fsp.rm(from, { force: true }).catch(() => undefined);
+            }
+        }
     }
 }
 

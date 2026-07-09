@@ -1900,7 +1900,7 @@ async fn write_merged_data(
         include_system_messages: true,
         ..HtmlExportOptions::default()
     });
-    let html_result = exporter.export(&clean_messages, &chat_info).await;
+    let html_result = exporter.export_single_inline(&clean_messages, &chat_info).await;
     let final_html = if html_result.is_ok() {
         html_path
     } else {

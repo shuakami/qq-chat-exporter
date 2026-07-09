@@ -337,6 +337,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let copied = modern.export(&messages, &info).await?;
     println!("[MODERN]     {} (copied {} resources)", out_dir.join("chat_modern.html").display(), copied.len());
 
+    // 6.5 Modern HTML（单文件内联 HyperScroll viewer）
+    let mut modern = ModernHtmlExporter::new(HtmlExportOptions {
+        output_path: out_dir.join("chat_modern_inline.html"),
+        ..Default::default()
+    });
+    let copied = modern.export_single_inline(&messages, &info).await?;
+    println!(
+        "[MODERN-INL] {} (copied {} resources)",
+        out_dir.join("chat_modern_inline.html").display(),
+        copied.len()
+    );
+
     // 7. Modern HTML（chunked viewer）
     let mut modern = ModernHtmlExporter::new(HtmlExportOptions {
         output_path: out_dir.join("modern_chunked/index.html"),

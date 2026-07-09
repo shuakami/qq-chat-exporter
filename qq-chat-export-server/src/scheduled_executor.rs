@@ -257,7 +257,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
                         != Some(false),
                 });
                 exporter
-                    .export(&clean_messages, &chat_info)
+                    .export_single_inline(&clean_messages, &chat_info)
                     .await
                     .map_err(|e| e.to_string())?;
             }
