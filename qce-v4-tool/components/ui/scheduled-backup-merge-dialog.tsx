@@ -1,15 +1,16 @@
 "use client"
 
 import { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
+import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Layers, AlertCircle, FolderOpen, FileText, Clock, HardDrive, ChevronDown, ChevronRight, CheckCircle2 } from "lucide-react"
+import { Layers, AlertCircle, FolderOpen, ChevronDown, ChevronRight } from "lucide-react"
 import { Loader } from "@/components/ui/loader"
+
+const SECTION_TITLE = "text-[14px] font-medium text-foreground mb-5"
 
 interface ScheduledBackup {
   fileName: string
@@ -156,35 +157,28 @@ export function ScheduledBackupMergeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         fullScreen
-        overlayClassName="bg-white/60 dark:bg-neutral-950/60 backdrop-blur-xl"
-        className="flex flex-col h-full p-0"
+        overlayClassName="bg-background/80 dark:bg-background/80"
+        className="inset-4 w-auto h-auto rounded-[24px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.14)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col p-0"
       >
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Layers className="w-5 h-5" />
-            合并备份
-          </DialogTitle>
-        </DialogHeader>
+        <DialogTitle className="sr-only">合并备份</DialogTitle>
 
-        <div className="flex-1 flex gap-8 min-h-0 px-6 py-6">
+        <div className="flex-1 flex min-h-0 w-full">
           {/* 左侧 - 备份列表 */}
-          <div className="w-2/5 flex flex-col">
-            <div className="mb-4">
-              <h3 className="text-base font-medium mb-1">选择要合并的备份</h3>
-              <p className="text-sm text-muted-foreground">至少选择 2 个备份文件进行合并；定时备份和手动导出可以混合选择。</p>
-            </div>
+          <div className="w-2/5 max-w-[500px] min-w-[300px] flex-shrink-0 flex flex-col pt-12 pl-12 pr-8 pb-6">
+            <h1 className="text-[20px] font-semibold text-foreground mb-2">合并备份</h1>
+            <p className="text-[13px] text-muted-foreground mb-8 leading-relaxed">至少选择 2 个备份文件进行合并；定时备份和手动导出可以混合选择。</p>
 
             <div className="flex-1 overflow-hidden">
               {scheduledTasks.length === 0 && manualTasks.length === 0 ? (
-                <div className="h-full flex items-center justify-center rounded-2xl border border-dashed border-black/[0.08] dark:border-white/[0.08] bg-muted/50">
+                <div className="h-full flex items-center justify-center rounded-2xl bg-black/[0.03] dark:bg-white/[0.04]">
                   <div className="text-center p-8">
                     <AlertCircle className="w-12 h-12 mx-auto mb-3 text-muted-foreground/60" />
-                    <p className="text-base font-medium text-foreground/80">暂无可合并的备份</p>
-                    <p className="text-sm text-muted-foreground mt-1">先创建定时导出任务，或者多次手动导出同一会话再来合并</p>
+                    <p className="text-[15px] font-medium text-foreground/80">暂无可合并的备份</p>
+                    <p className="text-[13px] text-muted-foreground mt-1">先创建定时导出任务，或者多次手动导出同一会话再来合并</p>
                   </div>
                 </div>
               ) : (
-                <ScrollArea className="h-full rounded-2xl p-2 bg-card/70">
+                <ScrollArea className="h-full rounded-2xl p-2 bg-black/[0.02] dark:bg-white/[0.03]">
                   <div className="space-y-3">
                     {scheduledTasks.length > 0 && (
                       <div className="px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -343,137 +337,57 @@ export function ScheduledBackupMergeDialog({
             </div>
           </div>
 
-          <Separator orientation="vertical" className="h-full" />
-
           {/* 右侧 - 合并选项 */}
-          <div className="w-3/5 flex flex-col">
-            <div className="mb-4">
-              <h3 className="text-base font-medium mb-1">配置合并选项</h3>
-              <p className="text-sm text-muted-foreground">设置如何处理合并后的文件</p>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto pr-1 space-y-6">
-              {/* 去重选项 */}
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-base font-medium">消息处理</Label>
-                  <p className="text-sm text-muted-foreground mt-1">选择如何处理重复的消息</p>
-                </div>
+          <div className="flex-1 min-w-0 overflow-y-auto px-10 xl:px-12 pt-12 pb-8">
+            <div className="w-full max-w-[760px] mx-auto space-y-10">
+              <section>
+                <h2 className={SECTION_TITLE}>合并选项</h2>
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-6 p-3.5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04]">
+                    <div className="flex flex-col gap-0.5 flex-1 pr-4">
+                      <div className="text-[13px] font-medium text-foreground">去除重复消息</div>
+                      <div className="text-[12px] text-muted-foreground leading-snug mt-0.5">自动识别并去除重复的消息内容，保持聊天记录整洁</div>
+                    </div>
+                    <Switch checked={deduplicateMessages} disabled={merging} onCheckedChange={setDeduplicateMessages} />
+                  </div>
 
-                <div
-                  className={[
-                    "relative cursor-pointer rounded-2xl border p-4 transition-all",
-                    deduplicateMessages ? "border-black/[0.08] dark:border-white/[0.08] bg-muted/30" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]",
-                    merging ? "opacity-50 cursor-not-allowed" : ""
-                  ].join(" ")}
-                  onClick={() => !merging && setDeduplicateMessages(!deduplicateMessages)}
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="flex-shrink-0 pt-0.5">
-                      <div className={[
-                        "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
-                        deduplicateMessages 
-                          ? "border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100" 
-                          : "border-black/[0.08] dark:border-white/[0.08] hover:border-black/[0.12] dark:hover:border-white/[0.12]"
-                      ].join(" ")}>
-                        {deduplicateMessages && (
-                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </div>
+                  <div className="flex items-center justify-between gap-6 p-3.5 rounded-2xl bg-red-50/70 dark:bg-red-950/25">
+                    <div className="flex flex-col gap-0.5 flex-1 pr-4">
+                      <div className="text-[13px] font-medium text-red-700 dark:text-red-400">合并后删除源文件</div>
+                      <div className="text-[12px] text-red-600/90 dark:text-red-500/90 leading-snug mt-0.5">合并完成后自动删除原始备份文件，此操作不可撤销，请谨慎选择</div>
                     </div>
-                    <div className="flex-1">
-                      <h4 className="font-medium text-foreground text-sm">去除重复消息</h4>
-                      <p className="text-muted-foreground text-sm mt-1 leading-relaxed">
-                        自动识别并去除重复的消息内容，保持聊天记录整洁
-                      </p>
-                    </div>
+                    <Switch checked={deleteSourceFiles} disabled={merging} onCheckedChange={setDeleteSourceFiles} />
                   </div>
                 </div>
-              </div>
-
-              {/* 删除源文件选项 */}
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-base font-medium text-red-700">危险操作</Label>
-                  <p className="text-sm text-muted-foreground mt-1">请谨慎选择以下选项</p>
-                </div>
-
-                <div
-                  className={[
-                    "relative cursor-pointer rounded-2xl border-2 p-4 transition-all",
-                    deleteSourceFiles ? "border-red-500 bg-red-50/50 dark:bg-red-950/30" : "border-red-200 dark:border-red-800 hover:border-red-300 dark:hover:border-red-700",
-                    merging ? "opacity-50 cursor-not-allowed" : ""
-                  ].join(" ")}
-                  onClick={() => !merging && setDeleteSourceFiles(!deleteSourceFiles)}
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="flex-shrink-0 pt-0.5">
-                      <div className={[
-                        "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
-                        deleteSourceFiles 
-                          ? "border-red-600 bg-red-600" 
-                          : "border-red-300 dark:border-red-700 hover:border-red-400 dark:hover:border-red-600"
-                      ].join(" ")}>
-                        {deleteSourceFiles && (
-                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="font-medium text-red-900 dark:text-red-400 text-sm">合并后删除源文件</h4>
-                      <p className="text-red-700 dark:text-red-500 text-sm mt-1 leading-relaxed">
-                        合并完成后自动删除原始备份文件，此操作不可撤销，请谨慎选择
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              </section>
             </div>
           </div>
         </div>
 
         {/* 底部操作栏 */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-black/[0.06] dark:border-white/[0.06]">
-          <div className="text-sm text-muted-foreground">
+        <div className="h-[72px] flex items-center justify-between px-10 flex-shrink-0">
+          <div className="text-[13px] font-medium text-muted-foreground">
             {merging ? (
-              <span className="text-blue-600">
-                正在合并 {selectedBackups.size} 个备份文件...
-              </span>
+              <span className="text-foreground">正在合并 {selectedBackups.size} 个备份文件...</span>
+            ) : selectedBackups.size >= 2 ? (
+              <span className="text-foreground">已选择 {selectedBackups.size} 个备份文件</span>
             ) : (
-              <span>
-                已选择 <strong className="text-blue-600">{selectedBackups.size}</strong> 个备份文件
-                {selectedBackups.size < 2 && <span className="text-amber-600"> (至少需要 2 个)</span>}
-              </span>
+              <span>请至少选择 2 个备份文件</span>
             )}
           </div>
-          <div className="flex gap-3">
-            <Button 
-              variant="outline" 
-              onClick={() => onOpenChange(false)} 
-              disabled={merging}
-              className="rounded-full"
-            >
+          <div className="flex items-center gap-3">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={merging} className="rounded-full text-[13px] h-8">
               取消
             </Button>
             <Button
               onClick={handleMerge}
               disabled={selectedBackups.size < 2 || merging}
-              className="bg-blue-600 hover:bg-blue-700 rounded-full"
+              className="rounded-full text-[13px] h-8 px-6 bg-[#317CFF] text-white hover:bg-[#2867d6]"
             >
               {merging ? (
-                <>
-                  <Loader size={16} className="mr-2" />
-                  合并中...
-                </>
+                <><Loader size={16} className="mr-2" />合并中...</>
               ) : (
-                <>
-                  <Layers className="w-4 h-4 mr-2" />
-                  开始合并 ({selectedBackups.size})
-                </>
+                <><Layers className="w-4 h-4 mr-2" />开始合并 ({selectedBackups.size})</>
               )}
             </Button>
           </div>

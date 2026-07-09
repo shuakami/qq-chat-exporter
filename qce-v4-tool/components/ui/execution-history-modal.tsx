@@ -1,16 +1,15 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import { useState, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { 
-  CheckCircle,
+import {
   AlertCircle,
-  Clock,
-  X,
   RefreshCw,
   FileText,
   ChevronRight
 } from "lucide-react"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
 import { Loader } from "@/components/ui/loader"
 import type { ScheduledExportHistory } from "@/types/api"
 
@@ -64,59 +63,33 @@ export function ExecutionHistoryModal({
     return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
   }
 
-  if (!isOpen) return null
-
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
-          {/* Backdrop */}
-          <motion.div 
-            className="absolute inset-0 bg-background/80"
-            onClick={onClose}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          />
-          
-          {/* Modal */}
-          <motion.div
-            className="relative w-full max-w-2xl max-h-[85vh] mx-4 bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden flex flex-col"
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ type: "spring", duration: 0.3 }}
-          >
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        fullScreen
+        overlayClassName="bg-background/80 dark:bg-background/80"
+        className="inset-4 w-auto h-auto rounded-[24px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.14)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col p-0"
+      >
+        <DialogTitle className="sr-only">执行历史</DialogTitle>
+
+        <div className="flex-1 flex flex-col min-h-0 w-full max-w-[880px] mx-auto">
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-black/[0.06] dark:border-white/[0.06]">
+            <div className="flex items-center justify-between px-10 pt-12 pb-6 flex-shrink-0">
               <div>
-                <h2 className="text-lg font-semibold text-foreground">执行历史</h2>
-                <p className="text-sm text-muted-foreground mt-0.5">{taskName}</p>
+                <h1 className="text-[20px] font-semibold text-foreground">执行历史</h1>
+                <p className="text-[13px] text-muted-foreground mt-1.5">{taskName}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={loadHistory}
-                  disabled={loading}
-                  className="p-2 rounded-full text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted transition-colors disabled:opacity-50"
-                >
-                  {loading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
-                </button>
-                <button
-                  onClick={onClose}
-                  className="p-2 rounded-full text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+              <button
+                onClick={loadHistory}
+                disabled={loading}
+                className="p-2 rounded-full text-muted-foreground/60 hover:text-muted-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors disabled:opacity-50"
+              >
+                {loading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
+              </button>
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto px-10 pb-4">
               {loading ? (
                 <div className="flex items-center justify-center py-16">
                   <Loader size={24} className="text-muted-foreground/60" />
@@ -226,23 +199,18 @@ export function ExecutionHistoryModal({
               )}
             </div>
 
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-black/[0.06] dark:border-white/[0.06] bg-muted/30">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">
-                  共 {history.length} 条记录
-                </span>
-                <button
-                  onClick={onClose}
-                  className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-full transition-colors"
-                >
-                  关闭
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+        </div>
+
+        {/* Footer */}
+        <div className="h-[72px] flex items-center justify-between px-10 flex-shrink-0">
+          <span className="text-[13px] font-medium text-muted-foreground">
+            共 {history.length} 条记录
+          </span>
+          <Button variant="outline" onClick={onClose} className="rounded-full text-[13px] h-8">
+            关闭
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }

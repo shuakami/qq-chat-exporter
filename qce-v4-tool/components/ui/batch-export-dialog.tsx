@@ -1,19 +1,24 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { DateTimeInputGroup } from "@/components/ui/date-input-group"
-import { FileText, Calendar, Download, CheckCircle2, XCircle, Users, User, Package, FolderOpen } from "lucide-react"
+import { DateRangePicker } from "@/components/ui/date-range-picker"
+import { CheckCircle2, XCircle, Users, User, FolderOpen } from "lucide-react"
 import { Loader } from "@/components/ui/loader"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toggleSkipResourceType, type SkipDownloadResourceType } from "@/lib/skip-resource-types"
+
+const PILL_INPUT =
+  "h-[36px] px-3.5 rounded-full border-0 bg-black/[0.04] dark:bg-white/[0.06] text-[13px] outline-none placeholder:text-muted-foreground/70 focus:bg-black/[0.06] dark:focus:bg-white/[0.09] transition-colors"
+const PILL_TEXTAREA =
+  "px-3.5 py-2.5 rounded-[18px] border-0 bg-black/[0.04] dark:bg-white/[0.06] text-[13px] outline-none placeholder:text-muted-foreground/70 focus:bg-black/[0.06] dark:focus:bg-white/[0.09] transition-colors"
+const SECTION_TITLE = "text-[14px] font-medium text-foreground mb-5"
 
 export interface BatchExportItem {
   type: 'group' | 'friend'
@@ -239,25 +244,19 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         fullScreen
-        overlayClassName="bg-white/60 dark:bg-neutral-950/60 backdrop-blur-xl"
-        className="flex flex-col h-full p-0"
+        overlayClassName="bg-background/80 dark:bg-background/80"
+        className="inset-4 w-auto h-auto rounded-[24px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.14)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col p-0"
       >
-        <DialogHeader className="border-0 px-6 pt-5 pb-0">
-          <DialogTitle className="text-base font-semibold">
-            批量导出聊天记录
-          </DialogTitle>
-        </DialogHeader>
+        <DialogTitle className="sr-only">批量导出聊天记录</DialogTitle>
 
-        <div className="flex-1 flex gap-8 min-h-0 px-6 py-4">
+        <div className="flex-1 flex min-h-0 w-full">
           {/* 左侧 - 选中的会话列表 */}
-          <div className="w-2/5 flex flex-col">
-            <div className="mb-4">
-              <h3 className="text-base font-medium mb-1">选中的会话</h3>
-              <p className="text-sm text-muted-foreground">已选择 {items.length} 个会话进行批量导出</p>
-            </div>
+          <div className="w-2/5 max-w-[500px] min-w-[300px] flex-shrink-0 flex flex-col pt-12 pl-12 pr-8 pb-6">
+            <h1 className="text-[20px] font-semibold text-foreground mb-2">批量导出聊天记录</h1>
+            <p className="text-[13px] text-muted-foreground mb-8 leading-relaxed">已选择 {items.length} 个会话进行批量导出。</p>
             
             <div className="flex-1 overflow-hidden">
-              <ScrollArea className="h-full rounded-2xl p-2 bg-card/70">
+              <ScrollArea className="h-full rounded-2xl p-2 bg-black/[0.02] dark:bg-white/[0.03]">
                 <div className="space-y-1">
                   {items.map((item, idx) => (
                     <div 
@@ -317,123 +316,101 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
             </div>
           </div>
 
-          <Separator orientation="vertical" className="h-full" />
-
           {/* 右侧 - 配置选项 */}
-          <div className="w-3/5 flex flex-col">
-            <div className="mb-4">
-              <h3 className="text-base font-medium mb-1">配置导出选项</h3>
-              <p className="text-sm text-muted-foreground">设置导出格式、时间范围和其他选项</p>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto pr-1 space-y-6">
+          <div className="flex-1 min-w-0 overflow-y-auto px-10 xl:px-12 pt-12 pb-8">
+            <div className="w-full max-w-[760px] mx-auto space-y-10">
               {/* 导出格式 */}
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-base font-medium">导出格式</Label>
-                  <p className="text-sm text-muted-foreground mt-1">选择最适合您需求的格式</p>
-                </div>
-                <div className="space-y-3">
-                  {(["JSON", "HTML", "TXT", "EXCEL"] as const).map((fmt) => {
-                    const desc = fmt === "JSON" ? "结构化数据，保留完整信息" : fmt === "HTML" ? "网页格式，适合直接查看与打印" : fmt === "EXCEL" ? "Excel格式，便于数据分析" : "纯文本，兼容性最好"
-                    const chip = fmt === "JSON" ? "结构化" : fmt === "HTML" ? "推荐" : fmt === "EXCEL" ? "数据分析" : "兼容"
-                    const chipClass = fmt === "JSON" ? "bg-muted text-muted-foreground" : fmt === "HTML" ? "bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400" : fmt === "EXCEL" ? "bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400" : "bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-400"
+              <section>
+                <h2 className={SECTION_TITLE}>导出格式</h2>
+                <div className="inline-flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] w-fit">
+                  {(["HTML", "JSON", "TXT", "EXCEL"] as const).map((fmt) => {
                     const active = format === fmt
                     return (
-                      <div key={fmt} className={["relative cursor-pointer rounded-2xl border-2 p-4 transition-all", active ? "border-blue-500 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-900/30 shadow-sm" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]", isExporting ? "opacity-50 cursor-not-allowed" : ""].join(" ")} onClick={() => !isExporting && setFormat(fmt)}>
-                        <div className="flex items-start gap-3">
-                          <div className={active ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}><FileText className="w-5 h-5" /></div>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-medium text-foreground">{fmt}</h3>
-                              <span className={`text-xs px-2 py-0.5 rounded ${chipClass}`}>{chip}</span>
-                            </div>
-                            <p className="text-sm text-muted-foreground mt-1">{desc}</p>
-                          </div>
-                          {active && <div className="w-2 h-2 bg-blue-600 dark:bg-blue-500 rounded-full" />}
-                        </div>
-                      </div>
+                      <button
+                        key={fmt}
+                        type="button"
+                        disabled={isExporting}
+                        className={[
+                          "px-5 h-[30px] text-[13px] font-medium rounded-full transition-all",
+                          active
+                            ? "bg-white dark:bg-white/10 text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+                            : "text-muted-foreground hover:text-foreground"
+                        ].join(" ")}
+                        onClick={() => !isExporting && setFormat(fmt)}
+                      >
+                        {fmt}
+                      </button>
                     )
                   })}
                 </div>
-              </div>
-
+              </section>
 
               {/* 时间范围 */}
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-base font-medium">时间范围（可选）</Label>
-                  <p className="text-sm text-muted-foreground mt-1">选择要导出的时间范围</p>
-                </div>
-                <div className="space-y-3">
-                  {[
-                    { value: 'all', label: '全部消息', desc: '导出所有历史聊天记录' },
-                    { value: 'recent', label: '最近 3 个月', desc: '仅导出最近 3 个月的聊天记录' },
-                    { value: 'custom', label: '自定义时间范围', desc: '手动指定开始和结束时间' }
-                  ].map((option) => {
-                    const active = timeRange === option.value
-                    return (
-                      <div key={option.value} className={["relative cursor-pointer rounded-2xl border-2 p-4 transition-all", active ? "border-blue-500 dark:border-blue-600 bg-blue-50/50 dark:bg-blue-900/30 shadow-sm" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]", isExporting ? "opacity-50 cursor-not-allowed" : ""].join(" ")} onClick={() => !isExporting && setTimeRange(option.value as 'all' | 'recent' | 'custom')}>
-                        <div className="flex items-start gap-3">
-                          <div className={active ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}><Calendar className="w-5 h-5" /></div>
-                          <div className="flex-1">
-                            <h3 className="font-medium text-foreground">{option.label}</h3>
-                            <p className="text-sm text-muted-foreground mt-1">{option.desc}</p>
-                          </div>
-                          {active && <div className="w-2 h-2 bg-blue-600 dark:bg-blue-500 rounded-full" />}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-                {timeRange === 'custom' && (
-                  <div className="grid grid-cols-2 gap-4 mt-4">
-                    <div className="space-y-2">
-                      <Label>开始时间</Label>
-                      <DateTimeInputGroup value={customStartDate} onChange={setCustomStartDate} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>结束时间</Label>
-                      <DateTimeInputGroup value={customEndDate} onChange={setCustomEndDate} />
-                    </div>
-                    {dateError && <div className="col-span-2 text-sm text-red-600 dark:text-red-400">{dateError}</div>}
+              <section>
+                <h2 className={SECTION_TITLE}>时间范围</h2>
+                <div className="space-y-4">
+                  <div className="inline-flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] w-fit">
+                    {[
+                      { value: 'all', label: '全部消息' },
+                      { value: 'recent', label: '最近 3 个月' },
+                      { value: 'custom', label: '自定义' }
+                    ].map((option) => {
+                      const active = timeRange === option.value
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          disabled={isExporting}
+                          className={[
+                            "px-5 h-[30px] text-[13px] font-medium rounded-full transition-all",
+                            active
+                              ? "bg-white dark:bg-white/10 text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+                              : "text-muted-foreground hover:text-foreground"
+                          ].join(" ")}
+                          onClick={() => !isExporting && setTimeRange(option.value as 'all' | 'recent' | 'custom')}
+                        >
+                          {option.label}
+                        </button>
+                      )
+                    })}
                   </div>
-                )}
-              </div>
-
+                  {timeRange === 'custom' && (
+                    <div className="space-y-2">
+                      <DateRangePicker
+                        startTime={customStartDate}
+                        endTime={customEndDate}
+                        onChange={(start, end) => { setCustomStartDate(start); setCustomEndDate(end) }}
+                      />
+                      {dateError && <div className="text-[13px] text-red-600 dark:text-red-400">{dateError}</div>}
+                    </div>
+                  )}
+                </div>
+              </section>
 
               {/* 高级选项 */}
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-base font-medium">高级选项</Label>
-                  <p className="text-sm text-muted-foreground mt-1">自定义导出内容的详细设置</p>
-                </div>
-
-                {/* 自定义导出路径 */}
-                <div className="space-y-2">
-                  <Label htmlFor="batch-output-dir" className="text-sm">导出路径（可选）</Label>
-                  <div className="flex gap-2">
-                    <Input id="batch-output-dir" placeholder="留空使用默认路径，或输入自定义路径如 D:\exports" value={outputDir} onChange={(e) => setOutputDir(e.target.value)} disabled={isExporting} className="rounded-xl text-sm flex-1" />
-                    <Button variant="outline" size="icon" disabled={isExporting} className="rounded-xl shrink-0" title="选择文件夹"><FolderOpen className="w-4 h-4" /></Button>
+              <section>
+                <h2 className={SECTION_TITLE}>高级选项</h2>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[13px] font-medium text-foreground/80">导出路径</label>
+                    <div className="flex gap-2">
+                      <Input placeholder="留空使用默认路径，或输入自定义路径如 D:\exports" value={outputDir} onChange={(e) => setOutputDir(e.target.value)} disabled={isExporting} className={PILL_INPUT + " flex-1"} />
+                      <Button variant="outline" size="icon" disabled={isExporting} className="rounded-full shrink-0" title="选择文件夹"><FolderOpen className="w-4 h-4" /></Button>
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">默认保存到用户目录下的 .qq-chat-exporter/exports 文件夹</p>
-                </div>
 
-                {/* 关键词过滤 */}
-                <div className="space-y-2">
-                  <Label htmlFor="batch-keywords" className="text-sm">关键词过滤（可选）</Label>
-                  <Textarea id="batch-keywords" placeholder="用逗号分隔多个关键词，如：重要,会议,通知" value={keywords} onChange={(e) => setKeywords(e.target.value)} disabled={isExporting} rows={2} className="rounded-xl" />
-                </div>
+                  <div className="space-y-2">
+                    <label className="text-[13px] font-medium text-foreground/80">关键词过滤</label>
+                    <Textarea placeholder="用逗号分隔多个关键词，如：重要,会议,通知" value={keywords} onChange={(e) => setKeywords(e.target.value)} disabled={isExporting} rows={2} className={PILL_TEXTAREA + " w-full"} />
+                  </div>
 
-                {/* 排除用户 */}
-                <div className="space-y-2">
-                  <Label htmlFor="batch-exclude-users" className="text-sm">排除用户（可选）</Label>
-                  <Textarea id="batch-exclude-users" placeholder="用逗号分隔多个QQ号，如：123456789,987654321" value={excludeUserUins} onChange={(e) => setExcludeUserUins(e.target.value)} disabled={isExporting} rows={2} className="rounded-xl" />
-                </div>
+                  <div className="space-y-2">
+                    <label className="text-[13px] font-medium text-foreground/80">排除用户</label>
+                    <Textarea placeholder="用逗号分隔多个QQ号，如：123456789,987654321" value={excludeUserUins} onChange={(e) => setExcludeUserUins(e.target.value)} disabled={isExporting} rows={2} className={PILL_TEXTAREA + " w-full"} />
+                  </div>
 
-
-                {/* 复选框选项 */}
-                <div className="space-y-3">
+                {/* 开关选项 */}
+                <div className="space-y-2.5">
                   {[
                     { id: "streamingZipMode", checked: streamingZipMode, set: setStreamingZipMode, title: "流式导出（超大消息量专用）", desc: format === "HTML" ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式。" : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式。", visible: format === "HTML" || format === "JSON", highlight: true },
                     { id: "includeSystemMessages", checked: includeSystemMessages, set: setIncludeSystemMessages, title: "包含系统消息", desc: "包含入群通知、撤回提示等系统提示消息", visible: true, highlight: false },
@@ -469,67 +446,61 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                     // Issue #311: 自包含 HTML
                     { id: "embedResourcesAsDataUri", checked: embedResourcesAsDataUri, set: setEmbedResourcesAsDataUri, title: "生成自包含 HTML", desc: "将图片、语音、视频、小于 50 MB 的文件以 base64 内联到单个 HTML中，不再产出 resources 目录。适合需要单独发送的场景。", visible: format === "HTML" && !exportAsZip && !streamingZipMode, highlight: false }
                   ].filter((opt) => opt.visible).map((opt) => (
-                    <div key={opt.id} className={["relative cursor-pointer rounded-2xl border p-4 transition-all", opt.highlight && opt.checked ? "border-orange-400 dark:border-orange-600 bg-orange-50/50 dark:bg-orange-950/30 ring-1 ring-orange-200 dark:ring-orange-800" : opt.highlight ? "border-orange-200 dark:border-orange-800 bg-orange-50/30 dark:bg-orange-950/20 hover:border-orange-300 dark:hover:border-orange-700" : opt.checked ? "border-black/[0.08] dark:border-white/[0.08] bg-muted/30" : "border-black/[0.06] dark:border-white/[0.06] hover:border-black/[0.08] dark:hover:border-white/[0.08]", isExporting ? "opacity-50 cursor-not-allowed" : ""].join(" ")} onClick={() => !isExporting && opt.set(!opt.checked)}>
-                      <div className="flex items-start gap-4">
-                        <div className="flex-shrink-0 pt-0.5">
-                          <div className={["w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all", opt.checked ? (opt.highlight ? "border-orange-500 bg-orange-500" : "border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100") : (opt.highlight ? "border-orange-300 dark:border-orange-600" : "border-black/[0.08] dark:border-white/[0.08]")].join(" ")}>
-                            {opt.checked && <svg className={`w-3 h-3 ${opt.highlight ? 'text-white' : 'text-white dark:text-neutral-900'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>}
-                          </div>
-                        </div>
-                        <div className="flex-1">
-                          <h4 className={`font-medium text-sm ${opt.highlight ? 'text-orange-700 dark:text-orange-400' : 'text-foreground'}`}>{opt.title}</h4>
-                          <p className={`text-sm mt-1 leading-relaxed ${opt.highlight ? 'text-orange-600 dark:text-orange-500' : 'text-muted-foreground'}`}>{opt.desc}</p>
-                        </div>
+                    <div
+                      key={opt.id}
+                      className={["flex items-center justify-between gap-6 group p-3.5 rounded-2xl transition-colors", opt.highlight ? "bg-orange-50/60 dark:bg-orange-950/25 hover:bg-orange-50 dark:hover:bg-orange-950/40" : "bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.05] dark:hover:bg-white/[0.06]", isExporting ? "opacity-50" : ""].join(" ")}
+                    >
+                      <div className="flex flex-col gap-0.5 flex-1 pr-4">
+                        <div className={`text-[13px] font-medium ${opt.highlight ? 'text-orange-700 dark:text-orange-400' : 'text-foreground'}`}>{opt.title}</div>
+                        <div className={`text-[12px] leading-snug mt-0.5 ${opt.highlight ? 'text-orange-600/90 dark:text-orange-500/90' : 'text-muted-foreground'}`}>{opt.desc}</div>
+                      </div>
+                      <div className="flex-shrink-0">
+                        <Switch checked={opt.checked} disabled={isExporting} onCheckedChange={(v) => opt.set(v)} />
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
-
+                </div>
+              </section>
 
               {/* 导出进度 */}
               {progress.status === 'running' && (
-                <div className="space-y-4 p-6 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/50 dark:to-indigo-950/50 border border-blue-200 dark:border-blue-800">
+                <div className="space-y-4 p-5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04]">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
-                        <Loader size={16} className="text-blue-600 dark:text-blue-400" />
-                      </div>
+                      <Loader size={16} className="text-[#317CFF]" />
                       <div>
-                        <h4 className="font-medium text-blue-900 dark:text-blue-100">正在导出</h4>
-                        <p className="text-sm text-blue-700 dark:text-blue-300">{progress.current + 1} / {progress.total} 个会话</p>
+                        <h4 className="text-[13px] font-medium text-foreground">正在导出</h4>
+                        <p className="text-[12px] text-muted-foreground">{progress.current + 1} / {progress.total} 个会话</p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-blue-900 dark:text-blue-100">{progress.total > 0 ? Math.round(((progress.current + 1) / progress.total) * 100) : 0}%</div>
-                    </div>
+                    <div className="text-[15px] font-semibold text-foreground tabular-nums">{progress.total > 0 ? Math.round(((progress.current + 1) / progress.total) * 100) : 0}%</div>
                   </div>
-                  <Progress value={progress.total > 0 ? ((progress.current + 1) / progress.total) * 100 : 0} className="h-3" />
-                  <div className="text-sm text-blue-700 dark:text-blue-300"><span className="font-medium">当前:</span> {progress.currentItem}</div>
+                  <Progress value={progress.total > 0 ? ((progress.current + 1) / progress.total) * 100 : 0} className="h-2" />
+                  <div className="text-[12px] text-muted-foreground truncate"><span className="font-medium">当前：</span>{progress.currentItem}</div>
                 </div>
               )}
             </div>
           </div>
         </div>
 
-
         {/* 底部操作栏 */}
-        <div className="flex items-center justify-between px-6 py-4">
-          <div className="text-sm text-muted-foreground">
+        <div className="h-[72px] flex items-center justify-between px-10 flex-shrink-0">
+          <div className="text-[13px] font-medium text-muted-foreground">
             {progress.status === 'running' ? (
-              <span className="text-blue-600 dark:text-blue-400">正在导出 {progress.current + 1}/{progress.total} 个会话...</span>
+              <span className="text-foreground">正在导出 {progress.current + 1}/{progress.total} 个会话...</span>
             ) : progress.status === 'completed' ? (
-              <span className="text-green-600 dark:text-green-400">导出完成</span>
+              <span className="text-foreground">导出完成</span>
             ) : (
-              <span className="text-green-600 dark:text-green-400">准备就绪，将导出 {items.length} 个会话</span>
+              <span className="text-foreground">配置就绪，将导出 {items.length} 个会话</span>
             )}
           </div>
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={handleClose} disabled={isExporting} className="rounded-full text-[13px]">
+          <div className="flex items-center gap-3">
+            <Button variant="outline" onClick={handleClose} disabled={isExporting} className="rounded-full text-[13px] h-8">
               {isExporting ? '导出中...' : progress.status === 'completed' ? '关闭' : '取消'}
             </Button>
             {progress.status !== 'completed' && (
-              <Button onClick={handleExport} disabled={isExporting || (timeRange === 'custom' && (!customStartDate || !customEndDate || !!dateError))} className="rounded-full text-[13px] bg-[#171717] text-white hover:bg-[#171717]/90 dark:bg-white dark:text-[#171717] dark:hover:bg-white/90">
+              <Button onClick={handleExport} disabled={isExporting || (timeRange === 'custom' && (!customStartDate || !customEndDate || !!dateError))} className="rounded-full text-[13px] h-8 px-6 bg-[#317CFF] text-white hover:bg-[#2867d6]">
                 {isExporting ? '导出中...' : '开始批量导出'}
               </Button>
             )}
