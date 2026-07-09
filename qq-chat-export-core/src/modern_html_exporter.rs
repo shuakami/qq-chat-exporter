@@ -587,17 +587,22 @@ impl ModernHtmlExporter {
             let sender_name = get_display_name(message);
             let sender_name_lower = sender_name.to_lowercase();
             if !sender_uid.is_empty() {
+                let sender_uin = message.sender.uin.clone().filter(|s| !s.is_empty());
                 let info = senders_by_uid
                     .entry(sender_uid.clone())
                     .or_insert_with(|| SenderInfo {
                         names: indexmap::IndexSet::new(),
                         display_name: sender_name.clone(),
                         count: 0,
+                        uin: None,
                     });
                 info.names.insert(sender_name.clone());
                 info.count += 1;
                 if info.display_name.is_empty() {
                     info.display_name = sender_name.clone();
+                }
+                if info.uin.is_none() {
+                    info.uin = sender_uin;
                 }
             }
 
@@ -728,11 +733,17 @@ impl ModernHtmlExporter {
         let senders: Vec<Value> = senders_by_uid
             .iter()
             .map(|(uid, info)| {
+                let avatar = info
+                    .uin
+                    .as_deref()
+                    .filter(|u| !u.is_empty())
+                    .map(|u| format!("https://q.qlogo.cn/g?b=qq&nk={u}&s=100"));
                 json!({
                     "uid": uid,
                     "displayName": if info.display_name.is_empty() { uid.clone() } else { info.display_name.clone() },
                     "aliases": info.names.iter().collect::<Vec<_>>(),
                     "count": info.count,
+                    "avatar": avatar,
                 })
             })
             .collect();
@@ -1180,30 +1191,33 @@ impl ModernHtmlExporter {
     }
 
     fn render_audio_element(&self, data: &Value) -> String {
-        let duration = num_field_display(data, "duration");
+        let duration_raw = num_field_display(data, "duration");
+        let duration = duration_raw.parse::<f64>().unwrap_or(0.0).round() as i64;
         let filename = str_field(data, "filename").unwrap_or_else(|| "语音".to_owned());
         let src = self.pick_resource_src(data, "audios");
 
         if !src.is_empty() {
-            // AMR 格式浏览器可能不支持，同时提供下载链接。
-            // Issue #311: 内联模式下 src 为 data URI，需从文件名而非 src 判断是否为 AMR。
-            let is_amr = if src.starts_with("data:") {
-                filename.to_lowercase().ends_with(".amr")
+            // 波形条：根据时长伪随机生成一组高度，纯装饰。
+            let bars: String = (0..18)
+                .map(|i| {
+                    let h = 30 + ((i * 37 + duration as usize * 13) % 60);
+                    format!("<i style=\"height:{h}%\"></i>")
+                })
+                .collect();
+            let dur_label = if duration > 0 {
+                format!("{duration}\"")
             } else {
-                src.to_lowercase().ends_with(".amr")
+                "语音".to_owned()
             };
-            let audio_tag = format!(
-                "<audio src=\"{src}\" controls class=\"message-audio\" preload=\"metadata\">[语音:{duration}秒]</audio>"
+            return format!(
+                "<div class=\"voice-bubble\" data-src=\"{src}\" data-name=\"{fname}\" role=\"button\" tabindex=\"0\">\
+                    <span class=\"vplay\"></span>\
+                    <span class=\"vbars\">{bars}</span>\
+                    <span class=\"vsec\">{dur_label}</span>\
+                    <span class=\"vdl\" title=\"下载语音\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" y1=\"15\" x2=\"12\" y2=\"3\"/></svg></span>\
+                </div>",
+                fname = escape_html(&filename)
             );
-            let download_link = if is_amr {
-                format!(
-                    "<a href=\"{src}\" download=\"{}\" class=\"audio-download-link\" title=\"浏览器可能不支持AMR格式，点击下载\">下载语音</a>",
-                    escape_html(&filename)
-                )
-            } else {
-                String::new()
-            };
-            return format!("<div class=\"audio-wrapper\">{audio_tag}{download_link}</div>");
         }
         format!("<span class=\"text-content\">🎤 [语音:{duration}秒]</span>")
     }
@@ -1212,9 +1226,14 @@ impl ModernHtmlExporter {
         let filename = str_field(data, "filename").unwrap_or_else(|| "视频".to_owned());
         let src = self.pick_resource_src(data, "videos");
         if !src.is_empty() {
+            // video-bubble：首帧当缩略图（#t=0.1），播放角标 + 文件名，点击进预览层。
             return format!(
-                "<video src=\"{src}\" controls class=\"message-video\" preload=\"metadata\">[视频: {}]</video>",
-                escape_html(&filename)
+                "<div class=\"video-bubble\" data-src=\"{src}\" data-name=\"{fname}\" role=\"button\" tabindex=\"0\">\
+                    <video class=\"img\" src=\"{src}#t=0.1\" preload=\"metadata\" muted playsinline></video>\
+                    <span class=\"vbadge\"><span class=\"vtri\"></span>视频</span>\
+                    <span class=\"vname\">{fname}</span>\
+                </div>",
+                fname = escape_html(&filename)
             );
         }
         format!(
@@ -1226,10 +1245,29 @@ impl ModernHtmlExporter {
     fn render_file_element(&self, data: &Value) -> String {
         let filename = str_field(data, "filename").unwrap_or_else(|| "文件".to_owned());
         let href = self.pick_resource_src(data, "files");
+        let size_bytes = data
+            .get("fileSize")
+            .or_else(|| data.get("size"))
+            .and_then(|v| match v {
+                Value::Number(n) => n.as_u64(),
+                Value::String(s) => s.parse::<u64>().ok(),
+                _ => None,
+            })
+            .unwrap_or(0);
+        let size_label = format_file_size(size_bytes);
+        let icon = file_icon_svg(&filename);
         if !href.is_empty() {
             return format!(
-                "<a href=\"{href}\" class=\"message-file\" download=\"{fname}\">📎 {fname}</a>",
-                fname = escape_html(&filename)
+                "<a href=\"{href}\" class=\"message-file file-bubble\" download=\"{fname}\">\
+                    <span class=\"ficon\">{icon}</span>\
+                    <span class=\"fmeta\"><span class=\"fname\">{fname}</span>{size_html}</span>\
+                </a>",
+                fname = escape_html(&filename),
+                size_html = if size_label.is_empty() {
+                    String::new()
+                } else {
+                    format!("<span class=\"fsize\">{size_label}</span>")
+                }
             );
         }
         format!(
@@ -1362,6 +1400,8 @@ struct SenderInfo {
     names: indexmap::IndexSet<String>,
     display_name: String,
     count: u64,
+    /// QQ 号（用于拼真实头像 URL）。
+    uin: Option<String>,
 }
 
 /// 目录名集合（chunked 模式）。
@@ -1862,11 +1902,56 @@ fn render_market_face_element(data: &Value) -> String {
     let url = str_field(data, "url").unwrap_or_default();
     if !url.is_empty() {
         return format!(
-            "<img src=\"{url}\" alt=\"{n}\" class=\"market-face\" title=\"{n}\">",
+            "<span class=\"sticker-wrap\"><img src=\"{url}\" alt=\"{n}\" class=\"sticker sticker-img market-face\" title=\"{n}\" loading=\"lazy\"></span>",
             n = escape_html(&name)
         );
     }
     format!("<span class=\"text-content\">[{}]</span>", escape_html(&name))
+}
+
+/// 人类可读文件大小（B/KB/MB/GB）。0 时返回空串。
+fn format_file_size(bytes: u64) -> String {
+    if bytes == 0 {
+        return String::new();
+    }
+    let b = bytes as f64;
+    if b < 1024.0 {
+        format!("{bytes} B")
+    } else if b < 1024.0 * 1024.0 {
+        format!("{:.1} KB", b / 1024.0)
+    } else if b < 1024.0 * 1024.0 * 1024.0 {
+        format!("{:.1} MB", b / (1024.0 * 1024.0))
+    } else {
+        format!("{:.2} GB", b / (1024.0 * 1024.0 * 1024.0))
+    }
+}
+
+/// 按扩展名返回一个无色线性 SVG 图标（对齐 demo 的文件类型不同图标）。
+fn file_icon_svg(filename: &str) -> &'static str {
+    let ext = filename
+        .rsplit('.')
+        .next()
+        .map(str::to_lowercase)
+        .unwrap_or_default();
+    const ARCHIVE: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M12 3v18M9 6h1M9 9h1M9 12h1\"/></svg>";
+    const SHEET: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><path d=\"M3 9h18M3 15h18M9 3v18M15 3v18\"/></svg>";
+    const CODE: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"16 18 22 12 16 6\"/><polyline points=\"8 6 2 12 8 18\"/></svg>";
+    const DOC: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/><line x1=\"8\" y1=\"13\" x2=\"16\" y2=\"13\"/><line x1=\"8\" y1=\"17\" x2=\"16\" y2=\"17\"/></svg>";
+    const IMG: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><circle cx=\"9\" cy=\"9\" r=\"2\"/><path d=\"m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21\"/></svg>";
+    const AUDIO: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 18V5l12-2v13\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><circle cx=\"18\" cy=\"16\" r=\"3\"/></svg>";
+    const VIDEO: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m22 8-6 4 6 4V8Z\"/><rect x=\"2\" y=\"6\" width=\"14\" height=\"12\" rx=\"2\"/></svg>";
+    const GENERIC: &str = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/></svg>";
+    match ext.as_str() {
+        "zip" | "rar" | "7z" | "gz" | "tar" | "bz2" | "xz" => ARCHIVE,
+        "xls" | "xlsx" | "csv" | "numbers" => SHEET,
+        "js" | "ts" | "tsx" | "jsx" | "json" | "html" | "css" | "py" | "rs" | "go" | "java"
+        | "c" | "cpp" | "h" | "sh" | "xml" | "yml" | "yaml" => CODE,
+        "doc" | "docx" | "pdf" | "txt" | "md" | "ppt" | "pptx" | "rtf" => DOC,
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "heic" => IMG,
+        "mp3" | "wav" | "flac" | "aac" | "ogg" | "amr" | "m4a" => AUDIO,
+        "mp4" | "mov" | "avi" | "mkv" | "flv" | "wmv" | "webm" => VIDEO,
+        _ => GENERIC,
+    }
 }
 
 fn render_json_element(data: &Value) -> String {

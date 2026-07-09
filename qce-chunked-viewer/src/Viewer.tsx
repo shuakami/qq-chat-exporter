@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/select';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { Loader } from '@/components/ui/loader';
-import { MediaPreview, type MediaItem } from '@/components/ui/media-preview';
+import { MediaPreview, downloadUrl, type MediaItem } from '@/components/ui/media-preview';
 import { ChunkStore, loadManifest, type QceManifest } from './qce/chunk-store';
 
 const QCE_REPO = 'https://github.com/shuakami/qq-chat-exporter';
@@ -129,12 +129,43 @@ function rowHtml(i: number, inner: string): string {
   return `<div class="hs-item" data-i="${i}">${inner}</div>`;
 }
 
+/**
+ * Estimates a row's rendered height from its content so the virtual scroller
+ * places offscreen rows close to their real size — this is what keeps big
+ * jumps from thrashing. Undefined (not-yet-loaded) rows fall back to a
+ * neutral guess matching the skeleton.
+ */
+function estimateRowHeight(rec: { html: string; text?: string } | null | undefined): number {
+  if (!rec) return 96;
+  const h = rec.html;
+  if (h.includes('image-content') || h.includes('video-bubble')) return 300;
+  if (h.includes('sticker-wrap')) return 176;
+  if (h.includes('message-file')) return 92;
+  if (h.includes('voice-bubble')) return 88;
+  const len = (rec.text ?? '').length;
+  const lines = Math.max(1, Math.ceil(len / 34));
+  return 64 + Math.min(lines - 1, 12) * 22;
+}
+
 const AVATAR_HUES = [14, 44, 96, 152, 200, 232, 262, 312, 348];
 
-function SenderDot({ name }: { name: string }): React.ReactElement {
+function SenderDot({ name, avatar }: { name: string; avatar?: string }): React.ReactElement {
+  const [failed, setFailed] = useState(false);
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   const hue = AVATAR_HUES[h % AVATAR_HUES.length];
+  if (avatar && !failed) {
+    return (
+      <img
+        src={avatar}
+        alt=""
+        aria-hidden
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className="size-4 shrink-0 rounded-full object-cover"
+      />
+    );
+  }
   return (
     <span
       aria-hidden
@@ -189,6 +220,11 @@ export default function Viewer(): React.ReactElement {
   const filterSourceRef = useRef<FilteredDataSource | null>(null);
   const searchRef = useRef<SearchState | null>(null);
   const filterRunRef = useRef(0);
+  const voiceAudioRef = useRef<HTMLAudioElement>(
+    typeof Audio !== 'undefined' ? new Audio() : ({} as HTMLAudioElement),
+  );
+  const playingVoiceRef = useRef<HTMLElement | null>(null);
+  const playingSrcRef = useRef('');
 
   const [manifest, setManifest] = useState<QceManifest | null>(null);
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
@@ -246,6 +282,58 @@ export default function Viewer(): React.ReactElement {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Rich-media clicks inside the exported message HTML: voice playback,
+  // video preview, and voice download. Delegated from the viewport container.
+  function onViewportClick(e: React.MouseEvent): void {
+    const target = e.target as HTMLElement;
+
+    const voice = target.closest('.voice-bubble');
+    if (voice instanceof HTMLElement) {
+      const src = voice.getAttribute('data-src') ?? '';
+      if (target.closest('.vdl')) {
+        e.preventDefault();
+        if (src) void downloadUrl(src, voice.getAttribute('data-name') || 'voice');
+        return;
+      }
+      toggleVoice(voice, src);
+      return;
+    }
+
+    const video = target.closest('.video-bubble');
+    if (video instanceof HTMLElement) {
+      const src = video.getAttribute('data-src') ?? '';
+      if (src) setPreview({ type: 'video', src, name: video.getAttribute('data-name') || '视频' });
+      return;
+    }
+  }
+
+  function toggleVoice(el: HTMLElement, src: string): void {
+    if (!src) return;
+    const audio = voiceAudioRef.current;
+    const prev = playingVoiceRef.current;
+    if (prev && prev !== el) prev.classList.remove('playing');
+    if (playingSrcRef.current === src && !audio.paused) {
+      audio.pause();
+      el.classList.remove('playing');
+      playingVoiceRef.current = null;
+      return;
+    }
+    if (playingSrcRef.current !== src) {
+      audio.src = src;
+      playingSrcRef.current = src;
+    }
+    audio.onended = () => {
+      el.classList.remove('playing');
+      playingVoiceRef.current = null;
+    };
+    void audio.play().then(() => {
+      el.classList.add('playing');
+      playingVoiceRef.current = el;
+    }).catch(() => {
+      el.classList.remove('playing');
+    });
+  }
 
   async function jumpToMessageId(msgId: string): Promise<void> {
     const store = storeRef.current;
@@ -366,7 +454,7 @@ export default function Viewer(): React.ReactElement {
         const rec = store.get(i);
         return rec ? rowHtml(i, rec.html) : skeletonHtml(i);
       },
-      estimateHeight: () => 110,
+      estimateHeight: (i) => estimateRowHeight(store.get(i)),
     };
   }
 
@@ -529,7 +617,8 @@ export default function Viewer(): React.ReactElement {
 
   const chat = manifest?.chat;
   const stats = manifest?.stats;
-  const senderName = manifest?.senders.find((s) => s.uid === filters.sender)?.displayName;
+  const senderEntry = manifest?.senders.find((s) => s.uid === filters.sender);
+  const senderName = senderEntry?.displayName;
 
   return (
     <div className="relative flex h-dvh bg-background text-foreground">
@@ -651,7 +740,7 @@ export default function Viewer(): React.ReactElement {
                   <SelectValue>
                     {senderName ? (
                       <span className="flex items-center gap-2">
-                        <SenderDot name={senderName} />
+                        <SenderDot name={senderName} avatar={senderEntry?.avatar ?? undefined} />
                         {senderName}
                       </span>
                     ) : (
@@ -664,7 +753,7 @@ export default function Viewer(): React.ReactElement {
                   {manifest.senders.map((sd) => (
                     <SelectItem key={sd.uid} value={sd.uid}>
                       <span className="flex items-center gap-2">
-                        <SenderDot name={sd.displayName} />
+                        <SenderDot name={sd.displayName} avatar={sd.avatar ?? undefined} />
                         <span className="max-w-40 truncate">{sd.displayName}</span>
                       </span>
                     </SelectItem>
@@ -787,7 +876,7 @@ export default function Viewer(): React.ReactElement {
 
         <div className="relative min-h-0 flex-1">
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-background to-transparent" />
-          <div id="viewport" ref={viewportRef} className="qce-viewport h-full" />
+          <div id="viewport" ref={viewportRef} className="qce-viewport h-full" onClick={onViewportClick} />
         </div>
       </div>
 

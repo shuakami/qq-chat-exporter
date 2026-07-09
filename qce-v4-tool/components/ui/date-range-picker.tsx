@@ -167,7 +167,7 @@ export function DateRangePicker({ startTime, endTime, onChange, className }: Dat
               </Button>
               <Button
                 variant="outline"
-                className="w-full justify-center h-8 text-[13px] font-normal shadow-sm group"
+                className="w-full justify-center h-8 text-[13px] font-normal group bg-white dark:bg-neutral-900 border border-black/[0.08] dark:border-white/[0.1] hover:bg-neutral-50 dark:hover:bg-neutral-800 shadow-sm"
                 onClick={() => setIsOpen(false)}
               >
                 应用

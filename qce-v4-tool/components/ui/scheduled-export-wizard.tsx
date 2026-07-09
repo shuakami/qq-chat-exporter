@@ -704,7 +704,7 @@ export function ScheduledExportWizard({
                 <div className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-[13px] font-medium text-foreground/80">导出格式</label>
-                  <div className="inline-flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] w-fit">
+                  <div className="flex items-center flex-wrap gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] w-fit max-w-full">
                   {(["HTML", "JSON", "TXT", "EXCEL"] as const).map((fmt) => {
                     const active = baseForm.format === fmt
                     return (
@@ -799,7 +799,7 @@ export function ScheduledExportWizard({
                 <h2 className={SECTION_TITLE}>高级选项</h2>
                 <div className="space-y-2.5">
                   <h3 className="text-[12px] font-medium text-muted-foreground pl-1">导出内容</h3>
-                  <div className="bg-black/[0.02] dark:bg-white/[0.03] rounded-2xl border border-black/[0.05] dark:border-white/[0.08] overflow-hidden divide-y divide-black/[0.05] dark:divide-white/[0.08]">
+                  <div className="bg-neutral-50/50 dark:bg-white/[0.03] rounded-2xl border border-neutral-100/80 dark:border-white/[0.06] overflow-hidden divide-y divide-neutral-100/80 dark:divide-white/[0.06]">
                   {[
                     {
                       id: "includeResourceLinks",
