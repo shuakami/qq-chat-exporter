@@ -798,6 +798,8 @@ export function ScheduledExportWizard({
               <section>
                 <h2 className={SECTION_TITLE}>高级选项</h2>
                 <div className="space-y-2.5">
+                  <h3 className="text-[12px] font-medium text-muted-foreground pl-1">导出内容</h3>
+                  <div className="bg-black/[0.02] dark:bg-white/[0.03] rounded-2xl border border-black/[0.05] dark:border-white/[0.08] overflow-hidden divide-y divide-black/[0.05] dark:divide-white/[0.08]">
                   {[
                     {
                       id: "includeResourceLinks",
@@ -865,7 +867,7 @@ export function ScheduledExportWizard({
                   ].filter((opt) => (opt as any).visible !== false).map((opt) => (
                     <div
                       key={opt.id}
-                      className="flex items-center justify-between gap-6 group p-3.5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.05] dark:hover:bg-white/[0.06] transition-colors"
+                      className="flex items-center justify-between gap-6 group p-4 transition-colors"
                     >
                       <div className="flex flex-col gap-0.5 flex-1 pr-4">
                         <div className="text-[13px] font-medium text-foreground">{opt.title}</div>
@@ -878,6 +880,7 @@ export function ScheduledExportWizard({
                       </div>
                     </div>
                   ))}
+                  </div>
                 </div>
               </section>
 
