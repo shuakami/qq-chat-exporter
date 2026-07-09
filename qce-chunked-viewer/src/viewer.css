@@ -1,0 +1,86 @@
+/*
+ * Shell styles for the HyperScroll-powered chunked viewer.
+ * Message-layer styles come from the exporter's assets/style.css (MODERN_CSS);
+ * here we re-map its theme variables onto the shell tokens so the whole page
+ * follows one light/dark theme, and add skeleton / viewport chrome.
+ */
+
+/* Map MODERN_CSS variables onto the shell theme tokens. */
+:root,
+[data-theme="dark"] {
+  --bg-primary: var(--background);
+  --bg-secondary: var(--muted);
+  --text-primary: var(--foreground);
+  --text-secondary: var(--muted-foreground);
+  --border-color: var(--border);
+}
+
+body {
+  font-size: 17px;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* The engine viewport: one scroll container filling the main pane. */
+.qce-viewport {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Center the message column inside the main pane. */
+.qce-viewport .hs-item {
+  max-width: 860px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0 24px;
+}
+
+.qce-viewport .message-block {
+  margin-bottom: 0;
+  padding: 16px 0;
+}
+
+.qce-viewport .image-content img,
+.qce-viewport img.reply-content-thumb {
+  cursor: zoom-in;
+}
+
+/* Search highlight. */
+mark.hl {
+  background: #fef08a;
+  color: #171717;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.dark mark.hl {
+  background: #a16207;
+  color: #fefce8;
+}
+
+/* Skeleton placeholders shown while a lazy chunk is in flight. */
+.skel {
+  display: inline-block;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--muted) 25%,
+    color-mix(in srgb, var(--muted) 40%, transparent) 50%,
+    var(--muted) 75%
+  );
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes skel-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skel-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 16px 0;
+}
+.skel-avatar { flex: 0 0 42px; width: 42px; height: 42px; border-radius: 50%; }
+.skel-body { display: flex; flex-direction: column; gap: 8px; }
+.skel-name { width: 88px; height: 12px; margin: 2px 4px; }
+.skel-bubble { height: 44px; border-radius: 20px; }
