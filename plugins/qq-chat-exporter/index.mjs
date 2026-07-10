@@ -3,8 +3,6 @@
  * Supports both NapCat Shell and Framework modes.
  */
 
-import { NapCatCore } from 'NapCatQQ/src/core/index.js';
-
 let apiLauncher = null;
 
 /**
@@ -236,30 +234,9 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
       }`
     );
 
-    const tsx = await import('tsx/esm/api').catch(() => null);
-    if (!tsx) {
-      console.error('[QCE] tsx not found');
-      throw new Error('Please install tsx first: npm install tsx');
-    }
+    const { QQChatExporterApiLauncher } = await import('./runtime/ApiLauncher.mjs');
 
-    tsx.register();
-
-    const { QQChatExporterApiLauncher } = await import('./lib/api/ApiLauncher.ts');
-
-    // Prefer NapCatCore overlay instance. Fallback to raw core with logger guards.
-    let runtimeCore;
-    try {
-      runtimeCore = new NapCatCore();
-    } catch (overlayError) {
-      console.warn(
-        '[QCE] NapCatCore overlay init failed, fallback to raw core:',
-        overlayError?.message || overlayError
-      );
-      runtimeCore = createFallbackCore(core);
-    }
-
-    // Use the real NapCat core's APIs if available (from the bridge)
-    // The stub NapCatCore creates a proxy for apis, but we want the real QQ APIs
+    const runtimeCore = createFallbackCore(core);
     const realApis = globalThis.__NAPCAT_BRIDGE__?.core?.apis || runtimeCore.apis;
     runtimeCore.apis = createApiAdapter(realApis);
 

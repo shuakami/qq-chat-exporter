@@ -164,7 +164,7 @@ impl ScheduledExportManager {
         self.stop_task(id).await;
         self.history.lock().await.remove(id);
         if let Err(error) = self.db.delete_scheduled_export(id).await {
-            tracing::warn!("删除定时任务 {id} 失败: {error}");
+            tracing::warn!("Failed to delete scheduled task {id}: {error}");
         }
         true
     }
@@ -389,7 +389,7 @@ impl ScheduledExportManager {
 
         // 持久化历史。
         if let Err(error) = self.db.save_execution_history(&history).await {
-            tracing::warn!("保存执行历史失败: {error}");
+            tracing::warn!("Failed to save execution history: {error}");
         }
         history
     }
@@ -397,7 +397,7 @@ impl ScheduledExportManager {
     /// 保存任务到数据库（静默处理错误，与 TS 一致）。
     async fn save_task(&self, task: &Value) {
         if let Err(error) = self.db.save_scheduled_export(task).await {
-            tracing::warn!("保存定时任务失败: {error}");
+            tracing::warn!("Failed to save scheduled task: {error}");
         }
     }
 }
@@ -586,4 +586,151 @@ fn random_suffix() -> String {
             CHARS[(seed % 36) as usize] as char
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("qce-scheduler-test-{nonce}"));
+            std::fs::create_dir_all(&path).expect("create test directory");
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    struct RecordingExecutor {
+        executed: Mutex<Vec<String>>,
+        fail_id: Option<String>,
+    }
+
+    #[async_trait]
+    impl ScheduledExportExecutor for RecordingExecutor {
+        async fn execute(
+            &self,
+            task: &Value,
+            _start_time_sec: i64,
+            _end_time_sec: i64,
+        ) -> Result<ExecutionOutcome, String> {
+            let id = task
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            self.executed.lock().await.push(id.clone());
+            if self.fail_id.as_deref() == Some(id.as_str()) {
+                Err("boom".to_owned())
+            } else {
+                Ok(ExecutionOutcome::default())
+            }
+        }
+    }
+
+    async fn manager(
+        fail_id: Option<&str>,
+    ) -> (TestDir, Arc<ScheduledExportManager>, Arc<RecordingExecutor>) {
+        let temp = TestDir::new();
+        let db = Arc::new(DatabaseManager::new(&temp.0.join("qce.db")));
+        db.initialize().await.expect("initialize database");
+        let executor = Arc::new(RecordingExecutor {
+            executed: Mutex::new(Vec::new()),
+            fail_id: fail_id.map(str::to_owned),
+        });
+        let manager = Arc::new(ScheduledExportManager::new(
+            db,
+            Arc::clone(&executor) as Arc<dyn ScheduledExportExecutor>,
+        ));
+        (temp, manager, executor)
+    }
+
+    async fn install_tasks(manager: &ScheduledExportManager) {
+        manager.tasks.lock().await.extend([
+            (
+                "a".to_owned(),
+                json!({
+                    "id": "a",
+                    "name": "task-a",
+                    "enabled": true,
+                    "timeRangeType": "yesterday"
+                }),
+            ),
+            (
+                "b".to_owned(),
+                json!({
+                    "id": "b",
+                    "name": "task-b",
+                    "enabled": false,
+                    "timeRangeType": "yesterday"
+                }),
+            ),
+            (
+                "c".to_owned(),
+                json!({
+                    "id": "c",
+                    "name": "task-c",
+                    "enabled": true,
+                    "timeRangeType": "yesterday"
+                }),
+            ),
+        ]);
+    }
+
+    async fn wait_for_executions(executor: &RecordingExecutor, expected: usize) -> Vec<String> {
+        for _ in 0..100 {
+            let executed = executor.executed.lock().await.clone();
+            if executed.len() >= expected {
+                return executed;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        executor.executed.lock().await.clone()
+    }
+
+    #[tokio::test]
+    async fn trigger_all_defaults_to_enabled_tasks() {
+        let (_temp, manager, executor) = manager(None).await;
+        install_tasks(&manager).await;
+
+        let mut triggered = manager.trigger_all_scheduled_exports(false).await;
+        triggered.sort_by_key(|task| task["id"].as_str().unwrap_or_default().to_owned());
+        assert_eq!(
+            triggered,
+            vec![
+                json!({ "id": "a", "name": "task-a" }),
+                json!({ "id": "c", "name": "task-c" }),
+            ]
+        );
+
+        let mut executed = wait_for_executions(&executor, 2).await;
+        executed.sort();
+        assert_eq!(executed, vec!["a", "c"]);
+    }
+
+    #[tokio::test]
+    async fn trigger_all_includes_disabled_and_continues_after_failure() {
+        let (_temp, manager, executor) = manager(Some("a")).await;
+        install_tasks(&manager).await;
+
+        let triggered = manager.trigger_all_scheduled_exports(true).await;
+        assert_eq!(triggered.len(), 3);
+
+        let mut executed = wait_for_executions(&executor, 3).await;
+        executed.sort();
+        assert_eq!(executed, vec!["a", "b", "c"]);
+    }
 }

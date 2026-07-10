@@ -12,6 +12,7 @@ import tarfile
 from pathlib import Path
 from urllib.request import urlretrieve, urlopen
 from datetime import datetime
+from plugin_runtime import stage_plugin_runtime
 
 def get_qce_version():
     """Get QCE version from package.json or environment variable"""
@@ -79,15 +80,15 @@ def build_rust_server(pack_dir):
     """Build the Rust server (qce-server) and place it in the package root."""
     exe_name = "qce-server.exe" if platform.system() == "Windows" else "qce-server"
     if not run_command(["cargo", "build", "--release"], cwd="qq-chat-export-server"):
-        print("[!] Rust server build failed")
+        print("[FAIL] Rust server build failed")
         sys.exit(1)
     src = os.path.join("qq-chat-export-server", "target", "release", exe_name)
     if not os.path.exists(src):
-        print(f"[!] Rust server binary not found: {src}")
+        print(f"[FAIL] Rust server binary not found: {src}")
         sys.exit(1)
     dest = os.path.join(pack_dir, exe_name)
     shutil.copy2(src, dest)
-    print(f"[x] Added Rust server binary: {dest}")
+    print(f"[PASS] Rust server binary added: {dest}")
 
 def extract_zip(zip_path, dest_dir):
     """Extract ZIP file"""
@@ -636,27 +637,13 @@ pause
     # Copy plugin files
     print("[6/11] Copying plugin files...")
     plugin_dir = f"{pack_dir}/plugins/{RUNTIME_PLUGIN_ID}"
-    copy_directory(SOURCE_PLUGIN_DIR, plugin_dir)
-    rewrite_runtime_plugin_package(plugin_dir)
+    stage_plugin_runtime(
+        Path(SOURCE_PLUGIN_DIR),
+        Path(plugin_dir),
+        RUNTIME_PLUGIN_ID,
+        qce_version,
+    )
     print("[x] Copied")
-    print()
-    
-    # Install plugin dependencies
-    print("[7/11] Installing plugin dependencies...")
-    npm_cmd = ["npm.cmd" if os_name == "Windows" else "npm", "install", "--omit=dev"]
-    if not run_command(npm_cmd, cwd=plugin_dir):
-        print("[!] Dependency install failed")
-        sys.exit(1)
-    print("[x] Installed")
-    print()
-    
-    # Generate Overlay runtime files
-    print("[7.5/11] Generating Overlay runtime files...")
-    node_cmd = ["node.exe" if os_name == "Windows" else "node", "tools/create-overlay-runtime.cjs"]
-    if not run_command(node_cmd, cwd=plugin_dir):
-        print("[!] Overlay generation failed")
-        sys.exit(1)
-    print("[x] Generated")
     print()
     
     # Copy frontend files
@@ -826,31 +813,35 @@ extern "C" void qq_magic_napi_register(void *m) {
  * QCE 独立模式启动脚本
  * 无需 NapCat 登录即可运行，用于浏览已导出的聊天记录和资源
  */
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 async function main() {
     const port = parseInt(process.argv[2]) || 40653;
-    
-    console.log('[QCE] 正在启动独立模式...');
-    
-    try {
-        // 使用 tsx 加载 TypeScript
-        const tsx = await import('tsx/esm/api');
-        tsx.register();
-        
-        // 动态导入 StandaloneServer
-        const { startStandaloneServer } = await import('./lib/api/StandaloneServer.ts');
-        
-        await startStandaloneServer(port);
-        
-        // 保持进程运行
-        process.on('SIGINT', () => {
-            console.log('\\n[QCE] 正在关闭...');
-            process.exit(0);
-        });
-    } catch (error) {
-        console.error('[QCE] 启动失败:', error);
+    const pluginDir = path.dirname(fileURLToPath(import.meta.url));
+    const packageRoot = path.resolve(pluginDir, '..', '..');
+    const binary = path.join(
+        packageRoot,
+        process.platform === 'win32' ? 'qce-server.exe' : 'qce-server'
+    );
+
+    console.log('[QCE] Starting standalone mode');
+    const child = spawn(binary, [], {
+        cwd: packageRoot,
+        env: { ...process.env, QCE_SERVER_PORT: String(port) },
+        stdio: 'inherit'
+    });
+    child.on('error', (error) => {
+        console.error('[QCE] Standalone startup failed:', error);
         process.exit(1);
-    }
+    });
+    child.on('exit', (code, signal) => {
+        process.exit(code ?? (signal ? 1 : 0));
+    });
+    const stop = () => child.kill();
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
 }
 
 main();
