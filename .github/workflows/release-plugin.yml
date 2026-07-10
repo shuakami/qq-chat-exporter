@@ -584,7 +584,12 @@ jobs:
         with:
           name: ${{ github.ref_name }}
           body_path: RELEASE_NOTES.md
-          files: release-files/*
+          files: |
+            release-files/QQChatExporter-Installer-${{ github.ref_name }}.exe
+            release-files/NapCat-QCE-Windows-x64-${{ github.ref_name }}.zip
+            release-files/NapCat-QCE-Linux-x64-${{ github.ref_name }}.tar.gz
+            release-files/NapCat-Framework-QCE-${{ github.ref_name }}.zip
+            release-files/napcat-plugin-qce.zip
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           generate_release_notes: false
