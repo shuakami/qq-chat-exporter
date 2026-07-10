@@ -1223,15 +1223,27 @@ export class SimpleMessageParser {
             peerUid: message.peerUid,
             guildId: ''
           };
-          const result = await msgApi.getMultiMsg({
-            peer,
-            rootMsgId: message.msgId,
-            parentMsgId: message.msgId,
-            forwardId: resId,
-            resId
-          });
-          if (result && Array.isArray(result.msgList)) {
-            raws = result.msgList;
+          // NapCat 4.x may resolve the card by either the outer message id or
+          // the resource id, and different versions return different shapes.
+          const lookupIds = [message.msgId, resId].filter(
+            (id, index, ids): id is string => Boolean(id) && ids.indexOf(id) === index
+          );
+          for (const lookupId of lookupIds) {
+            const result = await msgApi.getMultiMsg({
+              peer,
+              rootMsgId: lookupId,
+              parentMsgId: lookupId,
+              forwardId: resId,
+              resId
+            });
+            if (result && Array.isArray(result.msgList)) {
+              raws = result.msgList;
+            } else if (result && Array.isArray(result.messages)) {
+              return this.normalizeForwardActionMessages(result.messages);
+            } else if (result && Array.isArray(result.data?.messages)) {
+              return this.normalizeForwardActionMessages(result.data.messages);
+            }
+            if (raws.length > 0) break;
           }
         }
       } catch {

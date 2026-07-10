@@ -27,7 +27,7 @@ use crate::fetcher::{
     chat_type_prefix, classify_chat_type_binary, BatchFetchConfig, BatchMessageFetcher,
     MessageFilter, Peer, GROUP_CHAT_TYPE,
 };
-use crate::parser::{SimpleMessageParser, SimpleParserOptions};
+use crate::parser::{ForwardFetcher, SimpleMessageParser, SimpleParserOptions};
 use crate::paths::PathManager;
 use crate::resource::ResourceBatchSummary;
 use crate::storage::ResourceInfo;
@@ -1320,7 +1320,7 @@ async fn process_export_task(
             .and_then(Value::as_bool)
             .unwrap_or(true),
         sender_title_resolver,
-        forward_fetcher: None,
+        forward_fetcher: Some(Arc::new(state.napcat.clone()) as Arc<dyn ForwardFetcher>),
     });
     let mut clean_messages: Vec<CleanMessage> = parser.parse_messages(&filtered_messages).await;
 
