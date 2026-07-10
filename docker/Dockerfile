@@ -1,5 +1,15 @@
 # ============================================================
-# Stage 1: Build — compile frontend & prepare plugin
+# Stage 1: Build Rust server
+# ============================================================
+FROM rust:bookworm AS rust-build
+
+WORKDIR /build
+COPY qq-chat-export-core ./qq-chat-export-core
+COPY qq-chat-export-server ./qq-chat-export-server
+RUN cargo build --release --manifest-path qq-chat-export-server/Cargo.toml
+
+# ============================================================
+# Stage 2: Build frontend & prepare plugin
 # ============================================================
 FROM node:22-alpine AS build
 
@@ -7,19 +17,12 @@ RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 
 WORKDIR /build
 
-# --- Plugin: install production dependencies ---
-COPY plugins/qq-chat-exporter/package.json \
-     plugins/qq-chat-exporter/package-lock.json \
-     ./plugins/qq-chat-exporter/
-
+# --- Plugin: copy the dependency-free Rust launcher ---
 WORKDIR /build/plugins/qq-chat-exporter
-RUN npm ci --omit=dev
-
-# --- Plugin: copy source (no create-overlay-runtime.cjs needed) ---
 COPY plugins/qq-chat-exporter/index.mjs \
      plugins/qq-chat-exporter/package.json \
      ./
-COPY plugins/qq-chat-exporter/lib ./lib
+COPY plugins/qq-chat-exporter/runtime ./runtime
 
 # --- Frontend: install all dependencies ---
 WORKDIR /build/qce-v4-tool
@@ -33,12 +36,14 @@ ENV NODE_ENV=production
 RUN pnpm run build
 
 # ============================================================
-# Stage 2: Runtime — NapCat + QCE plugin + static frontend
+# Stage 3: Runtime — NapCat + QCE plugin + static frontend
 # ============================================================
 FROM mlikiowa/napcat-docker:latest
 
-# Copy plugin (source + production node_modules)
+# Copy plugin launcher and Rust server
 COPY --from=build /build/plugins/qq-chat-exporter /app/napcat/plugins/napcat-plugin-qce
+COPY --from=rust-build /build/qq-chat-export-server/target/release/qce-server /app/napcat/qce-server
+RUN chmod +x /app/napcat/qce-server
 RUN sed -i 's/"name": *"[^"]*"/"name": "napcat-plugin-qce"/' /app/napcat/plugins/napcat-plugin-qce/package.json
 
 # Copy frontend static export

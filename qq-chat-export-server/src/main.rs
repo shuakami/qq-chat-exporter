@@ -54,7 +54,7 @@ async fn main() {
         .without_time()
         .with_target(false)
         .with_level(true)
-        .with_ansi(true);
+        .with_ansi(false);
     let file_layer = tracing_subscriber::fmt::layer()
         .with_writer(non_blocking)
         .with_ansi(false);
@@ -68,10 +68,10 @@ async fn main() {
     // guard 必须在 main 存活期间保持，否则日志丢失。
     let _log_guard = guard;
 
-    tracing::info!("[QCE] QQ Chat Exporter Server v{VERSION} (Rust) 启动中...");
+    tracing::info!("[QCE] Starting QQ Chat Exporter Server v{VERSION} (Rust)");
 
     if let Err(error) = run().await {
-        tracing::error!("[QCE] 服务启动失败: {error}");
+        tracing::error!("[QCE] Server startup failed: {error}");
         std::process::exit(1);
     }
 }
@@ -142,7 +142,7 @@ async fn run() -> Result<(), String> {
 
     // ============ 静态前端目录 ============
     let static_dir = resolve_static_dir();
-    tracing::info!("[QCE] 前端静态目录: {}", static_dir.display());
+    tracing::info!("[QCE] Static frontend directory: {}", static_dir.display());
 
     let (ws_tx, _) = broadcast::channel(1024);
     let state: SharedState = Arc::new(AppState {
@@ -170,12 +170,10 @@ async fn run() -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|e| format!("端口 {port} 绑定失败: {e}"))?;
-    tracing::info!("[QCE] HTTP 服务已启动: http://localhost:{port}");
-    tracing::info!("[QCE] Web 界面: http://localhost:{port}/qce");
-    if let Some(token) = state.security_manager.access_token() {
-        tracing::info!(
-            "[QCE] 一键登录: http://localhost:{port}/qce/auth?token={token}"
-        );
+    tracing::info!("[QCE] HTTP server listening: http://localhost:{port}");
+    tracing::info!("[QCE] Web interface: http://localhost:{port}/qce");
+    if state.security_manager.access_token().is_some() {
+        tracing::info!("[QCE] Authentication is enabled");
     }
 
     axum::serve(
@@ -505,7 +503,7 @@ async fn load_custom_dirs(path_manager: &PathManager) {
     if let Some(dir) = config.get("customOutputDir").and_then(Value::as_str) {
         if !dir.trim().is_empty() {
             if let Err(error) = path_manager.set_custom_output_dir(Some(dir)) {
-                tracing::warn!("[QCE] 自定义导出目录无效: {error}");
+                tracing::warn!("[QCE] Invalid custom export directory: {error}");
             }
         }
     }
@@ -515,7 +513,7 @@ async fn load_custom_dirs(path_manager: &PathManager) {
     {
         if !dir.trim().is_empty() {
             if let Err(error) = path_manager.set_custom_scheduled_export_dir(Some(dir)) {
-                tracing::warn!("[QCE] 自定义定时导出目录无效: {error}");
+                tracing::warn!("[QCE] Invalid scheduled export directory: {error}");
             }
         }
     }
@@ -560,7 +558,7 @@ async fn reconcile_and_load_tasks(db: &Arc<DatabaseManager>) -> HashMap<String, 
             }
             let reconciled = Value::Object(merged.clone());
             if let Err(error) = db.save_task(&config, &reconciled, true).await {
-                tracing::warn!("[QCE] 保存孤儿任务状态失败: {error}");
+                tracing::warn!("[QCE] Failed to save orphaned task state: {error}");
             }
         }
 
@@ -570,7 +568,7 @@ async fn reconcile_and_load_tasks(db: &Arc<DatabaseManager>) -> HashMap<String, 
         }
     }
     if orphan_count > 0 {
-        tracing::info!("[QCE] 已将 {orphan_count} 个孤儿任务标记为 failed（issue #144）");
+        tracing::info!("[QCE] Marked {orphan_count} orphaned tasks as failed (issue #144)");
     }
     tasks
 }

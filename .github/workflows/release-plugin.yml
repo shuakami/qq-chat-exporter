@@ -58,7 +58,7 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 8
-      
+
       - name: "Setup Rust"
         uses: dtolnay/rust-toolchain@stable
       
@@ -106,6 +106,14 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 8
+
+      - name: "Setup Rust"
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: "Install Windows cross compiler"
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
       
       - name: "Build Frontend"
         run: |
@@ -144,6 +152,14 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: 8
+
+      - name: "Setup Rust"
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: "Install Windows cross compiler"
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
 
       - name: "Sync version from tag"
         run: |

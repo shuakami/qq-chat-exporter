@@ -12,6 +12,7 @@ use crate::types::{ChatInfo, CleanMessage};
 use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone, Timelike, Utc};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::io::{AsyncWriteExt, BufWriter};
@@ -1337,12 +1338,12 @@ impl ModernHtmlExporter {
 
         if !src.is_empty() {
             // 波形条：根据时长伪随机生成一组高度，纯装饰。
-            let bars: String = (0..18)
-                .map(|i| {
-                    let h = 30 + ((i * 37 + duration as usize * 13) % 60);
-                    format!("<i style=\"height:{h}%\"></i>")
-                })
-                .collect();
+            let duration_seed = usize::try_from(duration).unwrap_or(0);
+            let bars = (0..18).fold(String::new(), |mut bars, i| {
+                let h = 30 + ((i * 37 + duration_seed * 13) % 60);
+                let _ = write!(bars, "<i style=\"height:{h}%\"></i>");
+                bars
+            });
             let dur_label = if duration > 0 {
                 format!("{duration}\"")
             } else {

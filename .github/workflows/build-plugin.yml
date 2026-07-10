@@ -27,6 +27,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -84,6 +87,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Install Windows cross compiler
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -125,4 +136,3 @@ jobs:
           name: NapCat-Framework-QCE-${{ steps.version.outputs.version }}
           path: NapCat-Framework-QCE-*.zip
           retention-days: 7
-

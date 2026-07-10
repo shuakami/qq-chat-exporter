@@ -113,21 +113,9 @@ cp -r /tmp/qce-release/static/qce ./qce
 
 ### 3. ARM64 架构适配
 
-如果 Docker 运行在 ARM64（如 Apple Silicon / 树莓派 / 部分云服务器），Release 包中的 esbuild 二进制仅含 x64 版本，需要安装对应架构的包：
-
-```bash
-# 方法一：使用辅助脚本（推荐）
-docker exec napcat bash /app/napcat/plugins/napcat-plugin-qce/tools/docker-setup.sh
-
-# 方法二：手动安装
-# 1. 查看当前 esbuild 版本
-docker exec napcat node -e "console.log(require('/app/napcat/plugins/napcat-plugin-qce/node_modules/esbuild/package.json').version)"
-# 2. 在宿主机下载对应版本的 ARM64 包
-npm pack @esbuild/linux-arm64@<版本号>
-# 3. 解压到插件目录
-mkdir -p plugins/napcat-plugin-qce/node_modules/@esbuild/linux-arm64
-tar -xzf esbuild-linux-arm64-*.tgz -C plugins/napcat-plugin-qce/node_modules/@esbuild/linux-arm64 --strip-components=1
-```
+QCE 运行时已不再依赖 tsx / esbuild，插件会启动同架构的 `qce-server`。
+官方 Release 当前提供 x64 二进制；ARM64 环境请直接使用本仓库的 Dockerfile
+在目标机器构建镜像，Rust 构建阶段会自动产出对应架构的服务端。
 
 ### 4. 启用插件
 

@@ -3,11 +3,9 @@
  * (issues #466, #482).
  *
  * NapCat's PluginLoader scans the shipped plugin source and rejects the plugin
- * outright when it finds a blocked keyword. The plugin ships its TypeScript
- * sources verbatim (tsx loads lib/*.ts at runtime), and the Shell / Framework
- * one-click packages additionally ship __tests__/ and tools/, so a blocked
- * keyword anywhere in the shipped tree trips the loader and makes QCE vanish
- * from the plugin list ("Scanned 0 plugins").
+ * outright when it finds a blocked keyword. Release packages now ship only the
+ * ESM launcher, Rust bridge, overlay runtime and server binary, but this guard
+ * scans the development tree too so blocked strings cannot re-enter packaging.
  *
  * To stop this guard from becoming a landmine itself, the keyword list is built
  * from escape sequences, so the literal characters never appear in this file.
