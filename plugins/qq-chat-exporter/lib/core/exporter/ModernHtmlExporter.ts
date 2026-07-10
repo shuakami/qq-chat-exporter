@@ -1376,9 +1376,9 @@ export class ModernHtmlExporter {
             }
             return `<div class="message-block" data-date="${dateKey}">
                 ${dateMarker}
-                <div class="system-message-container" style="text-align: center; margin: 12px 0;">
+                <div class="system-message-container">
                     ${content}
-                    <div style="color: #999; font-size: 10px; margin-top: 2px;">${this.formatTime((message as any)?.time)}</div>
+                    <div class="system-message-time">${this.formatTime((message as any)?.time)}</div>
                 </div>
             </div>`;
         }
@@ -1563,17 +1563,20 @@ export class ModernHtmlExporter {
         }
 
         if (src) {
-            // AMR格式浏览器可能不支持，同时提供下载链接
-            // Issue #311: 内联模式下 src 为 data URI，需从文件名而非 src 判断是否为 AMR。
-            const isAmr = src.startsWith('data:')
-                ? (filename.toLowerCase().endsWith('.amr'))
-                : src.toLowerCase().endsWith('.amr');
-            const audioTag = `<audio src="${src}" controls class="message-audio" preload="metadata">[语音:${duration}秒]</audio>`;
-            const downloadLink = isAmr
-                ? `<a href="${src}" download="${this.escapeHtml(filename)}" class="audio-download-link" title="浏览器可能不支持AMR格式，点击下载">下载语音</a>`
-                : '';
-
-            return `<div class="audio-wrapper">${audioTag}${downloadLink}</div>`;
+            // 波形条：根据时长伪随机生成一组高度，纯装饰（对齐 demo voice-bubble）。
+            const secs = Math.round(Number(duration) || 0);
+            let bars = '';
+            for (let i = 0; i < 18; i++) {
+                const h = 30 + ((i * 37 + secs * 13) % 60);
+                bars += `<i style="height:${h}%"></i>`;
+            }
+            const durLabel = secs > 0 ? `${secs}"` : '语音';
+            return `<div class="voice-bubble" data-src="${src}" data-name="${this.escapeHtml(filename)}" role="button" tabindex="0">` +
+                `<span class="vplay"></span>` +
+                `<span class="vbars">${bars}</span>` +
+                `<span class="vsec">${durLabel}</span>` +
+                `<span class="vdl" title="下载语音"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>` +
+                `</div>`;
         }
         return `<span class="text-content">🎤 [语音:${duration}秒]</span>`;
     }
@@ -1606,7 +1609,13 @@ export class ModernHtmlExporter {
         }
 
         if (src) {
-            return `<video src="${src}" controls class="message-video" preload="metadata">[视频: ${this.escapeHtml(filename)}]</video>`;
+            // video-bubble：首帧当缩略图（#t=0.1），播放角标 + 文件名，点击进预览层。
+            const fname = this.escapeHtml(filename);
+            return `<div class="video-bubble" data-src="${src}" data-name="${fname}" role="button" tabindex="0">` +
+                `<video class="img" src="${src}#t=0.1" preload="metadata" muted playsinline></video>` +
+                `<span class="vbadge"><span class="vtri"></span>视频</span>` +
+                `<span class="vname">${fname}</span>` +
+                `</div>`;
         }
         return `<span class="text-content">🎬 ${this.escapeHtml(filename)}</span>`;
     }
@@ -1639,7 +1648,14 @@ export class ModernHtmlExporter {
         }
 
         if (href) {
-            return `<a href="${href}" class="message-file" download="${this.escapeHtml(filename)}">📎 ${this.escapeHtml(filename)}</a>`;
+            const fname = this.escapeHtml(filename);
+            const sizeBytes = Number(data?.fileSize ?? data?.size ?? 0) || 0;
+            const sizeLabel = this.formatFileSize(sizeBytes);
+            const sizeHtml = sizeLabel ? `<span class="fsize">${sizeLabel}</span>` : '';
+            return `<a href="${href}" class="message-file file-bubble" download="${fname}">` +
+                `<span class="ficon">${this.fileIconSvg(filename)}</span>` +
+                `<span class="fmeta"><span class="fname">${fname}</span>${sizeHtml}</span>` +
+                `</a>`;
         }
         return `<span class="text-content">📎 ${this.escapeHtml(filename)}</span>`;
     }
@@ -1725,9 +1741,43 @@ export class ModernHtmlExporter {
         const name = data?.name || '商城表情';
         const url = data?.url || '';
         if (url) {
-            return `<img src="${url}" alt="${this.escapeHtml(name)}" class="market-face" title="${this.escapeHtml(name)}">`;
+            return `<span class="sticker-wrap"><img src="${url}" alt="${this.escapeHtml(name)}" class="sticker sticker-img market-face" title="${this.escapeHtml(name)}" loading="lazy"></span>`;
         }
         return `<span class="text-content">[${this.escapeHtml(name)}]</span>`;
+    }
+
+    /** 人类可读文件大小（B/KB/MB/GB）。0 时返回空串。 */
+    private formatFileSize(bytes: number): string {
+        if (!bytes || bytes <= 0) return '';
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    }
+
+    /** 按扩展名返回一个无色线性 SVG 图标（对齐 demo 的文件类型图标）。 */
+    private fileIconSvg(filename: string): string {
+        const ext = (filename.split('.').pop() || '').toLowerCase();
+        const ARCHIVE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M9 6h1M9 9h1M9 12h1"/></svg>';
+        const SHEET = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>';
+        const CODE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>';
+        const DOC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>';
+        const IMG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>';
+        const AUDIO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+        const VIDEO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg>';
+        const GENERIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+        switch (ext) {
+            case 'zip': case 'rar': case '7z': case 'gz': case 'tar': case 'bz2': case 'xz': return ARCHIVE;
+            case 'xls': case 'xlsx': case 'csv': case 'numbers': return SHEET;
+            case 'js': case 'ts': case 'tsx': case 'jsx': case 'json': case 'html': case 'css':
+            case 'py': case 'rs': case 'go': case 'java': case 'c': case 'cpp': case 'h':
+            case 'sh': case 'xml': case 'yml': case 'yaml': return CODE;
+            case 'doc': case 'docx': case 'pdf': case 'txt': case 'md': case 'ppt': case 'pptx': case 'rtf': return DOC;
+            case 'png': case 'jpg': case 'jpeg': case 'gif': case 'webp': case 'bmp': case 'svg': case 'heic': return IMG;
+            case 'mp3': case 'wav': case 'flac': case 'aac': case 'ogg': case 'amr': case 'm4a': return AUDIO;
+            case 'mp4': case 'mov': case 'avi': case 'mkv': case 'flv': case 'wmv': case 'webm': return VIDEO;
+            default: return GENERIC;
+        }
     }
 
     private renderReplyElement(data: any): string {
