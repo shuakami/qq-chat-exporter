@@ -13,10 +13,13 @@
   --text-primary: var(--foreground);
   --text-secondary: var(--muted-foreground);
   --border-color: var(--border);
+  --bubble-other: var(--muted);
+  --bubble-self: var(--primary);
+  --bubble-self-text: var(--primary-foreground);
 }
 
 body {
-  font-size: 17px;
+  font-size: 14px;
   background: var(--background);
   color: var(--foreground);
 }
@@ -29,15 +32,16 @@ body {
 
 /* Center the message column inside the main pane. */
 .qce-viewport .hs-item {
-  max-width: 860px;
+  max-width: 760px;
   margin-left: auto;
   margin-right: auto;
-  padding: 0 24px;
+  padding: 0 18px;
 }
 
 .qce-viewport .message-block {
   margin-bottom: 0;
-  padding: 16px 0;
+  padding: 5px 0;
+  contain-intrinsic-size: auto 60px;
 }
 
 .qce-viewport .image-content img,
@@ -76,11 +80,11 @@ mark.hl {
 }
 .skel-row {
   display: flex;
-  gap: 16px;
+  gap: 10px;
   align-items: flex-start;
-  padding: 16px 0;
+  padding: 5px 0;
 }
-.skel-avatar { flex: 0 0 42px; width: 42px; height: 42px; border-radius: 50%; }
-.skel-body { display: flex; flex-direction: column; gap: 8px; }
-.skel-name { width: 88px; height: 12px; margin: 2px 4px; }
-.skel-bubble { height: 44px; border-radius: 20px; }
+.skel-avatar { flex: 0 0 30px; width: 30px; height: 30px; border-radius: 50%; }
+.skel-body { display: flex; flex-direction: column; gap: 3px; }
+.skel-name { width: 72px; height: 11px; margin: 0 2px; }
+.skel-bubble { height: 38px; border-radius: 16px; }

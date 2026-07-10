@@ -1157,9 +1157,9 @@ impl ModernHtmlExporter {
             return format!(
                 r#"<div class="message-block" data-date="{date_key}">
                 {date_marker}
-                <div class="system-message-container" style="text-align: center; margin: 12px 0;">
+                <div class="system-message-container">
                     {content}
-                    <div style="color: #999; font-size: 10px; margin-top: 2px;">{}</div>
+                    <div class="system-message-time">{}</div>
                 </div>
             </div>"#,
                 format_time(&message.time)
