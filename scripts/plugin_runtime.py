@@ -7,6 +7,7 @@ import os
 import platform
 import shutil
 import subprocess
+import stat
 from pathlib import Path
 
 
@@ -17,6 +18,26 @@ def run_command(command: list[str], cwd: Path | None = None) -> None:
     result = subprocess.run(command, cwd=cwd)
     if result.returncode != 0:
         raise RuntimeError(f"command failed: {' '.join(command)}")
+
+
+def resolve_prebuilt_binary(*env_names: str) -> Path | None:
+    for env_name in env_names:
+        value = os.environ.get(env_name)
+        if not value:
+            continue
+        binary = Path(value)
+        if not binary.is_file():
+            raise FileNotFoundError(
+                f"{env_name} points to a missing server binary: {binary}"
+            )
+        return binary
+    return None
+
+
+def ensure_executable(binary: Path) -> None:
+    if binary.name.endswith(".exe"):
+        return
+    binary.chmod(binary.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def stage_plugin_runtime(
@@ -53,7 +74,11 @@ def build_server_binary(target: str | None = None) -> Path:
         command.extend(["--target", target])
     run_command(command, SERVER_DIR)
 
-    executable = "qce-server.exe" if target and "windows" in target else "qce-server"
+    executable = (
+        "qce-server.exe"
+        if (target and "windows" in target) or (target is None and platform.system() == "Windows")
+        else "qce-server"
+    )
     target_dir = SERVER_DIR / "target"
     if target:
         target_dir /= target
@@ -64,17 +89,29 @@ def build_server_binary(target: str | None = None) -> Path:
 
 
 def copy_native_server_binary(destination: Path) -> Path:
-    binary = build_server_binary()
+    if platform.system() == "Windows":
+        binary = resolve_prebuilt_binary("QCE_SERVER_WINDOWS_X64", "QCE_SERVER_BINARY")
+        target_name = "qce-server.exe"
+    else:
+        binary = resolve_prebuilt_binary("QCE_SERVER_LINUX_X64", "QCE_SERVER_BINARY")
+        target_name = "qce-server"
+
+    if binary is None:
+        binary = build_server_binary()
+        target_name = binary.name
+
     destination.mkdir(parents=True, exist_ok=True)
-    target = destination / binary.name
+    target = destination / target_name
     shutil.copy2(binary, target)
+    ensure_executable(target)
     return target
 
 
 def copy_windows_server_binary(destination: Path) -> Path:
-    if platform.system() == "Windows":
+    binary = resolve_prebuilt_binary("QCE_SERVER_WINDOWS_X64")
+    if binary is None and platform.system() == "Windows":
         binary = build_server_binary()
-    else:
+    elif binary is None:
         binary = build_server_binary("x86_64-pc-windows-gnu")
     destination.mkdir(parents=True, exist_ok=True)
     target = destination / "qce-server.exe"
@@ -83,16 +120,16 @@ def copy_windows_server_binary(destination: Path) -> Path:
 
 
 def copy_store_server_binaries(destination: Path) -> None:
-    linux_override = os.environ.get("QCE_SERVER_LINUX_X64")
-    windows_override = os.environ.get("QCE_SERVER_WINDOWS_X64")
+    linux_override = resolve_prebuilt_binary("QCE_SERVER_LINUX_X64")
+    windows_override = resolve_prebuilt_binary("QCE_SERVER_WINDOWS_X64")
 
     linux_binary = (
-        Path(linux_override)
+        linux_override
         if linux_override
         else build_server_binary()
     )
     windows_binary = (
-        Path(windows_override)
+        windows_override
         if windows_override
         else build_server_binary("x86_64-pc-windows-gnu")
     )
@@ -101,5 +138,7 @@ def copy_store_server_binaries(destination: Path) -> None:
     windows_dir = destination / "bin" / "windows-x64"
     linux_dir.mkdir(parents=True)
     windows_dir.mkdir(parents=True)
-    shutil.copy2(linux_binary, linux_dir / "qce-server")
+    linux_target = linux_dir / "qce-server"
+    shutil.copy2(linux_binary, linux_target)
+    ensure_executable(linux_target)
     shutil.copy2(windows_binary, windows_dir / "qce-server.exe")
