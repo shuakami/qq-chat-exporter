@@ -1,23 +1,4 @@
-/**
- * 完整插件测试（包含TypeScript加载）
- */
-
-import { register } from 'node:module';
-import { pathToFileURL } from 'node:url';
-
-console.log('========================================');
-console.log('完整插件测试（含TypeScript）');
-console.log('========================================\n');
-
-// 注册tsx加载器
-console.log('1️⃣  注册tsx加载器...\n');
-try {
-  register('tsx', pathToFileURL('./'));
-  console.log('  ✓ tsx加载器已注册\n');
-} catch (e) {
-  console.error('  ✗ tsx注册失败:', e.message);
-  process.exit(1);
-}
+console.log('[TEST] Rust-only plugin runtime');
 
 // 模拟NapCat环境
 const mockCore = {
@@ -89,56 +70,45 @@ async function test() {
       actions: mockActions,
       instance: mockInstance
     };
-    console.log('✓ Bridge已注入\n');
-    
-    console.log('2️⃣  测试Overlay加载...\n');
-    const { ChatType } = await import('./node_modules/NapCatQQ/src/core/types.js');
-    console.log('  ✓ ChatType.KCHATTYPEC2C =', ChatType.KCHATTYPEC2C);
-    
-    console.log('\n3️⃣  测试TypeScript业务代码加载...\n');
-    
-    try {
-      const ApiLauncher = await import('./lib/api/ApiLauncher.ts');
-      console.log('  ✓ ApiLauncher加载成功');
-      console.log('    导出:', Object.keys(ApiLauncher));
-      
-      if (ApiLauncher.QQChatExporterApiLauncher) {
-        console.log('  ✓ QQChatExporterApiLauncher类存在');
-        
-        // 测试实例化（但不启动服务器）
-        try {
-          const launcher = new ApiLauncher.QQChatExporterApiLauncher(mockCore);
-          console.log('  ✓ ApiLauncher实例化成功');
-        } catch (e) {
-          console.log('  ⚠️  实例化失败（可能缺少依赖）:', e.message);
-        }
-      }
-    } catch (e) {
-      console.error('  ✗ ApiLauncher加载失败:', e.message);
-      console.error('    堆栈:', e.stack?.split('\n').slice(0, 3).join('\n'));
+    console.log('[PASS] Mock NapCat bridge installed');
+
+    const ApiLauncher = await import('./runtime/ApiLauncher.mjs');
+    console.log(`[PASS] Runtime exports: ${Object.keys(ApiLauncher).join(', ')}`);
+
+    const launcher = new ApiLauncher.QQChatExporterApiLauncher(mockCore);
+    console.log('[PASS] API launcher instantiated');
+    await launcher.startApiServer();
+
+    const port = Number(process.env.QCE_SERVER_PORT || 40653);
+    const health = await fetch(`http://127.0.0.1:${port}/health`);
+    if (!health.ok) {
+      throw new Error(`Rust health check failed: HTTP ${health.status}`);
     }
-    
-    try {
-      const Fetcher = await import('./lib/core/fetcher/BatchMessageFetcher.ts');
-      console.log('  ✓ BatchMessageFetcher加载成功');
-    } catch (e) {
-      console.error('  ✗ BatchMessageFetcher加载失败:', e.message);
+    console.log('[PASS] Rust server health endpoint');
+
+    const bridgePort = Number(process.env.QCE_BRIDGE_PORT || 40654);
+    const bridgeResponse = await fetch(`http://127.0.0.1:${bridgePort}/rpc`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: 1,
+        method: 'GroupApi.getGroups',
+        params: [false],
+      }),
+    });
+    const bridgeResult = await bridgeResponse.json();
+    if (!bridgeResult.ok || !Array.isArray(bridgeResult.result)) {
+      throw new Error(`NapCat bridge check failed: ${JSON.stringify(bridgeResult)}`);
     }
-    
-    console.log('\n========================================');
-    console.log('✅ 测试完成！');
-    console.log('========================================');
+    console.log('[PASS] NapCat RPC bridge');
+    await launcher.stopApiServer();
+    console.log('[PASS] Rust-only runtime validation complete');
     
   } catch (error) {
-    console.log('\n========================================');
-    console.log('❌ 测试失败！');
-    console.log('========================================');
-    console.error('\n错误:', error.message);
-    console.error('\n堆栈:');
-    console.error(error.stack);
+    console.error('[FAIL] Rust-only runtime validation');
+    console.error(error instanceof Error ? error.stack : error);
     process.exit(1);
   }
 }
 
 test();
-

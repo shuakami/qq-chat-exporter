@@ -19,7 +19,7 @@ import {
     ResourceInfo,
     ResourceStatus
 } from '../../types/index.js';
-import { ScheduledExportConfig, ExecutionHistory } from '../scheduler/ScheduledExportManager.js';
+import type { ScheduledExportConfig, ExecutionHistory } from '../../types/scheduledExport.js';
 
 /**
  * 数据库模式版本
