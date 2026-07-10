@@ -15,7 +15,7 @@ use qce_server::fetcher::{
     classify_chat_type_binary, BatchFetchConfig, BatchMessageFetcher, MessageFilter, Peer,
 };
 use qce_server::napcat::NapCatBridgeClient;
-use qce_server::parser::{SimpleMessageParser, SimpleParserOptions};
+use qce_server::parser::{ForwardFetcher, SimpleMessageParser, SimpleParserOptions};
 use qce_server::paths::PathManager;
 use qce_server::resource::ResourceHandler;
 use qce_server::scheduler::{ExecutionOutcome, ScheduledExportExecutor};
@@ -181,7 +181,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
                 .and_then(Value::as_bool)
                 .unwrap_or(true),
             sender_title_resolver: None,
-            forward_fetcher: None,
+            forward_fetcher: Some(Arc::new(self.napcat.clone()) as Arc<dyn ForwardFetcher>),
         });
         let mut clean_messages: Vec<CleanMessage> = parser.parse_messages(&all_messages).await;
 
