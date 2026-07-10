@@ -49,7 +49,7 @@ jobs:
 
       - name: "Build frontend"
         run: |
-          pnpm install --frozen-lockfile
+          pnpm install --no-frozen-lockfile
           pnpm run build
         working-directory: qce-v4-tool
 
