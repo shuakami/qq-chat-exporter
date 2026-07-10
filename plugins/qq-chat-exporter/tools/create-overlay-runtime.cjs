@@ -42,7 +42,14 @@ export const MsgApi = {
   async getMultiMsg(params) {
     const { core } = getBridge();
     const impl = core?.apis?.MsgApi?.getMultiMsg || core?.apis?.msg?.getMultiMsg;
-    if (impl) return impl.call(core.apis.MsgApi || core.apis.msg, params);
+    if (impl) {
+      return impl.call(
+        core.apis.MsgApi || core.apis.msg,
+        params?.peer,
+        params?.rootMsgId,
+        params?.parentMsgId || params?.rootMsgId
+      );
+    }
     
     const { actions, instance } = getBridge();
     const handler = actions?.get?.('get_forward_msg');

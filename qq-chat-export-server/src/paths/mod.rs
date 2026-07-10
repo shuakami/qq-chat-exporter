@@ -54,6 +54,7 @@ impl PathManager {
     /// 校验路径：只禁止系统关键目录，允许任意其他位置。
     fn validate_path(input: &str) -> Result<PathBuf, PathError> {
         let sanitized = Self::sanitize_path(input);
+        let normalized_input = sanitized.replace('\\', "/").to_lowercase();
         let resolved = if Path::new(&sanitized).is_absolute() {
             PathBuf::from(&sanitized)
         } else {
@@ -64,6 +65,14 @@ impl PathManager {
         let normalized = resolved.to_string_lossy().replace('\\', "/").to_lowercase();
         let dangerous = normalized.contains("/windows/system32")
             || normalized.contains("/windows/syswow64")
+            || normalized_input == "/etc"
+            || normalized_input.starts_with("/etc/")
+            || normalized_input == "/bin"
+            || normalized_input.starts_with("/bin/")
+            || normalized_input == "/usr/bin"
+            || normalized_input.starts_with("/usr/bin/")
+            || normalized_input == "/sbin"
+            || normalized_input.starts_with("/sbin/")
             || normalized.starts_with("/etc/")
             || normalized.starts_with("/bin/")
             || normalized.starts_with("/usr/bin")

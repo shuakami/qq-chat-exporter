@@ -4,6 +4,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use crate::fetcher::{MessageFetchApi, Peer};
+use crate::parser::ForwardFetcher;
 
 /// bridge 调用错误。
 #[derive(Debug, thiserror::Error)]
@@ -238,6 +239,63 @@ impl NapCatBridgeClient {
     ) -> Result<Value, BridgeError> {
         self.call("PacketApi.getGroupFileUrl", json!([group_code, file_id]))
             .await
+    }
+}
+
+fn extract_forward_messages(value: &Value) -> Option<Vec<Value>> {
+    [
+        value.get("msgList"),
+        value.get("messages"),
+        value.get("data").and_then(|data| data.get("messages")),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(Value::as_array)
+    .cloned()
+}
+
+#[async_trait::async_trait]
+impl ForwardFetcher for NapCatBridgeClient {
+    async fn get_multi_msg(
+        &self,
+        chat_type: i64,
+        peer_uid: &str,
+        root_msg_id: &str,
+        _res_id: &str,
+    ) -> Option<Vec<Value>> {
+        let peer = json!({
+            "chatType": chat_type,
+            "peerUid": peer_uid,
+            "guildId": "",
+        });
+        self.get_multi_msg(&peer, root_msg_id, root_msg_id)
+            .await
+            .ok()
+            .and_then(|value| extract_forward_messages(&value))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_forward_messages;
+    use serde_json::json;
+
+    #[test]
+    fn extracts_forward_messages_from_supported_response_shapes() {
+        let message = json!({"msgId": "inner-1"});
+        assert_eq!(
+            extract_forward_messages(&json!({"msgList": [message.clone()]})),
+            Some(vec![message.clone()])
+        );
+        assert_eq!(
+            extract_forward_messages(&json!({"messages": [message.clone()]})),
+            Some(vec![message.clone()])
+        );
+        assert_eq!(
+            extract_forward_messages(&json!({"data": {"messages": [message]}})).map(|v| v.len()),
+            Some(1)
+        );
+        assert_eq!(extract_forward_messages(&json!({"data": {}})), None);
     }
 }
 
