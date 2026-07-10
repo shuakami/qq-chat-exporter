@@ -702,6 +702,11 @@ export class SimpleMessageParser {
 
     // 图片
     if (element.picElement) {
+      // issue #510: picSubType 0=普通图片，1=自定义表情包；缺失时不猜测、省略字段。
+      const picSubType = (element.picElement as any).picSubType;
+      const subType = typeof picSubType === 'number'
+        ? (picSubType === 1 ? 'sticker' : 'photo')
+        : undefined;
       return {
         type: 'image',
         data: {
@@ -710,7 +715,8 @@ export class SimpleMessageParser {
           width: element.picElement.picWidth,
           height: element.picElement.picHeight,
           md5: element.picElement.md5HexStr,
-          url: element.picElement.originImageUrl || ''
+          url: element.picElement.originImageUrl || '',
+          ...(subType ? { subType } : {})
         }
       };
     }

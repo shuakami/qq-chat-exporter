@@ -1308,6 +1308,13 @@ impl ModernHtmlExporter {
         let filename = str_field(data, "filename").unwrap_or_else(|| "图片".to_owned());
         let src = self.pick_resource_src(data, "images");
         if !src.is_empty() {
+            // issue #510: 自定义表情包（picSubType=1）渲染成裸贴纸，与商城表情一致。
+            if str_field(data, "subType").as_deref() == Some("sticker") {
+                return format!(
+                    "<span class=\"sticker-wrap\"><img src=\"{src}\" alt=\"{n}\" class=\"sticker sticker-img\" title=\"{n}\" loading=\"lazy\" onclick=\"showImageModal(this.src)\"></span>",
+                    n = escape_html(&filename)
+                );
+            }
             // Issue #311: 当 src 为 data URI 时直接传入会让 HTML 体积翻倍，
             // 并可能造成 onclick 字符串字面量超长引发解析问题。改为从 this.src
             // 读取，对外链与 data URI 行为一致。
