@@ -267,8 +267,7 @@ jobs:
           path: napcat-plugin-qce.zip
           retention-days: 7
 
-  build-installer-package:
-    needs: [build-frontend, build-server-binaries]
+  build-installer-binaries:
     runs-on: windows-latest
     defaults:
       run:
@@ -301,18 +300,6 @@ jobs:
             uninstaller/src-tauri
           shared-key: qce-installer-windows-x64
 
-      - name: "Download frontend artifact"
-        uses: actions/download-artifact@v4
-        with:
-          name: qce-frontend-out
-          path: qce-v4-tool/out
-
-      - name: "Download Windows Rust server artifact"
-        uses: actions/download-artifact@v4
-        with:
-          name: qce-server-windows-x64
-          path: prebuilt-server
-
       - name: "Sync installer versions from tag"
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
@@ -331,27 +318,6 @@ jobs:
           npm install
           npm run tauri build -- --no-bundle
 
-      - name: "Build embedded Shell package"
-        run: python scripts/quick-pack.py
-        env:
-          NODE_ENV: production
-          NODE_OPTIONS: --max-old-space-size=4096
-          QCE_VERSION: ${{ github.ref_name }}
-          QCE_FRONTEND_OUT: qce-v4-tool/out
-          QCE_SERVER_BINARY: prebuilt-server/qce-server.exe
-
-      - name: "Inject uninstaller into Shell package"
-        run: |
-          UNINSTALLER="uninstaller/src-tauri/target/release/qce-uninstaller.exe"
-          PKG=$(ls NapCat-QCE-Windows-x64-*.zip 2>/dev/null | head -1 || true)
-          if [ -z "$PKG" ] || [ ! -f "$UNINSTALLER" ]; then
-            echo "FAIL: Shell package or uninstaller not found (PKG=$PKG, UNINSTALLER=$UNINSTALLER)"
-            exit 1
-          fi
-          TOP_DIR=$(python3 -c "import zipfile,sys;z=zipfile.ZipFile(sys.argv[1]);print(z.namelist()[0].split('/')[0])" "$PKG")
-          python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'a'); z.write(sys.argv[2], sys.argv[3]+'/Uninstall QQ Chat Exporter.exe'); z.close()" "$PKG" "$UNINSTALLER" "$TOP_DIR"
-          echo "PASS: Injected uninstaller into $PKG under $TOP_DIR/"
-
       - name: "Install installer dependencies"
         run: npm install
         working-directory: installer
@@ -360,25 +326,70 @@ jobs:
         run: npm run tauri build -- --no-bundle
         working-directory: installer
 
-      - name: "Stage installer artifact"
+      - name: "Stage installer binaries"
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
           mkdir -p installer/dist-installer
-          OUT="installer/dist-installer/QQChatExporter-Installer-${VERSION}.exe"
-          cp "installer/src-tauri/target/release/qce-installer.exe" "$OUT"
-          PKG=$(ls NapCat-QCE-Windows-x64-*.zip 2>/dev/null | head -1 || true)
-          if [ -z "$PKG" ]; then
-            echo "FAIL: Embedded Shell package not found"
+          INSTALLER="installer/src-tauri/target/release/qce-installer.exe"
+          UNINSTALLER="uninstaller/src-tauri/target/release/qce-uninstaller.exe"
+          if [ ! -f "$INSTALLER" ] || [ ! -f "$UNINSTALLER" ]; then
+            echo "FAIL: Installer binaries not found (INSTALLER=$INSTALLER, UNINSTALLER=$UNINSTALLER)"
             exit 1
           fi
-          cat "$PKG" >> "$OUT"
+          cp "$INSTALLER" "installer/dist-installer/QQChatExporter-Installer-${VERSION}.exe"
+          cp "$UNINSTALLER" "installer/dist-installer/qce-uninstaller.exe"
           ls -lh installer/dist-installer
+
+      - name: "Upload installer binary artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: qce-installer-binaries
+          path: installer/dist-installer/*.exe
+          retention-days: 7
+
+  build-installer-package:
+    needs: [build-installer-binaries, build-shell-packages]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: "Download installer binary artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: qce-installer-binaries
+          path: installer-binaries
+
+      - name: "Download Windows Shell package artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: NapCat-QCE-Windows-x64
+          path: shell-package
+
+      - name: "Build embedded installer artifact"
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          INSTALLER="installer-binaries/QQChatExporter-Installer-${VERSION}.exe"
+          UNINSTALLER="installer-binaries/qce-uninstaller.exe"
+          PKG=$(ls shell-package/NapCat-QCE-Windows-x64-*.zip 2>/dev/null | head -1 || true)
+          if [ -z "$PKG" ] || [ ! -f "$INSTALLER" ] || [ ! -f "$UNINSTALLER" ]; then
+            echo "FAIL: Missing input artifact (PKG=$PKG, INSTALLER=$INSTALLER, UNINSTALLER=$UNINSTALLER)"
+            exit 1
+          fi
+          TOP_DIR=$(python3 -c "import zipfile,sys;z=zipfile.ZipFile(sys.argv[1]);print(z.namelist()[0].split('/')[0])" "$PKG")
+          python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'a'); z.write(sys.argv[2], sys.argv[3]+'/Uninstall QQ Chat Exporter.exe'); z.close()" "$PKG" "$UNINSTALLER" "$TOP_DIR"
+          mkdir -p dist-installer
+          OUT="dist-installer/QQChatExporter-Installer-${VERSION}.exe"
+          cp "$INSTALLER" "$OUT"
+          cat "$PKG" >> "$OUT"
+          ls -lh dist-installer
 
       - name: "Upload installer artifact"
         uses: actions/upload-artifact@v4
         with:
           name: qce-installer-windows
-          path: installer/dist-installer/*.exe
+          path: dist-installer/*.exe
           retention-days: 7
 
   build-docker-image:
@@ -585,11 +596,11 @@ jobs:
           name: ${{ github.ref_name }}
           body_path: RELEASE_NOTES.md
           files: |
-            release-files/QQChatExporter-Installer-${{ github.ref_name }}.exe
             release-files/NapCat-QCE-Windows-x64-${{ github.ref_name }}.zip
             release-files/NapCat-QCE-Linux-x64-${{ github.ref_name }}.tar.gz
             release-files/NapCat-Framework-QCE-${{ github.ref_name }}.zip
             release-files/napcat-plugin-qce.zip
+            release-files/QQChatExporter-Installer-${{ github.ref_name }}.exe
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           generate_release_notes: false
