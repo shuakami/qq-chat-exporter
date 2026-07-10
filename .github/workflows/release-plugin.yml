@@ -87,7 +87,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: qq-chat-export-server
-          key: release-${{ matrix.platform }}-${{ matrix.arch }}
+          shared-key: qce-server-${{ matrix.platform }}-${{ matrix.arch }}
 
       - name: "Build Rust server"
         run: cargo build --release
