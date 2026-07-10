@@ -162,5 +162,5 @@ test('embedResourcesAsDataUri=true: audio file is inlined as data URI with audio
         embed: true
     });
 
-    assert.match(html, /<audio src="data:audio\/silk;base64,[A-Za-z0-9+/=]+"/);
+    assert.match(html, /class="voice-bubble" data-src="data:audio\/silk;base64,[A-Za-z0-9+/=]+"/);
 });
