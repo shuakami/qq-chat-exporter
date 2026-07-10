@@ -495,16 +495,28 @@ impl SimpleMessageParser {
 
         // 图片
         if let Some(pe) = v_get(element, "picElement").filter(|v| !v.is_null()) {
+            // issue #510: picSubType 0=普通图片，1=自定义表情包；缺失时不猜测、省略字段。
+            let sub_type = v_get(pe, "picSubType").and_then(Value::as_i64).map(|v| {
+                if v == 1 {
+                    "sticker"
+                } else {
+                    "photo"
+                }
+            });
+            let mut data = json!({
+                "filename": v_str(pe, "fileName").filter(|s| !s.is_empty()).unwrap_or("图片"),
+                "size": parse_size_value(v_get(pe, "fileSize")),
+                "width": v_get(pe, "picWidth").cloned().unwrap_or(Value::Null),
+                "height": v_get(pe, "picHeight").cloned().unwrap_or(Value::Null),
+                "md5": v_get(pe, "md5HexStr").cloned().unwrap_or(Value::Null),
+                "url": v_str(pe, "originImageUrl").unwrap_or("")
+            });
+            if let (Some(st), Some(obj)) = (sub_type, data.as_object_mut()) {
+                obj.insert("subType".to_string(), json!(st));
+            }
             return Some(MessageElement {
                 element_type: "image".to_string(),
-                data: json!({
-                    "filename": v_str(pe, "fileName").filter(|s| !s.is_empty()).unwrap_or("图片"),
-                    "size": parse_size_value(v_get(pe, "fileSize")),
-                    "width": v_get(pe, "picWidth").cloned().unwrap_or(Value::Null),
-                    "height": v_get(pe, "picHeight").cloned().unwrap_or(Value::Null),
-                    "md5": v_get(pe, "md5HexStr").cloned().unwrap_or(Value::Null),
-                    "url": v_str(pe, "originImageUrl").unwrap_or("")
-                }),
+                data,
             });
         }
 
