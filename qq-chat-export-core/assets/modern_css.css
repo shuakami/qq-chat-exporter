@@ -4,35 +4,35 @@
         /* CSS Variables for Theme */
         :root {
             --bg-primary: #ffffff;
-            --bg-secondary: #f5f5f7;
-            --text-primary: #1d1d1f;
-            --text-secondary: #86868b;
+            --bg-secondary: rgba(0, 0, 0, 0.04);
+            --text-primary: #262626;
+            --text-secondary: #6d6d6d;
             --border-color: rgba(0, 0, 0, 0.08);
             --shadow: rgba(0, 0, 0, 0.05);
-            --bubble-other: #f2f2f7;
-            --bubble-self: #d1e9ff;
-            --bubble-self-text: #1d1d1f;
+            --bubble-other: rgba(0, 0, 0, 0.04);
+            --bubble-self: #262626;
+            --bubble-self-text: #fafafa;
             --at-mention-bg: rgba(29, 29, 31, 0.1);
-            --at-mention-text: #1d1d1f;
+            --at-mention-text: #262626;
             --reply-bg: rgba(29, 29, 31, 0.05);
             --reply-border: rgba(29, 29, 31, 0.25);
             --footer-gradient: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.02) 100%);
             --chat-scale: 1;
-            --message-font-size: calc(17px * var(--chat-scale));
-            --message-sender-size: calc(14px * var(--chat-scale));
-            --message-time-size: calc(12px * var(--chat-scale));
+            --message-font-size: calc(14px * var(--chat-scale));
+            --message-sender-size: calc(11px * var(--chat-scale));
+            --message-time-size: calc(11px * var(--chat-scale));
         }
         
         [data-theme="dark"] {
-            --bg-primary: #000000;
-            --bg-secondary: #1c1c1e;
-            --text-primary: #f5f5f7;
-            --text-secondary: #98989f;
-            --border-color: rgba(255, 255, 255, 0.12);
+            --bg-primary: #161616;
+            --bg-secondary: rgba(255, 255, 255, 0.04);
+            --text-primary: #f5f5f5;
+            --text-secondary: #8f8f8f;
+            --border-color: rgba(255, 255, 255, 0.06);
             --shadow: rgba(0, 0, 0, 0.3);
-            --bubble-other: #1c1c1e;
-            --bubble-self: #2d5a7b;
-            --bubble-self-text: #e3f2fd;
+            --bubble-other: rgba(255, 255, 255, 0.04);
+            --bubble-self: #f5f5f5;
+            --bubble-self-text: #262626;
             --at-mention-bg: rgba(245, 245, 247, 0.15);
             --at-mention-text: #f5f5f7;
             --reply-bg: rgba(255, 255, 255, 0.08);
@@ -688,24 +688,32 @@
         }
         
         .message-block {
-            margin-bottom: 32px;
+            margin-bottom: 10px;
         }
+        /* 日期分隔 / 系统行：居中的小号灰色文字（对齐 demo .sysrow/.sys） */
         .date-divider {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin: 32px 0 16px;
-            text-transform: uppercase;
-            font-size: 12px;
-            letter-spacing: 0.1em;
+            text-align: center;
+            padding: 12px 0;
+            margin: 0;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.01em;
             color: var(--text-secondary);
         }
-        .date-divider::before,
-        .date-divider::after {
-            content: '';
-            flex: 1;
-            height: 1px;
-            background: var(--border-color);
+        .system-message-container {
+            text-align: center;
+            padding: 6px 0;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+            color: var(--text-secondary);
+        }
+        .system-message-container .text-content { font-size: 11px; }
+        .system-message-time {
+            color: var(--text-secondary);
+            opacity: 0.7;
+            font-size: 10px;
+            margin-top: 2px;
         }
         .message {
             margin-bottom: 0;
@@ -721,8 +729,8 @@
         }
         
         .avatar {
-            width: 34px;
-            height: 34px;
+            width: 30px;
+            height: 30px;
             border-radius: 50%;
             background: var(--bg-secondary);
             flex-shrink: 0;
@@ -740,14 +748,14 @@
             max-width: 62%;
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 3px;
         }
         .message.self .message-wrapper { align-items: flex-end; }
         
         .message-header {
             display: flex;
             align-items: baseline;
-            gap: 8px;
+            gap: 6px;
             padding: 0 2px;
         }
         
@@ -757,21 +765,22 @@
         
         .sender {
             font-size: 11px;
-            font-weight: 500;
+            font-weight: 400;
             color: var(--text-secondary);
         }
 
-        /* 群头衔徽章（issue #331） */
+        /* 群头衔徽章（issue #331）：中性描边小标签，对齐 demo 的克制配色 */
         .sender-title {
             display: inline-block;
-            font-size: 11px;
-            font-weight: 600;
+            font-size: 10px;
+            font-weight: 500;
             line-height: 1.4;
-            color: #fff;
-            background: linear-gradient(135deg, #ff7a59, #ff4d4f);
-            padding: 1px 6px;
-            border-radius: 4px;
-            margin-right: 6px;
+            color: var(--text-secondary);
+            background: transparent;
+            border: 1px solid var(--border-color);
+            padding: 0 5px;
+            border-radius: 999px;
+            margin-right: 4px;
             white-space: nowrap;
         }
 
@@ -813,7 +822,7 @@
         /* 去掉消息角 - 直接用圆角矩形 */
         
         .content {
-            font-size: 14px;
+            font-size: var(--message-font-size);
             line-height: 1.6;
         }
         
@@ -1201,18 +1210,8 @@
                 padding: 48px 24px 80px;
             }
             
-            .message {
-                margin-bottom: 28px;
-                gap: 12px;
-            }
-            
-            .avatar {
-                width: 38px;
-                height: 38px;
-            }
-            
             .message-wrapper {
-                max-width: 75%;
+                max-width: 80%;
             }
         }
         
@@ -1414,6 +1413,6 @@
         .fsize { font-size: 11px; opacity: .65; }
 
         /* 表情包 / 商城表情 */
-        .sticker-wrap { width: fit-content; padding: 2px 0; }
+        .sticker-wrap { width: fit-content; padding: 2px 0; display: block; }
         img.sticker { display: block; }
-        img.sticker-img { width: 120px; height: 120px; object-fit: contain; border-radius: 10px; }
+        img.sticker-img { width: 130px; height: 130px; object-fit: contain; border-radius: 10px; }
