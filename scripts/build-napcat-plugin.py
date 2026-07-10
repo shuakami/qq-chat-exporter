@@ -32,7 +32,7 @@ PLUGIN_ID = "napcat-plugin-qce"
 PLUGIN_DISPLAY_NAME = "QQ 聊天记录导出"
 SOURCE_PLUGIN_DIR = Path("plugins/qq-chat-exporter")
 FRONTEND_DIR = Path("qce-v4-tool")
-FRONTEND_OUT_DIR = FRONTEND_DIR / "out"
+FRONTEND_OUT_DIR = Path(os.environ.get("QCE_FRONTEND_OUT", FRONTEND_DIR / "out"))
 
 
 def get_qce_version() -> str:
@@ -52,6 +52,9 @@ def ensure_frontend_built() -> None:
     if (FRONTEND_OUT_DIR / "index.html").exists():
         print(f"[PASS] Frontend found at {FRONTEND_OUT_DIR}")
         return
+
+    if os.environ.get("QCE_FRONTEND_OUT"):
+        sys.exit(f"[ERROR] QCE_FRONTEND_OUT is missing index.html: {FRONTEND_OUT_DIR}")
 
     print("[INFO] Frontend is missing; starting build")
     pnpm_cmd = "pnpm.cmd" if platform.system() == "Windows" else "pnpm"

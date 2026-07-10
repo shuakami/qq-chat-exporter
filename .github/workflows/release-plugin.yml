@@ -28,7 +28,80 @@ jobs:
           echo "version=${NAPCAT_VERSION}" >> $GITHUB_OUTPUT
           echo "检测到 NapCat 版本: ${NAPCAT_VERSION}"
 
+  build-frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+
+      - name: "Setup pnpm"
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: "Setup Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: pnpm
+          cache-dependency-path: qce-v4-tool/pnpm-lock.yaml
+
+      - name: "Build frontend"
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+        working-directory: qce-v4-tool
+
+      - name: "Upload frontend artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: qce-frontend-out
+          path: qce-v4-tool/out
+          retention-days: 7
+
+  build-server-binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            binary_path: qq-chat-export-server/target/release/qce-server
+          - os: windows-latest
+            platform: windows
+            arch: x64
+            binary_path: qq-chat-export-server/target/release/qce-server.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+
+      - name: "Setup Rust"
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: "Restore Rust cache"
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: qq-chat-export-server
+          key: release-${{ matrix.platform }}-${{ matrix.arch }}
+
+      - name: "Build Rust server"
+        run: cargo build --release
+        working-directory: qq-chat-export-server
+
+      - name: "Upload Rust server artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: qce-server-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ matrix.binary_path }}
+          retention-days: 7
+
   build-shell-packages:
+    needs: [build-frontend, build-server-binaries]
     strategy:
       matrix:
         include:
@@ -36,10 +109,14 @@ jobs:
             platform: Windows
             arch: x64
             artifact_ext: zip
+            server_artifact: qce-server-windows-x64
+            server_binary: qce-server.exe
           - os: ubuntu-latest
             platform: Linux
             arch: x64
             artifact_ext: tar.gz
+            server_artifact: qce-server-linux-x64
+            server_binary: qce-server
     
     runs-on: ${{ matrix.os }}
     
@@ -53,19 +130,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20.x
-      
-      - name: "Setup pnpm"
-        uses: pnpm/action-setup@v4
-        with:
-          version: 8
 
-      - name: "Setup Rust"
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: "Rust 缓存"
-        uses: swatinem/rust-cache@v2
+      - name: "Download frontend artifact"
+        uses: actions/download-artifact@v4
         with:
-          workspaces: qq-chat-export-server
+          name: qce-frontend-out
+          path: qce-v4-tool/out
+
+      - name: "Download Rust server artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.server_artifact }}
+          path: prebuilt-server
       
       - name: "Sync version from tag"
         run: |
@@ -80,8 +156,10 @@ jobs:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=4096
           QCE_VERSION: ${{ github.ref_name }}
+          QCE_FRONTEND_OUT: qce-v4-tool/out
+          QCE_SERVER_BINARY: prebuilt-server/${{ matrix.server_binary }}
       
-      - name: "上传 Shell 构建产物"
+      - name: "Upload Shell package artifact"
         uses: actions/upload-artifact@v4
         with:
           name: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}
@@ -89,6 +167,7 @@ jobs:
           retention-days: 7
 
   build-framework-package:
+    needs: [build-frontend, build-server-binaries]
     runs-on: ubuntu-latest
     
     steps:
@@ -101,33 +180,28 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20.x
-      
-      - name: "Setup pnpm"
-        uses: pnpm/action-setup@v4
-        with:
-          version: 8
 
-      - name: "Setup Rust"
-        uses: dtolnay/rust-toolchain@stable
+      - name: "Download frontend artifact"
+        uses: actions/download-artifact@v4
         with:
-          targets: x86_64-pc-windows-gnu
+          name: qce-frontend-out
+          path: qce-v4-tool/out
 
-      - name: "Install Windows cross compiler"
-        run: sudo apt-get update && sudo apt-get install -y mingw-w64
-      
-      - name: "Build Frontend"
-        run: |
-          cd qce-v4-tool
-          pnpm install
-          pnpm run build
+      - name: "Download Windows Rust server artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: qce-server-windows-x64
+          path: prebuilt-server
       
       - name: "Build Framework package"
         run: python3 scripts/build-framework-plugin.py
         env:
           NODE_ENV: production
           QCE_VERSION: ${{ github.ref_name }}
+          QCE_FRONTEND_OUT: qce-v4-tool/out
+          QCE_SERVER_WINDOWS_X64: prebuilt-server/qce-server.exe
       
-      - name: "上传 Framework 构建产物"
+      - name: "Upload Framework package artifact"
         uses: actions/upload-artifact@v4
         with:
           name: NapCat-Framework-QCE
@@ -135,6 +209,7 @@ jobs:
           retention-days: 7
 
   build-napcat-plugin:
+    needs: [build-frontend, build-server-binaries]
     runs-on: ubuntu-latest
 
     steps:
@@ -148,30 +223,29 @@ jobs:
         with:
           node-version: 20.x
 
-      - name: "Setup pnpm"
-        uses: pnpm/action-setup@v4
+      - name: "Download frontend artifact"
+        uses: actions/download-artifact@v4
         with:
-          version: 8
+          name: qce-frontend-out
+          path: qce-v4-tool/out
 
-      - name: "Setup Rust"
-        uses: dtolnay/rust-toolchain@stable
+      - name: "Download Linux Rust server artifact"
+        uses: actions/download-artifact@v4
         with:
-          targets: x86_64-pc-windows-gnu
+          name: qce-server-linux-x64
+          path: prebuilt-server/linux
 
-      - name: "Install Windows cross compiler"
-        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+      - name: "Download Windows Rust server artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: qce-server-windows-x64
+          path: prebuilt-server/windows
 
       - name: "Sync version from tag"
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
           node scripts/sync-version.js "$VERSION"
         shell: bash
-
-      - name: "Build Frontend"
-        run: |
-          cd qce-v4-tool
-          pnpm install
-          pnpm run build
 
       - name: "Generate NapCatQQ overlay runtime"
         run: node tools/create-overlay-runtime.cjs
@@ -182,8 +256,11 @@ jobs:
         env:
           NODE_ENV: production
           QCE_VERSION: ${{ github.ref_name }}
+          QCE_FRONTEND_OUT: qce-v4-tool/out
+          QCE_SERVER_LINUX_X64: prebuilt-server/linux/qce-server
+          QCE_SERVER_WINDOWS_X64: prebuilt-server/windows/qce-server.exe
 
-      - name: "上传 NapCat 插件构建产物"
+      - name: "Upload NapCat plugin artifact"
         uses: actions/upload-artifact@v4
         with:
           name: napcat-plugin-qce
