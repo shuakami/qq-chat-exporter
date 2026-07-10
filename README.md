@@ -33,7 +33,7 @@
 
 如果导出聊天记录后，想深入分析聊天内容可以试试 [ChatLab](https://chatlab.fun/cn)
 
-如果需要QCE 导出自动导入 ChatLab，支持定时同步可尝试[QCE2ChatLab](https://github.com/Ruoan-486/QCE2Chatlab)
+如果需要把 QCE 导出自动导入 ChatLab（支持定时同步），可以试试 [QCE2ChatLab](https://github.com/Ruoan-486/QCE2Chatlab)
 
 也可以试试 [QQChatAnalyzer](https://github.com/CutrelyAlex/QQChatAnalyzer) - 支持个人分析、群聊分析、社交网络可视化和 AI 摘要
 
