@@ -23,7 +23,7 @@ const repoRoot = resolve(__dirname, '..');
 async function main() {
     const port = parseInt(process.argv[2]) || 40653;
     
-    console.log('[QCE] 正在启动独立模式...');
+    console.log('[QCE] Starting standalone mode');
     
     try {
         const binary = join(
@@ -39,7 +39,7 @@ async function main() {
             stdio: 'inherit',
         });
         child.on('error', (error) => {
-            console.error('[QCE] 启动失败:', error);
+            console.error('[QCE] Standalone startup failed:', error);
             process.exit(1);
         });
         child.on('exit', (code, signal) => {
@@ -49,8 +49,8 @@ async function main() {
         process.on('SIGINT', stop);
         process.on('SIGTERM', stop);
     } catch (error) {
-        console.error('[QCE] 启动失败:', error);
-        console.error('\n请先构建 Rust 服务:');
+        console.error('[QCE] Standalone startup failed:', error);
+        console.error('\nBuild the Rust server first:');
         console.error('  cargo build --release --manifest-path qq-chat-export-server/Cargo.toml');
         process.exit(1);
     }

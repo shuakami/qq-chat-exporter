@@ -80,15 +80,15 @@ def build_rust_server(pack_dir):
     """Build the Rust server (qce-server) and place it in the package root."""
     exe_name = "qce-server.exe" if platform.system() == "Windows" else "qce-server"
     if not run_command(["cargo", "build", "--release"], cwd="qq-chat-export-server"):
-        print("[!] Rust server build failed")
+        print("[FAIL] Rust server build failed")
         sys.exit(1)
     src = os.path.join("qq-chat-export-server", "target", "release", exe_name)
     if not os.path.exists(src):
-        print(f"[!] Rust server binary not found: {src}")
+        print(f"[FAIL] Rust server binary not found: {src}")
         sys.exit(1)
     dest = os.path.join(pack_dir, exe_name)
     shutil.copy2(src, dest)
-    print(f"[x] Added Rust server binary: {dest}")
+    print(f"[PASS] Rust server binary added: {dest}")
 
 def extract_zip(zip_path, dest_dir):
     """Extract ZIP file"""
@@ -826,14 +826,14 @@ async function main() {
         process.platform === 'win32' ? 'qce-server.exe' : 'qce-server'
     );
 
-    console.log('[QCE] 正在启动独立模式...');
+    console.log('[QCE] Starting standalone mode');
     const child = spawn(binary, [], {
         cwd: packageRoot,
         env: { ...process.env, QCE_SERVER_PORT: String(port) },
         stdio: 'inherit'
     });
     child.on('error', (error) => {
-        console.error('[QCE] 启动失败:', error);
+        console.error('[QCE] Standalone startup failed:', error);
         process.exit(1);
     });
     child.on('exit', (code, signal) => {
