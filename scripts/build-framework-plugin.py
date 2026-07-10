@@ -14,6 +14,7 @@ import platform
 from pathlib import Path
 from urllib.request import urlretrieve, urlopen
 from datetime import datetime
+from plugin_runtime import copy_windows_server_binary, stage_plugin_runtime
 
 SOURCE_PLUGIN_DIR = "plugins/qq-chat-exporter"
 RUNTIME_PLUGIN_ID = "napcat-plugin-qce"
@@ -136,42 +137,17 @@ def main():
     # Copy QCE plugin
     print("[5/8] Copying QCE plugin...")
     qce_dest = os.path.join(plugins_dir, RUNTIME_PLUGIN_ID)
-    shutil.copytree(SOURCE_PLUGIN_DIR, qce_dest)
-    rewrite_runtime_plugin_package(qce_dest)
+    stage_plugin_runtime(
+        Path(SOURCE_PLUGIN_DIR),
+        Path(qce_dest),
+        RUNTIME_PLUGIN_ID,
+        qce_version,
+    )
     print("[x] Done")
     print()
-    
-    # Install plugin dependencies
-    print("[6/8] Installing plugin dependencies...")
-    os_name = platform.system()
-    npm_cmd = ["npm.cmd" if os_name == "Windows" else "npm", "install", "--omit=dev"]
-    if not run_command(npm_cmd, cwd=qce_dest):
-        print("[!] Dependency install failed")
-        sys.exit(1)
-    print("[x] Done")
-    print()
-
-    # Ensure the Windows esbuild binary is bundled. The Framework package only
-    # ever runs on Windows desktop QQ, but `npm install` on a Linux runner would
-    # fetch the linux-x64 esbuild binary, so tsx fails to load esbuild and the
-    # API server never starts. Drop the win32 binaries in explicitly.
-    print("[6.5/8] Bundling Windows esbuild binary...")
-    ensure_cmd = ["node.exe" if os_name == "Windows" else "node",
-                  "scripts/ensure-esbuild-platforms.mjs", qce_dest,
-                  "win32-x64,win32-arm64"]
-    if not run_command(ensure_cmd):
-        print("[!] esbuild platform bundling failed")
-        sys.exit(1)
-    print("[x] Done")
-    print()
-
-    # Generate overlay runtime
-    print("[7/8] Generating overlay runtime...")
-    node_cmd = ["node.exe" if os_name == "Windows" else "node", "tools/create-overlay-runtime.cjs"]
-    if not run_command(node_cmd, cwd=qce_dest):
-        print("[!] Overlay generation failed")
-        sys.exit(1)
-    print("[x] Done")
+    print("[INFO] Building Rust server")
+    copy_windows_server_binary(Path(output_dir))
+    print("[PASS] Rust server built")
     print()
     
     # Update napcat.json config to enable QCE plugin
@@ -214,6 +190,7 @@ def main():
         print("[x] Done")
     else:
         print("[-] Frontend not built, building...")
+        os_name = platform.system()
         pnpm_cmd = "pnpm.cmd" if os_name == "Windows" else "pnpm"
         run_command([pnpm_cmd, "install"], cwd="qce-v4-tool")
         run_command([pnpm_cmd, "run", "build"], cwd="qce-v4-tool")

@@ -477,7 +477,7 @@ export default OneBotMsgApi;
 `
 };
 
-console.log('创建Overlay运行时代理文件...\n');
+console.log('[INFO] Generating NapCat overlay runtime');
 
 for (const [relPath, content] of Object.entries(FILES)) {
   const fullPath = path.join(OVERLAY_DIR, relPath);
@@ -488,8 +488,7 @@ for (const [relPath, content] of Object.entries(FILES)) {
   }
   
   fs.writeFileSync(fullPath, content, 'utf8');
-  console.log(`✓ ${relPath}`);
+  console.log(`[PASS] ${relPath}`);
 }
 
-console.log('\n✅ 所有运行时代理文件已创建');
-
+console.log('[PASS] NapCat overlay runtime generated');

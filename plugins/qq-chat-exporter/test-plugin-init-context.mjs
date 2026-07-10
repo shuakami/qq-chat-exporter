@@ -1,17 +1,6 @@
 import { pathToFileURL } from 'node:url';
 
-console.log('========================================');
-console.log('测试 plugin_init 上下文兼容');
-console.log('========================================\n');
-console.log('1. 使用命令行 --import tsx，脚本内不再 register');
-
-const originalConsoleWarn = console.warn;
-const originalSetTimeout = globalThis.setTimeout;
-const originalClearTimeout = globalThis.clearTimeout;
-
-const noopTimer = () => ({ __mockTimer: true });
-globalThis.setTimeout = noopTimer;
-globalThis.clearTimeout = () => {};
+console.log('[TEST] Plugin context compatibility');
 
 function createLogger(prefix) {
   return {
@@ -101,58 +90,45 @@ function createPluginContext() {
 
 async function run() {
   const plugin = await import(new URL('./index.mjs', import.meta.url));
-  console.log('2. 插件入口加载成功');
-
-  console.warn = (...args) => {
-    const first = String(args[0] ?? '');
-    if (first.includes('NapCatCore overlay init failed')) {
-      console.log('3. 捕获到 overlay fallback，属于预期行为');
-      return;
-    }
-    originalConsoleWarn(...args);
-  };
+  console.log('[PASS] Plugin entrypoint loaded');
 
   const ctx = createPluginContext();
   await plugin.plugin_init(ctx);
 
   const bridge = globalThis.__NAPCAT_BRIDGE__;
   if (!bridge) {
-    throw new Error('__NAPCAT_BRIDGE__ 未注入');
+    throw new Error('__NAPCAT_BRIDGE__ was not installed');
   }
   if (bridge.ctx !== ctx) {
-    throw new Error('bridge.ctx 不是原始 ctx');
+    throw new Error('bridge.ctx does not reference the original context');
   }
   if (bridge.pluginContext !== ctx) {
-    throw new Error('bridge.pluginContext 未指向原始 ctx');
+    throw new Error('bridge.pluginContext does not reference the original context');
   }
   if (bridge.core !== ctx.core) {
-    throw new Error('bridge.core 解析错误');
+    throw new Error('bridge.core was resolved incorrectly');
   }
   if (bridge.obContext !== ctx.obContext) {
-    throw new Error('bridge.obContext 解析错误');
+    throw new Error('bridge.obContext was resolved incorrectly');
   }
   if (bridge.actions !== ctx.actions) {
-    throw new Error('bridge.actions 解析错误');
+    throw new Error('bridge.actions was resolved incorrectly');
   }
 
-  console.log('4. plugin_init(ctx) 兼容通过');
+  console.log('[PASS] plugin_init accepted the context object');
 
   await plugin.plugin_cleanup();
   if (globalThis.__NAPCAT_BRIDGE__ !== undefined) {
-    throw new Error('plugin_cleanup 未清理 bridge');
+    throw new Error('plugin_cleanup did not remove the bridge');
   }
 
-  console.log('5. plugin_cleanup 清理通过');
-  console.log('\n测试通过');
+  console.log('[PASS] plugin_cleanup removed runtime state');
+  console.log('[PASS] Plugin context compatibility complete');
 }
 
 run()
   .catch((error) => {
-    console.error('\n测试失败:', error);
+    console.error('[FAIL] Plugin context compatibility');
+    console.error(error instanceof Error ? error.stack : error);
     process.exitCode = 1;
-  })
-  .finally(() => {
-    console.warn = originalConsoleWarn;
-    globalThis.setTimeout = originalSetTimeout;
-    globalThis.clearTimeout = originalClearTimeout;
   });

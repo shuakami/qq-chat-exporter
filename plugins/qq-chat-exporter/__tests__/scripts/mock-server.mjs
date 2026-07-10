@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * mock-server.mjs - launch the real QCE API server (port 40653) backed by a
- * MockNapCatCore instead of a live NapCatQQ instance.
+ * mock-server.mjs - launch qce-server (port 40653) backed by a
+ * MockNapCatCore through the production Rust bridge.
  *
  * Use this for:
  *   - Frontend development: `npm run mock:server` then point qce dev
@@ -23,12 +23,21 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PLUGIN_ROOT = path.resolve(__dirname, '../..');
+const REPO_ROOT = path.resolve(PLUGIN_ROOT, '../..');
+const SERVER_EXE = process.platform === 'win32' ? 'qce-server.exe' : 'qce-server';
+process.env.QCE_RUST_SERVER_PATH ??= path.join(
+    REPO_ROOT,
+    'qq-chat-export-server',
+    'target',
+    'release',
+    SERVER_EXE,
+);
 
 // Point tsx at the loose-mode test tsconfig so `verbatimModuleSyntax` doesn't
 // fail when the production code imports types as values.
 process.env.TSX_TSCONFIG_PATH ??= path.join(PLUGIN_ROOT, '__tests__', 'tsconfig.json');
 
-// Tell ApiServer where to put its sqlite + cache + downloads. Without this,
+// Tell qce-server where to put its database + cache + downloads. Without this,
 // it would write into the user's real home directory.
 const TMP_HOME = process.env.QCE_MOCK_HOME ?? fs.mkdtempSync(path.join(os.tmpdir(), 'qce-mock-home-'));
 process.env.HOME = TMP_HOME;
@@ -61,7 +70,7 @@ async function main() {
     const { createMockCore } = await import('../helpers/MockNapCatCore.ts');
     const { installBridge } = await import('../helpers/installBridge.ts');
     const fixtures = await import('../fixtures/conversations.ts');
-    const { QQChatExporterApiLauncher } = await import('../../lib/api/ApiLauncher.ts');
+    const { QQChatExporterApiLauncher } = await import('../../runtime/ApiLauncher.mjs');
 
     const scenario = (process.env.QCE_MOCK_SCENARIO ?? 'default').toLowerCase();
     const conversations = pickScenario(scenario, fixtures);

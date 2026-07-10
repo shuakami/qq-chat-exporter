@@ -21,13 +21,13 @@
   "scripts": {
     "gen:overlay": "node tools/gen-overlay.cjs && node tools/create-overlay-runtime.cjs",
     "fix:imports": "node tools/fix-imports.cjs && node tools/fix-ts-imports.cjs",
+    "typecheck": "tsc --noEmit --allowJs --checkJs --module NodeNext --moduleResolution NodeNext --target ES2022 --types node index.mjs runtime/ApiLauncher.mjs runtime/rustBridge.mjs",
     "pretest": "node __tests__/scripts/ensure-platform-esbuild.mjs",
     "test": "node __tests__/scripts/run-tests.mjs \"__tests__/**/*.test.ts\"",
     "test:legacy": "node test-plugin.mjs",
     "test:legacy:full": "node test-plugin-full.mjs",
     "test:unit": "node __tests__/scripts/run-tests.mjs \"__tests__/unit/**/*.test.ts\" \"__tests__/smoke.test.ts\"",
     "test:integration": "node __tests__/scripts/run-tests.mjs \"__tests__/integration/**/*.test.ts\"",
-    "test:update-snapshots": "node __tests__/scripts/run-tests.mjs --update-snapshots \"__tests__/integration/**/*.test.ts\"",
     "mock:server": "node __tests__/scripts/mock-server.mjs"
   },
   "keywords": [
@@ -39,7 +39,8 @@
     "onebot"
   ],
   "author": "shuakami",
-  "dependencies": {
+  "dependencies": {},
+  "devDependencies": {
     "@breezystack/lamejs": "^1.2.7",
     "@types/archiver": "^7.0.0",
     "archiver": "^7.0.1",
@@ -48,9 +49,6 @@
     "silk-wasm": "^3.6.1",
     "tsx": "^4.19.2",
     "ws": "^8.18.0",
-    "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.9.1",
