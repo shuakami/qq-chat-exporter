@@ -145,9 +145,9 @@ def main():
     )
     print("[x] Done")
     print()
-    print("[6/8] Building Rust server...")
+    print("[INFO] Building Rust server")
     copy_windows_server_binary(Path(output_dir))
-    print("[x] Done")
+    print("[PASS] Rust server built")
     print()
     
     # Update napcat.json config to enable QCE plugin
