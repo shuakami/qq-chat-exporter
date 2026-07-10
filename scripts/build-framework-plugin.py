@@ -182,13 +182,16 @@ def main():
     
     # Copy frontend
     print("[7.6/8] Copying frontend...")
-    frontend_out = "qce-v4-tool/out"
+    frontend_out = os.environ.get("QCE_FRONTEND_OUT", "qce-v4-tool/out")
     static_dir = os.path.join(output_dir, "static", "qce")
     
     if os.path.exists(f"{frontend_out}/index.html"):
         shutil.copytree(frontend_out, static_dir)
         print("[x] Done")
     else:
+        if os.environ.get("QCE_FRONTEND_OUT"):
+            print(f"[!] QCE_FRONTEND_OUT is missing index.html: {frontend_out}")
+            sys.exit(1)
         print("[-] Frontend not built, building...")
         os_name = platform.system()
         pnpm_cmd = "pnpm.cmd" if os_name == "Windows" else "pnpm"

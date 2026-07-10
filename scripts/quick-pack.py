@@ -12,7 +12,7 @@ import tarfile
 from pathlib import Path
 from urllib.request import urlretrieve, urlopen
 from datetime import datetime
-from plugin_runtime import stage_plugin_runtime
+from plugin_runtime import copy_native_server_binary, stage_plugin_runtime
 
 def get_qce_version():
     """Get QCE version from package.json or environment variable"""
@@ -78,16 +78,11 @@ def run_command(cmd, cwd=None, shell=False):
 
 def build_rust_server(pack_dir):
     """Build the Rust server (qce-server) and place it in the package root."""
-    exe_name = "qce-server.exe" if platform.system() == "Windows" else "qce-server"
-    if not run_command(["cargo", "build", "--release"], cwd="qq-chat-export-server"):
-        print("[FAIL] Rust server build failed")
+    try:
+        dest = copy_native_server_binary(Path(pack_dir))
+    except Exception as e:
+        print(f"[FAIL] Rust server binary staging failed: {e}")
         sys.exit(1)
-    src = os.path.join("qq-chat-export-server", "target", "release", exe_name)
-    if not os.path.exists(src):
-        print(f"[FAIL] Rust server binary not found: {src}")
-        sys.exit(1)
-    dest = os.path.join(pack_dir, exe_name)
-    shutil.copy2(src, dest)
     print(f"[PASS] Rust server binary added: {dest}")
 
 def extract_zip(zip_path, dest_dir):
@@ -648,8 +643,11 @@ pause
     
     # Copy frontend files
     print("[8/11] Copying frontend files...")
-    frontend_out = "qce-v4-tool/out"
+    frontend_out = os.environ.get("QCE_FRONTEND_OUT", "qce-v4-tool/out")
     if not os.path.exists(f"{frontend_out}/index.html"):
+        if os.environ.get("QCE_FRONTEND_OUT"):
+            print(f"[FAIL] QCE_FRONTEND_OUT is missing index.html: {frontend_out}")
+            sys.exit(1)
         print("[-] Building frontend...")
         pnpm_cmd = "pnpm.cmd" if os_name == "Windows" else "pnpm"
         run_command([pnpm_cmd, "install"], cwd="qce-v4-tool")
