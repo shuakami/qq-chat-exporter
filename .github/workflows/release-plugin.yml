@@ -267,6 +267,120 @@ jobs:
           path: napcat-plugin-qce.zip
           retention-days: 7
 
+  build-installer-package:
+    needs: [build-frontend, build-server-binaries]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: "Setup Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: "Setup pnpm"
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: "Setup Rust"
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: "Restore installer Rust cache"
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            installer/src-tauri
+            uninstaller/src-tauri
+          shared-key: qce-installer-windows-x64
+
+      - name: "Download frontend artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: qce-frontend-out
+          path: qce-v4-tool/out
+
+      - name: "Download Windows Rust server artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: qce-server-windows-x64
+          path: prebuilt-server
+
+      - name: "Sync installer versions from tag"
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          node scripts/sync-version.js "$VERSION"
+          VERSION="${VERSION#v}"
+          cd installer
+          node -e "const f='src-tauri/tauri.conf.json';const j=require('./'+f);j.version='${VERSION}';require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
+          cd ../uninstaller
+          node -e "const f='src-tauri/tauri.conf.json';const j=require('./'+f);j.version='${VERSION}';require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
+
+      - name: "Build uninstaller"
+        run: |
+          cd uninstaller
+          npm install
+          npm run tauri build -- --no-bundle
+
+      - name: "Build embedded Shell package"
+        run: python scripts/quick-pack.py
+        env:
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=4096
+          QCE_VERSION: ${{ github.ref_name }}
+          QCE_FRONTEND_OUT: qce-v4-tool/out
+          QCE_SERVER_BINARY: prebuilt-server/qce-server.exe
+
+      - name: "Inject uninstaller into Shell package"
+        run: |
+          UNINSTALLER="uninstaller/src-tauri/target/release/qce-uninstaller.exe"
+          PKG=$(ls NapCat-QCE-Windows-x64-*.zip 2>/dev/null | head -1 || true)
+          if [ -z "$PKG" ] || [ ! -f "$UNINSTALLER" ]; then
+            echo "FAIL: Shell package or uninstaller not found (PKG=$PKG, UNINSTALLER=$UNINSTALLER)"
+            exit 1
+          fi
+          TOP_DIR=$(python3 -c "import zipfile,sys;z=zipfile.ZipFile(sys.argv[1]);print(z.namelist()[0].split('/')[0])" "$PKG")
+          python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'a'); z.write(sys.argv[2], sys.argv[3]+'/Uninstall QQ Chat Exporter.exe'); z.close()" "$PKG" "$UNINSTALLER" "$TOP_DIR"
+          echo "PASS: Injected uninstaller into $PKG under $TOP_DIR/"
+
+      - name: "Install installer dependencies"
+        run: npm install
+        working-directory: installer
+
+      - name: "Build Tauri installer"
+        run: npm run tauri build -- --no-bundle
+        working-directory: installer
+
+      - name: "Stage installer artifact"
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          mkdir -p installer/dist-installer
+          OUT="installer/dist-installer/QQChatExporter-Installer-${VERSION}.exe"
+          cp "installer/src-tauri/target/release/qce-installer.exe" "$OUT"
+          PKG=$(ls NapCat-QCE-Windows-x64-*.zip 2>/dev/null | head -1 || true)
+          if [ -z "$PKG" ]; then
+            echo "FAIL: Embedded Shell package not found"
+            exit 1
+          fi
+          cat "$PKG" >> "$OUT"
+          ls -lh installer/dist-installer
+
+      - name: "Upload installer artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: qce-installer-windows
+          path: installer/dist-installer/*.exe
+          retention-days: 7
+
   build-docker-image:
     runs-on: ubuntu-latest
     needs: [get-napcat-version]
@@ -295,7 +409,7 @@ jobs:
             ghcr.io/shuakami/napcat-qce:${{ github.ref_name }}
 
   create-release:
-    needs: [get-napcat-version, build-shell-packages, build-framework-package, build-napcat-plugin]
+    needs: [get-napcat-version, build-shell-packages, build-framework-package, build-napcat-plugin, build-installer-package]
     runs-on: ubuntu-latest
     
     steps:
@@ -315,10 +429,17 @@ jobs:
         with:
           path: artifacts/napcat-plugin-qce
           name: napcat-plugin-qce
+
+      - name: "Download Windows installer artifact"
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/qce-installer-windows
+          name: qce-installer-windows
       
       - name: "准备发布文件"
         run: |
           mkdir -p release-files
+          find artifacts/qce-installer-windows -type f -name "*.exe" -exec cp {} release-files/ \; 2>/dev/null || true
           find artifacts/NapCat-QCE-Windows-x64 -type f -name "*.zip" -exec cp {} release-files/ \; 2>/dev/null || true
           find artifacts/NapCat-QCE-Linux-x64 -type f -name "*.tar.gz" -exec cp {} release-files/ \; 2>/dev/null || true
           find artifacts/NapCat-Framework-QCE -type f -name "*.zip" -exec cp {} release-files/ \; 2>/dev/null || true

@@ -1,12 +1,6 @@
 name: 构建 QCE 安装器 (Tauri / Windows)
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
-      - 'v*.*.*-alpha.*'
-      - 'v*.*.*-beta.*'
-      - 'v*.*.*-rc.*'
   pull_request:
     paths:
       - 'installer/**'
