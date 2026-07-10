@@ -30,6 +30,12 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Restore Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: qq-chat-export-server
+          shared-key: qce-server-${{ matrix.platform == 'Windows' && 'windows' || 'linux' }}-${{ matrix.arch }}
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
