@@ -412,7 +412,7 @@ export default function Viewer(): React.ReactElement {
     engineRef.current = engine;
     let refreshQueued = false;
     store.onChunkLoaded = () => {
-      setLoadedChunks(store.cacheSize());
+      setLoadedChunks(store.loadedChunkCount());
       if (refreshQueued) return;
       refreshQueued = true;
       requestAnimationFrame(() => {
@@ -750,7 +750,9 @@ export default function Viewer(): React.ReactElement {
                 </SelectTrigger>
                 <SelectPopup>
                   <SelectItem value="">全部成员</SelectItem>
-                  {manifest.senders.map((sd) => (
+                  {manifest.senders
+                    .filter((sd) => sd.uid && sd.uid !== '未知' && sd.displayName !== '0')
+                    .map((sd) => (
                     <SelectItem key={sd.uid} value={sd.uid}>
                       <span className="flex items-center gap-2">
                         <SenderDot name={sd.displayName} avatar={sd.avatar ?? undefined} />

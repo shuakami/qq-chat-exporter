@@ -131,6 +131,13 @@ for (let i = 0; i < TOTAL; i++) {
   } else if (mod === 23) {
     content = `<a href="resources/file_${i}.zip" class="message-file file-bubble" download="报表_${i}.zip"><span class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18M9 6h1M9 9h1M9 12h1"/></svg></span><span class="fmeta"><span class="fname">报表_${i}.zip</span><span class="fsize">1.2 MB</span></span></a>`;
     text = '[文件] 报表_' + i + '.zip';
+  } else if (mod === 33) {
+    const url = 'https://github.com/shuakami/qq-chat-exporter/releases/latest';
+    content = `<div class="text-content">新版本发布了，下载地址：<a class="msg-link" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a></div>`;
+    text = '新版本发布了，下载地址：' + url;
+  } else if (mod === 35) {
+    text = 'ThisIsAVeryLongUnbrokenTokenAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
+    content = `<div class="text-content">${esc(text)}</div>`;
   } else if (mod === 30) {
     content = `<span class="sticker-wrap"><img src="${IMG}" alt="表情" class="sticker sticker-img market-face" loading="lazy"></span>`;
     text = '[表情]';
@@ -216,6 +223,7 @@ const manifest = {
   format: 'qce-modern-html-chunked',
   version: 1,
   exportTime: new Date().toISOString(),
+  exporter: { name: 'qq-chat-exporter', version: '5.5.80' },
   chat: { name: '测试群聊（样例数据）', type: 'group', avatar: '', selfUid: 'u_self' },
   stats: {
     totalMessages: TOTAL,
@@ -246,7 +254,7 @@ const manifest = {
     aliases: [name],
     count: senderCounts[uid] ?? 0,
     avatar: uin ? `https://q.qlogo.cn/g?b=qq&nk=${uin}&s=100` : null,
-  })),
+  })).concat([{ uid: '未知', displayName: '0', aliases: [], count: 1, avatar: null }]),
   chunks: chunksMeta,
 };
 writeFileSync(

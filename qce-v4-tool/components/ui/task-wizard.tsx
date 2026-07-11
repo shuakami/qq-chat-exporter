@@ -810,14 +810,7 @@ export function TaskWizard({
                         </span>
                       </>
                     ) : (
-                      <>
-                        <span
-                          className={`inline-block w-2 h-2 rounded-full ${
-                            (target as Friend).isOnline ? "bg-green-500" : "bg-muted-foreground/30"
-                          }`}
-                        />
-                        <span>{(target as Friend).isOnline ? "在线" : "离线"}</span>
-                      </>
+                      <span className="tabular-nums">{(target as Friend).uin}</span>
                     )}
                   </div>
                 </div>
@@ -843,18 +836,18 @@ export function TaskWizard({
           )}
 
           {s.allData.length > 0 && displayTargets.length > 0 && (
-            <div className="text-center py-2 text-xs text-muted-foreground border-t border-black/[0.06] dark:border-white/[0.06]">
-              {searchTerm.trim() ? (
-                <>
-                  搜索结果：{displayTargets.length} 个
-                  {s.allData.length !== displayTargets.length && <span>（共 {s.allData.length} 个）</span>}
-                </>
-              ) : (
-                <>
-                  已加载 {s.allData.length} 个
-                  {s.totalCount > 0 && s.totalCount !== s.allData.length && <span>，共 {s.totalCount} 个</span>}
-                </>
-              )}
+            <div className="flex justify-center pt-3 pb-1">
+              <span className="inline-flex items-center px-3 py-1 rounded-full bg-black/[0.03] dark:bg-white/[0.05] text-[11px] text-muted-foreground/70 tabular-nums">
+                {searchTerm.trim() ? (
+                  s.allData.length !== displayTargets.length
+                    ? `匹配 ${displayTargets.length} / ${s.allData.length}`
+                    : `匹配 ${displayTargets.length} 个`
+                ) : (
+                  s.totalCount > 0 && s.totalCount !== s.allData.length
+                    ? `已加载 ${s.allData.length} / ${s.totalCount}`
+                    : `已加载 ${s.allData.length} 个`
+                )}
+              </span>
             </div>
           )}
         </div>
@@ -1027,6 +1020,7 @@ export function TaskWizard({
                 desc: form.format === "HTML" 
                   ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式，适合导出超大群聊记录。"
                   : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式，适合导出超大群聊记录。",
+                tip: "普通导出会把全部消息放进内存再写文件，消息超多时可能卡死或崩溃；流式模式边读边写，内存占用恒定。十万条以下一般不需要开启。",
                 visible: form.format === "HTML" || form.format === "JSON",
                 highlight: true,
                 group: "性能与处理"
@@ -1037,6 +1031,7 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, includeSystemMessages: v })),
                 title: "包含系统消息",
                 desc: "包含入群通知、撤回提示等系统提示消息",
+                tip: "关闭后导出结果更干净，但会丢失撤回、入群、离群等上下文线索，事后无法补回。存档备份建议保持开启。",
                 visible: true,
                 group: "导出内容"
               },
@@ -1046,6 +1041,7 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, filterPureImageMessages: v })),
                 title: "快速导出（跳过资源下载）",
                 desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度",
+                tip: "资源下载通常占导出总耗时的 90% 以上。只需要文字记录时开启此项，图片等会以占位符显示。",
                 visible: true,
                 group: "导出内容"
               },
@@ -1059,6 +1055,7 @@ export function TaskWizard({
                 })),
                 title: "仅保留文件元数据，不下载文件",
                 desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。适合不需要本地副本的备份场景。",
+                tip: "群文件往往体积大且有过期风险，下载失败率高。开启后可避免卡在大文件上，事后仍可凭 MD5 校验手动补档。",
                 visible: !form.filterPureImageMessages,
                 group: "导出内容"
               },
@@ -1072,6 +1069,7 @@ export function TaskWizard({
                 })),
                 title: "不下载图片",
                 desc: "导出时跳过图片资源的下载，HTML 中以占位形式显示，JSON / TXT 仅保留消息文本与元数据。需要保留图片可关闭此项。",
+                tip: "图片通常是数量最多的资源。活跃群聊动辄数万张，跳过后导出时间和磁盘占用都能降一个量级。",
                 visible: !form.filterPureImageMessages,
                 group: "导出内容"
               },
@@ -1084,6 +1082,7 @@ export function TaskWizard({
                 })),
                 title: "不下载视频",
                 desc: "导出时跳过视频资源的下载。视频文件通常体积较大，长时间或群聊导出时容易占用大量带宽和磁盘空间。",
+                tip: "单个视频动辄几十到几百 MB，是磁盘占用的大头。不确定时建议先跳过，有需要再单独重导。",
                 visible: !form.filterPureImageMessages,
                 group: "导出内容"
               },
@@ -1096,6 +1095,7 @@ export function TaskWizard({
                 })),
                 title: "不下载语音",
                 desc: "导出时跳过 SILK / AMR 等语音消息的下载。对只想保留文字记录的备份场景很有用。",
+                tip: "语音需要额外转码才能在浏览器播放，耗时较长；另外部分年代久远的语音已无法从服务器拉取。",
                 visible: !form.filterPureImageMessages,
                 group: "导出内容"
               },
@@ -1105,6 +1105,7 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, preferGroupMemberName: v })),
                 title: "优先使用群成员名称",
                 desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。",
+                tip: "群名片更贴近群内日常称呼，但成员退群后名片会丢失，此时会自动回退到 QQ 昵称。",
                 visible: form.chatType === 2,
                 group: "导出内容"
               },
@@ -1114,6 +1115,7 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, exportAsZip: v })),
                 title: "导出为ZIP压缩包",
                 desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）",
+                tip: "HTML 导出默认是一个页面加一个 resources 目录，直接发送给别人容易漏文件；打包成单个 ZIP 更便于传输和归档。",
                 visible: form.format === "HTML" && !form.streamingZipMode,
                 group: "性能与处理"
               },
@@ -1129,6 +1131,7 @@ export function TaskWizard({
                   })),
                 title: "文件名包含聊天名称",
                 desc: "在导出文件名中包含群名或好友昵称，方便批量导出后识别文件",
+                tip: "关闭后文件名只剩会话 ID 和时间戳，批量导出后很难分辨哪个文件对应哪个会话。",
                 visible: true,
                 group: "文件命名"
               },
@@ -1144,6 +1147,7 @@ export function TaskWizard({
                   })),
                 title: "使用友好命名（名称(QQ号).html）",
                 desc: "导出文件名使用 `名称(QQ号).<扩展名>` 格式，去掉 friend_/group_ 前缀与时间戳。多次导出同一会话同名碰撞时，会自动追加 `_<日期>_<时间>` 后缀避免覆盖。启用后与「文件名包含聊天名称」互斥。",
+                tip: "适合反复覆盖式备份：文件名稳定不变，同步盘/网盘不会因时间戳变化而重复上传。",
                 visible: true,
                 group: "文件命名"
               },
@@ -1153,6 +1157,7 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, embedAvatarsAsBase64: v })),
                 title: "嵌入头像为Base64",
                 desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）",
+                tip: "默认只存头像 URL，离线或头像更换后就看不到原图；嵌入后数据永久自包含，代价是文件变大。",
                 visible: form.format === "JSON",
                 group: "导出内容"
               },
@@ -1163,6 +1168,7 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, embedResourcesAsDataUri: v })),
                 title: "生成自包含 HTML",
                 desc: "将图片、语音、视频、小于 50 MB 的文件以 base64 内联到单个 HTML文件中，不再产出 resources 目录。适合需要单独发送 / 在手机上丢进文件传输查看的场景。资源较多时 HTML 体积会明显增大。",
+                tip: "base64 内联会使体积膨胀约 33%，消息量很大时浏览器打开会变慢；只建议在需要单文件分享时使用。",
                 visible: form.format === "HTML" && !form.exportAsZip && !form.streamingZipMode,
                 group: "导出内容"
               }
@@ -1182,13 +1188,13 @@ export function TaskWizard({
                         <div className="flex flex-col gap-0.5 flex-1 pr-4">
                           <div className="flex items-center gap-1.5">
                             <div className="text-[13px] font-medium text-foreground">{opt.title}</div>
-                            {opt.desc && (
+                            {opt.tip && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
                                 </TooltipTrigger>
-                                <TooltipContent side="top" sideOffset={6} className="max-w-[250px]">
-                                  {opt.desc}
+                                <TooltipContent side="top" sideOffset={6} className="max-w-[280px]">
+                                  {opt.tip}
                                 </TooltipContent>
                               </Tooltip>
                             )}

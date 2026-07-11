@@ -88,6 +88,21 @@ import { Loader } from "@/components/ui/loader"
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
 import { DUR, EASE, makeStagger } from "@/components/qce-dashboard/animations"
 
+function TaskFormatLabel({ format, className }: { format: string; className?: string }) {
+  if (format === "STREAMING_ZIP" || format === "STREAMING_JSONL") {
+    const suffix = format === "STREAMING_ZIP" ? "ZIP" : "JSONL"
+    return (
+      <span className={`inline-flex items-center gap-1 ${className ?? ""}`}>
+        <span className="inline-flex items-center justify-center w-[15px] h-[15px] rounded-[4px] bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-[9px] font-bold leading-none shadow-sm">
+          S
+        </span>
+        <span className="font-medium tracking-wide">{suffix}</span>
+      </span>
+    )
+  }
+  return <span className={className}>{format}</span>
+}
+
 const VALID_TABS = ["overview", "sessions", "tasks", "scheduled", "history", "stickers", "settings", "about"] as const
 type TabId = typeof VALID_TABS[number]
 
@@ -771,6 +786,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     const success = await createTask(form)
     if (success) {
       tasksLoadedRef.current = false
+      setActiveTab("tasks")
     }
     return success
   }
@@ -858,7 +874,8 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
             id: group.groupCode,
             name: group.groupName,
             chatType: 2,
-            peerUid: group.groupCode
+            peerUid: group.groupCode,
+            avatarUrl: group.avatarUrl
           })
         }
       } else if (type === 'friend') {
@@ -871,7 +888,8 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
             id: friend.uid,
             name: friend.remark || friend.nick,
             chatType: friend.chatType ?? 1,
-            peerUid: friend.uid
+            peerUid: friend.uid,
+            avatarUrl: friend.avatarUrl
           })
         }
       }
@@ -1667,7 +1685,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                             >
                               {getStatusText(task.status)}
                             </Badge>
-                            <span className="text-xs text-muted-foreground">{task.format}</span>
+                            <TaskFormatLabel format={task.format} className="text-xs text-muted-foreground" />
                             <span className="text-xs text-muted-foreground">{new Date(task.createdAt).toLocaleDateString()}</span>
                             {task.messageCount !== undefined && task.messageCount > 0 && (
                               <span className="text-xs text-muted-foreground">{task.messageCount.toLocaleString()} 条</span>
@@ -1823,7 +1841,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                         </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground/50">
                           <span className="font-mono">{task.peer?.peerUid}</span>
-                          <span>{task.format}</span>
+                          <TaskFormatLabel format={task.format} />
                           <span>{new Date(task.createdAt).toLocaleDateString()}</span>
                           {task.messageCount !== undefined && task.messageCount > 0 && (
                             <span>{task.messageCount.toLocaleString()} 条消息</span>

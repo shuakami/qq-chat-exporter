@@ -255,6 +255,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
                         .get("enableVirtualScroll")
                         .and_then(Value::as_bool)
                         != Some(false),
+                    exporter_version: Some(qce_server::version::VERSION.get().to_string()),
                 });
                 exporter
                     .export_single_inline(&clean_messages, &chat_info)

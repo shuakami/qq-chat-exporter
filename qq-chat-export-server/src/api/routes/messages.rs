@@ -1440,6 +1440,7 @@ async fn process_export_task(
                             .get("enableVirtualScroll")
                             .and_then(Value::as_bool)
                             != Some(false),
+                        exporter_version: Some(crate::version::VERSION.get().to_string()),
                     });
                     copied_resource_paths = html_exporter
                         .export_single_inline(&clean_messages, &chat_info)
@@ -1498,6 +1499,7 @@ async fn process_export_task(
                 output_path: temp_dir.join("index.html"),
                 include_resource_links: export_options.include_resource_links,
                 include_system_messages: export_options.include_system_messages,
+                exporter_version: Some(crate::version::VERSION.get().to_string()),
                 ..HtmlExportOptions::default()
             });
             html_exporter

@@ -39,6 +39,8 @@ pub struct HtmlExportOptions {
     pub show_search_bar: bool,
     /// Issue #467：是否启用虚拟滚动（消息超过 100 条时只渲染可视区域，默认 true）。
     pub enable_virtual_scroll: bool,
+    /// 导出器版本号，写入 manifest 供查看器展示（例如 "5.5.80"）。
+    pub exporter_version: Option<String>,
 }
 
 impl Default for HtmlExportOptions {
@@ -51,6 +53,7 @@ impl Default for HtmlExportOptions {
             max_embed_file_size_bytes: 50 * 1024 * 1024,
             show_search_bar: true,
             enable_virtual_scroll: true,
+            exporter_version: None,
         }
     }
 }
@@ -865,6 +868,12 @@ impl ModernHtmlExporter {
 
         let senders: Vec<Value> = senders_by_uid
             .iter()
+            .filter(|(uid, info)| {
+                // 过滤无效发送者（uid 缺失/未知且无可用名称），避免筛选器出现 "0" 等脏条目
+                let name_ok = !info.display_name.is_empty() && info.display_name != "0";
+                let uid_ok = !uid.is_empty() && *uid != "未知";
+                uid_ok && name_ok
+            })
             .map(|(uid, info)| {
                 let avatar = info
                     .uin
@@ -884,6 +893,10 @@ impl ModernHtmlExporter {
         let manifest = json!({
             "format": "qce-modern-html-chunked",
             "version": 1,
+            "exporter": self.options.exporter_version.as_deref().map(|v| json!({
+                "name": "qq-chat-exporter",
+                "version": v,
+            })),
             "exportTime": export_time_iso,
             "chat": {
                 "name": chat_info.name,
@@ -2097,7 +2110,60 @@ fn is_acceptable_remote_url(url: &str) -> bool {
 
 fn render_text_element(data: &Value) -> String {
     let text = str_field(data, "text").unwrap_or_default();
-    format!("<span class=\"text-content\">{}</span>", escape_html(&text))
+    format!("<span class=\"text-content\">{}</span>", linkify_escaped(&text))
+}
+
+/// URL 中允许的字符（保守集合，遇到空白/中文/引号/尖括号等即截止）。
+fn is_url_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "-._~:/?#[]@!$&'()*+,;=%".contains(c)
+}
+
+/// 转义文本并将其中的 http(s) 链接渲染为带样式的 <a> 标签。
+fn linkify_escaped(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut rest = text;
+    loop {
+        let found = rest.find("https://").map_or_else(
+            || rest.find("http://").map(|i| (i, 7)),
+            |i| match rest.find("http://") {
+                Some(j) if j < i => Some((j, 7)),
+                _ => Some((i, 8)),
+            },
+        );
+        let Some((at, _scheme_len)) = found else {
+            out.push_str(&escape_html(rest));
+            return out;
+        };
+        out.push_str(&escape_html(&rest[..at]));
+        let tail = &rest[at..];
+        let mut end = tail.len();
+        for (i, c) in tail.char_indices() {
+            if !is_url_char(c) {
+                end = i;
+                break;
+            }
+        }
+        // 去掉尾部常见句末标点，避免把句号/括号算进链接
+        let mut url = &tail[..end];
+        while let Some(last) = url.chars().last() {
+            if matches!(last, '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '\'') {
+                url = &url[..url.len() - last.len_utf8()];
+            } else {
+                break;
+            }
+        }
+        if url.len() <= 8 || !is_acceptable_remote_url(url) {
+            out.push_str(&escape_html(&tail[..end.max(1).min(tail.len())]));
+            rest = &tail[end.max(1).min(tail.len())..];
+            continue;
+        }
+        let esc = escape_html(url);
+        let _ = write!(
+            out,
+            "<a class=\"msg-link\" href=\"{esc}\" target=\"_blank\" rel=\"noopener noreferrer\">{esc}</a>"
+        );
+        rest = &tail[url.len()..];
+    }
 }
 
 fn render_face_element(data: &Value) -> String {

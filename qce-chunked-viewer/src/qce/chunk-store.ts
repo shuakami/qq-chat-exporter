@@ -131,7 +131,8 @@ export class ChunkStore {
   readonly chunkStarts: number[];
   /** Called after any lazy chunk arrives, so the viewer can re-render. */
   onChunkLoaded: (() => void) | null = null;
-  loadedCount = 0;
+  /** Chunks that have been loaded at least once (survives LRU eviction). */
+  private readonly everLoaded = new Set<number>();
 
   private readonly baseUrl: string;
   private readonly cache = new Map<number, QceRecord[]>();
@@ -196,8 +197,11 @@ export class ChunkStore {
       if (!r.kind) r.kind = kindOf(r.html);
     }
     this.cache.set(chunk, messages);
-    this.loadedCount += 1;
+    const isNew = !this.everLoaded.has(chunk);
+    this.everLoaded.add(chunk);
     this.trimLru();
+    // Defer: get() runs during render; notify listeners outside of it.
+    if (isNew) queueMicrotask(() => this.onChunkLoaded?.());
     return messages;
   }
 
@@ -289,7 +293,7 @@ export class ChunkStore {
         throw new Error(`failed to load chunk ${meta.id}`);
       }
       this.cache.set(chunk, messages);
-      this.loadedCount += 1;
+      this.everLoaded.add(chunk);
       this.trimLru();
       this.onChunkLoaded?.();
       return messages;
@@ -354,5 +358,10 @@ export class ChunkStore {
 
   cacheSize(): number {
     return this.cache.size;
+  }
+
+  /** Number of distinct chunks loaded so far (not reduced by LRU eviction). */
+  loadedChunkCount(): number {
+    return this.everLoaded.size;
   }
 }

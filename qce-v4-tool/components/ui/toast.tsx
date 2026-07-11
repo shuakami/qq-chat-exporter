@@ -21,6 +21,8 @@ export interface ToastAction {
   label: string
   onClick: () => void
   variant?: "default" | "destructive"
+  /** Keep the toast open after this action is clicked. Defaults to false. */
+  keepOpen?: boolean
 }
 
 export interface ToastOptions {
@@ -741,6 +743,7 @@ export const Toast = React.memo(({
                     onClick={(event) => {
                       event.stopPropagation()
                       action.onClick()
+                      if (!action.keepOpen) onRemove(toast.id)
                     }}
                     className={`px-3 py-1.5 ${actionClassName} text-[12px] font-medium rounded-full transition-all active:scale-95 shadow-sm`}
                   >
