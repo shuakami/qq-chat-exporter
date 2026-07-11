@@ -93,7 +93,7 @@ function TaskFormatLabel({ format, className }: { format: string; className?: st
     const suffix = format === "STREAMING_ZIP" ? "ZIP" : "JSONL"
     return (
       <span className={`inline-flex items-center gap-1 ${className ?? ""}`}>
-        <span className="inline-flex items-center justify-center w-[15px] h-[15px] rounded-[4px] bg-gradient-to-br from-blue-500 to-indigo-600 text-white text-[9px] font-bold leading-none shadow-sm">
+        <span className="inline-flex items-center justify-center w-[15px] h-[15px] rounded-[4px] bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 text-[9px] font-bold leading-none">
           S
         </span>
         <span className="font-medium tracking-wide">{suffix}</span>

@@ -65,6 +65,7 @@ export function TaskWizard({
 }: TaskWizardProps) {
   const { apiCall } = useApi()
   const [searchTerm, setSearchTerm] = useState("")
+  const [timeRangeMode, setTimeRangeMode] = useState<'all' | 'recent' | 'custom'>('all')
   const [selectedTarget, setSelectedTarget] = useState<Group | Friend | null>(null)
   const [showTargetSelector, setShowTargetSelector] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
@@ -721,7 +722,6 @@ export function TaskWizard({
               加载{form.chatType === 1 ? "好友" : "群组"}
             </Button>
           </div>
-          {s.allData.length > 0 && <span className="block px-1 text-xs text-muted-foreground">已加载 {s.allData.length} 个</span>}
         </div>
 
         {/* 列表 */}
@@ -835,18 +835,12 @@ export function TaskWizard({
             </div>
           )}
 
-          {s.allData.length > 0 && displayTargets.length > 0 && (
+          {searchTerm.trim() !== "" && s.allData.length > 0 && displayTargets.length > 0 && (
             <div className="flex justify-center pt-3 pb-1">
               <span className="inline-flex items-center px-3 py-1 rounded-full bg-black/[0.03] dark:bg-white/[0.05] text-[11px] text-muted-foreground/70 tabular-nums">
-                {searchTerm.trim() ? (
-                  s.allData.length !== displayTargets.length
-                    ? `匹配 ${displayTargets.length} / ${s.allData.length}`
-                    : `匹配 ${displayTargets.length} 个`
-                ) : (
-                  s.totalCount > 0 && s.totalCount !== s.allData.length
-                    ? `已加载 ${s.allData.length} / ${s.totalCount}`
-                    : `已加载 ${s.allData.length} 个`
-                )}
+                {s.allData.length !== displayTargets.length
+                  ? `匹配 ${displayTargets.length} / ${s.allData.length}`
+                  : `匹配 ${displayTargets.length} 个`}
               </span>
             </div>
           )}
@@ -907,15 +901,55 @@ export function TaskWizard({
                     <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-[250px]">
-                    留空则导出全部记录
+                    选择全部消息则导出全部记录
                   </TooltipContent>
                 </Tooltip>
               </label>
-              <DateRangePicker
-                startTime={form.startTime}
-                endTime={form.endTime}
-                onChange={(start, end) => setForm((p) => ({ ...p, startTime: start, endTime: end }))}
-              />
+              <div className="inline-flex items-center flex-wrap gap-1 p-1 rounded-[20px] bg-black/[0.04] dark:bg-white/[0.06] w-fit max-w-full">
+                {([
+                  { value: 'all', label: '全部消息' },
+                  { value: 'recent', label: '最近 3 个月' },
+                  { value: 'custom', label: '自定义' }
+                ] as const).map((option) => {
+                  const active = timeRangeMode === option.value
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={[
+                        "px-5 h-[30px] text-[13px] font-medium rounded-full transition-all",
+                        active
+                          ? "bg-white dark:bg-white/10 text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+                          : "text-muted-foreground hover:text-foreground"
+                      ].join(" ")}
+                      onClick={() => {
+                        setTimeRangeMode(option.value)
+                        if (option.value === 'all') {
+                          setForm((p) => ({ ...p, startTime: "", endTime: "" }))
+                        } else if (option.value === 'recent') {
+                          const toLocal = (d: Date) => {
+                            const pad = (n: number) => String(n).padStart(2, '0')
+                            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+                          }
+                          const end = new Date()
+                          const start = new Date()
+                          start.setMonth(start.getMonth() - 3)
+                          setForm((p) => ({ ...p, startTime: toLocal(start), endTime: toLocal(end) }))
+                        }
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
+              {timeRangeMode === 'custom' && (
+                <DateRangePicker
+                  startTime={form.startTime}
+                  endTime={form.endTime}
+                  onChange={(start, end) => setForm((p) => ({ ...p, startTime: start, endTime: end }))}
+                />
+              )}
             </div>
           </div>
         </section>
