@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowRight, X, Eye, EyeOff, Lock, ExternalLink, CheckCircle2 } from 'lucide-react'
+import { ArrowRight, X, Eye, EyeOff, CheckCircle2 } from 'lucide-react'
 import AuthManager from '@/lib/auth'
 import { Loader } from '@/components/ui/loader'
+import { BuildFooter } from '@/components/ui/build-footer'
 
 export default function AuthPage() {
   const [token, setToken] = useState('')
@@ -83,7 +84,7 @@ export default function AuthPage() {
       return
     }
 
-    setTimeout(() => setIsReady(true), 600)
+    setTimeout(() => setIsReady(true), 400)
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -105,126 +106,107 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <AnimatePresence mode="wait">
-        {!isReady ? (
-          <motion.div
-            key="loading"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="flex flex-col items-center gap-6"
-          >
-            <div className="text-2xl font-semibold tracking-tight text-foreground">
-              QQ Chat Exporter
-            </div>
-            <Loader size={20} className="text-muted-foreground" />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="content"
-            className="w-full max-w-md"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.35 }}
-          >
-            {/* Header */}
-            <div className="text-center mb-8">
-              <h1 className="text-2xl font-semibold text-foreground">访问验证</h1>
-              <p className="text-muted-foreground mt-2 text-[14px]">请输入访问令牌以继续使用</p>
-            </div>
+    <div className="flex flex-col h-screen w-full bg-[#fbfbfb] dark:bg-neutral-950 text-[#111111] dark:text-neutral-100 font-sans">
+      <main className="flex-1 flex flex-col items-start justify-center max-w-lg w-full mx-auto px-8 pb-32">
+        <AnimatePresence mode="wait">
+          {!isReady ? (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="flex items-center gap-3"
+            >
+              <Loader size={16} className="text-neutral-400" />
+              <span className="text-[14px] text-[#737373] dark:text-neutral-400">QQ Chat Exporter</span>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="content"
+              className="w-full"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.35 }}
+            >
+              <h1 className="text-[20px] font-medium text-[#111111] dark:text-neutral-100 mb-3">访问验证</h1>
+              <p className="text-[14px] text-[#737373] dark:text-neutral-400 mb-8 leading-relaxed">
+                请输入访问令牌以继续使用。
+                <br />
+                令牌会在 QCE 启动时打印在控制台里。
+              </p>
 
-            {/* Issue #287: 当 URL 带 ?token= 时显示自动登录条幅，让用户清楚状态 */}
-            {autoFromUrl && (
-              <motion.div
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mb-4 px-4 py-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900/40 text-emerald-700 dark:text-emerald-300 text-[13px] flex items-center gap-2"
-              >
-                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                <span>已从一键登录链接读取访问令牌，正在验证...</span>
-              </motion.div>
-            )}
+              {/* Issue #287: 当 URL 带 ?token= 时显示自动登录条幅，让用户清楚状态 */}
+              {autoFromUrl && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="w-full mb-6 px-4 py-3 rounded-xl bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.02)] text-[13px] text-neutral-600 dark:text-neutral-300 flex items-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-500" />
+                  <span>已从一键登录链接读取访问令牌，正在验证...</span>
+                </motion.div>
+              )}
 
-            {/* Form Card */}
-            <div className="bg-card rounded-2xl p-6 shadow-[0_2px_8px_rgba(0,0,0,0.015)]">
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-[13px] font-medium text-foreground mb-2">
-                    访问令牌
-                  </label>
-                  <div className="relative">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                      <Lock className="w-4 h-4" />
-                    </div>
-                    <input
-                      type={showToken ? 'text' : 'password'}
-                      value={token}
-                      onChange={(e) => setToken(e.target.value)}
-                      placeholder="粘贴您的访问令牌"
-                      className="w-full pl-10 pr-12 py-3 rounded-xl bg-black/[0.02] dark:bg-white/[0.03] transition-colors text-[14px] text-foreground placeholder:text-muted-foreground/60"
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowToken(!showToken)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showToken ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                    </button>
-                  </div>
+              <form onSubmit={handleSubmit} className="w-full space-y-4">
+                <div className="relative w-full">
+                  <input
+                    type={showToken ? 'text' : 'password'}
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    placeholder="粘贴您的访问令牌"
+                    className="w-full h-10 pl-4 pr-11 rounded-xl bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.02)] text-[14px] text-[#111111] dark:text-neutral-100 placeholder:text-neutral-400 dark:placeholder:text-neutral-500 outline-none focus:border-black/15 dark:focus:border-white/20 transition-colors"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowToken(!showToken)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors"
+                  >
+                    {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
 
                 {error && (
-                  <motion.div
+                  <motion.p
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="px-4 py-3 rounded-lg bg-red-50 dark:bg-red-950/50 border border-red-100 dark:border-red-900/50 text-red-600 dark:text-red-400 text-[13px]"
+                    className="text-[13px] text-red-600 dark:text-red-400"
                   >
                     {error}
-                  </motion.div>
+                  </motion.p>
                 )}
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-full bg-foreground text-background font-medium hover:bg-foreground/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-[14px]"
-                >
-                  {loading ? (
-                    <Loader size={20} className="text-muted-foreground" />
-                  ) : (
-                    <>
-                      验证并进入
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="inline-flex items-center justify-center gap-1.5 h-8 px-4 text-[13px] font-medium text-neutral-700 dark:text-neutral-200 bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:border-black/10 hover:bg-neutral-50 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white rounded-full transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {loading ? (
+                      <Loader size={14} className="text-neutral-400" />
+                    ) : (
+                      <>
+                        验证并进入
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowHelp(true)}
+                    className="inline-flex items-center justify-center h-8 px-4 text-[13px] font-medium text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-all"
+                  >
+                    找不到令牌？
+                  </button>
+                </div>
               </form>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
 
-              <button
-                onClick={() => setShowHelp(true)}
-                className="w-full mt-4 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                找不到令牌？
-              </button>
-            </div>
-
-            {/* Footer */}
-            <div className="mt-6 text-center">
-              <a
-                href="https://github.com/shuakami/qq-chat-exporter"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                QQ Chat Exporter
-              </a>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <BuildFooter />
 
       {/* Help Modal */}
       <AnimatePresence>
@@ -242,7 +224,7 @@ export default function AuthPage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-card rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.015)] z-50 overflow-hidden"
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.08)] z-50 overflow-hidden"
             >
               {/* Modal Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b border-black/[0.05] dark:border-white/[0.06]">
