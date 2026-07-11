@@ -241,6 +241,12 @@
     }
 }
 
+/* Inter 延迟加载完成后（main.tsx 加 qce-inter class）才把它排进字体栈。 */
+html.qce-inter {
+  --font-heading: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
+}
+
 /* Light-theme code token colors (shared by chat code bubbles and docs). */
 .tok-c { color: #6a737d; }
 .tok-s { color: #0a3069; }

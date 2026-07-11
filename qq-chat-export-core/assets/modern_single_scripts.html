@@ -1,5 +1,27 @@
 <script src="https://unpkg.com/lucide@latest"></script>
     <script>
+        // Inter（可变字重，仅 latin 子集）从 npmmirror 延迟加载：首屏先用系统字体，
+        // 页面 load 后才下载并应用（html 加 qce-inter class），失败时静默回退。
+        (function () {
+            function loadInter() {
+                if (typeof FontFace === 'undefined') return;
+                try {
+                    var font = new FontFace(
+                        'Inter Variable',
+                        "url(https://registry.npmmirror.com/@fontsource-variable/inter/5.2.8/files/files/inter-latin-wght-normal.woff2) format('woff2-variations')",
+                        { weight: '100 900', display: 'swap' }
+                    );
+                    font.load().then(function (loaded) {
+                        document.fonts.add(loaded);
+                        document.documentElement.classList.add('qce-inter');
+                    }).catch(function () {});
+                } catch (e) { /* ignore */ }
+            }
+            if (document.readyState === 'complete') loadInter();
+            else window.addEventListener('load', loadInter, { once: true });
+        })();
+    </script>
+    <script>
 
         function showImageModal(imgSrc) {
             var modal = document.getElementById('imageModal');
