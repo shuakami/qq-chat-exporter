@@ -20,7 +20,10 @@ export default function AuthPage() {
   const submittedFromUrlRef = useRef(false)
 
   // Token 校验逻辑独立出来，URL 自动登录和表单提交都走同一条。
-  const verifyAndStoreToken = async (rawToken: string): Promise<boolean> => {
+  // 'ok' 验证通过 / 'rejected' 令牌被明确拒绝 / 'unreachable' 服务器暂时不可用（可重试）。
+  const verifyAndStoreToken = async (
+    rawToken: string
+  ): Promise<'ok' | 'rejected' | 'unreachable'> => {
     try {
       const response = await fetch('/auth', {
         method: 'POST',
@@ -28,17 +31,34 @@ export default function AuthPage() {
         body: JSON.stringify({ token: rawToken }),
       })
 
+      if (response.status >= 500) {
+        setError('服务器暂时不可用，请稍后重试')
+        return 'unreachable'
+      }
+
       const data = await response.json()
       if (data.success) {
         AuthManager.getInstance().setToken(rawToken)
-        return true
+        return 'ok'
       }
       setError(data.error?.message || '令牌验证失败')
-      return false
+      return 'rejected'
     } catch {
       setError('无法连接到服务器，请确保 NapCat 正在运行')
-      return false
+      return 'unreachable'
     }
+  }
+
+  // 一键登录链接可能在服务器刚启动、还没完全就绪时被打开，
+  // 此时验证请求会瞬时失败；对「不可达」类失败退避重试几次再回退到表单。
+  const verifyWithRetry = async (rawToken: string): Promise<boolean> => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const result = await verifyAndStoreToken(rawToken)
+      if (result === 'ok') return true
+      if (result === 'rejected') return false
+      await new Promise((r) => setTimeout(r, 600 + attempt * 400))
+    }
+    return false
   }
 
   useEffect(() => {
@@ -58,8 +78,10 @@ export default function AuthPage() {
       }
     }
 
+    // URL 带 token 时优先用它重新验证，不走本地已存 token 的短路跳转：
+    // 本地存的可能是重启前的旧 token，直接跳 /qce 会被 401 弹回本页（此时 URL 里的 token 已丢）。
     const authManager = AuthManager.getInstance()
-    if (authManager.isAuthenticated()) {
+    if (!urlToken && authManager.isAuthenticated()) {
       window.location.href = '/qce'
       return
     }
@@ -72,7 +94,7 @@ export default function AuthPage() {
       setLoading(true)
       // 给一帧时间渲染「检测到一键登录链接」提示，再发请求。
       setTimeout(async () => {
-        const ok = await verifyAndStoreToken(urlToken!)
+        const ok = await verifyWithRetry(urlToken!)
         if (ok) {
           window.location.href = '/qce'
         } else {
@@ -97,7 +119,7 @@ export default function AuthPage() {
     setLoading(true)
     setError('')
 
-    const ok = await verifyAndStoreToken(token.trim())
+    const ok = (await verifyAndStoreToken(token.trim())) === 'ok'
     if (ok) {
       window.location.href = '/qce'
       return

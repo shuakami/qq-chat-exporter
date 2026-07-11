@@ -40,6 +40,11 @@
             --footer-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.03) 100%);
         }
         
+        /* Inter 延迟加载完成后（loader 加 qce-inter class）才把它排进字体栈。 */
+        html.qce-inter body {
+            font-family: "Inter Variable", -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", sans-serif;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", sans-serif;
             background: var(--bg-primary);
