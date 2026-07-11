@@ -1894,8 +1894,17 @@ impl SimpleMessageParser {
                 } else {
                     format!("{operator_name} 撤回了 {original_sender_name} 的消息")
                 };
-                if let Some(wording) = v_str(revoke, "wording").filter(|s| !s.is_empty()) {
-                    text = wording.to_string();
+                if let Some(wording) = v_str(revoke, "wording")
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    text = format!("{text}，{wording}");
+                }
+            }
+        } else if sub_type == 10 {
+            if let Some(fr) = v_get(gray_tip, "fileReceiptElement").filter(|v| !v.is_null()) {
+                if let Some(file_name) = v_str(fr, "fileName").filter(|s| !s.is_empty()) {
+                    text = format!("对方已接收文件「{file_name}」");
                 }
             }
         } else if sub_type == 4 {

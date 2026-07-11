@@ -711,9 +711,15 @@
         .system-message-container .text-content { font-size: 11px; }
         .system-message-time {
             color: var(--text-secondary);
-            opacity: 0.7;
+            opacity: 0;
             font-size: 10px;
             margin-top: 2px;
+            transition: opacity 0.2s ease;
+            transition-delay: 0s;
+        }
+        .system-message-container:hover .system-message-time {
+            opacity: 0.7;
+            transition-delay: 0.45s;
         }
         .message {
             margin-bottom: 0;
@@ -746,6 +752,7 @@
         
         .message-wrapper {
             max-width: 62%;
+            min-width: 0;
             display: flex;
             flex-direction: column;
             gap: 3px;
@@ -787,6 +794,13 @@
         .time {
             font-size: var(--message-time-size);
             color: var(--text-secondary);
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            transition-delay: 0s;
+        }
+        .message:hover .time {
+            opacity: 1;
+            transition-delay: 0.45s;
         }
         
         /* 消息气泡 - 带角 */
@@ -795,8 +809,10 @@
             border-radius: 16px;
             position: relative;
             width: fit-content;
+            max-width: 100%;
             word-wrap: break-word;
-            overflow-wrap: break-word;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
         .message.self .message-bubble { margin-left: auto; }
         /* 富媒体元素自带边框/圆角，去掉外层气泡底色与内边距 */
@@ -829,6 +845,20 @@
         .text-content {
             display: inline;
         }
+
+        /* 消息内链接：虚线下划线 + hover 变色（对齐 WebUI 预览样式） */
+        .msg-link {
+            color: inherit;
+            text-decoration: underline;
+            text-decoration-style: dashed;
+            text-underline-offset: 3px;
+            text-decoration-thickness: 1px;
+            word-break: break-all;
+            transition: color 0.15s ease;
+        }
+        .message.other .msg-link:hover { color: #2563eb; }
+        .message.self .msg-link:hover { opacity: 0.8; }
+        [data-theme="dark"] .message.other .msg-link:hover { color: #60a5fa; }
         
         /* 图片内容 */
         .image-content {

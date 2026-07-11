@@ -330,7 +330,7 @@ export function SessionList({
               </>
             )}
             {/* Issue #344: 已导出消息累计。0 不渲染，避免噪声。 */}
-            {item.exportedMessageCount && item.exportedMessageCount > 0 && (
+            {!!item.exportedMessageCount && (
               <>
                 <span>·</span>
                 <span className="truncate">已导出 {formatCompactCount(item.exportedMessageCount)} 条</span>

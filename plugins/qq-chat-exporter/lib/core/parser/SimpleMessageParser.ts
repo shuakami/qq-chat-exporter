@@ -1960,7 +1960,11 @@ export class SimpleMessageParser {
         } else {
           text = `${operatorName} 撤回了 ${originalSenderName} 的消息`;
         }
-        if (revokeInfo.wording) text = revokeInfo.wording;
+        const wording = typeof revokeInfo.wording === 'string' ? revokeInfo.wording.trim() : '';
+        if (wording) text = `${text}，${wording}`;
+        summary = text;
+      } else if (subType === 10 && grayTip.fileReceiptElement?.fileName) {
+        text = `对方已接收文件「${grayTip.fileReceiptElement.fileName}」`;
         summary = text;
       } else if (subType === 4 && grayTip.groupElement) {
         text = grayTip.groupElement.content || '群聊更新';

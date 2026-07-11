@@ -53,6 +53,8 @@ export class HyperScroll {
   private smoothRunning = false;
   private smoothLastTs = 0;
   private framePending = false;
+  private scrollRebuildPending = false;
+  private pendingScrollIndex = -1;
   private smoothTau = 110;
   private touchY: number | null = null;
   private touchVel = 0;
@@ -225,8 +227,18 @@ export class HyperScroll {
     if (Math.abs(idx - this.anchor.index) > Math.max(2, itemsPerPx * 3)) {
       this.smoothRemainder = 0;
       this.smoothVel = 0;
-      this.anchor = { index: idx, offset: 0 };
-      this.rebuild();
+      // Coalesce to one rebuild per frame: scrollbar drags emit scroll events
+      // far faster than frames, and each rebuild is a full innerHTML write.
+      this.pendingScrollIndex = idx;
+      if (this.scrollRebuildPending) return;
+      this.scrollRebuildPending = true;
+      requestAnimationFrame(() => {
+        this.scrollRebuildPending = false;
+        if (this.destroyed || this.pendingScrollIndex < 0) return;
+        this.anchor = { index: this.pendingScrollIndex, offset: 0 };
+        this.pendingScrollIndex = -1;
+        this.rebuild();
+      });
     }
   };
  

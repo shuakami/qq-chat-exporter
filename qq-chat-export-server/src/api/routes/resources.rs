@@ -1898,6 +1898,7 @@ async fn write_merged_data(
         output_path: html_path.clone(),
         include_resource_links: true,
         include_system_messages: true,
+        exporter_version: Some(crate::version::VERSION.get().to_string()),
         ..HtmlExportOptions::default()
     });
     let html_result = exporter.export_single_inline(&clean_messages, &chat_info).await;
