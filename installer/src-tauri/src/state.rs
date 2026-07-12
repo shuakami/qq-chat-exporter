@@ -23,6 +23,8 @@ pub struct Inner {
     /// credential invalidation, so re-probes after a NapCat restart can try
     /// the most likely port first instead of scanning the whole range.
     pub last_good_port: Option<u16>,
+    /// Whether the ready WebUI URL was already logged in this app session.
+    pub webui_url_ready_logged: bool,
 }
 
 impl Inner {
