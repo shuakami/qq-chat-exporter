@@ -19,6 +19,10 @@ pub struct Inner {
     /// Actual port NapCat WebUI ended up listening on (may differ from the
     /// configured default when the preferred port was already in use).
     pub webui_port: Option<u16>,
+    /// Last port a login ever succeeded on. Unlike `webui_port` this survives
+    /// credential invalidation, so re-probes after a NapCat restart can try
+    /// the most likely port first instead of scanning the whole range.
+    pub last_good_port: Option<u16>,
 }
 
 impl Inner {
