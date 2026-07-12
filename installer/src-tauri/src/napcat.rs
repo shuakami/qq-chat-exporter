@@ -10,6 +10,7 @@
 use base64::Engine;
 use serde::Serialize;
 use serde_json::Value;
+use std::io::{Read, Seek, SeekFrom};
 use tauri::State;
 
 use crate::state::AppState;
@@ -43,6 +44,62 @@ fn log(state: &State<'_, AppState>, msg: &str) {
     if let Some(dir) = state.0.lock().ok().and_then(|s| s.install_dir()) {
         crate::util::installer_log(&dir, msg);
     }
+}
+
+fn runtime_log_offset(state: &State<'_, AppState>) -> u64 {
+    state
+        .0
+        .lock()
+        .ok()
+        .and_then(|s| s.install_dir())
+        .and_then(|dir| std::fs::metadata(crate::util::log_file_path(&dir)).ok())
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
+}
+
+fn runtime_log_since(state: &State<'_, AppState>, offset: u64) -> String {
+    const MAX_READ_BYTES: u64 = 256 * 1024;
+
+    let Some(dir) = state.0.lock().ok().and_then(|s| s.install_dir()) else {
+        return String::new();
+    };
+    let Ok(mut file) = std::fs::File::open(crate::util::log_file_path(&dir)) else {
+        return String::new();
+    };
+    let Ok(end) = file.metadata().map(|metadata| metadata.len()) else {
+        return String::new();
+    };
+    let start = if end >= offset {
+        offset.max(end.saturating_sub(MAX_READ_BYTES))
+    } else {
+        end.saturating_sub(MAX_READ_BYTES)
+    };
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return String::new();
+    }
+    let mut contents = Vec::new();
+    let _ = file.read_to_end(&mut contents);
+    String::from_utf8_lossy(&contents).into_owned()
+}
+
+fn log_reports_account_already_logged_in(contents: &str, uin: &str) -> bool {
+    let compact: String = contents.chars().filter(|c| !c.is_whitespace()).collect();
+    compact.contains(&format!("当前账号({uin})已登录,无法重复登录"))
+        || compact.contains(&format!("当前账号（{uin}）已登录，无法重复登录"))
+}
+
+async fn wait_for_already_logged_in_log(
+    state: &State<'_, AppState>,
+    offset: u64,
+    uin: &str,
+) -> bool {
+    for _ in 0..5 {
+        if log_reports_account_already_logged_in(&runtime_log_since(state, offset), uin) {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    false
 }
 
 fn cached_credential(state: &State<'_, AppState>) -> Option<(String, u16)> {
@@ -93,7 +150,9 @@ fn token_from_config(state: &State<'_, AppState>) -> Option<String> {
     let dir = state.0.lock().ok()?.install_dir()?;
     let raw = std::fs::read(dir.join("config").join("webui.json")).ok()?;
     let json: Value = serde_json::from_slice(&raw).ok()?;
-    json.get("token").and_then(Value::as_str).map(str::to_string)
+    json.get("token")
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 async fn try_login_on(port: u16, tok: &str) -> Result<String, String> {
@@ -150,7 +209,11 @@ async fn ensure_login(state: &State<'_, AppState>) -> Result<(String, u16), Stri
     let disk_tok = token_from_config(state);
 
     let tokens: Vec<&str> = if let Some(ref dt) = disk_tok {
-        if *dt != tok { vec![&tok, dt] } else { vec![&tok] }
+        if *dt != tok {
+            vec![&tok, dt]
+        } else {
+            vec![&tok]
+        }
     } else {
         vec![&tok]
     };
@@ -199,7 +262,10 @@ async fn ensure_login(state: &State<'_, AppState>) -> Result<(String, u16), Stri
             }
         }
     }
-    log(state, &format!("WebUI login failed on all ports: {last_err}"));
+    log(
+        state,
+        &format!("WebUI login failed on all ports: {last_err}"),
+    );
     Err(last_err)
 }
 
@@ -237,7 +303,10 @@ async fn request(
                     .map(|m| m.eq_ignore_ascii_case("unauthorized"))
                     .unwrap_or(false);
                 if unauthorized && !retried {
-                    log(state, &format!("{path}: credential rejected, re-authenticating"));
+                    log(
+                        state,
+                        &format!("{path}: credential rejected, re-authenticating"),
+                    );
                     invalidate_credential(state);
                     retried = true;
                     continue;
@@ -245,7 +314,10 @@ async fn request(
                 return Ok(v);
             }
             Err(e) if !retried => {
-                log(state, &format!("{path}: request failed ({e}), re-probing NapCat"));
+                log(
+                    state,
+                    &format!("{path}: request failed ({e}), re-probing NapCat"),
+                );
                 invalidate_credential(state);
                 retried = true;
             }
@@ -282,7 +354,8 @@ pub struct LoginResult {
 }
 
 fn str_field<'a>(obj: &'a Value, keys: &[&str]) -> Option<&'a str> {
-    keys.iter().find_map(|k| obj.get(*k).and_then(Value::as_str))
+    keys.iter()
+        .find_map(|k| obj.get(*k).and_then(Value::as_str))
 }
 
 #[tauri::command]
@@ -322,7 +395,9 @@ pub async fn napcat_quick_login_list(
             });
             continue;
         }
-        let uin = str_field(&item, &["uin", "qq", "account"]).unwrap_or("").to_string();
+        let uin = str_field(&item, &["uin", "qq", "account"])
+            .unwrap_or("")
+            .to_string();
         if uin.is_empty() {
             continue;
         }
@@ -347,7 +422,12 @@ pub async fn napcat_quick_login_list(
 /// Used to decide whether the Shell package must kill QQ first.
 #[tauri::command]
 pub async fn napcat_is_online(state: State<'_, AppState>, uin: String) -> Result<bool, String> {
-    let body = post_json(&state, "/api/QQLogin/CheckLoginStatus", serde_json::json!({})).await?;
+    let body = post_json(
+        &state,
+        "/api/QQLogin/CheckLoginStatus",
+        serde_json::json!({}),
+    )
+    .await?;
     let data = body.get("data").unwrap_or(&body);
     let is_login = data
         .get("isLogin")
@@ -364,16 +444,85 @@ pub async fn napcat_quick_login(
     uin: String,
 ) -> Result<LoginResult, String> {
     log(&state, &format!("quick login requested for {uin}"));
-    let body = post_json(
+    let log_offset = runtime_log_offset(&state);
+    let body = match post_json(
         &state,
         "/api/QQLogin/SetQuickLogin",
         serde_json::json!({ "uin": uin }),
     )
-    .await?;
+    .await
+    {
+        Ok(body) => body,
+        Err(error) => {
+            if !wait_for_already_logged_in_log(&state, log_offset, &uin).await {
+                return Err(error);
+            }
+
+            log(
+                &state,
+                &format!("detected duplicate login for {uin} in NapCat output; terminating QQ"),
+            );
+            terminate_qq();
+            invalidate_credential(&state);
+
+            let mut last_error = String::from("NapCat 尚未恢复");
+            let mut recovered = None;
+            for attempt in 1..=4 {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                invalidate_credential(&state);
+                match post_json(
+                    &state,
+                    "/api/QQLogin/SetQuickLogin",
+                    serde_json::json!({ "uin": uin }),
+                )
+                .await
+                {
+                    Ok(body) => {
+                        let code = body.get("code").and_then(Value::as_i64).unwrap_or(-1);
+                        let message = body
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        if code == 0 {
+                            recovered = Some(body);
+                            break;
+                        }
+                        if !log_reports_account_already_logged_in(message, &uin) {
+                            recovered = Some(body);
+                            break;
+                        }
+                        last_error = message.to_string();
+                    }
+                    Err(retry_error) => {
+                        last_error = retry_error;
+                    }
+                }
+                log(
+                    &state,
+                    &format!("quick login recovery attempt {attempt} failed for {uin}"),
+                );
+            }
+
+            match recovered {
+                Some(body) => body,
+                None => {
+                    return Ok(LoginResult {
+                        ok: false,
+                        error: Some(format!(
+                            "已结束残留 QQ，但 NapCat 尚未恢复，请稍后重试：{last_error}"
+                        )),
+                    });
+                }
+            }
+        }
+    };
     let code = body.get("code").and_then(Value::as_i64).unwrap_or(-1);
     if code == 0 {
         log(&state, &format!("quick login accepted for {uin}"));
-        Ok(LoginResult { ok: true, error: None })
+        Ok(LoginResult {
+            ok: true,
+            error: None,
+        })
     } else {
         log(
             &state,
@@ -399,13 +548,24 @@ pub async fn napcat_quick_login(
 pub async fn napcat_qrcode(state: State<'_, AppState>) -> Result<String, String> {
     // GetQQLoginQrcode returns { data: { qrcode } }; fall back to the URL
     // included in CheckLoginStatus if the dedicated endpoint has no code yet.
-    if let Ok(body) = post_json(&state, "/api/QQLogin/GetQQLoginQrcode", serde_json::json!({})).await {
+    if let Ok(body) = post_json(
+        &state,
+        "/api/QQLogin/GetQQLoginQrcode",
+        serde_json::json!({}),
+    )
+    .await
+    {
         let data = body.get("data").unwrap_or(&body);
         if let Some(qr) = str_field(data, &["qrcode", "qrcodeurl", "qrcodeUrl", "url"]) {
             return render_qr_png(qr);
         }
     }
-    let body = post_json(&state, "/api/QQLogin/CheckLoginStatus", serde_json::json!({})).await?;
+    let body = post_json(
+        &state,
+        "/api/QQLogin/CheckLoginStatus",
+        serde_json::json!({}),
+    )
+    .await?;
     let data = body.get("data").unwrap_or(&body);
     let qr = str_field(data, &["qrcodeurl", "qrcodeUrl", "qrcode", "url"])
         .ok_or_else(|| "NapCat 尚未生成登录二维码".to_string())?;
@@ -415,7 +575,12 @@ pub async fn napcat_qrcode(state: State<'_, AppState>) -> Result<String, String>
 /// Poll whether login has completed (QR scanned or quick login done).
 #[tauri::command]
 pub async fn napcat_login_status(state: State<'_, AppState>) -> Result<bool, String> {
-    let body = post_json(&state, "/api/QQLogin/CheckLoginStatus", serde_json::json!({})).await?;
+    let body = post_json(
+        &state,
+        "/api/QQLogin/CheckLoginStatus",
+        serde_json::json!({}),
+    )
+    .await?;
     let data = body.get("data").unwrap_or(&body);
     Ok(data
         .get("isLogin")
@@ -427,19 +592,23 @@ pub async fn napcat_login_status(state: State<'_, AppState>) -> Result<bool, Str
 /// Terminate any running desktop QQ so the Shell package can take over.
 #[tauri::command]
 pub fn kill_qq() -> Result<(), String> {
+    terminate_qq();
+    Ok(())
+}
+
+fn terminate_qq() {
     #[cfg(windows)]
     {
-        for image in ["QQ.exe", "QQmusic.exe"] {
-            let _ = crate::util::hidden_command("taskkill")
-                .args(["/IM", image, "/F", "/T"])
-                .status();
-        }
-        Ok(())
+        let _ = crate::util::hidden_command("taskkill")
+            .args(["/IM", "QQ.exe", "/F", "/T"])
+            .status();
     }
     #[cfg(not(windows))]
     {
-        let _ = std::process::Command::new("pkill").arg("-f").arg("QQ").status();
-        Ok(())
+        let _ = std::process::Command::new("pkill")
+            .arg("-f")
+            .arg("QQ")
+            .status();
     }
 }
 
@@ -467,4 +636,27 @@ fn render_qr_png(content: &str) -> Result<String, String> {
     let _ = ImageFormat::Png;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
     Ok(format!("data:image/png;base64,{b64}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::log_reports_account_already_logged_in;
+
+    #[test]
+    fn detects_duplicate_login_for_requested_account() {
+        let log = "\u{1b}[31merror\u{1b}[39m 当前账号(12519212)已登录,无法重复登录";
+        assert!(log_reports_account_already_logged_in(log, "12519212"));
+    }
+
+    #[test]
+    fn accepts_full_width_duplicate_login_punctuation() {
+        let log = "当前账号（12519212）已登录，无法重复登录";
+        assert!(log_reports_account_already_logged_in(log, "12519212"));
+    }
+
+    #[test]
+    fn ignores_duplicate_login_for_another_account() {
+        let log = "当前账号(12519212)已登录,无法重复登录";
+        assert!(!log_reports_account_already_logged_in(log, "987654321"));
+    }
 }
