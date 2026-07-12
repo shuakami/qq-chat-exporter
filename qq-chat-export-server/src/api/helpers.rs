@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use qce_exporter::CleanMessage;
+
 use crate::fetcher::is_private_like_chat_type;
 use crate::napcat::NapCatBridgeClient;
 
@@ -189,6 +191,37 @@ fn nested_core_info_str(value: &Value, key: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
+pub fn resolve_peer_uin(
+    peer_uid: &str,
+    self_uin: Option<&str>,
+    messages: &[CleanMessage],
+) -> Option<String> {
+    let valid_uin = |uin: &&str| {
+        !uin.is_empty() && uin.chars().all(|c| c.is_ascii_digit()) && *uin != "0"
+    };
+    messages
+        .iter()
+        .find(|message| message.sender.uid == peer_uid)
+        .and_then(|message| message.sender.uin.as_deref())
+        .filter(valid_uin)
+        .or_else(|| {
+            messages
+                .iter()
+                .filter_map(|message| message.sender.uin.as_deref())
+                .filter(valid_uin)
+                .find(|uin| Some(*uin) != self_uin)
+        })
+        .map(str::to_string)
+}
+
+pub fn chat_avatar_url(chat_type: &str, peer_uid: &str, peer_uin: Option<&str>) -> Option<String> {
+    if chat_type == "group" {
+        return (!peer_uid.is_empty())
+            .then(|| format!("https://p.qlogo.cn/gh/{peer_uid}/{peer_uid}/640/"));
+    }
+    peer_uin.map(|uin| format!("https://q1.qlogo.cn/g?b=qq&nk={uin}&s=640"))
+}
+
 /// 私聊导出时把数字 QQ 号解析为真正的 NTQQ uid（对应 TS `resolvePeerUid`，
 /// issue #353）。任何缺失 / 异常 / 空返回都安全降级到原始 peerUid。
 pub async fn resolve_peer_uid(chat_type: i64, peer_uid: &str, napcat: &NapCatBridgeClient) -> String {
@@ -303,5 +336,14 @@ mod tests {
         assert_eq!(normalized["joinRequests"][0]["checked"], true);
         assert_eq!(normalized["invitedRequests"][0]["kind"], "invited");
         assert_eq!(normalized["invitedRequests"][0]["groupId"], "888");
+    }
+
+    #[test]
+    fn private_avatar_requires_numeric_uin() {
+        assert_eq!(
+            chat_avatar_url("private", "u_peer", Some("1687657986")),
+            Some("https://q1.qlogo.cn/g?b=qq&nk=1687657986&s=640".to_string())
+        );
+        assert_eq!(chat_avatar_url("private", "u_peer", None), None);
     }
 }

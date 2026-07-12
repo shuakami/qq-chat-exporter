@@ -53,7 +53,16 @@ export interface QceManifest {
   version: number;
   exporter?: { name: string; version: string };
   exportTime: string;
-  chat: { name: string; type: string; avatar?: string };
+  chat: {
+    name: string;
+    type: string;
+    avatar?: string;
+    selfUid?: string;
+    selfUin?: string;
+    selfName?: string;
+    peerUid?: string;
+    peerUin?: string;
+  };
   stats: {
     totalMessages: number;
     minDateKey: string;

@@ -55,6 +55,92 @@ impl SimpleParserOptions {
     }
 }
 
+#[cfg(test)]
+mod gray_tip_tests {
+    use super::{SimpleMessageParser, SimpleParserOptions};
+    use serde_json::json;
+
+    fn raw_message(id: &str, uid: &str, uin: &str, nick: &str) -> serde_json::Value {
+        json!({
+            "msgId": id,
+            "msgSeq": id,
+            "msgTime": "1757930244",
+            "msgType": 2,
+            "chatType": 1,
+            "peerUid": "u_peer",
+            "senderUid": uid,
+            "senderUin": uin,
+            "sendNickName": nick,
+            "recallTime": "0",
+            "elements": []
+        })
+    }
+
+    #[tokio::test]
+    async fn parses_recall_nick_and_json_gray_tip_items() {
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let mut recall = raw_message("recall", "u_self", "12519212", "速冻饺子");
+        recall["msgType"] = json!(5);
+        recall["recallTime"] = json!("1");
+        recall["elements"] = json!([{
+            "elementType": 8,
+            "grayTipElement": {
+                "subElementType": 1,
+                "revokeElement": {
+                    "operatorUid": "u_self",
+                    "operatorNick": "速冻饺子",
+                    "origMsgSenderUid": "u_self",
+                    "origMsgSenderNick": "速冻饺子",
+                    "isSelfOperate": true,
+                    "wording": "因为有错别字。\t"
+                }
+            }
+        }]);
+        let mut tip = raw_message("tip", "", "0", "");
+        tip["msgType"] = json!(5);
+        tip["elements"] = json!([{
+            "elementType": 8,
+            "grayTipElement": {
+                "subElementType": 0,
+                "jsonGrayTipElement": {
+                    "jsonStr": "{\"items\":[{\"type\":\"qq\",\"uid\":\"u_self\",\"nm\":\"\"},{\"type\":\"img\"},{\"type\":\"nor\",\"txt\":\"戳了戳\"},{\"type\":\"qq\",\"uid\":\"u_peer\",\"nm\":\"\"}]}"
+                }
+            }
+        }]);
+        let mut xml_tip = raw_message("xml-tip", "", "0", "");
+        xml_tip["msgType"] = json!(5);
+        xml_tip["elements"] = json!([{
+            "elementType": 8,
+            "grayTipElement": {
+                "subElementType": 0,
+                "xmlElement": {
+                    "xmlStr": "<gtip align=\"center\"><qq uin=\"u_self\" col=\"3\" jp=\"12519212\" /><nor txt=\"邀请\"/><qq uin=\"u_peer\" col=\"3\" jp=\"1687657986\" /> <nor txt=\"加入了群聊，并附带了30条聊天记录。\"/> </gtip>"
+                }
+            }
+        }]);
+
+        let messages = vec![
+            raw_message("self", "u_self", "12519212", "速冻饺子"),
+            raw_message("peer", "u_peer", "1687657986", "笨蛋Darf v2"),
+            recall,
+            tip,
+            xml_tip,
+        ];
+        let parsed = parser.parse_messages(&messages).await;
+
+        assert_eq!(
+            parsed[2].content.text,
+            "速冻饺子 撤回了一条消息（因为有错别字）"
+        );
+        assert!(parsed[2].recalled);
+        assert_eq!(parsed[3].content.text, "速冻饺子戳了戳笨蛋Darf v2");
+        assert_eq!(
+            parsed[4].content.text,
+            "速冻饺子邀请笨蛋Darf v2加入了群聊，并附带了30条聊天记录。"
+        );
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct CachedSenderInfo {
     group_card: Option<String>,
@@ -327,7 +413,7 @@ impl SimpleMessageParser {
             content,
             recalled: v_get(message, "recallTime")
                 .and_then(Value::as_str)
-                .is_none_or(|t| t != "0"),
+                .is_some_and(|t| t != "0"),
             system: msg_type == 5,
             raw_message: None,
         }
@@ -646,7 +732,7 @@ impl SimpleMessageParser {
 
         // 小灰条（系统提示）
         if let Some(gt) = v_get(element, "grayTipElement").filter(|v| !v.is_null()) {
-            return Some(Self::parse_gray_tip_element(gt));
+            return Some(self.parse_gray_tip_element(gt));
         }
 
         // 长消息
@@ -1874,18 +1960,216 @@ impl SimpleMessageParser {
         format!("https://gxh.vip.qq.com/club/item/parcel/item/{prefix}/{emoji_id}/raw300.gif")
     }
 
-    fn parse_gray_tip_element(gray_tip: &Value) -> MessageElement {
+    fn gray_tip_name(value: &Value, keys: &[&str]) -> Option<String> {
+        keys.iter().find_map(|key| trimmed_field(value, key))
+    }
+
+    fn gray_tip_sender_name(&self, uid: &str, fallback: Option<&str>) -> String {
+        trimmed_opt(fallback)
+            .or_else(|| {
+                self.lookup_cached_sender_info(Some(uid), None)
+                    .and_then(|info| {
+                        info.group_card
+                            .clone()
+                            .or_else(|| info.remark.clone())
+                            .or_else(|| info.nickname.clone())
+                    })
+            })
+            .unwrap_or_else(|| "用户".to_string())
+    }
+
+    fn gray_tip_sender_name_with_uin(
+        &self,
+        uid: &str,
+        fallback: Option<&str>,
+        uin: Option<&str>,
+    ) -> String {
+        let name = self.gray_tip_sender_name(uid, fallback);
+        if name == "用户" {
+            return trimmed_opt(uin)
+                .filter(|value| value.chars().all(|c| c.is_ascii_digit()))
+                .unwrap_or(name);
+        }
+        name
+    }
+
+    fn decode_gray_tip_xml(value: &str) -> String {
+        value
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&")
+    }
+
+    fn parse_xml_gray_tip(&self, xml: &str) -> Option<(String, Vec<Value>)> {
+        static TAG_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        static ATTR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let tag_re = TAG_RE.get_or_init(|| {
+            regex::Regex::new(r#"<(qq|nor|url)\b([^>]*)/?>"#).expect("valid gray-tip tag regex")
+        });
+        let attr_re = ATTR_RE.get_or_init(|| {
+            regex::Regex::new(r#"([A-Za-z][A-Za-z0-9_]*)="([^"]*)""#)
+                .expect("valid gray-tip attribute regex")
+        });
+        let mut text = String::new();
+        let mut items = Vec::new();
+        for captures in tag_re.captures_iter(xml) {
+            let item_type = captures.get(1).map_or("", |value| value.as_str());
+            let attrs = captures.get(2).map_or("", |value| value.as_str());
+            let values: HashMap<String, String> = attr_re
+                .captures_iter(attrs)
+                .filter_map(|capture| {
+                    Some((
+                        capture.get(1)?.as_str().to_string(),
+                        Self::decode_gray_tip_xml(capture.get(2)?.as_str()),
+                    ))
+                })
+                .collect();
+            match item_type {
+                "qq" => {
+                    let uid = values
+                        .get("uid")
+                        .or_else(|| values.get("uin"))
+                        .map_or("", String::as_str);
+                    let name = self.gray_tip_sender_name_with_uin(
+                        uid,
+                        values.get("nm").map(String::as_str),
+                        values.get("jp").map(String::as_str),
+                    );
+                    text.push_str(&name);
+                    items.push(json!({ "type": "qq", "text": name, "uid": uid }));
+                }
+                "nor" | "url" => {
+                    let item_text = values.get("txt").map_or("", String::as_str);
+                    if !item_text.is_empty() {
+                        text.push_str(item_text);
+                        items.push(json!({
+                            "type": item_type,
+                            "text": item_text,
+                            "url": values.get("jp").map_or("", String::as_str)
+                        }));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let text = text.trim();
+        (!text.is_empty()).then(|| (text.to_string(), items))
+    }
+
+    fn find_gray_tip_payload(value: &Value) -> Option<&str> {
+        if let Some(object) = value.as_object() {
+            for key in ["jsonStr", "xmlStr", "content", "text", "wording"] {
+                if let Some(payload) = object
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|payload| !payload.is_empty())
+                {
+                    return Some(payload);
+                }
+            }
+            for child in object.values() {
+                if let Some(payload) = Self::find_gray_tip_payload(child) {
+                    return Some(payload);
+                }
+            }
+        } else if let Some(array) = value.as_array() {
+            for child in array {
+                if let Some(payload) = Self::find_gray_tip_payload(child) {
+                    return Some(payload);
+                }
+            }
+        }
+        None
+    }
+
+    fn parse_gray_tip_payload(&self, payload: &str) -> Option<(String, Vec<Value>)> {
+        if payload.trim_start().starts_with('{') {
+            return self.parse_json_gray_tip(payload);
+        }
+        if payload.contains("<gtip") {
+            return self.parse_xml_gray_tip(payload);
+        }
+        None
+    }
+
+    fn parse_json_gray_tip(&self, json_content: &str) -> Option<(String, Vec<Value>)> {
+        let parsed = serde_json::from_str::<Value>(json_content).ok()?;
+        if let Some(text) = v_str(&parsed, "prompt")
+            .filter(|s| !s.is_empty())
+            .or_else(|| v_str(&parsed, "content").filter(|s| !s.is_empty()))
+        {
+            return Some((text.to_string(), vec![json!({ "type": "text", "text": text })]));
+        }
+        let items = v_get(&parsed, "items").and_then(Value::as_array)?;
+        let mut text = String::new();
+        let mut normalized_items = Vec::new();
+        for item in items {
+            match v_str(item, "type").unwrap_or_default() {
+                "qq" => {
+                    let uid = v_str(item, "uid").unwrap_or_default();
+                    let name = self.gray_tip_sender_name_with_uin(
+                        uid,
+                        v_str(item, "nm"),
+                        v_str(item, "jp"),
+                    );
+                    text.push_str(&name);
+                    normalized_items.push(json!({ "type": "qq", "text": name, "uid": uid }));
+                }
+                "nor" | "url" => {
+                    if let Some(value) = v_str(item, "txt").filter(|s| !s.is_empty()) {
+                        text.push_str(value);
+                        normalized_items.push(json!({
+                            "type": v_str(item, "type").unwrap_or("text"),
+                            "text": value,
+                            "url": v_str(item, "jp").unwrap_or("")
+                        }));
+                    }
+                }
+                "img" => normalized_items.push(json!({
+                    "type": "img",
+                    "src": v_str(item, "src").unwrap_or(""),
+                    "url": v_str(item, "jp").unwrap_or("")
+                })),
+                _ => {}
+            }
+        }
+        let text = text.trim();
+        (!text.is_empty() || !normalized_items.is_empty())
+            .then(|| (text.to_string(), normalized_items))
+    }
+
+    fn parse_gray_tip_element(&self, gray_tip: &Value) -> MessageElement {
         let sub_type = v_i64(gray_tip, "subElementType").unwrap_or(0);
         let mut text = String::new();
+        let mut render_items = Vec::new();
 
         if sub_type == 1 {
             if let Some(revoke) = v_get(gray_tip, "revokeElement").filter(|v| !v.is_null()) {
-                let operator_name = v_str(revoke, "operatorName")
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("用户");
-                let original_sender_name = v_str(revoke, "origMsgSenderName")
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("用户");
+                let operator_uid = v_str(revoke, "operatorUid").unwrap_or_default();
+                let operator_fallback = Self::gray_tip_name(
+                    revoke,
+                    &["operatorName", "operatorNick", "operatorRemark", "operatorMemRemark"],
+                );
+                let operator_name =
+                    self.gray_tip_sender_name(operator_uid, operator_fallback.as_deref());
+                let original_sender_uid =
+                    v_str(revoke, "origMsgSenderUid").unwrap_or_default();
+                let original_sender_fallback = Self::gray_tip_name(
+                    revoke,
+                    &[
+                        "origMsgSenderName",
+                        "origMsgSenderNick",
+                        "origMsgSenderRemark",
+                        "origMsgSenderMemRemark",
+                    ],
+                );
+                let original_sender_name = self.gray_tip_sender_name(
+                    original_sender_uid,
+                    original_sender_fallback.as_deref(),
+                );
                 let is_self = v_get(revoke, "isSelfOperate")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
@@ -1898,7 +2182,10 @@ impl SimpleMessageParser {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                 {
-                    text = format!("{text}，{wording}");
+                    text = format!(
+                        "{text}（{}）",
+                        wording.trim_end_matches(|c| matches!(c, '。' | '！' | '？'))
+                    );
                 }
             }
         } else if sub_type == 10 {
@@ -1914,18 +2201,13 @@ impl SimpleMessageParser {
                     .unwrap_or("群聊更新")
                     .to_string();
             }
-        } else if sub_type == 17 {
-            if let Some(jg) = v_get(gray_tip, "jsonGrayTipElement").filter(|v| !v.is_null()) {
-                let json_content = v_str(jg, "jsonStr").unwrap_or("{}");
-                text = serde_json::from_str::<Value>(json_content)
-                    .ok()
-                    .and_then(|parsed| {
-                        v_str(&parsed, "prompt")
-                            .filter(|s| !s.is_empty())
-                            .or_else(|| v_str(&parsed, "content").filter(|s| !s.is_empty()))
-                            .map(str::to_string)
-                    })
-                    .unwrap_or_else(|| "系统提示".to_string());
+        } else if let Some(jg) = v_get(gray_tip, "jsonGrayTipElement").filter(|v| !v.is_null()) {
+            let json_content = v_str(jg, "jsonStr").unwrap_or("{}");
+            if let Some((parsed_text, items)) = self.parse_json_gray_tip(json_content) {
+                text = parsed_text;
+                render_items = items;
+            } else {
+                text = "系统提示".to_string();
             }
         } else if let Some(aio_op) = v_get(gray_tip, "aioOpGrayTipElement").filter(|v| !v.is_null()) {
             if v_i64(aio_op, "operateType") == Some(1) {
@@ -1949,11 +2231,17 @@ impl SimpleMessageParser {
         }
 
         if text.is_empty() {
-            let content = v_str(gray_tip, "content")
-                .filter(|s| !s.is_empty())
-                .or_else(|| v_str(gray_tip, "text").filter(|s| !s.is_empty()))
-                .or_else(|| v_str(gray_tip, "wording").filter(|s| !s.is_empty()));
-            text = content.map_or_else(|| format!("系统提示 (类型: {sub_type})"), str::to_string);
+            let payload = Self::find_gray_tip_payload(gray_tip);
+            if let Some((parsed_text, items)) =
+                payload.and_then(|value| self.parse_gray_tip_payload(value))
+            {
+                text = parsed_text;
+                render_items = items;
+            } else {
+                text = payload
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("系统提示 (类型: {sub_type})"));
+            }
         }
 
         MessageElement {
@@ -1962,6 +2250,7 @@ impl SimpleMessageParser {
                 "subType": sub_type,
                 "text": text,
                 "summary": text,
+                "items": render_items,
                 "originalData": gray_tip
             }),
         }

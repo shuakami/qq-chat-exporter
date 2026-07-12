@@ -200,11 +200,10 @@ test.describe('Session list — QQ lookup (issue #204)', () => {
     });
 
     /**
-     * Issue #363: 当本次导出有资源下载失败时，任务列表里这条任务下面应当出现
-     * 一段说明 Rkey 降级和重试方法的提示文案。这里直接拦截 `/api/tasks` 把一条
-     * 带 `resourceSummary.failed > 0` 的完成态任务塞进去，验证 UI 真的会渲染。
+     * Issue #363: 当本次导出有资源下载失败时，任务列表保留一行资源统计，
+     * 并把 Rkey 降级说明收进消息数旁的帮助 tooltip。
      */
-    test('completed task with failed resources shows Rkey explanation banner (issue #363)', async ({ page }) => {
+    test('completed task with failed resources shows a compact summary and tooltip (issue #363)', async ({ page }) => {
         await clearLocalStorage(page);
         await page.evaluate((value) => {
             localStorage.setItem('qce_access_token', value);
@@ -271,10 +270,15 @@ test.describe('Session list — QQ lookup (issue #204)', () => {
 
         // 任务行出现
         await expect(page.getByText('Rkey 降级测试会话')).toBeVisible({ timeout: 10_000 });
-        // 数字行
-        await expect(page.getByText(/资源 8\/12，失败 4/)).toBeVisible({ timeout: 10_000 });
-        // Rkey 解释文案
-        await expect(page.getByText(/Rkey 服务临时降级|重新点开这些消息/)).toBeVisible({ timeout: 10_000 });
+        const resourceSummary = page.getByText(/资源 8\/12，失败 4/);
+        await expect(resourceSummary).toBeVisible({ timeout: 10_000 });
+        await expect(resourceSummary).toHaveCSS('white-space', 'nowrap');
+
+        await expect(page.getByText(/Rkey 服务临时降级|重新打开相关消息/)).toHaveCount(0);
+        const resourceHelp = page.getByRole('button', { name: '查看资源下载失败说明' });
+        await expect(resourceHelp).toBeVisible();
+        await resourceHelp.hover();
+        await expect(page.getByRole('tooltip')).toContainText('QQ Rkey 服务临时不可用');
     });
 
     test('searching for a non-existent QQ shows a friendly not-found message', async ({ page }) => {

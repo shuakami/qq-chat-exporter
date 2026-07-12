@@ -11,6 +11,7 @@ use qce_exporter::text_exporter::{TextExporter, TextFormatOptions};
 use qce_exporter::types::MessageResource;
 use qce_exporter::{ChatInfo, CleanMessage, ExportOptions};
 
+use qce_server::api::helpers::{chat_avatar_url, resolve_peer_uin};
 use qce_server::fetcher::{
     classify_chat_type_binary, BatchFetchConfig, BatchMessageFetcher, MessageFilter, Peer,
 };
@@ -196,14 +197,22 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
 
         let message_count = clean_messages.len() as i64;
         let self_info = self.napcat.self_info().await.unwrap_or(Value::Null);
+        let self_uid = self_info.get("uid").and_then(Value::as_str).map(str::to_string);
+        let self_uin = self_info.get("uin").and_then(Value::as_str).map(str::to_string);
+        let peer_uin = (chat_type != 2)
+            .then(|| resolve_peer_uin(&peer_uid, self_uin.as_deref(), &clean_messages))
+            .flatten();
+        let normalized_chat_type = classify_chat_type_binary(Some(chat_type)).to_string();
         let chat_info = ChatInfo {
             name: task_name.clone(),
-            chat_type: classify_chat_type_binary(Some(chat_type)).to_string(),
-            avatar: None,
+            chat_type: normalized_chat_type.clone(),
+            avatar: chat_avatar_url(&normalized_chat_type, &peer_uid, peer_uin.as_deref()),
             participant_count: None,
-            self_uid: self_info.get("uid").and_then(Value::as_str).map(str::to_string),
-            self_uin: self_info.get("uin").and_then(Value::as_str).map(str::to_string),
+            self_uid,
+            self_uin,
             self_name: self_info.get("nick").and_then(Value::as_str).map(str::to_string),
+            peer_uid: Some(peer_uid.clone()),
+            peer_uin,
         };
 
         let include_resource_links = options

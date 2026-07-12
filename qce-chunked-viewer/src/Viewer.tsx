@@ -296,6 +296,13 @@ export default function Viewer(): React.ReactElement {
   function onViewportClick(e: React.MouseEvent): void {
     const target = e.target as HTMLElement;
 
+    const reply = target.closest('.reply-content[data-reply-to]');
+    if (reply instanceof HTMLElement && !target.closest('a, button')) {
+      const msgId = reply.getAttribute('data-reply-to');
+      if (msgId) void jumpToMessageId(msgId);
+      return;
+    }
+
     const voice = target.closest('.voice-bubble');
     if (voice instanceof HTMLElement) {
       const src = voice.getAttribute('data-src') ?? '';
@@ -314,6 +321,17 @@ export default function Viewer(): React.ReactElement {
       if (src) setPreview({ type: 'video', src, name: video.getAttribute('data-name') || '视频' });
       return;
     }
+  }
+
+  function onViewportKeyDown(e: React.KeyboardEvent): void {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target as HTMLElement;
+    const reply = target.closest('.reply-content[data-reply-to]');
+    if (!(reply instanceof HTMLElement) || reply !== target) return;
+    const msgId = reply.getAttribute('data-reply-to');
+    if (!msgId) return;
+    e.preventDefault();
+    void jumpToMessageId(msgId);
   }
 
   function toggleVoice(el: HTMLElement, src: string): void {
@@ -652,11 +670,11 @@ export default function Viewer(): React.ReactElement {
                 <dt className="text-muted-foreground">消息数</dt>
                 <dd className="font-medium tabular-nums">{stats.totalMessages.toLocaleString()}</dd>
               </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-muted-foreground">时间范围</dt>
-                <dd className="flex items-center gap-1.5 font-medium">
+              <div className="flex items-center justify-between gap-3">
+                <dt className="shrink-0 text-muted-foreground">时间范围</dt>
+                <dd className="flex shrink-0 items-center gap-1.5 whitespace-nowrap font-medium tabular-nums">
                   {fmtDate(stats.minDateKey)}
-                  <MoveRightIcon className="size-3 text-muted-foreground" />
+                  <MoveRightIcon className="size-3 shrink-0 text-muted-foreground" />
                   {fmtDate(stats.maxDateKey)}
                 </dd>
               </div>
@@ -889,7 +907,13 @@ export default function Viewer(): React.ReactElement {
 
         <div className="relative min-h-0 flex-1">
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-background to-transparent" />
-          <div id="viewport" ref={viewportRef} className="qce-viewport h-full" onClick={onViewportClick} />
+          <div
+            id="viewport"
+            ref={viewportRef}
+            className="qce-viewport h-full"
+            onClick={onViewportClick}
+            onKeyDown={onViewportKeyDown}
+          />
         </div>
       </div>
 

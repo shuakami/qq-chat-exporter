@@ -275,6 +275,8 @@ fn chat_info() -> ChatInfo {
         self_uid: Some("u_alice".to_owned()),
         self_uin: Some("10001".to_owned()),
         self_name: Some("Alice".to_owned()),
+        peer_uid: None,
+        peer_uin: None,
     }
 }
 
