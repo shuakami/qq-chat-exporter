@@ -21,8 +21,8 @@ fn base_url(port: u16) -> String {
 
 fn client() -> reqwest::Client {
     reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_millis(800))
-        .timeout(std::time::Duration::from_secs(3))
+        .connect_timeout(std::time::Duration::from_millis(400))
+        .timeout(std::time::Duration::from_secs(2))
         .user_agent("qce-installer")
         .build()
         .expect("reqwest client")
@@ -56,7 +56,12 @@ fn store_credential(state: &State<'_, AppState>, cred: &str, port: u16) {
     if let Ok(mut s) = state.0.lock() {
         s.credential = Some(cred.to_string());
         s.webui_port = Some(port);
+        s.last_good_port = Some(port);
     }
+}
+
+fn last_good_port(state: &State<'_, AppState>) -> Option<u16> {
+    state.0.lock().ok()?.last_good_port
 }
 
 /// Drop the cached credential/port so the next call re-probes ports and
@@ -112,6 +117,28 @@ async fn try_login_on(port: u16, tok: &str) -> Result<String, String> {
         })
 }
 
+/// TCP-connect every candidate port concurrently and return the ones that are
+/// actually listening, preserving candidate order. A bare connect on loopback
+/// resolves in microseconds when something listens and fails fast otherwise,
+/// so the whole scan costs one short timeout instead of `ports × timeout`.
+async fn probe_open_ports(candidates: &[u16]) -> Vec<u16> {
+    let checks = candidates.iter().map(|&port| async move {
+        let ok = tokio::time::timeout(
+            std::time::Duration::from_millis(300),
+            tokio::net::TcpStream::connect(("127.0.0.1", port)),
+        )
+        .await
+        .map(|r| r.is_ok())
+        .unwrap_or(false);
+        (port, ok)
+    });
+    futures_util::future::join_all(checks)
+        .await
+        .into_iter()
+        .filter_map(|(port, ok)| ok.then_some(port))
+        .collect()
+}
+
 /// Probe ports starting from NAPCAT_WEBUI_PORT to find the live NapCat
 /// instance, authenticate, and cache the credential + actual port.
 async fn ensure_login(state: &State<'_, AppState>) -> Result<(String, u16), String> {
@@ -128,9 +155,26 @@ async fn ensure_login(state: &State<'_, AppState>) -> Result<(String, u16), Stri
         vec![&tok]
     };
 
-    // Probe the configured port first, then a range above it.
-    let mut last_err = String::from("NapCat WebUI 未响应");
+    // Candidate order: last port that ever worked, then the configured range.
+    let mut candidates: Vec<u16> = Vec::with_capacity(21);
+    if let Some(p) = last_good_port(state) {
+        candidates.push(p);
+    }
     for port in NAPCAT_WEBUI_PORT..NAPCAT_WEBUI_PORT + 20 {
+        if !candidates.contains(&port) {
+            candidates.push(port);
+        }
+    }
+
+    let open_ports = probe_open_ports(&candidates).await;
+    if open_ports.is_empty() {
+        let err = String::from("NapCat WebUI 未响应（无端口监听）");
+        log(state, &format!("WebUI login failed: {err}"));
+        return Err(err);
+    }
+
+    let mut last_err = String::from("NapCat WebUI 未响应");
+    for port in open_ports {
         for t in &tokens {
             match try_login_on(port, t).await {
                 Ok(cred) => {
@@ -145,8 +189,9 @@ async fn ensure_login(state: &State<'_, AppState>) -> Result<(String, u16), Stri
                     return Ok((cred, port));
                 }
                 Err(e) => {
-                    // Connection refused → port not serving, skip remaining tokens.
-                    if e.contains("connect") || e.contains("Connect") {
+                    // Connection-level failure → nothing (or not NapCat) is
+                    // serving HTTP here; skip the remaining tokens.
+                    if e.contains("连接 NapCat WebUI 失败") {
                         break;
                     }
                     last_err = e;
