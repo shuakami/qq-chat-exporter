@@ -406,7 +406,7 @@ export function TaskWizard({
         <Button
           onClick={confirmMemberSelection}
           size="sm"
-          className={`w-full h-7 text-xs rounded-full ${mode === 'include' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+          className="w-full h-7 text-xs rounded-full bg-[#317CFF] hover:bg-[#2867d6]"
         >
           确认选择 ({selectedMemberUins.size})
         </Button>
@@ -1006,7 +1006,7 @@ export function TaskWizard({
                       variant="ghost"
                       size="sm"
                       onClick={() => handleOpenMemberSelector('exclude')}
-                      className="text-xs h-7 text-blue-600 hover:text-blue-700"
+                      className="text-xs h-7 text-[#317CFF] hover:text-[#2867d6]"
                     >
                       {memberSelectorMode === 'exclude' ? "收起" : "从群成员选择"}
                     </Button>
@@ -1039,7 +1039,7 @@ export function TaskWizard({
                       variant="ghost"
                       size="sm"
                       onClick={() => handleOpenMemberSelector('include')}
-                      className="text-xs h-7 text-emerald-600 hover:text-emerald-700"
+                      className="text-xs h-7 text-[#317CFF] hover:text-[#2867d6]"
                     >
                       {memberSelectorMode === 'include' ? "收起" : "从群成员选择"}
                     </Button>

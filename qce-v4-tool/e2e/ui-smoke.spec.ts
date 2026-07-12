@@ -278,6 +278,8 @@ test.describe('Session list — QQ lookup (issue #204)', () => {
         const tooltip = page.getByRole('tooltip');
         await expect(tooltip).toContainText('资源 8/12，失败 4');
         await expect(tooltip).toContainText('QQ Rkey 服务临时不可用');
+        const textWrap = await tooltip.evaluate((element) => getComputedStyle(element).textWrap);
+        expect(textWrap).not.toContain('balance');
     });
 
     test('searching for a non-existent QQ shows a friendly not-found message', async ({ page }) => {
