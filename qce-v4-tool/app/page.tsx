@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "@/components/ui/toast"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { BatchExportItem, BatchExportConfig } from "@/components/ui/batch-export-dialog"
 import { SessionList } from "@/components/ui/session-list"
 
@@ -93,9 +94,20 @@ function TaskFormatLabel({ format, className }: { format: string; className?: st
     const suffix = format === "STREAMING_ZIP" ? "ZIP" : "JSONL"
     return (
       <span className={`inline-flex items-center gap-1 ${className ?? ""}`}>
-        <span className="inline-flex items-center justify-center w-[15px] h-[15px] rounded-[4px] bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 text-[9px] font-bold leading-none">
-          S
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="inline-flex items-center justify-center w-[15px] h-[15px] rounded-[4px] bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-200 text-[9px] font-bold leading-none cursor-help outline-none"
+              aria-label="流式导出"
+              tabIndex={0}
+            >
+              S
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={6}>
+            流式导出（Streaming）
+          </TooltipContent>
+        </Tooltip>
         <span className="font-medium tracking-wide">{suffix}</span>
       </span>
     )
@@ -1844,7 +1856,25 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                           <TaskFormatLabel format={task.format} />
                           <span>{new Date(task.createdAt).toLocaleDateString()}</span>
                           {task.messageCount !== undefined && task.messageCount > 0 && (
-                            <span>{task.messageCount.toLocaleString()} 条消息</span>
+                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                              <span>{task.messageCount.toLocaleString()} 条消息</span>
+                              {task.status === "completed" && task.resourceSummary && task.resourceSummary.failed > 0 && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground/60 outline-none transition-colors hover:bg-amber-500/10 hover:text-amber-700 focus-visible:ring-2 focus-visible:ring-ring dark:hover:text-amber-400"
+                                      aria-label="查看资源下载失败说明"
+                                    >
+                                      <HelpCircle className="h-3.5 w-3.5" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" sideOffset={6} className="max-w-72">
+                                    部分资源因 QQ Rkey 服务临时不可用而下载失败，文字内容不受影响；可在 QQ 客户端重新打开相关消息后重试。
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </span>
                           )}
                           {(task.startTime || task.endTime) && (
                             <span className="font-medium">
@@ -1881,16 +1911,10 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
 
                         {/* issue #363：资源下载摘要。只在完成态、且本次确实有资源失败时显示。 */}
                         {task.status === "completed" && task.resourceSummary && task.resourceSummary.failed > 0 && (
-                          <div className="mt-1.5 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-                            <span className="font-medium">
-                              资源 {(task.resourceSummary.alreadyAvailable + task.resourceSummary.downloaded)}/{task.resourceSummary.attempted}
-                              ，失败 {task.resourceSummary.failed}
-                              {task.resourceSummary.skipped > 0 && `，跳过 ${task.resourceSummary.skipped}`}
-                            </span>
-                            <span className="text-muted-foreground/70">
-                              {' · '}
-                              这通常是 QQ Rkey 服务临时降级，文字内容不受影响；可在 QQ 客户端重新点开这些消息后再点「重试」。
-                            </span>
+                          <div className="mt-1.5 whitespace-nowrap text-xs font-medium text-amber-700 dark:text-amber-400">
+                            资源 {(task.resourceSummary.alreadyAvailable + task.resourceSummary.downloaded)}/{task.resourceSummary.attempted}
+                            ，失败 {task.resourceSummary.failed}
+                            {task.resourceSummary.skipped > 0 && `，跳过 ${task.resourceSummary.skipped}`}
                           </div>
                         )}
                       </div>
@@ -2202,10 +2226,6 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                             return true;
                           })
                           .map((file) => {
-                            const avatarUrl = file.chatType === 'group' 
-                              ? `https://p.qlogo.cn/gh/${file.chatId}/${file.chatId}/640/`
-                              : `https://q1.qlogo.cn/g?b=qq&nk=${file.chatId}&s=640`;
-                            
                             const ext = file.fileName.toLowerCase().split('.').pop();
                             const isJsonl = file.fileName.includes('_chunked_jsonl');
                             const formatLabel = isJsonl ? 'JSONL' : ext === 'html' || ext === 'htm' ? 'HTML' : ext === 'json' ? 'JSON' : ext === 'zip' ? 'ZIP' : ext?.toUpperCase();
@@ -2222,7 +2242,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                                 onClick={() => handleOpenFilePathModal(file.filePath, file.displayName || file.sessionName || file.chatId, file.fileName, file.size)}
                               >
                                 <Avatar className="w-9 h-9 rounded-full flex-shrink-0 mr-3">
-                                  <AvatarImage src={avatarUrl} className="rounded-full" />
+                                  {file.avatarUrl && <AvatarImage src={file.avatarUrl} className="rounded-full" />}
                                   <AvatarFallback className="rounded-full bg-black/[0.02] dark:bg-white/[0.04] text-muted-foreground/40">
                                     {file.chatType === 'group' ? <Users className="w-4 h-4" /> : <User className="w-4 h-4" />}
                                   </AvatarFallback>

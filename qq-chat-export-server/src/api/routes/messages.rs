@@ -20,7 +20,9 @@ use qce_exporter::text_exporter::{TextExporter, TextFormatOptions};
 use qce_exporter::types::MessageResource;
 use qce_exporter::{ChatInfo, CleanMessage, ExportOptions};
 
-use crate::api::helpers::{resolve_peer_uid, resolve_session_name};
+use crate::api::helpers::{
+    chat_avatar_url, resolve_peer_uid, resolve_peer_uin, resolve_session_name,
+};
 use crate::api::response::{self, ApiError, RequestId};
 use crate::api::state::{MessageCacheEntry, SharedState, CACHE_EXPIRE_TIME_MS};
 use crate::fetcher::{
@@ -1335,14 +1337,22 @@ async fn process_export_task(
 
     let message_count = clean_messages.len();
     let self_info = state.napcat.self_info().await.unwrap_or(Value::Null);
+    let self_uid = self_info.get("uid").and_then(Value::as_str).map(str::to_string);
+    let self_uin = self_info.get("uin").and_then(Value::as_str).map(str::to_string);
+    let peer_uin = (req.chat_type != GROUP_CHAT_TYPE)
+        .then(|| resolve_peer_uin(&req.peer_uid, self_uin.as_deref(), &clean_messages))
+        .flatten();
+    let normalized_chat_type = classify_chat_type_binary(Some(req.chat_type)).to_string();
     let chat_info = ChatInfo {
         name: req.session_name.clone(),
-        chat_type: classify_chat_type_binary(Some(req.chat_type)).to_string(),
-        avatar: None,
+        chat_type: normalized_chat_type.clone(),
+        avatar: chat_avatar_url(&normalized_chat_type, &req.peer_uid, peer_uin.as_deref()),
         participant_count: None,
-        self_uid: self_info.get("uid").and_then(Value::as_str).map(str::to_string),
-        self_uin: self_info.get("uin").and_then(Value::as_str).map(str::to_string),
+        self_uid,
+        self_uin,
         self_name: self_info.get("nick").and_then(Value::as_str).map(str::to_string),
+        peer_uid: Some(req.peer_uid.clone()),
+        peer_uin,
     };
 
     let export_options = ExportOptions {

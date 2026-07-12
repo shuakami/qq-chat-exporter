@@ -601,3 +601,94 @@ test('senderTitleResolver trims whitespace and treats empty as no title (#331)',
     assert.equal(parsed[0].sender.title, '长老');
     assert.equal(parsed[1].sender.title, undefined);
 });
+
+test('recall gray tips preserve the actual operator name and wording', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const m = msg({ msgType: 5, recallTime: '1' })
+        .sender({ uid: 'u_self', uin: '12519212', nick: '速冻饺子' })
+        .build() as any;
+    m.elements.push({
+        elementType: 8,
+        grayTipElement: {
+            subElementType: 1,
+            revokeElement: {
+                operatorUid: 'u_self',
+                operatorNick: '速冻饺子',
+                origMsgSenderUid: 'u_self',
+                origMsgSenderNick: '速冻饺子',
+                isSelfOperate: true,
+                wording: '因为有错别字。\t'
+            }
+        }
+    });
+
+    const [parsed] = await parser.parseMessages([m]);
+    assert.equal(parsed.content.text, '速冻饺子 撤回了一条消息（因为有错别字）');
+    assert.equal(parsed.recalled, true);
+    assert.equal(parsed.system, true);
+});
+
+test('JSON gray tips compose readable text and resolve cached QQ names', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const self = msg()
+        .sender({ uid: 'u_self', uin: '12519212', nick: '速冻饺子' })
+        .text('self')
+        .build();
+    const peer = msg()
+        .sender({ uid: 'u_peer', uin: '1687657986', nick: '笨蛋Darf v2' })
+        .text('peer')
+        .build();
+    const tip = msg({ msgType: 5 }).build() as any;
+    tip.elements.push({
+        elementType: 8,
+        grayTipElement: {
+            subElementType: 0,
+            jsonGrayTipElement: {
+                jsonStr: JSON.stringify({
+                    items: [
+                        { type: 'qq', uid: 'u_self', nm: '' },
+                        { type: 'img' },
+                        { type: 'nor', txt: '戳了戳' },
+                        { type: 'qq', uid: 'u_peer', nm: '' }
+                    ]
+                })
+            }
+        }
+    });
+
+    const parsed = await parser.parseMessages([self, peer, tip]);
+    assert.equal(parsed[2].content.text, '速冻饺子戳了戳笨蛋Darf v2');
+    assert.equal(parsed[2].system, true);
+});
+
+test('XML gray tips resolve QQ users and preserve invite wording', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const inviter = msg()
+        .sender({ uid: 'u_inviter', uin: '3579836341', nick: '邀请者' })
+        .text('inviter')
+        .build();
+    const member = msg()
+        .sender({ uid: 'u_member', uin: '1469855250', nick: '新成员' })
+        .text('member')
+        .build();
+    const tip = msg({ msgType: 5 }).build() as any;
+    tip.elements.push({
+        elementType: 8,
+        grayTipElement: {
+            subElementType: 0,
+            xmlElement: {
+                xmlStr: '<gtip align="center"><qq uin="u_inviter" col="3" jp="3579836341" /><nor txt="邀请"/><qq uin="u_member" col="3" jp="1469855250" /> <nor txt="加入了群聊，并附带了30条聊天记录。"/> </gtip>'
+            }
+        }
+    });
+
+    const parsed = await parser.parseMessages([inviter, member, tip]);
+    assert.equal(
+        parsed[2].content.text,
+        '邀请者邀请新成员加入了群聊，并附带了30条聊天记录。'
+    );
+    assert.equal(parsed[2].system, true);
+});

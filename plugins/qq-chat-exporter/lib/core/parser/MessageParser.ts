@@ -451,6 +451,8 @@ export class MessageParser {
 
   /** 全局消息映射（滑动窗口 LRU），用于引用解析 */
   private messageMap: LRUCache<string, MsgRef>;
+
+  private senderInfoCache: Map<string, MsgRef> = new Map();
   
   /** 上次 GC 时间戳 */
   private lastGcTs = 0;
@@ -475,7 +477,7 @@ export class MessageParser {
   private indexBatch(messages: RawMessage[]): void {
     for (const msg of messages) {
       if (!msg || !msg.msgId) continue;
-      this.messageMap.set(msg.msgId, {
+      const ref = {
         msgId: msg.msgId,
         msgSeq: msg.msgSeq,
         clientSeq: (msg as any).clientSeq,
@@ -486,12 +488,15 @@ export class MessageParser {
         sendNickName: (msg as any).sendNickName,
         msgTime: msg.msgTime,
         elements: Array.isArray(msg.elements) ? msg.elements.slice(0, 16) : undefined // 控制体积
-      });
+      };
+      this.messageMap.set(msg.msgId, ref);
+      if (msg.senderUid) this.senderInfoCache.set(msg.senderUid, ref);
+      if (msg.senderUin) this.senderInfoCache.set(msg.senderUin, ref);
       // 也索引 records（引用常出现在这里）
       if (Array.isArray(msg.records)) {
         for (const r of msg.records) {
           if (r?.msgId) {
-            this.messageMap.set(r.msgId, {
+            const ref = {
               msgId: r.msgId,
               msgSeq: r.msgSeq,
               clientSeq: (r as any).clientSeq,
@@ -502,7 +507,10 @@ export class MessageParser {
               sendNickName: (r as any).sendNickName,
               msgTime: r.msgTime,
               elements: Array.isArray(r.elements) ? r.elements.slice(0, 16) : undefined
-            });
+            };
+            this.messageMap.set(r.msgId, ref);
+            if (r.senderUid) this.senderInfoCache.set(r.senderUid, ref);
+            if (r.senderUin) this.senderInfoCache.set(r.senderUin, ref);
           }
         }
       }
@@ -1323,9 +1331,8 @@ export class MessageParser {
 
             case 8: // ElementType.GreyTip
             if (element.grayTipElement) {
-              const gt = element.grayTipElement.subElementType?.toString() || '系统消息';
-              const t = `[${gt}]`;
-              ctxText(t, (this.config.html !== 'none') ? `<div class="system-message">[${escapeHtmlFast(gt)}]</div>` : '');
+              const text = this.parseGrayTipText(element.grayTipElement);
+              ctxText(text, (this.config.html !== 'none') ? `<div class="system-message">${escapeHtmlFast(text)}</div>` : '');
             }
             break;
 
@@ -1708,6 +1715,114 @@ export class MessageParser {
       groupCard,
       remark
     };
+  }
+
+  private grayTipSenderName(uid: unknown, ...candidates: unknown[]): string {
+    for (const candidate of candidates) {
+      const name = this.normalizeDisplayText(candidate);
+      if (name) return name;
+    }
+    const normalizedUid = this.normalizeDisplayText(uid);
+    const sender = normalizedUid ? this.senderInfoCache.get(normalizedUid) : undefined;
+    if (sender) {
+      return this.normalizeDisplayText(sender.sendMemberName)
+        || this.normalizeDisplayText(sender.sendRemarkName)
+        || this.normalizeDisplayText(sender.sendNickName)
+        || this.normalizeDisplayText(sender.senderUin)
+        || '用户';
+    }
+    return '用户';
+  }
+
+  private parseGrayTipText(grayTip: any): string {
+    const revoke = grayTip?.revokeElement;
+    if (grayTip?.subElementType === 1 && revoke) {
+      const operator = this.grayTipSenderName(
+        revoke.operatorUid,
+        revoke.operatorName,
+        revoke.operatorNick,
+        revoke.operatorRemark,
+        revoke.operatorMemRemark
+      );
+      const originalSender = this.grayTipSenderName(
+        revoke.origMsgSenderUid,
+        revoke.origMsgSenderName,
+        revoke.origMsgSenderNick,
+        revoke.origMsgSenderRemark,
+        revoke.origMsgSenderMemRemark
+      );
+      let text = revoke.isSelfOperate || operator === originalSender
+        ? `${operator} 撤回了一条消息`
+        : `${operator} 撤回了 ${originalSender} 的消息`;
+      const wording = this.normalizeDisplayText(revoke.wording);
+      if (wording) text += `（${wording.replace(/[。！？]+$/, '')}）`;
+      return text;
+    }
+
+    const jsonContent = grayTip?.jsonGrayTipElement?.jsonStr;
+    if (jsonContent) {
+      try {
+        const parsed = fastJsonParse(jsonContent);
+        if (parsed.prompt || parsed.content) return parsed.prompt || parsed.content;
+        if (Array.isArray(parsed.items)) {
+          const text = parsed.items.map((item: any) => {
+            if (item?.type === 'qq') {
+              const name = this.grayTipSenderName(item.uid, item.nm);
+              const uin = this.normalizeDisplayText(item.jp);
+              return name === '用户' && /^\d+$/.test(uin) ? uin : name;
+            }
+            if (item?.type === 'nor' || item?.type === 'url') {
+              return this.normalizeDisplayText(item.txt) || '';
+            }
+            return '';
+          }).join('').trim();
+          if (text) return text;
+        }
+      } catch {}
+    }
+
+    const payload = this.findGrayTipPayload(grayTip);
+    if (payload?.includes('<gtip')) {
+      const text = Array.from(payload.matchAll(/<(qq|nor|url)\b([^>]*)\/?>/g))
+        .map((match) => {
+          const attrs: Record<string, string> = {};
+          for (const attr of match[2].matchAll(/([A-Za-z][A-Za-z0-9_]*)="([^"]*)"/g)) {
+            attrs[attr[1]] = this.decodeGrayTipXml(attr[2]);
+          }
+          if (match[1] === 'qq') {
+            const name = this.grayTipSenderName(attrs.uid || attrs.uin, attrs.nm);
+            return name === '用户' && /^\d+$/.test(attrs.jp || '') ? attrs.jp : name;
+          }
+          return attrs.txt || '';
+        })
+        .join('')
+        .trim();
+      if (text) return text;
+    }
+    return payload || '系统消息';
+  }
+
+  private findGrayTipPayload(value: unknown): string | undefined {
+    if (!value || typeof value !== 'object') return undefined;
+    const object = value as Record<string, unknown>;
+    for (const key of ['jsonStr', 'xmlStr', 'content', 'text', 'wording']) {
+      const payload = this.normalizeDisplayText(object[key]);
+      if (payload) return payload;
+    }
+    for (const child of Object.values(object)) {
+      const payload = this.findGrayTipPayload(child);
+      if (payload) return payload;
+    }
+    return undefined;
+  }
+
+  private decodeGrayTipXml(value: string): string {
+    return value
+      .replaceAll('&quot;', '"')
+      .replaceAll('&apos;', "'")
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&amp;', '&');
   }
 
   private extractReplyContent(replyElement: any, messageRef?: RawMessage): string {
