@@ -814,6 +814,20 @@ fn reply_preview_renderer_uses_data_uris_and_safe_fallbacks() {
     assert!(attachments.contains("&amp;fallback"));
 }
 
+#[test]
+fn modern_html_styles_titles_as_badges_and_replies_as_quotes() {
+    let css = include_str!("../assets/modern_css.css");
+    assert!(css.contains(
+        ".sender-title {\n            display: inline-flex;\n            align-items: center;"
+    ));
+    assert!(css.contains(
+        "background: var(--bg-secondary);\n            border: 0;\n            padding: 1px 5px;\n            border-radius: 6px;\n            margin-right: 0;"
+    ));
+    assert!(css.contains(
+        ".reply-content {\n            background: transparent;\n            border-left: 3px solid var(--reply-border);\n            border-radius: 0;\n            padding: 0 0 0 10px;"
+    ));
+}
+
 fn hex_bytes(input: &str) -> Vec<u8> {
     let compact: String = input
         .chars()
