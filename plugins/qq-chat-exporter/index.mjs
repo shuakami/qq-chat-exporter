@@ -21,24 +21,35 @@ function detectWorkingEnv(core) {
   return 'unknown';
 }
 
-function createFallbackCore(rawCore) {
+export function createFallbackCore(rawCore) {
   const safeCore = rawCore && typeof rawCore === 'object' ? rawCore : {};
   if (!safeCore.context || typeof safeCore.context !== 'object') {
     safeCore.context = {};
   }
 
-  const existingLogger = safeCore.context.logger || {};
-  const log = typeof existingLogger.log === 'function' ? existingLogger.log.bind(existingLogger) : null;
-  const logError = typeof existingLogger.logError === 'function' ? existingLogger.logError.bind(existingLogger) : null;
-  const logWarn = typeof existingLogger.logWarn === 'function' ? existingLogger.logWarn.bind(existingLogger) : null;
-  const logDebug = typeof existingLogger.logDebug === 'function' ? existingLogger.logDebug.bind(existingLogger) : null;
+  const logger = safeCore.context.logger;
+  const existingLogger = logger && (typeof logger === 'object' || typeof logger === 'function')
+    ? logger
+    : {};
+  const fallbacks = new Map([
+    ['log', (...args) => console.log('[QCE]', ...args)],
+    ['logError', (...args) => console.error('[QCE]', ...args)],
+    ['logWarn', (...args) => console.warn('[QCE]', ...args)],
+    ['logDebug', (...args) => console.debug('[QCE]', ...args)]
+  ]);
 
-  safeCore.context.logger = {
-    log: (...args) => (log ? log(...args) : console.log('[QCE]', ...args)),
-    logError: (...args) => (logError ? logError(...args) : console.error('[QCE]', ...args)),
-    logWarn: (...args) => (logWarn ? logWarn(...args) : console.warn('[QCE]', ...args)),
-    logDebug: (...args) => (logDebug ? logDebug(...args) : console.debug('[QCE]', ...args))
-  };
+  safeCore.context.logger = new Proxy(existingLogger, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value === 'function') {
+        return value.bind(target);
+      }
+      if (typeof property === 'string' && fallbacks.has(property)) {
+        return fallbacks.get(property);
+      }
+      return value;
+    }
+  });
 
   return safeCore;
 }
