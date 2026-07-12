@@ -74,6 +74,19 @@ impl AppNameLazy {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::VERSION;
+
+    #[test]
+    fn injected_version_drops_the_tag_prefix() {
+        let Some(injected) = option_env!("QCE_VERSION") else {
+            return;
+        };
+        assert_eq!(VERSION.get(), injected.trim().trim_start_matches('v'));
+    }
+}
+
 impl serde::Serialize for AppNameLazy {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(self.get())

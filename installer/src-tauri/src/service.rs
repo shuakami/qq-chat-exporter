@@ -55,15 +55,29 @@ fn kill_napcat_only() {
 
 #[tauri::command]
 pub fn start_service(state: State<'_, AppState>) -> Result<(), String> {
-    let dir = {
-        let inner = state.0.lock().map_err(|_| "state poisoned".to_string())?;
-        // Already running? Nothing to do.
-        if inner.service.is_some() {
-            return Ok(());
+    let (dir, previous_exit) = {
+        let mut inner = state.0.lock().map_err(|_| "state poisoned".to_string())?;
+        let previous_exit = if let Some(child) = inner.service.as_mut() {
+            match child.try_wait() {
+                Ok(None) => return Ok(()),
+                Ok(Some(status)) => Some(format!("previous service exited with {status}")),
+                Err(error) => Some(format!("failed to inspect previous service: {error}")),
+            }
+        } else {
+            None
+        };
+        if previous_exit.is_some() {
+            inner.service = None;
         }
-        inner.install_dir().ok_or_else(|| "尚未安装".to_string())?
+        (
+            inner.install_dir().ok_or_else(|| "尚未安装".to_string())?,
+            previous_exit,
+        )
     };
 
+    if let Some(message) = previous_exit {
+        util::installer_log(&dir, &message);
+    }
     util::installer_log(
         &dir,
         &format!("starting service (installer v{})", env!("CARGO_PKG_VERSION")),
@@ -133,6 +147,18 @@ fn build_launch_command(launcher: &std::path::Path, dir: &std::path::Path) -> st
 pub fn stop_service(state: State<'_, AppState>) -> Result<(), String> {
     shutdown(&state);
     Ok(())
+}
+
+#[tauri::command]
+pub fn restart_service(state: State<'_, AppState>) -> Result<(), String> {
+    shutdown(&state);
+    {
+        let mut inner = state.0.lock().map_err(|_| "state poisoned".to_string())?;
+        inner.credential = None;
+        inner.webui_port = None;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    start_service(state)
 }
 
 /// Explicit quit from the UI: stop everything and terminate the app

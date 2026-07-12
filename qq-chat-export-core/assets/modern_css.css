@@ -711,15 +711,10 @@
             margin: 0 auto;
             width: fit-content;
             max-width: min(560px, calc(100% - 32px));
-            border-radius: 999px;
-            background: rgba(120, 120, 128, 0.1);
             font-size: 11px;
             font-weight: 500;
             letter-spacing: 0.01em;
             color: var(--text-secondary);
-        }
-        .system-message-container.recalled-message {
-            background: rgba(255, 149, 0, 0.1);
         }
         .system-message-container .system-message {
             display: inline-flex;
@@ -950,7 +945,6 @@
         /* 引用消息 */
         .reply-content {
             background: var(--reply-bg);
-            border-left: 3px solid var(--reply-border);
             padding: 10px 12px;
             border-radius: 8px;
             margin-bottom: 8px;
@@ -965,8 +959,7 @@
         }
 
         .reply-content[data-reply-to]:hover {
-            background: var(--reply-border);
-            opacity: 1;
+            background: color-mix(in srgb, var(--reply-bg) 97%, var(--text-primary));
         }
 
         .reply-content[data-reply-to]:focus-visible {
@@ -1026,11 +1019,10 @@
         
         .message.self .reply-content {
             background: rgba(0, 0, 0, 0.08);
-            border-left-color: rgba(0, 0, 0, 0.25);
         }
         
         .message.self .reply-content[data-reply-to]:hover {
-            background: rgba(0, 0, 0, 0.12);
+            background: rgba(0, 0, 0, 0.1);
         }
         
         .message.self .reply-content strong {
@@ -1152,61 +1144,107 @@
         
         /* 合并转发消息卡片 */
         .forward-card {
-            background: var(--bubble-other);
-            border: 1px solid rgba(0, 0, 0, 0.08);
-            border-radius: 12px;
-            padding: 12px 16px;
-            margin: 4px 0;
-            cursor: default;
-            transition: all 0.2s;
-        }
-        
-        [data-theme="dark"] .forward-card {
-            border-color: rgba(255, 255, 255, 0.1);
+            min-width: min(280px, 70vw);
+            max-width: 100%;
+            padding: 2px 0;
+            margin: 2px 0;
+            color: var(--text-primary);
         }
         
         .message.self .forward-card {
-            background: rgba(0, 0, 0, 0.05);
+            color: var(--bubble-self-text);
         }
         
         .forward-card-header {
             display: flex;
             align-items: center;
             gap: 8px;
-            margin-bottom: 8px;
+            margin-bottom: 9px;
+            font-size: 13px;
             font-weight: 600;
-            color: var(--text-primary);
+            color: inherit;
         }
         
         .forward-card-icon {
-            width: 20px;
-            height: 20px;
-            opacity: 0.7;
+            width: 17px;
+            height: 17px;
+            opacity: 0.72;
         }
         
         .forward-card-content {
             font-size: 13px;
-            color: var(--text-secondary);
-            line-height: 1.6;
-            position: relative;
+            line-height: 1.55;
+        }
+
+        .forward-card-line + .forward-card-line {
+            margin-top: 5px;
+        }
+
+        .forward-card-sender {
+            font-weight: 600;
+            color: inherit;
+            opacity: 0.9;
+        }
+
+        .forward-card-body {
+            color: inherit;
+            opacity: 0.7;
+        }
+
+        .forward-card-extra {
+            display: none;
+        }
+
+        .forward-card.is-expanded > .forward-card-content > .forward-card-extra {
+            display: block;
         }
 
         /* issue #434：嵌套的合并转发消息卡片，缩进 + 左侧分隔线，区分层级。 */
         .forward-card-nested {
-            margin-left: 8px;
-            margin-top: 4px;
-            border-left: 2px solid rgba(0, 0, 0, 0.08);
+            min-width: 0;
+            margin: 7px 0 0 8px;
+            padding-left: 10px;
+            border-left: 1px solid color-mix(in srgb, currentColor 20%, transparent);
         }
 
-        [data-theme="dark"] .forward-card-nested {
-            border-left-color: rgba(255, 255, 255, 0.12);
-        }
-        
         .forward-card-footer {
-            margin-top: 8px;
-            font-size: 12px;
-            color: var(--text-tertiary);
-            text-align: right;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+            font-size: 11px;
+            color: inherit;
+            opacity: 0.68;
+        }
+
+        .forward-card-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .forward-card-toggle:hover {
+            opacity: 0.78;
+        }
+
+        .forward-card-toggle svg {
+            width: 14px;
+            height: 14px;
+            transition: transform 0.18s ease;
+        }
+
+        .forward-card.is-expanded > .forward-card-footer .forward-card-toggle svg {
+            transform: rotate(180deg);
         }
         
         /* 图片模态框 */

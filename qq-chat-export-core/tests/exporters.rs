@@ -195,12 +195,13 @@ async fn modern_html_renders_structured_system_rows_and_flat_json_cards() {
     );
     system_message.system = true;
     system_message.recalled = true;
-    let (system_html, _) =
-        render_modern_html(&temp, "system", system_message, |_| {}).await;
+    let (system_html, _) = render_modern_html(&temp, "system", system_message, |_| {}).await;
     assert!(system_html.contains("system-message-container recalled-message"));
     assert!(system_html.contains("class=\"system-message-image\""));
     assert!(system_html.contains("速冻饺子"));
     assert!(system_html.contains("笨蛋Darf v2"));
+    assert!(!system_html.contains(".system-message-container.recalled-message"));
+    assert!(!system_html.contains("border-left: 3px solid var(--reply-border)"));
 
     let json_message = message(
         "json",
@@ -219,6 +220,22 @@ async fn modern_html_renders_structured_system_rows_and_flat_json_cards() {
     assert!(json_html.contains("href=\"https://example.com/card\""));
     assert!(json_html.contains(".json-card {\n            padding: 2px 0;"));
     assert!(!json_html.contains(".message.self .json-card"));
+
+    let reply_message = message(
+        "reply",
+        1_718_454_840_000,
+        vec![MessageElement {
+            element_type: "reply".to_owned(),
+            data: json!({
+                "referencedMessageId": "msg-original",
+                "senderName": "速冻饺子",
+                "content": "原消息"
+            }),
+        }],
+    );
+    let (reply_html, _) = render_modern_html(&temp, "reply", reply_message, |_| {}).await;
+    assert!(reply_html.contains("data-reply-to=\"msg-original\""));
+    assert!(!reply_html.contains("data-reply-to=\"msg-msg-original\""));
 }
 
 fn resource_message(resource_type: &str, filename: &str, source: &Path) -> CleanMessage {
@@ -333,36 +350,58 @@ async fn modern_html_renders_nested_forwards_and_print_options() {
             element_type: "forward".to_owned(),
             data: json!({
                 "title": "聊天记录",
-                "messageCount": 1,
-                "messages": [{
-                    "sender": { "name": "中层用户" },
-                    "content": {
-                        "text": "[转发消息: 2条]",
-                        "elements": [{
-                            "type": "forward",
-                            "data": {
-                                "title": "聊天记录",
-                                "messageCount": 2,
-                                "messages": [
-                                    {
-                                        "sender": { "name": "深层用户甲" },
-                                        "content": {
-                                            "text": "最里层消息一",
-                                            "elements": [{ "type": "text", "data": { "text": "最里层消息一" } }]
+                "messageCount": 6,
+                "messages": [
+                    {
+                        "sender": { "name": "中层用户" },
+                        "content": {
+                            "text": "[转发消息: 2条]",
+                            "elements": [{
+                                "type": "forward",
+                                "data": {
+                                    "title": "聊天记录",
+                                    "messageCount": 2,
+                                    "messages": [
+                                        {
+                                            "sender": { "name": "深层用户甲" },
+                                            "content": {
+                                                "text": "最里层消息一",
+                                                "elements": [{ "type": "text", "data": { "text": "最里层消息一" } }]
+                                            }
+                                        },
+                                        {
+                                            "sender": { "name": "深层用户乙" },
+                                            "content": {
+                                                "text": "最里层消息二",
+                                                "elements": [{ "type": "text", "data": { "text": "最里层消息二" } }]
+                                            }
                                         }
-                                    },
-                                    {
-                                        "sender": { "name": "深层用户乙" },
-                                        "content": {
-                                            "text": "最里层消息二",
-                                            "elements": [{ "type": "text", "data": { "text": "最里层消息二" } }]
-                                        }
-                                    }
-                                ]
-                            }
-                        }]
+                                    ]
+                                }
+                            }]
+                        }
+                    },
+                    {
+                        "sender": { "name": "用户二" },
+                        "content": { "text": "消息二", "elements": [] }
+                    },
+                    {
+                        "sender": { "name": "用户三" },
+                        "content": { "text": "消息三", "elements": [] }
+                    },
+                    {
+                        "sender": { "name": "用户四" },
+                        "content": { "text": "消息四", "elements": [] }
+                    },
+                    {
+                        "sender": { "name": "用户五" },
+                        "content": { "text": "消息五", "elements": [] }
+                    },
+                    {
+                        "sender": { "name": "用户六" },
+                        "content": { "text": "消息六", "elements": [] }
                     }
-                }]
+                ]
             }),
         }],
     );
@@ -375,6 +414,10 @@ async fn modern_html_renders_nested_forwards_and_print_options() {
     assert!(html.contains("深层用户甲"));
     assert!(html.contains("最里层消息二"));
     assert!(html.contains("forward-card-nested"));
+    assert!(html.contains("forward-card-line forward-card-extra"));
+    assert!(html.contains("data-count=\"6\""));
+    assert!(html.contains("展开全部 6 条"));
+    assert!(html.contains("forward-card-toggle-label"));
     assert!(!html.contains("[转发消息: 2条]"));
     assert!(html.contains("<div class=\"toolbar\" style=\"display:none\">"));
     assert!(html.contains("window.__QCE_ENABLE_VIRTUAL_SCROLL = false"));
@@ -545,6 +588,14 @@ fn reply_render_helpers_cover_legacy_fields_and_timestamps() {
     assert_eq!(
         format_reply_timestamp(Some(&json!("2024-06-15T12:34:00Z"))),
         "06-15 12:34"
+    );
+
+    let message_id_only = ReplyRenderInput::from_value(&json!({
+        "messageId": "7000000004"
+    }));
+    assert_eq!(
+        choose_reply_jump_target(&message_id_only),
+        Some("7000000004".to_owned())
     );
 
     let time_fallback = ReplyRenderInput {

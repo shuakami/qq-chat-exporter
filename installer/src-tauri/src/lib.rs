@@ -188,6 +188,7 @@ pub fn run() {
             service::detect_package_kind,
             service::start_service,
             service::stop_service,
+            service::restart_service,
             service::exit_app,
             napcat::napcat_quick_login_list,
             napcat::napcat_is_online,
