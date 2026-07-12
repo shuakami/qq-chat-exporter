@@ -203,7 +203,6 @@ async fn modern_html_renders_structured_system_rows_and_flat_json_cards() {
     assert!(system_html.contains("速冻饺子"));
     assert!(system_html.contains("笨蛋Darf v2"));
     assert!(!system_html.contains(".system-message-container.recalled-message"));
-    assert!(!system_html.contains("border-left: 3px solid var(--reply-border)"));
 
     let json_message = message(
         "json",
@@ -243,10 +242,117 @@ async fn modern_html_renders_structured_system_rows_and_flat_json_cards() {
             data: json!({ "text": "原消息" }),
         }],
     );
-    let (reply_html, _) =
-        render_modern_messages(&temp, "reply", vec![original_message, reply_message], |_| {}).await;
+    let (reply_html, _) = render_modern_messages(
+        &temp,
+        "reply",
+        vec![original_message, reply_message],
+        |_| {},
+    )
+    .await;
     assert!(reply_html.contains("data-reply-to=\"msg-original\""));
     assert!(!reply_html.contains("data-reply-to=\"msg-msg-original\""));
+    assert!(reply_html.contains("class=\"reply-content-icon\""));
+}
+
+#[tokio::test]
+async fn modern_html_handles_group_updates_faces_mentions_and_video_files() {
+    let temp = TestDir::new("message-edge-cases");
+    let mut system_message = message(
+        "group-update",
+        1_718_454_840_000,
+        vec![MessageElement {
+            element_type: "system".to_owned(),
+            data: json!({
+                "text": "群聊更新",
+                "items": [],
+                "originalData": {
+                    "groupElement": {
+                        "type": 1,
+                        "memberNick": "速冻饺子",
+                        "memberAdd": { "showType": 1 }
+                    }
+                }
+            }),
+        }],
+    );
+    system_message.system = true;
+    let (system_html, _) = render_modern_html(&temp, "group-update", system_message, |_| {}).await;
+    assert!(system_html.contains("你加入了群聊"));
+    assert!(!system_html.contains(">群聊更新<"));
+
+    let mut title_message = message(
+        "title",
+        1_718_454_840_000,
+        vec![MessageElement {
+            element_type: "system".to_owned(),
+            data: json!({
+                "text": "恭喜我是绝活飞刀乌咪获得群主授予的真•小匕崽子头衔",
+                "items": [
+                    { "type": "nor", "text": "恭喜", "url": "" },
+                    { "type": "url", "text": "我是绝活飞刀乌咪", "url": "5" },
+                    {
+                        "type": "url",
+                        "text": "真•小匕崽子",
+                        "url": "https://qun.qq.com/title"
+                    }
+                ]
+            }),
+        }],
+    );
+    title_message.system = true;
+    let (title_html, _) = render_modern_html(&temp, "title", title_message, |_| {}).await;
+    assert!(title_html.contains("恭喜我是绝活飞刀乌咪"));
+    assert!(!title_html.contains("href=\"5\""));
+    assert!(title_html.contains("href=\"https://qun.qq.com/title\""));
+
+    let content_message = message(
+        "content",
+        1_718_454_840_000,
+        vec![
+            MessageElement {
+                element_type: "reply".to_owned(),
+                data: json!({
+                    "referencedMessageId": "original",
+                    "senderName": "已经不需要再QB了",
+                    "content": "有人躲猫猫吗"
+                }),
+            },
+            MessageElement {
+                element_type: "at".to_owned(),
+                data: json!({ "uid": "all", "name": "全体成员", "atType": 1 }),
+            },
+            text_element(" "),
+            MessageElement {
+                element_type: "face".to_owned(),
+                data: json!({ "id": "359", "name": "[包剪锤]" }),
+            },
+            MessageElement {
+                element_type: "file".to_owned(),
+                data: json!({
+                    "filename": "2025-07-02 15-52-50.mp4",
+                    "localPath": "files/hash_clip.mp4",
+                    "size": 12_452_384
+                }),
+            },
+            MessageElement {
+                element_type: "file".to_owned(),
+                data: json!({
+                    "filename": "document.pdf",
+                    "localPath": "files/document.pdf"
+                }),
+            },
+        ],
+    );
+    let (content_html, _) = render_modern_html(&temp, "content", content_message, |_| {}).await;
+    assert!(content_html.contains("class=\"at-mention\">@全体成员</span>"));
+    assert!(!content_html.contains("<span class=\"text-content\"> </span>"));
+    assert!(content_html.contains("https://res.qlogo.cn/qqface/359/100"));
+    assert!(content_html.contains("class=\"video-bubble\""));
+    assert!(content_html.contains("data-src=\"./resources/files/hash_clip.mp4\""));
+    assert!(content_html.contains(
+        "href=\"./resources/files/document.pdf\" class=\"message-file file-bubble\" target=\"_blank\" rel=\"noopener noreferrer\""
+    ));
+    assert!(!content_html.contains("download=\"document.pdf\""));
 }
 
 #[tokio::test]
@@ -488,7 +594,16 @@ async fn modern_html_renders_nested_forwards_and_print_options() {
                     },
                     {
                         "sender": { "name": "用户二" },
-                        "content": { "text": "消息二", "elements": [] }
+                        "content": {
+                            "text": "[图片:forward.jpg]",
+                            "elements": [{
+                                "type": "image",
+                                "data": {
+                                    "filename": "forward.jpg",
+                                    "localPath": "images/forward.jpg"
+                                }
+                            }]
+                        }
                     },
                     {
                         "sender": { "name": "用户三" },
@@ -531,6 +646,9 @@ async fn modern_html_renders_nested_forwards_and_print_options() {
     assert!(!html.contains("forward-card-icon"));
     assert!(!html.contains("转发消息 ·"));
     assert!(!html.contains("[转发消息: 2条]"));
+    assert!(!html.contains("[图片:forward.jpg]"));
+    assert!(html.contains("class=\"image-content\""));
+    assert!(html.contains("src=\"./resources/images/forward.jpg\""));
     assert!(html.contains("<div class=\"toolbar\" style=\"display:none\">"));
     assert!(html.contains("window.__QCE_ENABLE_VIRTUAL_SCROLL = false"));
 }
@@ -815,7 +933,7 @@ fn reply_preview_renderer_uses_data_uris_and_safe_fallbacks() {
 }
 
 #[test]
-fn modern_html_styles_titles_as_badges_and_replies_as_quotes() {
+fn modern_html_styles_titles_as_badges_and_replies_with_hover_metadata() {
     let css = include_str!("../assets/modern_css.css");
     assert!(css.contains(
         ".sender-title {\n            display: inline-flex;\n            align-items: center;"
@@ -824,7 +942,13 @@ fn modern_html_styles_titles_as_badges_and_replies_as_quotes() {
         "background: var(--bg-secondary);\n            border: 0;\n            padding: 1px 5px;\n            border-radius: 6px;\n            margin-right: 0;"
     ));
     assert!(css.contains(
-        ".reply-content {\n            background: transparent;\n            border-left: 3px solid var(--reply-border);\n            border-radius: 0;\n            padding: 0 0 0 10px;"
+        ".reply-content {\n            background: transparent;\n            border: 0;\n            padding: 0;"
+    ));
+    assert!(
+        css.contains(".reply-content-icon {\n            width: 15px;\n            height: 15px;")
+    );
+    assert!(css.contains(
+        ".reply-content:hover .reply-content-time,\n        .reply-content:focus-visible .reply-content-time {\n            max-width: 90px;\n            opacity: 1;"
     ));
 }
 

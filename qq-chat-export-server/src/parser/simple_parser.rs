@@ -142,6 +142,42 @@ mod gray_tip_tests {
             "速冻饺子邀请笨蛋Darf v2加入了群聊，并附带了30条聊天记录。"
         );
     }
+
+    #[tokio::test]
+    async fn describes_member_add_gray_tips_and_deduplicates_message_ids() {
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let mut tip = raw_message("group-update", "", "0", "");
+        tip["msgType"] = json!(5);
+        tip["chatType"] = json!(2);
+        tip["elements"] = json!([{
+            "elementType": 8,
+            "grayTipElement": {
+                "subElementType": 4,
+                "groupElement": {
+                    "type": 1,
+                    "memberUid": "u_self",
+                    "memberNick": "速冻饺子",
+                    "adminUid": "u_admin",
+                    "adminNick": "小wu君",
+                    "memberAdd": {
+                        "showType": 1,
+                        "otherAdd": null,
+                        "otherAddByOtherQRCode": null,
+                        "otherAddByYourQRCode": null,
+                        "youAddByOtherQRCode": null,
+                        "otherInviteOther": null,
+                        "otherInviteYou": null,
+                        "youInviteOther": null
+                    }
+                }
+            }
+        }]);
+
+        let parsed = parser.parse_messages(&[tip.clone(), tip]).await;
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].content.text, "你加入了群聊");
+    }
 }
 
 #[cfg(test)]
@@ -354,6 +390,82 @@ mod reply_target_tests {
     }
 }
 
+#[cfg(test)]
+mod forward_resource_tests {
+    use std::collections::HashMap;
+
+    use super::{SimpleMessageParser, SimpleParserOptions};
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn exposes_and_backfills_forwarded_media_resources() {
+        let inner = json!({
+            "msgId": "inner-image",
+            "msgTime": "1778262589",
+            "senderUid": "u_sender",
+            "senderUin": "1094950020",
+            "sendNickName": "吹雪ChuiXue",
+            "elements": [{
+                "elementId": "image-element",
+                "elementType": 2,
+                "picElement": {
+                    "fileName": "97F15333FCA7C66054F2F08C4169308A.jpg",
+                    "fileSize": 1_417_227,
+                    "md5HexStr": "97f15333fca7c66054f2f08c4169308a",
+                    "originImageUrl": "/download?appid=1407"
+                }
+            }]
+        });
+        let outer = json!({
+            "msgId": "outer-forward",
+            "msgTime": "1778262645",
+            "msgType": 8,
+            "chatType": 2,
+            "peerUid": "1031246136",
+            "senderUid": "u_sender",
+            "senderUin": "616359549",
+            "sendNickName": "吹雪ChuiXue",
+            "records": [inner],
+            "elements": [{
+                "elementId": "forward-element",
+                "elementType": 16,
+                "multiForwardMsgElement": {
+                    "resId": "forward-resource",
+                    "xmlContent": ""
+                }
+            }]
+        });
+
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let mut parsed = parser.parse_messages(&[outer]).await;
+        let forward_raw = parser.take_forward_raw_messages();
+        assert_eq!(forward_raw.len(), 1);
+        assert_eq!(forward_raw[0]["msgId"], "inner-image");
+        assert_eq!(forward_raw[0]["chatType"], 2);
+        assert_eq!(forward_raw[0]["peerUid"], "1031246136");
+
+        let resources = HashMap::from([(
+            "inner-image".to_string(),
+            vec![json!({
+                "type": "image",
+                "localPath": "/cache/97f15333_97F15333FCA7C66054F2F08C4169308A.jpg"
+            })],
+        )]);
+        SimpleMessageParser::update_message_resource_paths_recursive(&mut parsed[0], &resources);
+
+        let image_data =
+            &parsed[0].content.elements[0].data["messages"][0]["content"]["elements"][0]["data"];
+        assert_eq!(
+            image_data["localPath"],
+            "images/97f15333_97F15333FCA7C66054F2F08C4169308A.jpg"
+        );
+        assert_eq!(
+            image_data["url"],
+            "resources/images/97f15333_97F15333FCA7C66054F2F08C4169308A.jpg"
+        );
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct CachedSenderInfo {
     group_card: Option<String>,
@@ -378,6 +490,8 @@ pub struct SimpleMessageParser {
     message_id_by_time_sender: HashMap<(i64, String), Option<String>>,
     sender_info_cache: HashMap<String, CachedSenderInfo>,
     face_map: HashMap<String, String>,
+    forward_raw_messages: Vec<Value>,
+    forward_raw_message_ids: HashSet<String>,
 }
 
 /* ------------------------------ Value 访问工具 ------------------------------ */
@@ -508,6 +622,8 @@ impl SimpleMessageParser {
             message_id_by_time_sender: HashMap::new(),
             sender_info_cache: HashMap::new(),
             face_map: Self::initialize_face_map(),
+            forward_raw_messages: Vec::new(),
+            forward_raw_message_ids: HashSet::new(),
         }
     }
 
@@ -540,6 +656,8 @@ impl SimpleMessageParser {
         self.message_id_by_client_seq.clear();
         self.message_id_by_time_sender.clear();
         self.sender_info_cache.clear();
+        self.forward_raw_messages.clear();
+        self.forward_raw_message_ids.clear();
         for msg in messages {
             if let Some(id) = trimmed_field(msg, "msgId") {
                 self.rendered_message_ids.insert(id.clone());
@@ -560,7 +678,13 @@ impl SimpleMessageParser {
         }
 
         let mut out = Vec::with_capacity(messages.len());
+        let mut emitted_ids = HashSet::new();
         for message in messages {
+            if let Some(id) = trimmed_field(message, "msgId") {
+                if id != "0" && !emitted_ids.insert(id) {
+                    continue;
+                }
+            }
             out.push(self.parse_message(message).await);
         }
 
@@ -571,6 +695,11 @@ impl SimpleMessageParser {
         self.message_id_by_time_sender.clear();
         self.sender_info_cache.clear();
         out
+    }
+
+    #[must_use]
+    pub fn take_forward_raw_messages(&mut self) -> Vec<Value> {
+        std::mem::take(&mut self.forward_raw_messages)
     }
 
     fn insert_unique_index(
@@ -1694,6 +1823,32 @@ impl SimpleMessageParser {
             return Vec::new();
         }
 
+        let parent_chat_type = v_get(message, "chatType").cloned();
+        let parent_peer_uid = v_get(message, "peerUid").cloned();
+        for raw in &mut raws {
+            let Some(raw_object) = raw.as_object_mut() else {
+                continue;
+            };
+            if !raw_object.contains_key("chatType") {
+                if let Some(chat_type) = &parent_chat_type {
+                    raw_object.insert("chatType".to_string(), chat_type.clone());
+                }
+            }
+            if !raw_object.contains_key("peerUid") {
+                if let Some(peer_uid) = &parent_peer_uid {
+                    raw_object.insert("peerUid".to_string(), peer_uid.clone());
+                }
+            }
+            let raw_id = raw_object
+                .get("msgId")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !raw_id.is_empty() && self.forward_raw_message_ids.insert(raw_id.to_string()) {
+                self.forward_raw_messages
+                    .push(Value::Object(raw_object.clone()));
+            }
+        }
+
         let mut out: Vec<Value> = Vec::with_capacity(raws.len());
         for raw in &raws {
             if raw.is_null() {
@@ -1861,6 +2016,95 @@ impl SimpleMessageParser {
                         );
                     }
                     resource_index = idx + 1;
+                }
+            }
+        }
+    }
+
+    pub fn update_message_resource_paths_recursive(
+        message: &mut CleanMessage,
+        resource_map: &HashMap<String, Vec<Value>>,
+    ) {
+        if let Some(resources) = resource_map.get(&message.id) {
+            Self::update_single_message_resource_paths(message, resources);
+        }
+        for element in &mut message.content.elements {
+            if element.element_type == "forward" {
+                Self::update_forward_resource_paths(&mut element.data, resource_map);
+            }
+        }
+    }
+
+    fn update_forward_resource_paths(data: &mut Value, resource_map: &HashMap<String, Vec<Value>>) {
+        let Some(messages) = data.get_mut("messages").and_then(Value::as_array_mut) else {
+            return;
+        };
+        for message in messages {
+            let message_id = v_str(message, "id").unwrap_or_default().to_string();
+            let Some(elements) = message
+                .get_mut("content")
+                .and_then(|content| content.get_mut("elements"))
+                .and_then(Value::as_array_mut)
+            else {
+                continue;
+            };
+
+            if let Some(resources) = resource_map.get(&message_id) {
+                let mut resource_index = 0usize;
+                for element in elements.iter_mut() {
+                    let Some(element_type) = element
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                    else {
+                        continue;
+                    };
+                    if !matches!(element_type.as_str(), "image" | "video" | "audio" | "file") {
+                        continue;
+                    }
+                    let matching =
+                        resources
+                            .iter()
+                            .enumerate()
+                            .skip(resource_index)
+                            .find(|(_, resource)| {
+                                v_str(resource, "type") == Some(element_type.as_str())
+                            });
+                    let Some((index, resource)) = matching else {
+                        continue;
+                    };
+                    let Some(local_path) =
+                        v_str(resource, "localPath").filter(|path| !path.is_empty())
+                    else {
+                        continue;
+                    };
+                    let file_name = std::path::Path::new(local_path)
+                        .file_name()
+                        .map(|name| name.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let resource_type = v_str(resource, "type").unwrap_or("file");
+                    let type_dir = format!("{resource_type}s");
+                    if let Some(element_data) =
+                        element.get_mut("data").and_then(Value::as_object_mut)
+                    {
+                        element_data.insert(
+                            "localPath".to_string(),
+                            json!(format!("{type_dir}/{file_name}")),
+                        );
+                        element_data.insert(
+                            "url".to_string(),
+                            json!(format!("resources/{type_dir}/{file_name}")),
+                        );
+                    }
+                    resource_index = index + 1;
+                }
+            }
+
+            for element in elements {
+                if element.get("type").and_then(Value::as_str) == Some("forward") {
+                    if let Some(nested_data) = element.get_mut("data") {
+                        Self::update_forward_resource_paths(nested_data, resource_map);
+                    }
                 }
             }
         }
@@ -2376,6 +2620,82 @@ impl SimpleMessageParser {
         name
     }
 
+    fn group_member_name(value: &Value, fallback: &str) -> String {
+        v_str(value, "name")
+            .filter(|name| !name.is_empty())
+            .unwrap_or(fallback)
+            .to_string()
+    }
+
+    fn group_member_add_summary(group: &Value) -> Option<String> {
+        let member_add = v_get(group, "memberAdd")?.as_object()?;
+        let show_type = member_add
+            .get("showType")
+            .and_then(Value::as_i64)
+            .unwrap_or(-1);
+        let member_name = v_str(group, "memberNick")
+            .filter(|name| !name.is_empty())
+            .unwrap_or("成员");
+        let member = |key: &str| {
+            member_add
+                .get(key)
+                .filter(|value| !value.is_null())
+                .map(|value| Self::group_member_name(value, member_name))
+        };
+        let invitation = |key: &str| {
+            member_add
+                .get(key)
+                .filter(|value| !value.is_null())
+                .map(|value| {
+                    let invited = value.get("invited").map_or_else(
+                        || member_name.to_string(),
+                        |item| Self::group_member_name(item, member_name),
+                    );
+                    let inviter = value.get("inviter").map_or_else(
+                        || "成员".to_string(),
+                        |item| Self::group_member_name(item, "成员"),
+                    );
+                    (inviter, invited)
+                })
+        };
+
+        Some(match show_type {
+            0 => format!(
+                "{}加入了群聊",
+                member("otherAdd").unwrap_or_else(|| member_name.to_string())
+            ),
+            1 => "你加入了群聊".to_string(),
+            2 => {
+                let (inviter, invited) = invitation("otherAddByOtherQRCode")
+                    .unwrap_or_else(|| ("成员".to_string(), member_name.to_string()));
+                format!("{invited}通过{inviter}分享的二维码加入了群聊")
+            }
+            3 => format!(
+                "{}通过你的二维码加入了群聊",
+                member("otherAddByYourQRCode").unwrap_or_else(|| member_name.to_string())
+            ),
+            4 => format!(
+                "你通过{}分享的二维码加入了群聊",
+                member("youAddByOtherQRCode").unwrap_or_else(|| "成员".to_string())
+            ),
+            5 => {
+                let (inviter, invited) = invitation("otherInviteOther")
+                    .unwrap_or_else(|| ("成员".to_string(), member_name.to_string()));
+                format!("{inviter}邀请{invited}加入了群聊")
+            }
+            6 => format!(
+                "{}邀请你加入了群聊",
+                member("otherInviteYou").unwrap_or_else(|| "成员".to_string())
+            ),
+            7 => format!(
+                "你邀请{}加入了群聊",
+                member("youInviteOther").unwrap_or_else(|| member_name.to_string())
+            ),
+            8 => "你已是群成员".to_string(),
+            _ => format!("{member_name}加入了群聊"),
+        })
+    }
+
     fn decode_gray_tip_xml(value: &str) -> String {
         value
             .replace("&quot;", "\"")
@@ -2583,8 +2903,13 @@ impl SimpleMessageParser {
             if let Some(ge) = v_get(gray_tip, "groupElement").filter(|v| !v.is_null()) {
                 text = v_str(ge, "content")
                     .filter(|s| !s.is_empty())
-                    .unwrap_or("群聊更新")
-                    .to_string();
+                    .map(str::to_string)
+                    .or_else(|| {
+                        (v_i64(ge, "type") == Some(1))
+                            .then(|| Self::group_member_add_summary(ge))
+                            .flatten()
+                    })
+                    .unwrap_or_else(|| "群聊更新".to_string());
             }
         } else if let Some(jg) = v_get(gray_tip, "jsonGrayTipElement").filter(|v| !v.is_null()) {
             let json_content = v_str(jg, "jsonStr").unwrap_or("{}");

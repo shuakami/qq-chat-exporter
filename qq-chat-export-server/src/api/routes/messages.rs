@@ -99,14 +99,10 @@ fn sanitize_chat_name(name: &str, max_length: usize) -> String {
             last_underscore = false;
         }
     }
-    let mut safe = safe
-        .trim_matches(['_', ' ', '.'])
-        .to_string();
+    let mut safe = safe.trim_matches(['_', ' ', '.']).to_string();
     if safe.chars().count() > max_length {
         safe = safe.chars().take(max_length).collect();
-        safe = safe
-            .trim_end_matches(['_', ' ', '.'])
-            .to_string();
+        safe = safe.trim_end_matches(['_', ' ', '.']).to_string();
     }
     let reserved = matches!(
         safe.to_ascii_uppercase().as_str(),
@@ -1357,6 +1353,36 @@ async fn process_export_task(
         filtered_messages.len(),
     );
 
+    filtered_messages.sort_by_key(msg_time_ms);
+
+    let sender_title_resolver = title_map.map(|map| {
+        let map = Arc::new(map);
+        Arc::new(move |uid: Option<&str>, uin: Option<&str>| {
+            uid.and_then(|u| map.get(u).cloned())
+                .or_else(|| uin.and_then(|u| map.get(u).cloned()))
+        }) as crate::parser::simple_parser::SenderTitleResolver
+    });
+    let mut parser = SimpleMessageParser::new(SimpleParserOptions {
+        html_enabled: format == "HTML" || mode != ExportMode::Standard,
+        prefer_group_member_name: req
+            .options
+            .get("preferGroupMemberName")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+        sender_title_resolver,
+        forward_fetcher: Some(Arc::new(state.napcat.clone()) as Arc<dyn ForwardFetcher>),
+    });
+    let mut clean_messages: Vec<CleanMessage> = parser.parse_messages(&filtered_messages).await;
+    let mut resource_messages = filtered_messages.clone();
+    resource_messages.extend(parser.take_forward_raw_messages());
+    let mut resource_message_ids = HashSet::new();
+    resource_messages.retain(|message| {
+        let Some(message_id) = message.get("msgId").and_then(Value::as_str) else {
+            return true;
+        };
+        message_id == "0" || resource_message_ids.insert(message_id.to_string())
+    });
+
     // ============ 阶段 2：资源下载（70 → 85） ============
     let filter_pure_image = req
         .options
@@ -1435,7 +1461,7 @@ async fn process_export_task(
 
         resource_map = state
             .resource_handler
-            .process_message_resources(&filtered_messages)
+            .process_message_resources(&resource_messages)
             .await;
         let summary = state.resource_handler.last_batch_summary().await;
         state.resource_handler.set_progress_callback(None).await;
@@ -1477,37 +1503,10 @@ async fn process_export_task(
         .map_err(|e| format!("创建输出目录失败: {e}"))?;
     let file_path = req.output_dir.join(file_name);
 
-    // 按时间戳升序排序。
-    filtered_messages.sort_by_key(msg_time_ms);
-
-    // issue #331：群头衔解析器。
-    let sender_title_resolver = title_map.map(|map| {
-        let map = Arc::new(map);
-        Arc::new(move |uid: Option<&str>, uin: Option<&str>| {
-            uid.and_then(|u| map.get(u).cloned())
-                .or_else(|| uin.and_then(|u| map.get(u).cloned()))
-        }) as crate::parser::simple_parser::SenderTitleResolver
-    });
-
-    // 解析为 CleanMessage。
-    let mut parser = SimpleMessageParser::new(SimpleParserOptions {
-        html_enabled: format == "HTML" || mode != ExportMode::Standard,
-        prefer_group_member_name: req
-            .options
-            .get("preferGroupMemberName")
-            .and_then(Value::as_bool)
-            .unwrap_or(true),
-        sender_title_resolver,
-        forward_fetcher: Some(Arc::new(state.napcat.clone()) as Arc<dyn ForwardFetcher>),
-    });
-    let mut clean_messages: Vec<CleanMessage> = parser.parse_messages(&filtered_messages).await;
-
     // issue #277：把已下载资源的本地路径写回消息。
     let value_resource_map = to_value_resource_map(&resource_map);
     for message in &mut clean_messages {
-        if let Some(resources) = value_resource_map.get(&message.id) {
-            SimpleMessageParser::update_single_message_resource_paths(message, resources);
-        }
+        SimpleMessageParser::update_message_resource_paths_recursive(message, &value_resource_map);
     }
     SimpleMessageParser::backfill_reply_preview_local_paths(&mut clean_messages);
 
@@ -1666,8 +1665,7 @@ async fn process_export_task(
                 } else {
                     format!("{file_name}.zip")
                 };
-                let zip_file_name =
-                    reserve_export_file_name(&req.output_dir, &base_zip_file_name);
+                let zip_file_name = reserve_export_file_name(&req.output_dir, &base_zip_file_name);
                 let zip_file_path = req.output_dir.join(&zip_file_name);
                 let zip_result = create_zip_with_resources(
                     req.output_dir.clone(),
@@ -1903,10 +1901,7 @@ mod file_name_tests {
         std::fs::write(base.join("friend_name_1_20260712_163632123.html"), b"old").unwrap();
         let file_collision =
             reserve_export_file_name(&base, "friend_name_1_20260712_163632123.html");
-        assert_eq!(
-            file_collision,
-            "friend_name_1_20260712_163632123_2.html"
-        );
+        assert_eq!(file_collision, "friend_name_1_20260712_163632123_2.html");
         release_export_path(&base.join(file_collision));
 
         std::fs::create_dir(base.join("group_name_2_20260712_163632123_chunked_jsonl")).unwrap();
@@ -1917,10 +1912,14 @@ mod file_name_tests {
             "group_name_2_20260712_163632123_chunked_jsonl_2"
         );
         release_export_path(&base.join(dir_collision));
-        let concurrent = reserve_export_file_name(&base, "friend_concurrent_1_20260712_163632123.html");
+        let concurrent =
+            reserve_export_file_name(&base, "friend_concurrent_1_20260712_163632123.html");
         let concurrent_2 =
             reserve_export_file_name(&base, "friend_concurrent_1_20260712_163632123.html");
-        assert_eq!(concurrent_2, "friend_concurrent_1_20260712_163632123_2.html");
+        assert_eq!(
+            concurrent_2,
+            "friend_concurrent_1_20260712_163632123_2.html"
+        );
         release_export_path(&base.join(concurrent));
         release_export_path(&base.join(concurrent_2));
         std::fs::remove_dir_all(base).unwrap();

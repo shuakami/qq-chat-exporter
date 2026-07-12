@@ -961,22 +961,16 @@
         /* 引用消息 */
         .reply-content {
             background: transparent;
-            border-left: 3px solid var(--reply-border);
-            border-radius: 0;
-            padding: 0 0 0 10px;
+            border: 0;
+            padding: 0;
             margin-bottom: 8px;
             font-size: 13px;
             line-height: 1.5;
             color: var(--text-secondary);
-            transition: opacity 0.2s;
         }
         
         .reply-content[data-reply-to] {
             cursor: pointer;
-        }
-
-        .reply-content[data-reply-to]:hover {
-            opacity: 0.82;
         }
 
         .reply-content[data-reply-to]:focus-visible {
@@ -987,19 +981,38 @@
         .reply-content-header {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            margin-bottom: 6px;
+            gap: 5px;
+            margin-bottom: 4px;
+        }
+
+        .reply-content-icon {
+            width: 15px;
+            height: 15px;
+            flex: 0 0 auto;
+            stroke-width: 1.8;
         }
         
         .reply-content strong {
             font-weight: 600;
-            color: var(--text-primary);
+            color: var(--text-secondary);
         }
         
         .reply-content-time {
+            max-width: 0;
+            overflow: hidden;
+            opacity: 0;
+            transform: translateX(-3px);
             font-size: 11px;
             color: var(--text-tertiary);
-            margin-left: 8px;
+            white-space: nowrap;
+            transition: max-width 0.18s ease, opacity 0.18s ease, transform 0.18s ease;
+        }
+
+        .reply-content:hover .reply-content-time,
+        .reply-content:focus-visible .reply-content-time {
+            max-width: 90px;
+            opacity: 1;
+            transform: translateX(0);
         }
         
         .reply-content-text {
@@ -1163,6 +1176,20 @@
         
         [data-theme="dark"] .face-emoji {
             background: rgba(255, 255, 255, 0.1);
+        }
+
+        .face-emoji-image {
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            background: transparent;
+            border-radius: 0;
+            object-fit: contain;
+            vertical-align: middle;
+        }
+
+        [data-theme="dark"] .face-emoji-image {
+            background: transparent;
         }
         
         /* 视频播放器 */

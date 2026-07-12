@@ -1292,10 +1292,11 @@ impl ModernHtmlExporter {
                 "video" => result.push_str(&self.render_video_element(data)),
                 "file" => result.push_str(&self.render_file_element(data)),
                 "face" => result.push_str(&render_face_element(data)),
+                "at" => result.push_str(&render_at_element(data)),
                 "market_face" => result.push_str(&render_market_face_element(data)),
                 "reply" => result.push_str(&self.render_reply_element(data)),
                 "json" => result.push_str(&render_json_element(data)),
-                "forward" => result.push_str(&render_forward_element(data, 0)),
+                "forward" => result.push_str(&render_forward_element(self, data, 0)),
                 "system" => result.push_str(&render_system_element(data)),
                 "location" => result.push_str(&render_location_element(data)),
                 _ => {
@@ -1413,15 +1414,7 @@ impl ModernHtmlExporter {
         let filename = str_field(data, "filename").unwrap_or_else(|| "视频".to_owned());
         let src = self.pick_resource_src(data, "videos");
         if !src.is_empty() {
-            // video-bubble：首帧当缩略图（#t=0.1），播放角标 + 文件名，点击进预览层。
-            return format!(
-                "<div class=\"video-bubble\" data-src=\"{src}\" data-name=\"{fname}\" role=\"button\" tabindex=\"0\">\
-                    <video class=\"img\" src=\"{src}#t=0.1\" preload=\"metadata\" muted playsinline></video>\
-                    <span class=\"vbadge\"><span class=\"vtri\"></span>视频</span>\
-                    <span class=\"vname\">{fname}</span>\
-                </div>",
-                fname = escape_html(&filename)
-            );
+            return render_video_bubble(&src, &filename);
         }
         format!(
             "<span class=\"text-content\">🎬 {}</span>",
@@ -1444,8 +1437,11 @@ impl ModernHtmlExporter {
         let size_label = format_file_size(size_bytes);
         let icon = file_icon_svg(&filename);
         if !href.is_empty() {
+            if is_video_filename(&filename) {
+                return render_video_bubble(&href, &filename);
+            }
             return format!(
-                "<a href=\"{href}\" class=\"message-file file-bubble\" download=\"{fname}\">\
+                "<a href=\"{href}\" class=\"message-file file-bubble\" target=\"_blank\" rel=\"noopener noreferrer\">\
                     <span class=\"ficon\">{icon}</span>\
                     <span class=\"fmeta\"><span class=\"fname\">{fname}</span>{size_html}</span>\
                 </a>",
@@ -1551,6 +1547,10 @@ impl ModernHtmlExporter {
         format!(
             r#"<div class="reply-content" {interaction_attrs}>
             <div class="reply-content-header">
+                <svg class="reply-content-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M9 17 4 12l5-5"></path>
+                    <path d="M4 12h9a7 7 0 0 1 7 7"></path>
+                </svg>
                 <strong>{}</strong>
                 {time_html}
             </div>
@@ -1592,11 +1592,7 @@ impl ModernHtmlExporter {
         }
     }
 
-    fn resolve_reply_jump_target(
-        &self,
-        data: &Value,
-        input: &ReplyRenderInput,
-    ) -> Option<String> {
+    fn resolve_reply_jump_target(&self, data: &Value, input: &ReplyRenderInput) -> Option<String> {
         if let Some(candidate) = choose_reply_jump_target(input) {
             if self.rendered_message_ids.contains(&candidate) {
                 return Some(candidate);
@@ -1608,8 +1604,7 @@ impl ModernHtmlExporter {
             }
         }
 
-        let timestamp =
-            reply_timestamp_millis(input.timestamp.as_ref().or(input.time.as_ref()))?;
+        let timestamp = reply_timestamp_millis(input.timestamp.as_ref().or(input.time.as_ref()))?;
         let mut matches = HashSet::new();
         for sender in ["senderUin", "senderUidStr", "senderUid"]
             .iter()
@@ -1617,8 +1612,7 @@ impl ModernHtmlExporter {
             .map(|sender| sender.trim().to_string())
             .filter(|sender| !sender.is_empty())
         {
-            if let Some(Some(message_id)) =
-                self.message_id_by_time_sender.get(&(timestamp, sender))
+            if let Some(Some(message_id)) = self.message_id_by_time_sender.get(&(timestamp, sender))
             {
                 matches.insert(message_id.clone());
             }
@@ -2199,18 +2193,17 @@ fn base_name_of(path: &str) -> String {
     path.rsplit(['/', '\\']).next().unwrap_or(path).to_owned()
 }
 
-/// 外链 URL 过滤：排除 file:// 协议和本地文件系统路径（对齐 TS 判断）。
+/// 外链 URL 过滤：只允许可在浏览器安全打开的 HTTP(S) URL。
 fn is_acceptable_remote_url(url: &str) -> bool {
-    if url.starts_with("file://") || url.starts_with("C:/") || url.starts_with("D:/") {
-        return false;
-    }
-    // 等价于 TS 的 /^[A-Z]:\\/ 判断
-    let bytes = url.as_bytes();
-    !(bytes.len() >= 3 && bytes[0].is_ascii_uppercase() && bytes[1] == b':' && bytes[2] == b'\\')
+    let url = url.trim();
+    url.starts_with("https://") || url.starts_with("http://")
 }
 
 fn render_text_element(data: &Value) -> String {
     let text = str_field(data, "text").unwrap_or_default();
+    if text.trim().is_empty() {
+        return String::new();
+    }
     format!(
         "<span class=\"text-content\">{}</span>",
         linkify_escaped(&text)
@@ -2277,7 +2270,42 @@ fn render_face_element(data: &Value) -> String {
     let name = str_field(data, "name")
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| get_face_name_by_id(&id));
+    if !id.is_empty() && id.chars().all(|character| character.is_ascii_digit()) {
+        return format!(
+            "<img class=\"face-emoji face-emoji-image\" src=\"https://res.qlogo.cn/qqface/{id}/100\" alt=\"{name}\" title=\"{name}\" loading=\"lazy\" referrerpolicy=\"no-referrer\" onerror=\"this.replaceWith(document.createTextNode(this.alt))\">",
+            name = escape_html(&name)
+        );
+    }
     format!("<span class=\"face-emoji\">{}</span>", escape_html(&name))
+}
+
+fn render_at_element(data: &Value) -> String {
+    let name = str_field(data, "name")
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "某人".to_string());
+    format!("<span class=\"at-mention\">@{}</span>", escape_html(&name))
+}
+
+fn is_video_filename(filename: &str) -> bool {
+    let extension = Path::new(filename)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default();
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "mp4" | "webm" | "mov" | "m4v" | "mkv" | "avi"
+    )
+}
+
+fn render_video_bubble(src: &str, filename: &str) -> String {
+    format!(
+        "<div class=\"video-bubble\" data-src=\"{src}\" data-name=\"{fname}\" role=\"button\" tabindex=\"0\">\
+            <video class=\"img\" src=\"{src}#t=0.1\" preload=\"metadata\" muted playsinline></video>\
+            <span class=\"vbadge\"><span class=\"vtri\"></span>视频</span>\
+            <span class=\"vname\">{fname}</span>\
+        </div>",
+        fname = escape_html(filename)
+    )
 }
 
 fn render_market_face_element(data: &Value) -> String {
@@ -2383,7 +2411,7 @@ fn utf16_slice(s: &str, max: usize) -> (String, bool) {
 }
 
 /// 渲染合并转发卡片（对应 TS `renderForwardElement`，issue #161 / #434）。
-fn render_forward_element(data: &Value, depth: usize) -> String {
+fn render_forward_element(exporter: &ModernHtmlExporter, data: &Value, depth: usize) -> String {
     let raw_summary = str_field(data, "summary")
         .or_else(|| str_field(data, "content"))
         .unwrap_or_default();
@@ -2471,30 +2499,35 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
             if truncated {
                 trimmed.push('…');
             }
-            let nested_html: String = if depth < MAX_RENDER_DEPTH {
-                m.get("content")
-                    .and_then(|c| c.get("elements"))
-                    .and_then(Value::as_array)
-                    .map(|els| {
-                        els.iter()
-                            .filter(|el| {
-                                el.get("type").and_then(Value::as_str) == Some("forward")
-                                    && el.get("data").is_some_and(|d| !d.is_null())
-                            })
-                            .map(|el| {
-                                render_forward_element(
-                                    el.get("data").unwrap_or(&Value::Null),
-                                    depth + 1,
-                                )
-                            })
-                            .collect::<String>()
-                    })
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-            // 子消息只是一条嵌套转发时，正文就是"[转发消息: N条]"这类占位，已由内层卡片表达，去掉避免重复。
-            let body_text = if !nested_html.is_empty() && text.starts_with("[转发消息") {
+            let element_html: String = m
+                .get("content")
+                .and_then(|c| c.get("elements"))
+                .and_then(Value::as_array)
+                .map(|els| {
+                    els.iter()
+                        .filter_map(|element| {
+                            let data = element.get("data").unwrap_or(&Value::Null);
+                            match element.get("type").and_then(Value::as_str) {
+                                Some("forward") if depth < MAX_RENDER_DEPTH && !data.is_null() => {
+                                    Some(render_forward_element(exporter, data, depth + 1))
+                                }
+                                Some("image") => Some(exporter.render_image_element(data)),
+                                Some("video") => Some(exporter.render_video_element(data)),
+                                Some("audio") => Some(exporter.render_audio_element(data)),
+                                Some("file") => Some(exporter.render_file_element(data)),
+                                Some("face") => Some(render_face_element(data)),
+                                Some("market_face") => Some(render_market_face_element(data)),
+                                _ => None,
+                            }
+                        })
+                        .collect::<String>()
+                })
+                .unwrap_or_default();
+            let body_is_media_placeholder =
+                ["[图片", "[视频", "[语音", "[文件", "[表情", "[转发消息"]
+                    .iter()
+                    .any(|prefix| text.starts_with(prefix));
+            let body_text = if !element_html.is_empty() && body_is_media_placeholder {
                 String::new()
             } else {
                 trimmed
@@ -2513,7 +2546,7 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
                 "forward-card-line"
             };
             preview_html.push_str(&format!(
-                "<div class=\"{line_class}\"><span class=\"forward-card-sender\">{name}:</span> {body_html}{nested_html}</div>"
+                "<div class=\"{line_class}\"><span class=\"forward-card-sender\">{name}:</span> {body_html}{element_html}</div>"
             ));
         }
     }
@@ -2579,10 +2612,97 @@ fn normalize_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn group_member_name(value: &Value, fallback: &str) -> String {
+    str_field(value, "name")
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn group_member_add_summary(data: &Value) -> Option<String> {
+    let group = data
+        .get("originalData")
+        .and_then(|value| value.get("groupElement"))
+        .filter(|value| !value.is_null())?;
+    if group.get("type").and_then(Value::as_i64) != Some(1) {
+        return None;
+    }
+    let member_add = group.get("memberAdd")?.as_object()?;
+    let show_type = member_add
+        .get("showType")
+        .and_then(Value::as_i64)
+        .unwrap_or(-1);
+    let member_name = str_field(group, "memberNick")
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "成员".to_string());
+    let member = |key: &str| {
+        member_add
+            .get(key)
+            .filter(|value| !value.is_null())
+            .map(|value| group_member_name(value, &member_name))
+    };
+    let invitation = |key: &str| {
+        member_add
+            .get(key)
+            .filter(|value| !value.is_null())
+            .map(|value| {
+                let invited = value.get("invited").map_or_else(
+                    || member_name.clone(),
+                    |item| group_member_name(item, &member_name),
+                );
+                let inviter = value.get("inviter").map_or_else(
+                    || "成员".to_string(),
+                    |item| group_member_name(item, "成员"),
+                );
+                (inviter, invited)
+            })
+    };
+
+    Some(match show_type {
+        0 => format!(
+            "{}加入了群聊",
+            member("otherAdd").unwrap_or_else(|| member_name.clone())
+        ),
+        1 => "你加入了群聊".to_string(),
+        2 => {
+            let (inviter, invited) = invitation("otherAddByOtherQRCode")
+                .unwrap_or_else(|| ("成员".to_string(), member_name.clone()));
+            format!("{invited}通过{inviter}分享的二维码加入了群聊")
+        }
+        3 => format!(
+            "{}通过你的二维码加入了群聊",
+            member("otherAddByYourQRCode").unwrap_or_else(|| member_name.clone())
+        ),
+        4 => format!(
+            "你通过{}分享的二维码加入了群聊",
+            member("youAddByOtherQRCode").unwrap_or_else(|| "成员".to_string())
+        ),
+        5 => {
+            let (inviter, invited) = invitation("otherInviteOther")
+                .unwrap_or_else(|| ("成员".to_string(), member_name.clone()));
+            format!("{inviter}邀请{invited}加入了群聊")
+        }
+        6 => format!(
+            "{}邀请你加入了群聊",
+            member("otherInviteYou").unwrap_or_else(|| "成员".to_string())
+        ),
+        7 => format!(
+            "你邀请{}加入了群聊",
+            member("youInviteOther").unwrap_or_else(|| member_name.clone())
+        ),
+        8 => "你已是群成员".to_string(),
+        _ => format!("{member_name}加入了群聊"),
+    })
+}
+
 fn render_system_element(data: &Value) -> String {
-    let text = str_field(data, "text")
+    let mut text = str_field(data, "text")
         .or_else(|| str_field(data, "content"))
         .unwrap_or_else(|| "系统消息".to_owned());
+    if text == "群聊更新" {
+        if let Some(summary) = group_member_add_summary(data) {
+            text = summary;
+        }
+    }
     if let Some(items) = data
         .get("items")
         .and_then(Value::as_array)
