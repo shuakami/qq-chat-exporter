@@ -1038,18 +1038,19 @@ Error generating stack: `+r.message+`
             color: var(--text-secondary);
         }
 
-        /* 群头衔徽章（issue #331）：中性描边小标签，对齐 demo 的克制配色 */
+        /* 群头衔徽章 */
         .sender-title {
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
             font-size: 10px;
             font-weight: 500;
             line-height: 1.4;
             color: var(--text-secondary);
-            background: transparent;
-            border: 1px solid var(--border-color);
-            padding: 0 5px;
-            border-radius: 999px;
-            margin-right: 4px;
+            background: var(--bg-secondary);
+            border: 0;
+            padding: 1px 5px;
+            border-radius: 6px;
+            margin-right: 0;
             white-space: nowrap;
         }
 
@@ -1192,7 +1193,9 @@ Error generating stack: `+r.message+`
         /* 引用消息 */
         .reply-content {
             background: transparent;
-            padding: 0;
+            border-left: 3px solid var(--reply-border);
+            border-radius: 0;
+            padding: 0 0 0 10px;
             margin-bottom: 8px;
             font-size: 13px;
             line-height: 1.5;
