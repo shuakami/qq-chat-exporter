@@ -1864,13 +1864,22 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                                     <button
                                       type="button"
                                       className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground/60 outline-none transition-colors hover:bg-amber-500/10 hover:text-amber-700 focus-visible:ring-2 focus-visible:ring-ring dark:hover:text-amber-400"
-                                      aria-label="查看资源下载失败说明"
+                                      aria-label="查看资源下载统计"
                                     >
                                       <HelpCircle className="h-3.5 w-3.5" />
                                     </button>
                                   </TooltipTrigger>
                                   <TooltipContent side="top" sideOffset={6} className="max-w-72">
-                                    部分资源因 QQ Rkey 服务临时不可用而下载失败，文字内容不受影响；可在 QQ 客户端重新打开相关消息后重试。
+                                    <div className="space-y-1">
+                                      <div className="font-medium">
+                                        资源 {(task.resourceSummary.alreadyAvailable + task.resourceSummary.downloaded)}/{task.resourceSummary.attempted}
+                                        ，失败 {task.resourceSummary.failed}
+                                        {task.resourceSummary.skipped > 0 && `，跳过 ${task.resourceSummary.skipped}`}
+                                      </div>
+                                      <div className="text-xs opacity-80">
+                                        部分资源因 QQ Rkey 服务临时不可用而下载失败，文字内容不受影响；可在 QQ 客户端重新打开相关消息后重试。
+                                      </div>
+                                    </div>
                                   </TooltipContent>
                                 </Tooltip>
                               )}
@@ -1909,14 +1918,6 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                           </div>
                         )}
 
-                        {/* issue #363：资源下载摘要。只在完成态、且本次确实有资源失败时显示。 */}
-                        {task.status === "completed" && task.resourceSummary && task.resourceSummary.failed > 0 && (
-                          <div className="mt-1.5 whitespace-nowrap text-xs font-medium text-amber-700 dark:text-amber-400">
-                            资源 {(task.resourceSummary.alreadyAvailable + task.resourceSummary.downloaded)}/{task.resourceSummary.attempted}
-                            ，失败 {task.resourceSummary.failed}
-                            {task.resourceSummary.skipped > 0 && `，跳过 ${task.resourceSummary.skipped}`}
-                          </div>
-                        )}
                       </div>
 
                       <div className="ml-3 flex items-center gap-1.5 flex-shrink-0">
