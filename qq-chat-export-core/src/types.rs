@@ -203,6 +203,12 @@ pub struct ChatInfo {
     /// 当前登录用户昵称。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub self_name: Option<String>,
+    /// 当前会话对象 UID。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_uid: Option<String>,
+    /// 当前私聊对象 QQ 号。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_uin: Option<String>,
 }
 
 /// 时间戳格式（对应 TS `options.timeFormat` 的取值语义）。

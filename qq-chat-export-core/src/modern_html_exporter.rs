@@ -225,6 +225,9 @@ impl ModernHtmlExporter {
             "messageCount": 0,
             "chatName": chat_info.name,
             "chatType": chat_info.chat_type,
+            "avatarUrl": chat_info.avatar,
+            "peerUid": chat_info.peer_uid,
+            "peerUin": chat_info.peer_uin,
             "exportTime": export_time_iso,
         });
 
@@ -905,6 +908,8 @@ impl ModernHtmlExporter {
                 "selfUid": chat_info.self_uid,
                 "selfUin": chat_info.self_uin,
                 "selfName": chat_info.self_name,
+                "peerUid": chat_info.peer_uid,
+                "peerUin": chat_info.peer_uin,
             },
             "stats": {
                 "totalMessages": *total_messages,
@@ -963,6 +968,9 @@ impl ModernHtmlExporter {
             "messageCount": *total_messages,
             "chatName": chat_info.name,
             "chatType": chat_info.chat_type,
+            "avatarUrl": chat_info.avatar,
+            "peerUid": chat_info.peer_uid,
+            "peerUin": chat_info.peer_uin,
             "exportTime": export_time_iso,
             "mode": "chunked",
         });
@@ -1168,10 +1176,15 @@ impl ModernHtmlExporter {
                     label = escape_html(&date_label)
                 );
             }
+            let system_class = if message.recalled {
+                "system-message-container recalled-message"
+            } else {
+                "system-message-container"
+            };
             return format!(
                 r#"<div class="message-block" data-date="{date_key}">
                 {date_marker}
-                <div class="system-message-container">
+                <div class="{system_class}" role="note">
                     {content}
                     <div class="system-message-time">{}</div>
                 </div>
@@ -1493,13 +1506,14 @@ impl ModernHtmlExporter {
             render_reply_preview_elements(&preview_elements, &ctx)
         };
 
-        let data_attr = jump_target
+        let interaction_attrs = jump_target
             .as_deref()
-            .map(|t| format!("data-reply-to=\"msg-{}\"", escape_html(t)))
-            .unwrap_or_default();
-        let on_click = jump_target
-            .as_deref()
-            .map(|t| format!("onclick=\"scrollToMessage('msg-{}')\"", escape_html(t)))
+            .map(|t| {
+                format!(
+                    "data-reply-to=\"msg-{}\" role=\"button\" tabindex=\"0\" aria-label=\"跳转到原消息\"",
+                    escape_html(t)
+                )
+            })
             .unwrap_or_default();
         let time_html = if time_str.is_empty() {
             String::new()
@@ -1511,7 +1525,7 @@ impl ModernHtmlExporter {
         };
 
         format!(
-            r#"<div class="reply-content" {data_attr} {on_click}>
+            r#"<div class="reply-content" {interaction_attrs}>
             <div class="reply-content-header">
                 <strong>{}</strong>
                 {time_html}
@@ -2454,6 +2468,46 @@ fn render_system_element(data: &Value) -> String {
     let text = str_field(data, "text")
         .or_else(|| str_field(data, "content"))
         .unwrap_or_else(|| "系统消息".to_owned());
+    if let Some(items) = data.get("items").and_then(Value::as_array).filter(|items| !items.is_empty())
+    {
+        let content = items
+            .iter()
+            .filter_map(|item| {
+                let item_type = item.get("type").and_then(Value::as_str).unwrap_or_default();
+                let item_text = item.get("text").and_then(Value::as_str).unwrap_or_default();
+                let url = item.get("url").and_then(Value::as_str).unwrap_or_default();
+                match item_type {
+                    "img" => {
+                        let src = item.get("src").and_then(Value::as_str).unwrap_or_default();
+                        is_acceptable_remote_url(src).then(|| {
+                            let image = format!(
+                                r#"<img class="system-message-image" src="{}" alt="" loading="lazy">"#,
+                                escape_html(src)
+                            );
+                            if is_acceptable_remote_url(url) {
+                                format!(
+                                    r#"<a class="system-message-link" href="{}" target="_blank" rel="noopener noreferrer">{image}</a>"#,
+                                    escape_html(url)
+                                )
+                            } else {
+                                image
+                            }
+                        })
+                    }
+                    "url" if is_acceptable_remote_url(url) && !item_text.is_empty() => Some(format!(
+                        r#"<a class="system-message-link" href="{}" target="_blank" rel="noopener noreferrer">{}</a>"#,
+                        escape_html(url),
+                        escape_html(item_text)
+                    )),
+                    _ if !item_text.is_empty() => Some(escape_html(item_text)),
+                    _ => None,
+                }
+            })
+            .collect::<String>();
+        if !content.is_empty() {
+            return format!(r#"<div class="system-message">{content}</div>"#);
+        }
+    }
     format!("<div class=\"system-message\">{}</div>", escape_html(&text))
 }
 

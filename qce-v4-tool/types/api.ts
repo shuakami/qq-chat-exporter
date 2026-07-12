@@ -449,7 +449,9 @@ export interface ChatFile {
   chatId: string
   exportDate: string
   displayName: string
-  avatarUrl: string
+  avatarUrl?: string
+  peerUid?: string
+  peerUin?: string
   isScheduled?: boolean
   messageCount?: number
   senderName?: string

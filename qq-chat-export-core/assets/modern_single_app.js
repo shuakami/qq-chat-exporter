@@ -159,8 +159,8 @@
             window.scrollToMessage = function(msgId) {
                 var targetMsg = document.getElementById(msgId);
                 if (targetMsg) {
-                    // 平滑滚动到目标消息
-                    targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                    targetMsg.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
                     
                     // 高亮动画
                     targetMsg.style.transition = 'background 0.3s';
@@ -177,6 +177,24 @@
                     console.warn('[Reply Jump] 未找到目标消息:', msgId);
                 }
             };
+
+            function activateReplyJump(target) {
+                if (!target || target.closest('a, button')) return false;
+                var reply = target.closest('.reply-content[data-reply-to]');
+                if (!reply) return false;
+                var msgId = reply.getAttribute('data-reply-to');
+                if (!msgId) return false;
+                window.scrollToMessage(msgId);
+                return true;
+            }
+
+            document.addEventListener('click', function(e) {
+                activateReplyJump(e.target);
+            });
+            document.addEventListener('keydown', function(e) {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                if (activateReplyJump(e.target)) e.preventDefault();
+            });
             // ========== 时间范围选择 ==========
             var timeRangeBtn = document.getElementById('timeRangeBtn');
             var timeRangeDropdown = document.getElementById('timeRangeDropdown');

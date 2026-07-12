@@ -707,11 +707,41 @@
         }
         .system-message-container {
             text-align: center;
-            padding: 6px 0;
+            padding: 6px 12px;
+            margin: 0 auto;
+            width: fit-content;
+            max-width: min(560px, calc(100% - 32px));
+            border-radius: 999px;
+            background: rgba(120, 120, 128, 0.1);
             font-size: 11px;
             font-weight: 500;
             letter-spacing: 0.01em;
             color: var(--text-secondary);
+        }
+        .system-message-container.recalled-message {
+            background: rgba(255, 149, 0, 0.1);
+        }
+        .system-message-container .system-message {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 3px;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+        .system-message-image {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            object-fit: cover;
+            vertical-align: middle;
+        }
+        .system-message-link {
+            color: inherit;
+            text-decoration: underline;
+            text-underline-offset: 2px;
         }
         .system-message-container .text-content { font-size: 11px; }
         .system-message-time {
@@ -927,14 +957,21 @@
             font-size: 13px;
             line-height: 1.5;
             color: var(--text-secondary);
-            cursor: pointer;
-            transition: all 0.2s;
+            transition: background-color 0.2s, opacity 0.2s;
         }
         
-        .reply-content:hover {
+        .reply-content[data-reply-to] {
+            cursor: pointer;
+        }
+
+        .reply-content[data-reply-to]:hover {
             background: var(--reply-border);
             opacity: 1;
-            transform: translateX(2px);
+        }
+
+        .reply-content[data-reply-to]:focus-visible {
+            outline: 2px solid var(--reply-border);
+            outline-offset: 2px;
         }
         
         .reply-content-header {
@@ -992,7 +1029,7 @@
             border-left-color: rgba(0, 0, 0, 0.25);
         }
         
-        .message.self .reply-content:hover {
+        .message.self .reply-content[data-reply-to]:hover {
             background: rgba(0, 0, 0, 0.12);
         }
         
@@ -1035,38 +1072,22 @@
         
         /* JSON 卡片 */
         .json-card {
-            background: rgba(29, 29, 31, 0.06);
-            border: 1px solid rgba(29, 29, 31, 0.1);
-            border-radius: 12px;
-            padding: 14px 16px;
-            margin: 8px 0;
-            transition: background 0.2s;
-        }
-        
-        .json-card:hover {
-            background: rgba(29, 29, 31, 0.08);
-        }
-        
-        .message.self .json-card {
-            background: rgba(0, 0, 0, 0.08);
-            border-color: rgba(0, 0, 0, 0.15);
-        }
-        
-        .message.self .json-card:hover {
-            background: rgba(0, 0, 0, 0.12);
+            padding: 2px 0;
+            margin: 0;
+            min-width: 0;
         }
         
         .json-title {
             font-weight: 600;
             font-size: 15px;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
             line-height: 1.3;
         }
         
         .json-description {
             font-size: 14px;
             opacity: 0.75;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             line-height: 1.4;
         }
         
@@ -1074,6 +1095,13 @@
             font-size: 12px;
             opacity: 0.6;
             text-decoration: none;
+            overflow-wrap: anywhere;
+            transition: opacity 0.2s;
+        }
+
+        .json-url:hover {
+            opacity: 0.9;
+            text-decoration: underline;
         }
         
         /* 市场表情 */

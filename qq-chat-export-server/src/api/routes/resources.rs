@@ -101,11 +101,16 @@ fn ext_of(name: &str) -> String {
 // 导出文件名解析（Issue #216 新旧格式兼容）
 // ===================
 
-fn avatar_url(chat_type: &str, chat_id: &str) -> String {
+fn valid_qq_uin(value: &str) -> bool {
+    value != "0" && !value.is_empty() && value.chars().all(|c| c.is_ascii_digit())
+}
+
+fn avatar_url(chat_type: &str, chat_id: &str) -> Option<String> {
     if chat_type == "friend" {
-        format!("https://q1.qlogo.cn/g?b=qq&nk={chat_id}&s=100")
+        valid_qq_uin(chat_id)
+            .then(|| format!("https://q1.qlogo.cn/g?b=qq&nk={chat_id}&s=100"))
     } else {
-        format!("https://p.qlogo.cn/gh/{chat_id}/{chat_id}/100")
+        Some(format!("https://p.qlogo.cn/gh/{chat_id}/{chat_id}/100"))
     }
 }
 
@@ -125,7 +130,7 @@ async fn build_uid_to_uin_map(state: &SharedState) -> std::collections::HashMap<
                         u
                     }
                 };
-                if !uid.is_empty() && !uin.is_empty() {
+                if !uid.is_empty() && valid_qq_uin(uin) {
                     map.insert(uid.to_string(), uin.to_string());
                 }
             }
@@ -145,10 +150,11 @@ fn fix_avatar_urls(files: &mut [Value], uid_to_uin: &std::collections::HashMap<S
         if !chat_id.starts_with("u_") {
             continue;
         }
-        if let Some(uin) = uid_to_uin.get(chat_id) {
+        if let Some(uin) = uid_to_uin.get(chat_id).filter(|value| valid_qq_uin(value)) {
             file["avatarUrl"] = Value::String(
                 format!("https://q1.qlogo.cn/g?b=qq&nk={uin}&s=100"),
             );
+            file["peerUin"] = Value::String(uin.clone());
         }
     }
 }
@@ -269,37 +275,55 @@ fn strip_suffix_ci<'a>(input: &'a str, suffix: &str) -> Option<&'a str> {
 // 导出文件元数据解析
 // ===================
 
-/// 从 HTML 文件头部（前 1KB）提取 `QCE_METADATA` 注释。
-fn parse_html_metadata(file_path: &FsPath) -> (Option<i64>, Option<String>) {
+#[derive(Default)]
+struct FileMetadata {
+    message_count: Option<i64>,
+    chat_name: Option<String>,
+    time_range: Option<String>,
+    peer_uid: Option<String>,
+    peer_uin: Option<String>,
+    avatar_url: Option<String>,
+}
+
+fn metadata_string(data: &Value, pointer: &str) -> Option<String> {
+    data.pointer(pointer)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+/// 从 HTML 文件头部提取 `QCE_METADATA` 注释。
+fn parse_html_metadata(file_path: &FsPath) -> FileMetadata {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| {
         regex::Regex::new(r"<!-- QCE_METADATA: (\{[^}]+\}) -->").expect("valid regex")
     });
     let Ok(bytes) = std::fs::read(file_path) else {
-        return (None, None);
+        return FileMetadata::default();
     };
-    let header = String::from_utf8_lossy(&bytes[..bytes.len().min(1024)]).into_owned();
+    let header = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).into_owned();
     if let Some(caps) = re.captures(&header) {
         if let Ok(metadata) = serde_json::from_str::<Value>(&caps[1]) {
-            return (
-                metadata.get("messageCount").and_then(Value::as_i64),
-                metadata
-                    .get("chatName")
-                    .and_then(Value::as_str)
-                    .map(String::from),
-            );
+            return FileMetadata {
+                message_count: metadata.get("messageCount").and_then(Value::as_i64),
+                chat_name: metadata_string(&metadata, "/chatName"),
+                peer_uid: metadata_string(&metadata, "/peerUid"),
+                peer_uin: metadata_string(&metadata, "/peerUin"),
+                avatar_url: metadata_string(&metadata, "/avatarUrl"),
+                ..FileMetadata::default()
+            };
         }
     }
-    (None, None)
+    FileMetadata::default()
 }
 
-/// 从 JSON 导出文件提取 `(messageCount, chatName, timeRange)`。
-fn parse_json_metadata(file_path: &FsPath) -> (Option<i64>, Option<String>, Option<String>) {
+/// 从 JSON 导出文件提取聊天元数据。
+fn parse_json_metadata(file_path: &FsPath) -> FileMetadata {
     let Ok(content) = std::fs::read_to_string(file_path) else {
-        return (None, None, None);
+        return FileMetadata::default();
     };
     let Ok(data) = serde_json::from_str::<Value>(&content) else {
-        return (None, None, None);
+        return FileMetadata::default();
     };
     let message_count = data
         .pointer("/statistics/totalMessages")
@@ -315,7 +339,54 @@ fn parse_json_metadata(file_path: &FsPath) -> (Option<i64>, Option<String>, Opti
         (Some(start), Some(end)) => Some(format!("{start} ~ {end}")),
         _ => None,
     };
-    (message_count, chat_name, time_range)
+    FileMetadata {
+        message_count,
+        chat_name,
+        time_range,
+        peer_uid: metadata_string(&data, "/chatInfo/peerUid"),
+        peer_uin: metadata_string(&data, "/chatInfo/peerUin"),
+        avatar_url: metadata_string(&data, "/chatInfo/avatar"),
+    }
+}
+
+fn apply_file_metadata(file_info: &mut Value, metadata: FileMetadata) {
+    if let Some(count) = metadata.message_count {
+        file_info["messageCount"] = json!(count);
+    }
+    if let Some(name) = metadata.chat_name {
+        file_info["displayName"] = json!(name);
+    }
+    if let Some(time_range) = metadata.time_range {
+        file_info["description"] = json!(time_range);
+    }
+    if let Some(peer_uid) = metadata.peer_uid {
+        file_info["peerUid"] = json!(peer_uid);
+    }
+    if let Some(peer_uin) = metadata.peer_uin.filter(|value| valid_qq_uin(value)) {
+        file_info["avatarUrl"] =
+            json!(format!("https://q1.qlogo.cn/g?b=qq&nk={peer_uin}&s=100"));
+        file_info["peerUin"] = json!(peer_uin);
+    } else if let Some(avatar_url) = metadata.avatar_url {
+        file_info["avatarUrl"] = json!(avatar_url);
+    }
+}
+
+fn parse_manifest_metadata(manifest: &Value) -> FileMetadata {
+    FileMetadata {
+        message_count: manifest
+            .pointer("/statistics/totalMessages")
+            .or_else(|| manifest.pointer("/stats/totalMessages"))
+            .and_then(Value::as_i64),
+        chat_name: metadata_string(manifest, "/chatInfo/name")
+            .or_else(|| metadata_string(manifest, "/chat/name")),
+        peer_uid: metadata_string(manifest, "/chatInfo/peerUid")
+            .or_else(|| metadata_string(manifest, "/chat/peerUid")),
+        peer_uin: metadata_string(manifest, "/chatInfo/peerUin")
+            .or_else(|| metadata_string(manifest, "/chat/peerUin")),
+        avatar_url: metadata_string(manifest, "/chatInfo/avatar")
+            .or_else(|| metadata_string(manifest, "/chat/avatar")),
+        ..FileMetadata::default()
+    }
 }
 
 /// 获取聊天对象显示名（群名 / 好友昵称）。
@@ -412,17 +483,7 @@ async fn scan_export_dir(state: &SharedState, dir: &FsPath, is_scheduled: bool, 
                 let manifest_path = file_path.join("manifest.json");
                 if let Ok(content) = std::fs::read_to_string(&manifest_path) {
                     if let Ok(manifest) = serde_json::from_str::<Value>(&content) {
-                        if let Some(count) = manifest
-                            .pointer("/statistics/totalMessages")
-                            .and_then(Value::as_i64)
-                        {
-                            file_info["messageCount"] = json!(count);
-                        }
-                        if let Some(name) =
-                            manifest.pointer("/chatInfo/name").and_then(Value::as_str)
-                        {
-                            file_info["displayName"] = json!(name);
-                        }
+                        apply_file_metadata(&mut file_info, parse_manifest_metadata(&manifest));
                     }
                 }
                 info = Some(file_info);
@@ -439,24 +500,9 @@ async fn scan_export_dir(state: &SharedState, dir: &FsPath, is_scheduled: bool, 
                     .unwrap_or("")
                     .to_string();
                 if format == "HTML" {
-                    let (count, name) = parse_html_metadata(&file_path);
-                    if let Some(count) = count {
-                        file_info["messageCount"] = json!(count);
-                    }
-                    if let Some(name) = name {
-                        file_info["displayName"] = json!(name);
-                    }
+                    apply_file_metadata(&mut file_info, parse_html_metadata(&file_path));
                 } else if format == "JSON" {
-                    let (count, name, time_range) = parse_json_metadata(&file_path);
-                    if let Some(count) = count {
-                        file_info["messageCount"] = json!(count);
-                    }
-                    if let Some(name) = name {
-                        file_info["displayName"] = json!(name);
-                    }
-                    if let Some(time_range) = time_range {
-                        file_info["description"] = json!(time_range);
-                    }
+                    apply_file_metadata(&mut file_info, parse_json_metadata(&file_path));
                 }
                 info = Some(file_info);
             }
@@ -2038,4 +2084,39 @@ pub async fn merge_resources(
         "completedAt": Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
     });
     response::success(json!({ "result": result }), &request_id)
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::{apply_file_metadata, avatar_url, parse_manifest_metadata};
+    use serde_json::json;
+
+    #[test]
+    fn private_avatar_rejects_uid_and_zero_values() {
+        assert!(avatar_url("friend", "u_peer").is_none());
+        assert!(avatar_url("friend", "0").is_none());
+        assert!(avatar_url("friend", "1687657986").is_some());
+    }
+
+    #[test]
+    fn modern_chunked_manifest_supplies_peer_avatar_metadata() {
+        let manifest = json!({
+            "chat": {
+                "name": "笨蛋Darf v2",
+                "peerUid": "u_peer",
+                "peerUin": "1687657986"
+            },
+            "stats": { "totalMessages": 3538 }
+        });
+        let mut file = json!({});
+        apply_file_metadata(&mut file, parse_manifest_metadata(&manifest));
+        assert_eq!(file["displayName"], "笨蛋Darf v2");
+        assert_eq!(file["messageCount"], 3538);
+        assert_eq!(file["peerUid"], "u_peer");
+        assert_eq!(file["peerUin"], "1687657986");
+        assert_eq!(
+            file["avatarUrl"],
+            "https://q1.qlogo.cn/g?b=qq&nk=1687657986&s=100"
+        );
+    }
 }

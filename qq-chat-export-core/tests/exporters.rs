@@ -52,6 +52,8 @@ fn chat_info() -> ChatInfo {
         self_uid: Some("self".to_owned()),
         self_uin: Some("10000".to_owned()),
         self_name: Some("自己".to_owned()),
+        peer_uid: None,
+        peer_uin: None,
     }
 }
 
@@ -114,7 +116,9 @@ async fn text_json_and_html_exporters_cover_the_shared_fixture() {
         message("m2", 1_718_454_900_000, vec![text_element("第二条")]),
         message("m1", 1_718_454_840_000, vec![text_element("第一条")]),
     ];
-    let chat = chat_info();
+    let mut chat = chat_info();
+    chat.peer_uid = Some("u_peer".to_owned());
+    chat.peer_uin = Some("1687657986".to_owned());
 
     let text_path = temp.join("chat.txt");
     let text_exporter = TextExporter::new(
@@ -145,6 +149,8 @@ async fn text_json_and_html_exporters_cover_the_shared_fixture() {
         .expect("parse json");
     assert_eq!(json_result.message_count, 2);
     assert_eq!(json["chatInfo"]["name"], "测试群聊");
+    assert_eq!(json["chatInfo"]["peerUid"], "u_peer");
+    assert_eq!(json["chatInfo"]["peerUin"], "1687657986");
     assert_eq!(json["messages"].as_array().expect("messages").len(), 2);
     assert_eq!(json["messages"][0]["id"], "m1");
 
@@ -162,6 +168,57 @@ async fn text_json_and_html_exporters_cover_the_shared_fixture() {
     assert!(html.contains("<!DOCTYPE html>"));
     assert!(html.contains("第一条"));
     assert!(html.contains("第二条"));
+}
+
+#[tokio::test]
+async fn modern_html_renders_structured_system_rows_and_flat_json_cards() {
+    let temp = TestDir::new("structured-system");
+    let mut system_message = message(
+        "system",
+        1_718_454_840_000,
+        vec![MessageElement {
+            element_type: "system".to_owned(),
+            data: json!({
+                "text": "速冻饺子戳了戳笨蛋Darf v2",
+                "items": [
+                    { "type": "qq", "text": "速冻饺子" },
+                    {
+                        "type": "img",
+                        "src": "https://example.com/nudge.png",
+                        "url": "https://example.com/nudge"
+                    },
+                    { "type": "text", "text": "戳了戳" },
+                    { "type": "qq", "text": "笨蛋Darf v2" }
+                ]
+            }),
+        }],
+    );
+    system_message.system = true;
+    system_message.recalled = true;
+    let (system_html, _) =
+        render_modern_html(&temp, "system", system_message, |_| {}).await;
+    assert!(system_html.contains("system-message-container recalled-message"));
+    assert!(system_html.contains("class=\"system-message-image\""));
+    assert!(system_html.contains("速冻饺子"));
+    assert!(system_html.contains("笨蛋Darf v2"));
+
+    let json_message = message(
+        "json",
+        1_718_454_840_000,
+        vec![MessageElement {
+            element_type: "json".to_owned(),
+            data: json!({
+                "title": "[QQ小程序]《RPG模拟器》",
+                "description": "《RPG模拟器》",
+                "url": "https://example.com/card"
+            }),
+        }],
+    );
+    let (json_html, _) = render_modern_html(&temp, "json-card", json_message, |_| {}).await;
+    assert!(json_html.contains("class=\"json-card\""));
+    assert!(json_html.contains("href=\"https://example.com/card\""));
+    assert!(json_html.contains(".json-card {\n            padding: 2px 0;"));
+    assert!(!json_html.contains(".message.self .json-card"));
 }
 
 fn resource_message(resource_type: &str, filename: &str, source: &Path) -> CleanMessage {

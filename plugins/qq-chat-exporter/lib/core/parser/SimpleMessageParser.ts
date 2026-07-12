@@ -521,7 +521,7 @@ export class SimpleMessageParser {
       },
       type: this.getMessageTypeString(message.msgType),
       content,
-      recalled: message.recallTime !== '0',
+      recalled: message.recallTime !== undefined && message.recallTime !== '0',
       system: this.isSystemMessage(message)
     };
 
@@ -1362,7 +1362,7 @@ export class SimpleMessageParser {
   }
 
   private isSystemMessage(message: RawMessage): boolean {
-    return message.msgType === NTMsgType.KMSGTYPEGRAYTIPS;
+    return message.msgType === 5 || message.msgType === NTMsgType.KMSGTYPEGRAYTIPS;
   }
 
   private createErrorMessage(message: RawMessage, error: any): CleanMessage {
@@ -1946,12 +1946,25 @@ export class SimpleMessageParser {
     const subType = grayTip.subElementType;
     let summary = '系统消息';
     let text = '';
+    let items: Array<Record<string, string>> = [];
 
     try {
       if (subType === 1 && grayTip.revokeElement) {
         const revokeInfo = grayTip.revokeElement;
-        const operatorName = revokeInfo.operatorName || '用户';
-        const originalSenderName = revokeInfo.origMsgSenderName || '用户';
+        const operatorName = this.getGrayTipSenderName(
+          revokeInfo.operatorUid,
+          revokeInfo.operatorName,
+          revokeInfo.operatorNick,
+          revokeInfo.operatorRemark,
+          revokeInfo.operatorMemRemark
+        );
+        const originalSenderName = this.getGrayTipSenderName(
+          revokeInfo.origMsgSenderUid,
+          revokeInfo.origMsgSenderName,
+          revokeInfo.origMsgSenderNick,
+          revokeInfo.origMsgSenderRemark,
+          revokeInfo.origMsgSenderMemRemark
+        );
 
         if (revokeInfo.isSelfOperate) {
           text = `${operatorName} 撤回了一条消息`;
@@ -1961,7 +1974,7 @@ export class SimpleMessageParser {
           text = `${operatorName} 撤回了 ${originalSenderName} 的消息`;
         }
         const wording = typeof revokeInfo.wording === 'string' ? revokeInfo.wording.trim() : '';
-        if (wording) text = `${text}，${wording}`;
+        if (wording) text = `${text}（${wording.replace(/[。！？]+$/, '')}）`;
         summary = text;
       } else if (subType === 10 && grayTip.fileReceiptElement?.fileName) {
         text = `对方已接收文件「${grayTip.fileReceiptElement.fileName}」`;
@@ -1969,11 +1982,13 @@ export class SimpleMessageParser {
       } else if (subType === 4 && grayTip.groupElement) {
         text = grayTip.groupElement.content || '群聊更新';
         summary = text;
-      } else if (subType === 17 && grayTip.jsonGrayTipElement) {
+      } else if (grayTip.jsonGrayTipElement) {
         const jsonContent = grayTip.jsonGrayTipElement.jsonStr || '{}';
         try {
           const parsed = fastJsonParse(jsonContent);
-          text = parsed.prompt || parsed.content || '系统提示';
+          const structured = this.parseJsonGrayTipItems(parsed.items);
+          text = parsed.prompt || parsed.content || structured.text || '系统提示';
+          items = structured.items;
         } catch {
           text = '系统提示';
         }
@@ -1990,10 +2005,15 @@ export class SimpleMessageParser {
         }
         summary = text;
       } else {
-        const content = grayTip.content || grayTip.text || grayTip.wording;
-        if (content) {
-          text = content;
-          summary = content;
+        const payload = this.findGrayTipPayload(grayTip);
+        const structured = payload ? this.parseGrayTipPayload(payload) : undefined;
+        if (structured) {
+          text = structured.text;
+          items = structured.items;
+          summary = text;
+        } else if (payload) {
+          text = payload;
+          summary = payload;
         } else {
           text = `系统提示 (类型: ${subType})`;
           summary = text;
@@ -2011,9 +2031,125 @@ export class SimpleMessageParser {
         subType,
         text,
         summary,
+        items,
         originalData: grayTip
       }
     };
+  }
+
+  private getGrayTipSenderName(uid: unknown, ...candidates: unknown[]): string {
+    for (const candidate of candidates) {
+      const name = this.getTrimmedText(candidate);
+      if (name) return name;
+    }
+    const sender = this.senderInfoCache.get(this.getTrimmedText(uid) || '');
+    return sender?.groupCard || sender?.remark || sender?.nickname || '用户';
+  }
+
+  private parseJsonGrayTipItems(items: unknown): {
+    text: string;
+    items: Array<Record<string, string>>;
+  } {
+    if (!Array.isArray(items)) return { text: '', items: [] };
+    const normalized: Array<Record<string, string>> = [];
+    const text = items.map(item => {
+      if (!item || typeof item !== 'object') return '';
+      const value = item as Record<string, unknown>;
+      if (value.type === 'qq') {
+        let name = this.getGrayTipSenderName(value.uid, value.nm);
+        const uin = this.getTrimmedText(value.jp);
+        if (name === '用户' && uin && /^\d+$/.test(uin)) name = uin;
+        normalized.push({ type: 'qq', text: name, uid: this.getTrimmedText(value.uid) || '' });
+        return name;
+      }
+      if (value.type === 'nor' || value.type === 'url') {
+        const itemText = this.getTrimmedText(value.txt) || '';
+        if (itemText) {
+          normalized.push({
+            type: String(value.type),
+            text: itemText,
+            url: this.getTrimmedText(value.jp) || ''
+          });
+        }
+        return itemText;
+      }
+      if (value.type === 'img') {
+        normalized.push({
+          type: 'img',
+          src: this.getTrimmedText(value.src) || '',
+          url: this.getTrimmedText(value.jp) || ''
+        });
+      }
+      return '';
+    }).join('').trim();
+    return { text, items: normalized };
+  }
+
+  private parseXmlGrayTip(xml: string): {
+    text: string;
+    items: Array<Record<string, string>>;
+  } | undefined {
+    const normalized: Array<Record<string, string>> = [];
+    let text = '';
+    for (const match of xml.matchAll(/<(qq|nor|url)\b([^>]*)\/?>/g)) {
+      const type = match[1];
+      const attrs: Record<string, string> = {};
+      for (const attr of match[2].matchAll(/([A-Za-z][A-Za-z0-9_]*)="([^"]*)"/g)) {
+        attrs[attr[1]] = this.decodeGrayTipXml(attr[2]);
+      }
+      if (type === 'qq') {
+        const uid = attrs.uid || attrs.uin || '';
+        let name = this.getGrayTipSenderName(uid, attrs.nm);
+        if (name === '用户' && /^\d+$/.test(attrs.jp || '')) name = attrs.jp;
+        text += name;
+        normalized.push({ type: 'qq', text: name, uid });
+      } else if (attrs.txt) {
+        text += attrs.txt;
+        normalized.push({ type, text: attrs.txt, url: attrs.jp || '' });
+      }
+    }
+    text = text.trim();
+    return text ? { text, items: normalized } : undefined;
+  }
+
+  private parseGrayTipPayload(payload: string): {
+    text: string;
+    items: Array<Record<string, string>>;
+  } | undefined {
+    if (payload.trimStart().startsWith('{')) {
+      try {
+        const parsed = fastJsonParse(payload);
+        const structured = this.parseJsonGrayTipItems(parsed.items);
+        const text = parsed.prompt || parsed.content || structured.text;
+        return text ? { text, items: structured.items } : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    return payload.includes('<gtip') ? this.parseXmlGrayTip(payload) : undefined;
+  }
+
+  private findGrayTipPayload(value: unknown): string | undefined {
+    if (!value || typeof value !== 'object') return undefined;
+    const object = value as Record<string, unknown>;
+    for (const key of ['jsonStr', 'xmlStr', 'content', 'text', 'wording']) {
+      const payload = this.getTrimmedText(object[key]);
+      if (payload) return payload;
+    }
+    for (const child of Object.values(object)) {
+      const payload = this.findGrayTipPayload(child);
+      if (payload) return payload;
+    }
+    return undefined;
+  }
+
+  private decodeGrayTipXml(value: string): string {
+    return value
+      .replaceAll('&quot;', '"')
+      .replaceAll('&apos;', "'")
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&amp;', '&');
   }
 
   private getSystemMessageSummary(element: any): string {

@@ -149,6 +149,10 @@ pub struct FormattedChatInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     self_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    peer_uid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    peer_uin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     avatar: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     participant_count: Option<u64>,
@@ -647,6 +651,8 @@ impl JsonExporter {
             self_uid: chat_info.self_uid.clone(),
             self_uin: chat_info.self_uin.clone(),
             self_name: chat_info.self_name.clone(),
+            peer_uid: chat_info.peer_uid.clone(),
+            peer_uin: chat_info.peer_uin.clone(),
             avatar,
             participant_count: chat_info.participant_count,
         }
