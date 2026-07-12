@@ -2184,7 +2184,7 @@ impl SimpleMessageParser {
                 {
                     text = format!(
                         "{text}（{}）",
-                        wording.trim_end_matches(|c| matches!(c, '。' | '！' | '？'))
+                        wording.trim_end_matches(['。', '！', '？'])
                     );
                 }
             }
@@ -2238,9 +2238,8 @@ impl SimpleMessageParser {
                 text = parsed_text;
                 render_items = items;
             } else {
-                text = payload
-                    .map(str::to_string)
-                    .unwrap_or_else(|| format!("系统提示 (类型: {sub_type})"));
+                text =
+                    payload.map_or_else(|| format!("系统提示 (类型: {sub_type})"), str::to_string);
             }
         }
 

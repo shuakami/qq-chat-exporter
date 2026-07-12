@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef } from "react"
+import { memo, useCallback, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Button } from "./button"
 import { Input } from "./input"
@@ -42,6 +42,7 @@ import {
 import { QqLookupCard } from "./qq-lookup-card"
 
 const UIN_PATTERN = /^\d{4,12}$/
+const EMPTY_SELECTED_ITEMS = new Set<string>()
 
 export interface SessionListProps {
   groups: Group[]
@@ -75,12 +76,12 @@ export interface SessionListProps {
 }
 
 
-export function SessionList({
+function SessionListComponent({
   groups,
   friends,
   isLoading = false,
   batchMode = false,
-  selectedItems = new Set(),
+  selectedItems = EMPTY_SELECTED_ITEMS,
   avatarExportLoading,
   recentActivityMap,
   taskStatsMap,
@@ -686,3 +687,6 @@ export function SessionList({
     </div>
   )
 }
+
+export const SessionList = memo(SessionListComponent)
+SessionList.displayName = "SessionList"

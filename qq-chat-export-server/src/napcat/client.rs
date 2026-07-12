@@ -63,7 +63,10 @@ impl NapCatBridgeClient {
                 .to_string();
             return Err(BridgeError::Rpc(error));
         }
-        Ok(body.get("result").cloned().unwrap_or(Value::Null))
+        match body {
+            Value::Object(mut map) => Ok(map.remove("result").unwrap_or(Value::Null)),
+            _ => Ok(Value::Null),
+        }
     }
 
     /// bridge 健康检查（`GET /healthz`）。
@@ -319,30 +322,6 @@ impl ForwardFetcher for NapCatBridgeClient {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::extract_forward_messages;
-    use serde_json::json;
-
-    #[test]
-    fn extracts_forward_messages_from_supported_response_shapes() {
-        let message = json!({"msgId": "inner-1"});
-        assert_eq!(
-            extract_forward_messages(&json!({"msgList": [message.clone()]})),
-            Some(vec![message.clone()])
-        );
-        assert_eq!(
-            extract_forward_messages(&json!({"messages": [message.clone()]})),
-            Some(vec![message.clone()])
-        );
-        assert_eq!(
-            extract_forward_messages(&json!({"data": {"messages": [message]}})).map(|v| v.len()),
-            Some(1)
-        );
-        assert_eq!(extract_forward_messages(&json!({"data": {}})), None);
-    }
-}
-
 #[async_trait::async_trait]
 impl crate::resource::MediaDownloader for NapCatBridgeClient {
     async fn download_media(
@@ -432,4 +411,28 @@ fn peer_to_value(peer: &Peer) -> Value {
         "peerUid": peer.peer_uid,
         "guildId": peer.guild_id.clone().unwrap_or_default(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_forward_messages;
+    use serde_json::json;
+
+    #[test]
+    fn extracts_forward_messages_from_supported_response_shapes() {
+        let message = json!({"msgId": "inner-1"});
+        assert_eq!(
+            extract_forward_messages(&json!({"msgList": [message.clone()]})),
+            Some(vec![message.clone()])
+        );
+        assert_eq!(
+            extract_forward_messages(&json!({"messages": [message.clone()]})),
+            Some(vec![message.clone()])
+        );
+        assert_eq!(
+            extract_forward_messages(&json!({"data": {"messages": [message]}})).map(|v| v.len()),
+            Some(1)
+        );
+        assert_eq!(extract_forward_messages(&json!({"data": {}})), None);
+    }
 }

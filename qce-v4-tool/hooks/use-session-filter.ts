@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from "react"
 import type { Group, Friend } from "@/types/api"
 import {
   compareSessionItems,
+  parseLastActivity,
   sessionTaskStatsKey,
   type SessionTaskStats,
   type SortField,
@@ -33,6 +34,8 @@ export interface SessionItem {
    * 调用方从 `/api/recent-contacts` 结果里查出来传进来，没有记录时 `undefined`。
    */
   lastMessageTime?: string
+  lastMessageTimestamp?: number | null
+  searchText: string
   /**
    * Issue #344: 该会话在本地任务里已经导出过的消息总数（`/api/tasks`
    * 里 completed task 的 `messageCount` 求和）。未导出过时 `0`。
@@ -109,6 +112,7 @@ export function useSessionFilter(
   const allItems = useMemo<SessionItem[]>(() => {
     const groupItems: SessionItem[] = groups.map(g => {
       const stats = taskStatsMap?.[sessionTaskStatsKey('group', g.groupCode)]
+      const lastMessageTime = recentActivityMap?.[g.groupCode]
       return {
         id: g.groupCode,
         type: 'group' as const,
@@ -116,7 +120,12 @@ export function useSessionFilter(
         subName: g.remark,
         avatarUrl: g.avatarUrl || `https://p.qlogo.cn/gh/${g.groupCode}/${g.groupCode}/640/`,
         memberCount: g.memberCount,
-        lastMessageTime: recentActivityMap?.[g.groupCode],
+        lastMessageTime,
+        lastMessageTimestamp: parseLastActivity(lastMessageTime),
+        searchText: [g.groupName, g.remark, g.groupCode]
+          .filter(Boolean)
+          .join('\n')
+          .toLowerCase(),
         exportedMessageCount: stats?.exportedMessageCount ?? 0,
         successfulExportCount: stats?.successfulExportCount ?? 0,
         lastSuccessfulExportAt: stats?.lastSuccessfulExportAt,
@@ -126,6 +135,7 @@ export function useSessionFilter(
 
     const friendItems: SessionItem[] = friends.map(f => {
       const stats = taskStatsMap?.[sessionTaskStatsKey('friend', f.uid)]
+      const lastMessageTime = recentActivityMap?.[f.uid]
       return {
         id: f.uid,
         type: 'friend' as const,
@@ -133,7 +143,12 @@ export function useSessionFilter(
         subName: f.remark && f.nick !== f.remark ? f.nick : undefined,
         avatarUrl: f.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${f.uin}&s=640`,
         isOnline: f.isOnline,
-        lastMessageTime: recentActivityMap?.[f.uid],
+        lastMessageTime,
+        lastMessageTimestamp: parseLastActivity(lastMessageTime),
+        searchText: [f.remark || f.nick, f.remark && f.nick !== f.remark ? f.nick : undefined, f.uid, f.uin]
+          .filter(Boolean)
+          .join('\n')
+          .toLowerCase(),
         exportedMessageCount: stats?.exportedMessageCount ?? 0,
         successfulExportCount: stats?.successfulExportCount ?? 0,
         lastSuccessfulExportAt: stats?.lastSuccessfulExportAt,
@@ -144,9 +159,14 @@ export function useSessionFilter(
     return [...groupItems, ...friendItems]
   }, [groups, friends, recentActivityMap, taskStatsMap])
 
-  // Filtered items (search + type filter)
+  const sortedItems = useMemo<SessionItem[]>(() => {
+    return [...allItems].sort((a, b) =>
+      compareSessionItems(a, b, sortField, sortOrder),
+    )
+  }, [allItems, sortField, sortOrder])
+
   const filteredItems = useMemo<SessionItem[]>(() => {
-    let items = allItems
+    let items = sortedItems
 
     // Type filter
     if (type !== 'all') {
@@ -156,34 +176,11 @@ export function useSessionFilter(
     // Search filter
     if (search.trim()) {
       const searchLower = search.toLowerCase().trim()
-      items = items.filter(item => {
-        // Search in name
-        if (item.name.toLowerCase().includes(searchLower)) return true
-        // Search in subName
-        if (item.subName?.toLowerCase().includes(searchLower)) return true
-        // Search in ID
-        if (item.id.toLowerCase().includes(searchLower)) return true
-        // Search in QQ number for friends
-        if (item.type === 'friend') {
-          const friend = item.raw as Friend
-          if (friend.uin?.toString().includes(searchLower)) return true
-        }
-        // Search in group code
-        if (item.type === 'group') {
-          const group = item.raw as Group
-          if (group.groupCode.includes(searchLower)) return true
-        }
-        return false
-      })
+      items = items.filter(item => item.searchText.includes(searchLower))
     }
 
-    // Sort。纯函数抽到 `lib/session-sort` 里，方便后端 node:test 复用。
-    items = [...items].sort((a, b) =>
-      compareSessionItems(a, b, sortField, sortOrder),
-    )
-
     return items
-  }, [allItems, search, type, sortField, sortOrder])
+  }, [sortedItems, search, type])
 
   // Paginated items
   const paginatedItems = useMemo<SessionItem[]>(() => {

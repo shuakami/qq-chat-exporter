@@ -7,8 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Layers, AlertCircle, FolderOpen, ChevronDown, ChevronRight } from "lucide-react"
-import { Loader } from "@/components/ui/loader"
+import { AlertCircle, FolderOpen, ChevronDown, ChevronRight } from "lucide-react"
 
 const SECTION_TITLE = "text-[14px] font-medium text-foreground mb-5"
 
@@ -384,11 +383,7 @@ export function ScheduledBackupMergeDialog({
               disabled={selectedBackups.size < 2 || merging}
               className="rounded-full text-[13px] h-8 px-6 bg-[#317CFF] text-white hover:bg-[#2867d6]"
             >
-              {merging ? (
-                <><Loader size={16} className="mr-2" />合并中...</>
-              ) : (
-                <><Layers className="w-4 h-4 mr-2" />开始合并 ({selectedBackups.size})</>
-              )}
+              {merging ? '合并中...' : `开始合并 (${selectedBackups.size})`}
             </Button>
           </div>
         </div>

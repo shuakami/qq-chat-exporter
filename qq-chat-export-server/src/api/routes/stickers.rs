@@ -4,6 +4,7 @@ use std::path::{Path as FsPath, PathBuf};
 use axum::extract::{Extension, Query, State};
 use axum::response::Response;
 use axum::Json;
+use futures_util::{stream::FuturesUnordered, StreamExt};
 use serde_json::{json, Value};
 
 use crate::api::helpers::http_get_bytes;
@@ -548,16 +549,20 @@ async fn export_pack_to_dir(_state: &SharedState, pack: &Value, pack_dir: &FsPat
         .get("stickers")
         .and_then(Value::as_array)
         .unwrap_or(&empty);
+    let mut remaining = stickers.iter();
+    let mut pending = FuturesUnordered::new();
+    for _ in 0..10 {
+        let Some(sticker) = remaining.next() else {
+            break;
+        };
+        pending.push(save_sticker(sticker, &stickers_dir));
+    }
     let mut success = 0usize;
-    // 分批并发下载（并发度 10）。
-    for batch in stickers.chunks(10) {
-        let results = futures_util::future::join_all(
-            batch
-                .iter()
-                .map(|sticker| save_sticker(sticker, &stickers_dir)),
-        )
-        .await;
-        success += results.into_iter().filter(|ok| *ok).count();
+    while let Some(ok) = pending.next().await {
+        success += usize::from(ok);
+        if let Some(sticker) = remaining.next() {
+            pending.push(save_sticker(sticker, &stickers_dir));
+        }
     }
     success
 }

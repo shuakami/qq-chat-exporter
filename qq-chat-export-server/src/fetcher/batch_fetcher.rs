@@ -449,7 +449,7 @@ impl BatchMessageFetcher {
             })
             .await?;
 
-        let mut batch = process_api_result(&result, Some(filter), start_message_id);
+        let mut batch = process_api_result(result, Some(filter), start_message_id);
         batch.messages = apply_client_side_filter(batch.messages, filter);
         batch.actual_count = batch.messages.len();
         Ok(batch)
@@ -465,17 +465,22 @@ impl BatchMessageFetcher {
         let start_seq = match start_seq {
             Some(seq) => seq.to_string(),
             None => {
-                let latest = self
+                let mut latest = self
                     .api
                     .get_aio_first_view_latest_msgs(peer, 1)
                     .await
                     .map_err(FetchError::Api)?;
-                let msg_list = latest
-                    .get("msgList")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default();
-                let Some(first) = msg_list.first() else {
+                let first = latest
+                    .get_mut("msgList")
+                    .and_then(Value::as_array_mut)
+                    .and_then(|messages| {
+                        if messages.is_empty() {
+                            None
+                        } else {
+                            Some(messages.remove(0))
+                        }
+                    });
+                let Some(first) = first else {
                     return Ok(BatchFetchResult::default());
                 };
                 first
@@ -503,7 +508,7 @@ impl BatchMessageFetcher {
             })
             .await?;
 
-        let mut batch = process_api_result(&result, Some(filter), None);
+        let mut batch = process_api_result(result, Some(filter), None);
         batch.messages = apply_client_side_filter(batch.messages, filter);
         batch.actual_count = batch.messages.len();
         Ok(batch)
@@ -631,19 +636,30 @@ impl BatchMessageFetcher {
 
 /// 处理 API 调用结果，统一格式化（对应 TS `processApiResult`）。
 fn process_api_result(
-    api_result: &Value,
+    api_result: Value,
     filter: Option<&MessageFilter>,
     current_message_id: Option<&str>,
 ) -> BatchFetchResult {
-    let payload = api_result
-        .get("result")
-        .filter(|result| result.get("msgList").is_some())
-        .unwrap_or(api_result);
-    let messages: Vec<Value> = payload
-        .get("msgList")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let messages = match api_result {
+        Value::Object(mut root) => {
+            if let Some(Value::Object(result)) = root.get_mut("result") {
+                if let Some(Value::Array(messages)) = result.remove("msgList") {
+                    messages
+                } else {
+                    match root.remove("msgList") {
+                        Some(Value::Array(messages)) => messages,
+                        _ => Vec::new(),
+                    }
+                }
+            } else {
+                match root.remove("msgList") {
+                    Some(Value::Array(messages)) => messages,
+                    _ => Vec::new(),
+                }
+            }
+        }
+        _ => Vec::new(),
+    };
 
     let mut has_more = !messages.is_empty();
     let mut next_message_id: Option<String> = None;
@@ -760,14 +776,18 @@ fn apply_client_side_filter(messages: Vec<Value>, filter: &MessageFilter) -> Vec
 
     // 关键词筛选（对 elements JSON 做大小写不敏感包含匹配）。
     if let Some(keywords) = filter.keywords.as_ref().filter(|kw| !kw.is_empty()) {
+        let lowered_keywords: Vec<String> = keywords
+            .iter()
+            .map(|keyword| keyword.to_lowercase())
+            .collect();
         filtered.retain(|msg| {
             let content = msg
                 .get("elements")
                 .map(|elements| elements.to_string().to_lowercase())
                 .unwrap_or_default();
-            keywords
+            lowered_keywords
                 .iter()
-                .any(|keyword| content.contains(&keyword.to_lowercase()))
+                .any(|keyword| content.contains(keyword))
         });
     }
 
@@ -811,7 +831,7 @@ mod tests {
     #[test]
     fn processes_result_wrapped_message_lists() {
         let batch = process_api_result(
-            &json!({
+            json!({
                 "result": {
                     "msgList": [{
                         "msgId": "message-1",
@@ -826,5 +846,23 @@ mod tests {
 
         assert_eq!(batch.actual_count, 1);
         assert_eq!(batch.next_message_id.as_deref(), Some("message-1"));
+    }
+
+    #[test]
+    fn processes_root_message_lists() {
+        let batch = process_api_result(
+            json!({
+                "msgList": [{
+                    "msgId": "message-2",
+                    "msgSeq": "11",
+                    "msgTime": "1783866275"
+                }]
+            }),
+            None,
+            None,
+        );
+
+        assert_eq!(batch.actual_count, 1);
+        assert_eq!(batch.next_message_id.as_deref(), Some("message-2"));
     }
 }

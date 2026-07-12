@@ -1,78 +1,76 @@
-以下是适用于Claude在工作中的部署指南。
+# QQ Chat Exporter Agent Quick Start
 
-## 1. 更新插件代码到测试环境
+`AGENTS.md` is authoritative. Read and follow it first; this file is a compact execution checklist for repository work.
 
-### 1.1 构建 NapCatQQ Overlay Runtime
+## Start here
+
+1. Inspect `git status`, the target branch, and the merge-base.
+2. Read the touched package manifest, nearby tests, and relevant workflow.
+3. Identify the authoritative implementation:
+   - runtime/API: `qq-chat-export-server`
+   - export formats: `qq-chat-export-core`
+   - NapCat lifecycle/bridge: `plugins/qq-chat-exporter/index.mjs` and `runtime/`
+   - main UI: `qce-v4-tool`
+   - chunked export UI: `qce-chunked-viewer`
+4. Keep changes focused; do not mechanically rewrite unrelated files.
+5. Run all checks in the `AGENTS.md` change-impact matrix.
+
+## Easy-to-miss requirements
+
+- NapCat internal imports require:
+
+  ```bash
+  node plugins/qq-chat-exporter/tools/create-overlay-runtime.cjs
+  ```
+
+- Main UI changes require a static production build:
+
+  ```bash
+  cd qce-v4-tool
+  pnpm install --frozen-lockfile
+  pnpm build
+  ```
+
+- Chunked viewer changes require both build and synchronization:
+
+  ```bash
+  cd qce-chunked-viewer
+  npm ci
+  npm run typecheck
+  npm run build
+  npm run sync
+  ```
+
+  Never edit either `modern_chunked_app.js` copy by hand.
+
+- Rust changes require targeted `rustfmt`, tests, Clippy with warnings denied, and a build.
+- Path-sensitive code must use `PathManager`, preserve custom directories, and validate allowed roots.
+- Success notifications must not reveal complete local paths; provide an open-location action.
+- Do not introduce unbounded or cross-account/task caches.
+- A release fix always gets a new unused tag; never retag.
+
+## Windows package smoke deployment
+
+Use this only when a local `NapCat-QCE-Windows-x64` package directory is available.
 
 ```powershell
-# 如果修改了任何导入 NapCatQQ 的代码，必须先运行此命令
 node plugins/qq-chat-exporter/tools/create-overlay-runtime.cjs
-```
-
-### 1.2 复制插件核心代码
-
-```powershell
-# 复制插件核心代码
-Copy-Item -Recurse -Force "plugins\qq-chat-exporter\lib\*" "NapCat-QCE-Windows-x64\plugins\qq-chat-exporter\lib\"
-```
-
-### 1.3 复制 NapCatQQ Overlay Runtime
-
-```powershell
-# 删除旧的 NapCatQQ overlay 文件夹
-Remove-Item -Recurse -Force "NapCat-QCE-Windows-x64\plugins\qq-chat-exporter\node_modules\NapCatQQ" -ErrorAction SilentlyContinue
-
-# 复制新的 NapCatQQ overlay 文件夹（注意：复制整个文件夹，不是文件夹内容）
-Copy-Item -Recurse -Force "plugins\qq-chat-exporter\node_modules\NapCatQQ" "NapCat-QCE-Windows-x64\plugins\qq-chat-exporter\node_modules\"
-```
-
-### 1.4 一键部署命令（推荐）
-
-```powershell
-# 完整部署插件（包含 overlay runtime 构建和复制）
-node plugins/qq-chat-exporter/tools/create-overlay-runtime.cjs
 Copy-Item -Recurse -Force "plugins\qq-chat-exporter\lib\*" "NapCat-QCE-Windows-x64\plugins\qq-chat-exporter\lib\"
 Remove-Item -Recurse -Force "NapCat-QCE-Windows-x64\plugins\qq-chat-exporter\node_modules\NapCatQQ" -ErrorAction SilentlyContinue
 Copy-Item -Recurse -Force "plugins\qq-chat-exporter\node_modules\NapCatQQ" "NapCat-QCE-Windows-x64\plugins\qq-chat-exporter\node_modules\"
-```
 
-## 2. 更新前端代码到测试环境
-
-### 2.1 编译前端（如果有修改）
-
-```powershell
-cd qce-v4-tool
-npm run build
-cd ..
-```
-
-### 2.2 复制前端文件
-
-```powershell
-# 删除旧的前端文件
 Remove-Item -Recurse -Force "NapCat-QCE-Windows-x64\static\qce" -ErrorAction SilentlyContinue
-
-# 创建目录并复制新编译的前端文件
 New-Item -ItemType Directory -Force -Path "NapCat-QCE-Windows-x64\static\qce"
 Copy-Item -Recurse -Force "qce-v4-tool\out\*" "NapCat-QCE-Windows-x64\static\qce\"
 ```
 
-## 3. 注意事项
+Copy the complete `NapCatQQ` directory, not only its contents, and preserve the frontend `_next/static` hierarchy.
 
-1. **NapCatQQ Overlay Runtime**: 修改任何导入 `NapCatQQ` 的代码后，必须重新运行构建工具
-2. **复制 NapCatQQ 时注意**: 必须复制整个文件夹，保持 `src/core/` 目录结构完整
-3. **前端构建产物**: 必须保持 `_next/static/` 完整层级
-4. **路径引用**: index.html 中的路径引用是 `/static/qce/_next/static/...`
-5. **静态路径映射**: FrontendBuilder 将 staticPath 映射到 `/static/qce`
-6. **新增依赖**: 如果安装了新的 npm 包，需要同步复制 node_modules（通常不需要，因为测试环境已有）
+## Stop-before-finish check
 
-## 4. 常见错误
+Ask:
 
-### Error: Cannot find module 'NapCatQQ'
-**原因**: 未运行 overlay runtime 构建工具  
-**解决**: 运行 `node plugins/qq-chat-exporter/tools/create-overlay-runtime.cjs`
+- **What worries me most?** Verify the riskiest behavior with a test or authoritative inspection.
+- **What did I least prove?** Finish the weakest requested item or disclose the precise verification gap.
 
-### Error: Cannot find module '.../src/core/types.js'
-**原因**: 复制 NapCatQQ 时使用了错误的命令（如 `Copy-Item ... NapCatQQ\*` 而不是 `Copy-Item ... NapCatQQ`）  
-**解决**: 删除旧文件夹，使用正确的复制命令（见 1.3）
-
+Then inspect `git diff --check`, the merge-base diff, generated assets, lockfiles, CI, and release state before making a success claim.

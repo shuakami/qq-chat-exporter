@@ -3,7 +3,7 @@
  * global index -> chunk mapping, LRU-bounded chunk cache, deduplicated
  * script-injection loads, and Bloom accessors for search prefiltering.
  */
-import { BloomFilter } from './bloom.js';
+import { BloomFilter, type BloomHashPair } from './bloom.js';
 
 export interface QceRecord {
   id: string;
@@ -276,18 +276,31 @@ export class ChunkStore {
       for (let attempt = 0; attempt < 3 && !messages; attempt++) {
         if (attempt > 0) await new Promise((r) => setTimeout(r, 400 * attempt));
         try {
+          let timeoutId = 0;
+          let resolver: ((c: QceChunkPayload) => void) | undefined;
           const done = new Promise<QceRecord[]>((r, rej) => {
-            this.resolvers.set(meta.id, (c) => {
+            resolver = (c) => {
+              if (this.resolvers.get(meta.id) !== resolver) return;
+              window.clearTimeout(timeoutId);
               this.resolvers.delete(meta.id);
               r(c.messages);
-            });
-            setTimeout(() => {
+            };
+            this.resolvers.set(meta.id, resolver);
+            timeoutId = window.setTimeout(() => {
+              if (this.resolvers.get(meta.id) !== resolver) return;
               this.resolvers.delete(meta.id);
               rej(new Error(`chunk ${meta.id} timed out`));
             }, 20_000);
           });
-          await loadScript(`${this.baseUrl}/${meta.file}`);
-          messages = await done;
+          try {
+            await loadScript(`${this.baseUrl}/${meta.file}`);
+            messages = await done;
+          } finally {
+            window.clearTimeout(timeoutId);
+            if (this.resolvers.get(meta.id) === resolver) {
+              this.resolvers.delete(meta.id);
+            }
+          }
         } catch {
           messages = null;
         }
@@ -351,19 +364,19 @@ export class ChunkStore {
   }
 
   /** Text-Bloom prefilter; `true` means the chunk must still be scanned. */
-  textMayContain(chunk: number, queryLower: string): boolean {
+  textMayContain(chunk: number, probe: readonly BloomHashPair[]): boolean {
     const meta = this.manifest.chunks[chunk]!;
     if (!meta.textBloom || meta.textBloomIncomplete) return true;
     const { textBits, textHashes } = this.manifest.bloom;
-    return BloomFilter.fromBase64(meta.textBloom, textBits, textHashes).mayContain(queryLower);
+    return BloomFilter.fromBase64(meta.textBloom, textBits, textHashes).mayContainProbe(probe);
   }
 
   /** Sender-Bloom prefilter over whole uid tokens. */
-  senderMayContain(chunk: number, uid: string): boolean {
+  senderMayContain(chunk: number, probe: readonly BloomHashPair[]): boolean {
     const meta = this.manifest.chunks[chunk]!;
     if (!meta.senderBloom) return true;
     const { senderBits, senderHashes } = this.manifest.bloom;
-    return BloomFilter.fromBase64(meta.senderBloom, senderBits, senderHashes).mayContainToken(uid);
+    return BloomFilter.fromBase64(meta.senderBloom, senderBits, senderHashes).mayContainProbe(probe);
   }
 
   cacheSize(): number {

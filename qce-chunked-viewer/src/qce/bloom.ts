@@ -21,6 +21,36 @@ export function toUnits(s: string): Uint16Array {
 
 const H2_SEED = (0x811c9dc5 ^ 0x5bd1e995) >>> 0;
 
+export interface BloomHashPair {
+  h1: number;
+  h2: number;
+}
+
+function hashRange(units: Uint16Array, from: number, to: number): BloomHashPair {
+  return {
+    h1: fnv1a32(units, from, to, 0x811c9dc5),
+    h2: fnv1a32(units, from, to, H2_SEED),
+  };
+}
+
+export function createTextBloomProbe(queryLower: string): BloomHashPair[] {
+  const units = toUnits(queryLower);
+  const probe: BloomHashPair[] = [];
+  for (const n of [2, 3]) {
+    if (units.length < n) continue;
+    for (let i = 0; i + n <= units.length; i++) {
+      probe.push(hashRange(units, i, i + n));
+    }
+  }
+  return probe;
+}
+
+export function createTokenBloomProbe(token: string): BloomHashPair[] {
+  if (!token) return [];
+  const units = toUnits(token);
+  return [hashRange(units, 0, units.length)];
+}
+
 export class BloomFilter {
   readonly bits: number;
   readonly hashes: number;
@@ -44,8 +74,10 @@ export class BloomFilter {
 
   hasRange(units: Uint16Array, from: number, to: number): boolean {
     if (to <= from) return true;
-    const h1 = fnv1a32(units, from, to, 0x811c9dc5);
-    const h2 = fnv1a32(units, from, to, H2_SEED);
+    return this.hasHashPair(hashRange(units, from, to));
+  }
+
+  hasHashPair({ h1, h2 }: BloomHashPair): boolean {
     for (let i = 0; i < this.hashes; i++) {
       const idx = (h1 + i * h2) % this.bits >>> 0;
       if (!(this.bytes[idx >> 3]! & (1 << (idx & 7)))) return false;
@@ -64,22 +96,16 @@ export class BloomFilter {
 
   /** May-contain test: every 2/3-gram of the query must be present. */
   mayContain(queryLower: string): boolean {
-    const units = toUnits(queryLower);
-    if (units.length < 2) return true;
-    for (const n of [2, 3]) {
-      if (units.length < n) continue;
-      for (let i = 0; i + n <= units.length; i++) {
-        if (!this.hasRange(units, i, i + n)) return false;
-      }
-    }
-    return true;
+    return this.mayContainProbe(createTextBloomProbe(queryLower));
+  }
+
+  mayContainProbe(probe: readonly BloomHashPair[]): boolean {
+    return probe.every((pair) => this.hasHashPair(pair));
   }
 
   /** Whole-token may-contain test (e.g. sender uid tokens). */
   mayContainToken(token: string): boolean {
-    if (!token) return true;
-    const units = toUnits(token);
-    return this.hasRange(units, 0, units.length);
+    return this.mayContainProbe(createTokenBloomProbe(token));
   }
 
   toBase64(): string {
