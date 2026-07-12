@@ -1,3 +1,4 @@
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
@@ -9,7 +10,7 @@ pub enum PathError {
     DangerousPath,
 }
 
-/// 路径管理器：默认基目录 `~/.qq-chat-exporter`，支持自定义导出目录。
+/// 路径管理器：应用数据位于 `~/.qq-chat-exporter`，导出文件位于用户文档目录。
 #[derive(Debug)]
 pub struct PathManager {
     custom_output_dir: RwLock<Option<PathBuf>>,
@@ -112,6 +113,13 @@ impl PathManager {
         Self::user_home().join(".qq-chat-exporter")
     }
 
+    /// 默认导出根目录，与程序和内部数据库分开保存。
+    pub fn default_export_root_dir(&self) -> PathBuf {
+        dirs::document_dir()
+            .unwrap_or_else(Self::user_home)
+            .join("QQChatExporter")
+    }
+
     /// 导出目录。
     pub fn exports_dir(&self) -> PathBuf {
         if let Ok(guard) = self.custom_output_dir.read() {
@@ -119,7 +127,7 @@ impl PathManager {
                 return dir.clone();
             }
         }
-        self.default_base_dir().join("exports")
+        self.default_export_root_dir().join("exports")
     }
 
     /// 定时导出目录。
@@ -129,7 +137,7 @@ impl PathManager {
                 return dir.clone();
             }
         }
-        self.default_base_dir().join("scheduled-exports")
+        self.default_export_root_dir().join("scheduled-exports")
     }
 
     /// 资源目录。
@@ -159,6 +167,119 @@ impl PathManager {
         }
         Ok(())
     }
+
+    /// 把旧版默认目录中的导出文件移动到新的独立数据目录。
+    pub async fn migrate_legacy_export_dirs(&self) -> io::Result<()> {
+        let mut migrations = Vec::with_capacity(5);
+        if self
+            .custom_output_dir
+            .read()
+            .map(|guard| guard.is_none())
+            .unwrap_or(false)
+        {
+            let exports_dir = self.default_export_root_dir().join("exports");
+            migrations.push((self.default_base_dir().join("exports"), exports_dir.clone()));
+            migrations.push((
+                self.default_base_dir().join("group-files"),
+                exports_dir.join("group-files"),
+            ));
+            migrations.push((
+                self.default_base_dir().join("group-albums"),
+                exports_dir.join("group-albums"),
+            ));
+            migrations.push((
+                self.default_base_dir().join("sticker-packs"),
+                exports_dir.join("sticker-packs"),
+            ));
+        }
+        if self
+            .custom_scheduled_export_dir
+            .read()
+            .map(|guard| guard.is_none())
+            .unwrap_or(false)
+        {
+            migrations.push((
+                self.default_base_dir().join("scheduled-exports"),
+                self.default_export_root_dir().join("scheduled-exports"),
+            ));
+        }
+
+        tokio::task::spawn_blocking(move || {
+            for (source, destination) in migrations {
+                move_directory_contents(&source, &destination)?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(io::Error::other)?
+    }
+}
+
+fn move_directory_contents(source: &Path, destination: &Path) -> io::Result<()> {
+    if !source.exists() {
+        return Ok(());
+    }
+    if !destination.exists() {
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        if std::fs::rename(source, destination).is_ok() {
+            return Ok(());
+        }
+    }
+
+    std::fs::create_dir_all(destination)?;
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if destination_path.exists() {
+            if source_path.is_dir() && destination_path.is_dir() {
+                move_directory_contents(&source_path, &destination_path)?;
+                continue;
+            }
+            move_path(&source_path, &next_available_path(&destination_path))?;
+        } else {
+            move_path(&source_path, &destination_path)?;
+        }
+    }
+
+    if std::fs::read_dir(source)?.next().is_none() {
+        std::fs::remove_dir(source)?;
+    }
+    Ok(())
+}
+
+fn move_path(source: &Path, destination: &Path) -> io::Result<()> {
+    if std::fs::rename(source, destination).is_ok() {
+        return Ok(());
+    }
+    if source.is_dir() {
+        move_directory_contents(source, destination)
+    } else {
+        std::fs::copy(source, destination)?;
+        std::fs::remove_file(source)
+    }
+}
+
+fn next_available_path(path: &Path) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("export");
+    let extension = path.extension().and_then(|value| value.to_str());
+    for index in 1.. {
+        let file_name = extension.map_or_else(
+            || format!("{stem}_legacy_{index}"),
+            |extension| format!("{stem}_legacy_{index}.{extension}"),
+        );
+        let candidate = parent.join(file_name);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    unreachable!()
 }
 
 #[cfg(test)]
@@ -180,5 +301,48 @@ mod tests {
             .set_custom_output_dir(Some("C:\\Windows\\System32\\x"))
             .is_err());
         assert!(pm.set_custom_output_dir(Some("/home/user/exports")).is_ok());
+    }
+
+    #[test]
+    fn default_exports_are_separate_from_internal_data() {
+        let pm = PathManager::new();
+        assert!(!pm.exports_dir().starts_with(pm.default_base_dir()));
+        assert!(!pm
+            .scheduled_exports_dir()
+            .starts_with(pm.default_base_dir()));
+    }
+
+    #[test]
+    fn migration_preserves_conflicting_files() {
+        let root = std::env::temp_dir().join(format!(
+            "qce-path-migration-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after epoch")
+                .as_nanos()
+        ));
+        let source = root.join("legacy");
+        let destination = root.join("current");
+        std::fs::create_dir_all(&source).expect("legacy directory should be created");
+        std::fs::create_dir_all(&destination).expect("current directory should be created");
+        std::fs::write(source.join("chat.html"), "legacy").expect("legacy file should be written");
+        std::fs::write(destination.join("chat.html"), "current")
+            .expect("current file should be written");
+
+        move_directory_contents(&source, &destination).expect("migration should succeed");
+
+        assert_eq!(
+            std::fs::read_to_string(destination.join("chat.html"))
+                .expect("current file should remain"),
+            "current"
+        );
+        assert_eq!(
+            std::fs::read_to_string(destination.join("chat_legacy_1.html"))
+                .expect("legacy file should be preserved"),
+            "legacy"
+        );
+        assert!(!source.exists());
+        std::fs::remove_dir_all(root).expect("test directory should be removed");
     }
 }

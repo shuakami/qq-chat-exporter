@@ -446,7 +446,7 @@ pub async fn export_group_essence(
         })
         .collect();
 
-    let export_dir = state.path_manager.default_base_dir().join("exports").join("essence");
+    let export_dir = state.path_manager.exports_dir().join("essence");
     if let Err(error) = tokio::fs::create_dir_all(&export_dir).await {
         let err = ApiError::new(ErrorType::FileSystem, error.to_string(), "CREATE_DIR_FAILED");
         return response::error(&err, &request_id);
