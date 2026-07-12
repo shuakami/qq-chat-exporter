@@ -11,15 +11,14 @@ permissions:
   contents: read
 
 jobs:
-  unit-and-integration:
-    name: ${{ matrix.os }} / Node ${{ matrix.node }} / ${{ matrix.suite }}
+  plugin-tests:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }} / plugin
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
         node: ['20.x', '22.x']
-        suite: [unit, integration]
 
     defaults:
       run:
@@ -40,9 +39,9 @@ jobs:
           npm ci
           node tools/create-overlay-runtime.cjs
 
-      - name: Run ${{ matrix.suite }} tests
+      - name: Run plugin tests
         working-directory: plugins/qq-chat-exporter
-        run: npm run test:${{ matrix.suite }}
+        run: npm test
 
   rust-tests:
     name: Rust exporter and server tests
@@ -65,7 +64,7 @@ jobs:
   api-e2e:
     name: API smoke (Playwright)
     runs-on: ubuntu-latest
-    needs: [unit-and-integration, rust-tests]
+    needs: [plugin-tests, rust-tests]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
