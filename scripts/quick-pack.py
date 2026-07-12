@@ -805,7 +805,7 @@ extern "C" void qq_magic_napi_register(void *m) {
     # Create standalone mode scripts
     print("[9.5/11] Creating standalone mode scripts...")
     
-    # Create standalone.mjs entry point
+    # Create standalone mode launcher
     standalone_mjs = '''#!/usr/bin/env node
 /**
  * QCE 独立模式启动脚本
@@ -817,8 +817,7 @@ import { fileURLToPath } from 'node:url';
 
 async function main() {
     const port = parseInt(process.argv[2]) || 40653;
-    const pluginDir = path.dirname(fileURLToPath(import.meta.url));
-    const packageRoot = path.resolve(pluginDir, '..', '..');
+    const packageRoot = path.dirname(fileURLToPath(import.meta.url));
     const binary = path.join(
         packageRoot,
         process.platform === 'win32' ? 'qce-server.exe' : 'qce-server'
@@ -845,13 +844,13 @@ async function main() {
 main();
 '''
     
-    with open(f"{pack_dir}/plugins/{RUNTIME_PLUGIN_ID}/standalone.mjs", "w", encoding="utf-8", newline="\n") as f:
+    with open(f"{pack_dir}/qce-standalone.mjs", "w", encoding="utf-8", newline="\n") as f:
         f.write(standalone_mjs)
     
     # Create Windows batch launcher for standalone mode
     if os_name == "Windows":
         # Issue #286：以管理员双击 .bat 时 CMD 初始 CWD 是 C:\\Windows\\system32，
-        # 这里先 cd 到脚本目录再用相对路径调用 standalone.mjs，避免 Node 找不到入口。
+        # 这里先 cd 到脚本目录再用相对路径调用入口，避免 Node 找不到文件。
         standalone_bat = '''@echo off
 chcp 65001 > nul
 title QCE 独立模式
@@ -891,7 +890,7 @@ exit /b 1
 :found_node
 echo [信息] 正在启动独立模式服务器...
 echo.
-"%NODE_EXE%" plugins/__RUNTIME_PLUGIN_ID__/standalone.mjs %1
+"%NODE_EXE%" qce-standalone.mjs %1
 
 pause
 '''.replace("__RUNTIME_PLUGIN_ID__", RUNTIME_PLUGIN_ID)
@@ -924,7 +923,7 @@ fi
 
 echo "[信息] 正在启动独立模式服务器..."
 echo ""
-node plugins/__RUNTIME_PLUGIN_ID__/standalone.mjs "$@"
+node qce-standalone.mjs "$@"
 '''.replace("__RUNTIME_PLUGIN_ID__", RUNTIME_PLUGIN_ID)
         standalone_sh_path = f"{pack_dir}/start-standalone.sh"
         with open(standalone_sh_path, "w", encoding="utf-8", newline="\n") as f:

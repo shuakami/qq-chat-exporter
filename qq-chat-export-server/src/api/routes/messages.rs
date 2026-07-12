@@ -1,8 +1,7 @@
-
 use std::collections::{HashMap, HashSet};
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::extract::{Extension, Json, State};
 use axum::response::Response;
@@ -79,14 +78,14 @@ fn msg_time_ms(message: &Value) -> i64 {
     normalize_to_ms(loose_i64(message.get("msgTime")).unwrap_or(0))
 }
 
-/// Issue #216：把会话名称压成安全文件名片段（对应 TS `sanitizeChatNameForFileName`）。
+/// 把用户可见信息压成 Windows / Unicode 安全的文件名片段。
 fn sanitize_chat_name(name: &str, max_length: usize) -> String {
     let mut safe = String::new();
     let mut last_underscore = false;
     for ch in name.chars() {
         let mapped = match ch {
             '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
-            c if (c as u32) < 0x20 => '_',
+            c if (c as u32) < 0x20 || c == '\u{7f}' => '_',
             c if c.is_whitespace() => '_',
             c => c,
         };
@@ -100,86 +99,161 @@ fn sanitize_chat_name(name: &str, max_length: usize) -> String {
             last_underscore = false;
         }
     }
-    let mut safe: String = safe.trim_matches('_').to_string();
+    let mut safe = safe
+        .trim_matches(['_', ' ', '.'])
+        .to_string();
     if safe.chars().count() > max_length {
         safe = safe.chars().take(max_length).collect();
-        safe = safe.trim_end_matches('_').to_string();
+        safe = safe
+            .trim_end_matches(['_', ' ', '.'])
+            .to_string();
+    }
+    let reserved = matches!(
+        safe.to_ascii_uppercase().as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    );
+    if reserved {
+        safe.insert(0, '_');
     }
     safe
 }
 
-/// Issue #216 / #134：生成导出文件名（对应 TS `buildExportFileName`）。
+fn export_name_stem(
+    chat_type_prefix: &str,
+    peer_identity: &str,
+    session_name: &str,
+    date_str: &str,
+    time_str: &str,
+) -> String {
+    let safe_name = sanitize_chat_name(session_name, 40);
+    let safe_name = if safe_name.is_empty() {
+        "未命名会话".to_string()
+    } else {
+        safe_name
+    };
+    let safe_identity = sanitize_chat_name(peer_identity, 32);
+    let safe_identity = if safe_identity.is_empty() {
+        "unknown".to_string()
+    } else {
+        safe_identity
+    };
+    format!("{chat_type_prefix}_{safe_name}_{safe_identity}_{date_str}_{time_str}")
+}
+
+/// 生成统一的人类可读导出文件名。
 #[allow(clippy::too_many_arguments)]
 fn build_export_file_name(
     chat_type_prefix: &str,
-    peer_uid: &str,
+    peer_identity: &str,
     session_name: &str,
     date_str: &str,
     time_str: &str,
     extension: &str,
-    use_name_in_file_name: bool,
-    use_friendly_file_name: bool,
+    _use_name_in_file_name: bool,
+    _use_friendly_file_name: bool,
 ) -> String {
-    if use_friendly_file_name && !session_name.is_empty() && session_name != peer_uid {
-        let safe_name = sanitize_chat_name(session_name, 50);
-        if !safe_name.is_empty() {
-            return format!("{safe_name}({peer_uid}).{extension}");
-        }
-    }
-    if use_name_in_file_name && !session_name.is_empty() && session_name != peer_uid {
-        let safe_name = sanitize_chat_name(session_name, 50);
-        if !safe_name.is_empty() {
-            return format!("{chat_type_prefix}_{safe_name}_{peer_uid}_{date_str}_{time_str}.{extension}");
-        }
-    }
-    format!("{chat_type_prefix}_{peer_uid}_{date_str}_{time_str}.{extension}")
+    format!(
+        "{}.{extension}",
+        export_name_stem(
+            chat_type_prefix,
+            peer_identity,
+            session_name,
+            date_str,
+            time_str
+        )
+    )
 }
 
-/// Issue #216 / #134：生成导出目录名（对应 TS `buildExportDirName`）。
+/// 生成统一的人类可读导出目录名。
 #[allow(clippy::too_many_arguments)]
 fn build_export_dir_name(
     chat_type_prefix: &str,
-    peer_uid: &str,
+    peer_identity: &str,
     session_name: &str,
     date_str: &str,
     time_str: &str,
     suffix: &str,
-    use_name_in_file_name: bool,
-    use_friendly_file_name: bool,
+    _use_name_in_file_name: bool,
+    _use_friendly_file_name: bool,
 ) -> String {
-    if use_friendly_file_name && !session_name.is_empty() && session_name != peer_uid {
-        let safe_name = sanitize_chat_name(session_name, 50);
-        if !safe_name.is_empty() {
-            return format!("{safe_name}({peer_uid}){suffix}");
-        }
-    }
-    if use_name_in_file_name && !session_name.is_empty() && session_name != peer_uid {
-        let safe_name = sanitize_chat_name(session_name, 50);
-        if !safe_name.is_empty() {
-            return format!("{chat_type_prefix}_{safe_name}_{peer_uid}_{date_str}_{time_str}{suffix}");
-        }
-    }
-    format!("{chat_type_prefix}_{peer_uid}_{date_str}_{time_str}{suffix}")
+    format!(
+        "{}{suffix}",
+        export_name_stem(
+            chat_type_prefix,
+            peer_identity,
+            session_name,
+            date_str,
+            time_str
+        )
+    )
 }
 
-/// Issue #134：友好命名撞名时追加 `_<日期>_<时间>` 后缀。
-fn disambiguate_export_file_name(
-    output_dir: &FsPath,
-    file_name: &str,
-    date_str: &str,
-    time_str: &str,
-) -> String {
-    let full_path = output_dir.join(file_name);
-    if !full_path.exists() {
-        return file_name.to_string();
-    }
-    match file_name.rfind('.') {
-        Some(dot_idx) if dot_idx > 0 => {
-            let (base, ext) = file_name.split_at(dot_idx);
-            format!("{base}_{date_str}_{time_str}{ext}")
+fn collision_name(file_name: &str, suffix: u32) -> String {
+    let (base, extension) = match file_name.rsplit_once('.') {
+        Some((base, extension))
+            if matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "html" | "json" | "txt" | "xlsx" | "zip"
+            ) =>
+        {
+            (base, &file_name[base.len()..])
         }
-        _ => format!("{file_name}_{date_str}_{time_str}"),
+        _ => (file_name, ""),
+    };
+    format!("{base}_{suffix}{extension}")
+}
+
+fn reserved_export_paths() -> &'static Mutex<HashSet<PathBuf>> {
+    static RESERVED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    RESERVED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// 为运行中的任务预留唯一输出路径；预留项在任务结束时释放。
+fn reserve_export_file_name(output_dir: &FsPath, file_name: &str) -> String {
+    let mut reserved = reserved_export_paths()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for suffix in 1_u32.. {
+        let candidate = if suffix == 1 {
+            file_name.to_string()
+        } else {
+            collision_name(file_name, suffix)
+        };
+        let path = output_dir.join(&candidate);
+        if !path.exists() && !reserved.contains(&path) {
+            reserved.insert(path);
+            return candidate;
+        }
     }
+    unreachable!("u32 filename suffix space exhausted")
+}
+
+fn release_export_path(path: &FsPath) {
+    reserved_export_paths()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(path);
 }
 
 /// Issue #192：根据是否使用自定义路径生成下载 URL。
@@ -199,14 +273,22 @@ fn generate_download_url(
 
 /// 生成 `export_{ms}_{rand9}` 风格任务 ID。
 fn generate_task_id(prefix: &str) -> String {
-    let rand: String = uuid::Uuid::new_v4().simple().to_string().chars().take(9).collect();
+    let rand: String = uuid::Uuid::new_v4()
+        .simple()
+        .to_string()
+        .chars()
+        .take(9)
+        .collect();
     format!("{prefix}_{}_{rand}", now_ms())
 }
 
-/// 本地日期 / 时间字符串（YYYYMMDD / HHMMSS）。
+/// 本地日期 / 时间字符串（YYYYMMDD / HHMMSSmmm）。
 fn local_date_time_strings() -> (String, String) {
     let now = chrono::Local::now();
-    (now.format("%Y%m%d").to_string(), now.format("%H%M%S").to_string())
+    (
+        now.format("%Y%m%d").to_string(),
+        now.format("%H%M%S%3f").to_string(),
+    )
 }
 
 /// issue #363：把资源摘要翻译成给用户看的一句话（对应 TS `buildResourceSummaryMessage`）。
@@ -305,7 +387,13 @@ async fn update_task(state: &SharedState, task_id: &str, patch: Value) {
 }
 
 /// 广播导出进度。
-fn broadcast_progress(state: &SharedState, task_id: &str, progress: i64, message: &str, count: usize) {
+fn broadcast_progress(
+    state: &SharedState,
+    task_id: &str,
+    progress: i64,
+    message: &str,
+    count: usize,
+) {
     state.broadcast_ws(&json!({
         "type": "export_progress",
         "data": {
@@ -435,7 +523,10 @@ pub async fn fetch_messages(
     let mut reached_target = false;
 
     loop {
-        let mut batch = match fetcher.fetch_next_batch(&peer, &fetch_filter, previous.as_ref()).await {
+        let mut batch = match fetcher
+            .fetch_next_batch(&peer, &fetch_filter, previous.as_ref())
+            .await
+        {
             Ok(Some(batch)) => batch,
             Ok(None) => break,
             Err(error) => {
@@ -485,6 +576,8 @@ pub async fn fetch_messages(
 struct ExportRequest {
     chat_type: i64,
     peer_uid: String,
+    peer_identity: String,
+    peer_uin: Option<String>,
     filter: Value,
     options: Value,
     session_name: String,
@@ -497,18 +590,45 @@ struct ExportRequest {
 }
 
 /// 解析导出请求公共部分（peer 校验 / uid 解析 / 会话名 / 输出目录）。
-async fn prepare_export_request(state: &SharedState, body: &Value) -> Result<ExportRequest, ApiError> {
+async fn prepare_export_request(
+    state: &SharedState,
+    body: &Value,
+) -> Result<ExportRequest, ApiError> {
     let Some((chat_type, raw_peer_uid)) = parse_peer(body) else {
         return Err(ApiError::validation("peer参数不完整", "INVALID_PEER"));
     };
     // Issue #226 / #353：支持通过 QQ 号导出，自动转换为 uid。
     let peer_uid = resolve_peer_uid(chat_type, &raw_peer_uid, &state.napcat).await;
+    let request_peer_uin = body
+        .pointer("/peer/peerUin")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.chars().all(|ch| ch.is_ascii_digit()))
+        .map(str::to_string);
+    let peer_uin = if chat_type == GROUP_CHAT_TYPE {
+        None
+    } else {
+        request_peer_uin.or_else(|| {
+            raw_peer_uid
+                .chars()
+                .all(|ch| ch.is_ascii_digit())
+                .then(|| raw_peer_uid.clone())
+        })
+    };
+    let peer_identity = if chat_type == GROUP_CHAT_TYPE {
+        raw_peer_uid.clone()
+    } else {
+        peer_uin.clone().unwrap_or_else(|| peer_uid.clone())
+    };
     let filter = body.get("filter").cloned().unwrap_or(Value::Null);
     let options = body.get("options").cloned().unwrap_or(Value::Null);
 
     // Issue #192：自定义导出路径。
     let custom_output_dir = PathManager::sanitize_path(
-        options.get("outputDir").and_then(Value::as_str).unwrap_or(""),
+        options
+            .get("outputDir")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
     );
     let output_dir = if custom_output_dir.trim().is_empty() {
         state.path_manager.exports_dir()
@@ -531,6 +651,8 @@ async fn prepare_export_request(state: &SharedState, body: &Value) -> Result<Exp
     Ok(ExportRequest {
         chat_type,
         peer_uid,
+        peer_identity,
+        peer_uin,
         use_name_in_file_name: options.get("useNameInFileName").and_then(Value::as_bool)
             == Some(true),
         use_friendly_file_name: options.get("useFriendlyFileName").and_then(Value::as_bool)
@@ -587,7 +709,7 @@ pub async fn export_messages(
     let prefix = chat_type_prefix(Some(req.chat_type));
     let base_file_name = build_export_file_name(
         prefix,
-        &req.peer_uid,
+        &req.peer_identity,
         &req.session_name,
         &req.date_str,
         &req.time_str,
@@ -595,15 +717,14 @@ pub async fn export_messages(
         req.use_name_in_file_name,
         req.use_friendly_file_name,
     );
-    // Issue #134：友好命名不带时间戳，撞名时做唯一化。
-    let file_name = if req.use_friendly_file_name {
-        disambiguate_export_file_name(&req.output_dir, &base_file_name, &req.date_str, &req.time_str)
-    } else {
-        base_file_name
-    };
+    let file_name = reserve_export_file_name(&req.output_dir, &base_file_name);
     let file_path = req.output_dir.join(&file_name);
-    let download_url =
-        generate_download_url(&file_path, &file_name, &req.custom_output_dir, "/downloads/");
+    let download_url = generate_download_url(
+        &file_path,
+        &file_name,
+        &req.custom_output_dir,
+        "/downloads/",
+    );
 
     let task = json!({
         "taskId": task_id,
@@ -635,7 +756,15 @@ pub async fn export_messages(
 
     let state_bg = Arc::clone(&state);
     tokio::spawn(async move {
-        run_export_task(state_bg, task_id, req, format, file_name, ExportMode::Standard).await;
+        run_export_task(
+            state_bg,
+            task_id,
+            req,
+            format,
+            file_name,
+            ExportMode::Standard,
+        )
+        .await;
     });
 
     response::success(reply, &request_id)
@@ -656,7 +785,7 @@ pub async fn export_streaming_zip(
     let prefix = chat_type_prefix(Some(req.chat_type));
     let file_name = build_export_file_name(
         prefix,
-        &req.peer_uid,
+        &req.peer_identity,
         &req.session_name,
         &req.date_str,
         &req.time_str,
@@ -664,14 +793,19 @@ pub async fn export_streaming_zip(
         req.use_name_in_file_name,
         req.use_friendly_file_name,
     );
-    let file_name = if let Some(stripped) = file_name.strip_suffix(".zip") {
+    let base_file_name = if let Some(stripped) = file_name.strip_suffix(".zip") {
         format!("{stripped}_streaming.zip")
     } else {
         file_name
     };
+    let file_name = reserve_export_file_name(&req.output_dir, &base_file_name);
     let file_path = req.output_dir.join(&file_name);
-    let download_url =
-        generate_download_url(&file_path, &file_name, &req.custom_output_dir, "/downloads/");
+    let download_url = generate_download_url(
+        &file_path,
+        &file_name,
+        &req.custom_output_dir,
+        "/downloads/",
+    );
 
     let mut options = req.options.clone();
     if let Some(obj) = options.as_object_mut() {
@@ -737,7 +871,7 @@ pub async fn export_streaming_jsonl(
     let prefix = chat_type_prefix(Some(req.chat_type));
     let dir_name = build_export_dir_name(
         prefix,
-        &req.peer_uid,
+        &req.peer_identity,
         &req.session_name,
         &req.date_str,
         &req.time_str,
@@ -745,6 +879,7 @@ pub async fn export_streaming_jsonl(
         req.use_name_in_file_name,
         req.use_friendly_file_name,
     );
+    let dir_name = reserve_export_file_name(&req.output_dir, &dir_name);
     let dir_path = req.output_dir.join(&dir_name);
     // JSONL 导出是目录，不支持直接下载。
     let download_url = if req.custom_output_dir.trim().is_empty() {
@@ -829,7 +964,17 @@ async fn run_export_task(
         flags.insert(task_id.clone(), Arc::clone(&cancel_flag));
     }
 
-    let result = process_export_task(&state, &task_id, &req, &format, &file_name, mode, &cancel_flag).await;
+    let result = process_export_task(
+        &state,
+        &task_id,
+        &req,
+        &format,
+        &file_name,
+        mode,
+        &cancel_flag,
+    )
+    .await;
+    release_export_path(&req.output_dir.join(&file_name));
 
     if let Err(error) = result {
         let was_cancelled = {
@@ -1060,12 +1205,15 @@ async fn create_zip_with_resources(
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .ok_or_else(|| "无效的主文件名".to_string())?;
-        zip.start_file(&main_name, options).map_err(|e| e.to_string())?;
+        zip.start_file(&main_name, options)
+            .map_err(|e| e.to_string())?;
         let data = std::fs::read(&main_file).map_err(|e| e.to_string())?;
         zip.write_all(&data).map_err(|e| e.to_string())?;
         for rel in resource_rel_paths {
             let src = base_dir.join(&rel);
-            let Ok(data) = std::fs::read(&src) else { continue };
+            let Ok(data) = std::fs::read(&src) else {
+                continue;
+            };
             let entry_name = rel.replace('\\', "/");
             if zip.start_file(&entry_name, options).is_err() {
                 continue;
@@ -1087,7 +1235,10 @@ async fn create_zip_from_dir(dir: PathBuf, zip_path: PathBuf) -> Result<(), Stri
         let mut zip = zip::ZipWriter::new(file);
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
-        for entry in walkdir::WalkDir::new(&dir).into_iter().filter_map(Result::ok) {
+        for entry in walkdir::WalkDir::new(&dir)
+            .into_iter()
+            .filter_map(Result::ok)
+        {
             if !entry.file_type().is_file() {
                 continue;
             }
@@ -1155,7 +1306,10 @@ async fn process_export_task(
             fetcher.cancel();
             return Err("任务已被用户停止".to_string());
         }
-        let mut batch = match fetcher.fetch_next_batch(&peer, &fetch_filter, previous.as_ref()).await {
+        let mut batch = match fetcher
+            .fetch_next_batch(&peer, &fetch_filter, previous.as_ref())
+            .await
+        {
             Ok(Some(batch)) => batch,
             Ok(None) => break,
             Err(error) => return Err(format!("获取消息失败: {error}")),
@@ -1195,7 +1349,13 @@ async fn process_export_task(
         json!({ "progress": 60, "message": "正在解析消息...", "messageCount": filtered_messages.len() }),
     )
     .await;
-    broadcast_progress(state, task_id, 60, "正在解析消息...", filtered_messages.len());
+    broadcast_progress(
+        state,
+        task_id,
+        60,
+        "正在解析消息...",
+        filtered_messages.len(),
+    );
 
     // ============ 阶段 2：资源下载（70 → 85） ============
     let filter_pure_image = req
@@ -1214,7 +1374,13 @@ async fn process_export_task(
             json!({ "progress": 70, "message": "正在下载资源...", "messageCount": filtered_messages.len() }),
         )
         .await;
-        broadcast_progress(state, task_id, 70, "正在下载资源...", filtered_messages.len());
+        broadcast_progress(
+            state,
+            task_id,
+            70,
+            "正在下载资源...",
+            filtered_messages.len(),
+        );
 
         // 资源下载进度回调（70 → 85）。
         let state_cb = Arc::clone(state);
@@ -1223,10 +1389,9 @@ async fn process_export_task(
         state
             .resource_handler
             .set_progress_callback(Some(Arc::new(move |progress| {
-                let percent = 70 + ((progress.completed as f64
-                    / progress.total.max(1) as f64)
-                    * 15.0)
-                    .round() as i64;
+                let percent = 70
+                    + ((progress.completed as f64 / progress.total.max(1) as f64) * 15.0).round()
+                        as i64;
                 broadcast_progress(&state_cb, &task_id_cb, percent, &progress.message, count_cb);
             })))
             .await;
@@ -1235,18 +1400,22 @@ async fn process_export_task(
         let requested_skip_types: Vec<String> = req
             .options
             .get("skipDownloadResourceTypes")
-            .and_then(Value::as_array).map_or_else(|| {
-                if req.options.get("skipFileDownload").and_then(Value::as_bool) == Some(true) {
-                    vec!["file".to_string()]
-                } else {
-                    Vec::new()
-                }
-            }, |arr| {
-                arr.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_lowercase)
-                    .collect()
-            });
+            .and_then(Value::as_array)
+            .map_or_else(
+                || {
+                    if req.options.get("skipFileDownload").and_then(Value::as_bool) == Some(true) {
+                        vec!["file".to_string()]
+                    } else {
+                        Vec::new()
+                    }
+                },
+                |arr| {
+                    arr.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_lowercase)
+                        .collect()
+                },
+            );
         let normalized_skip_types: Vec<String> = requested_skip_types
             .into_iter()
             .filter(|t| matches!(t.as_str(), "image" | "video" | "audio" | "file"))
@@ -1294,7 +1463,13 @@ async fn process_export_task(
         json!({ "progress": 85, "message": "正在生成文件...", "messageCount": filtered_messages.len() }),
     )
     .await;
-    broadcast_progress(state, task_id, 85, "正在生成文件...", filtered_messages.len());
+    broadcast_progress(
+        state,
+        task_id,
+        85,
+        "正在生成文件...",
+        filtered_messages.len(),
+    );
 
     // Issue #30 / #192：确保输出目录存在。
     tokio::fs::create_dir_all(&req.output_dir)
@@ -1338,11 +1513,21 @@ async fn process_export_task(
 
     let message_count = clean_messages.len();
     let self_info = state.napcat.self_info().await.unwrap_or(Value::Null);
-    let self_uid = self_info.get("uid").and_then(Value::as_str).map(str::to_string);
-    let self_uin = self_info.get("uin").and_then(Value::as_str).map(str::to_string);
-    let peer_uin = (req.chat_type != GROUP_CHAT_TYPE)
-        .then(|| resolve_peer_uin(&req.peer_uid, self_uin.as_deref(), &clean_messages))
-        .flatten();
+    let self_uid = self_info
+        .get("uid")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let self_uin = self_info
+        .get("uin")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let peer_uin = if req.chat_type == GROUP_CHAT_TYPE {
+        None
+    } else {
+        req.peer_uin
+            .clone()
+            .or_else(|| resolve_peer_uin(&req.peer_uid, self_uin.as_deref(), &clean_messages))
+    };
     let normalized_chat_type = classify_chat_type_binary(Some(req.chat_type)).to_string();
     let chat_info = ChatInfo {
         name: req.session_name.clone(),
@@ -1351,7 +1536,10 @@ async fn process_export_task(
         participant_count: None,
         self_uid,
         self_uin,
-        self_name: self_info.get("nick").and_then(Value::as_str).map(str::to_string),
+        self_name: self_info
+            .get("nick")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         peer_uid: Some(req.peer_uid.clone()),
         peer_uin,
     };
@@ -1441,10 +1629,7 @@ async fn process_export_task(
                         .and_then(|v| u64::try_from(v).ok())
                         .unwrap_or(50 * 1024 * 1024),
                         // Issue #467：打印 / PDF 友好开关，默认开启。
-                        show_search_bar: req
-                            .options
-                            .get("showSearchBar")
-                            .and_then(Value::as_bool)
+                        show_search_bar: req.options.get("showSearchBar").and_then(Value::as_bool)
                             != Some(false),
                         enable_virtual_scroll: req
                             .options
@@ -1465,26 +1650,34 @@ async fn process_export_task(
             if format == "HTML"
                 && req.options.get("exportAsZip").and_then(Value::as_bool) == Some(true)
             {
-                update_task(state, task_id, json!({ "progress": 95, "message": "正在打包ZIP文件..." }))
-                    .await;
+                update_task(
+                    state,
+                    task_id,
+                    json!({ "progress": 95, "message": "正在打包ZIP文件..." }),
+                )
+                .await;
                 broadcast_progress(state, task_id, 95, "正在打包ZIP文件...", message_count);
 
-                let zip_file_name = if let Some(stripped) =
-                    file_name.strip_suffix(".html").or_else(|| file_name.strip_suffix(".HTML"))
+                let base_zip_file_name = if let Some(stripped) = file_name
+                    .strip_suffix(".html")
+                    .or_else(|| file_name.strip_suffix(".HTML"))
                 {
                     format!("{stripped}.zip")
                 } else {
                     format!("{file_name}.zip")
                 };
+                let zip_file_name =
+                    reserve_export_file_name(&req.output_dir, &base_zip_file_name);
                 let zip_file_path = req.output_dir.join(&zip_file_name);
-                match create_zip_with_resources(
+                let zip_result = create_zip_with_resources(
                     req.output_dir.clone(),
                     file_path.clone(),
                     copied_resource_paths,
                     zip_file_path.clone(),
                 )
-                .await
-                {
+                .await;
+                release_export_path(&zip_file_path);
+                match zip_result {
                     Ok(()) => {
                         original_file_path = Some(file_path.clone());
                         final_file_path = zip_file_path;
@@ -1514,12 +1707,20 @@ async fn process_export_task(
                 ..HtmlExportOptions::default()
             });
             html_exporter
-                .export_chunked(&clean_messages, &chat_info, &ChunkedHtmlExportOptions::default())
+                .export_chunked(
+                    &clean_messages,
+                    &chat_info,
+                    &ChunkedHtmlExportOptions::default(),
+                )
                 .await
                 .map_err(|e| e.to_string())?;
 
-            update_task(state, task_id, json!({ "progress": 95, "message": "正在打包ZIP文件..." }))
-                .await;
+            update_task(
+                state,
+                task_id,
+                json!({ "progress": 95, "message": "正在打包ZIP文件..." }),
+            )
+            .await;
             broadcast_progress(state, task_id, 95, "正在打包ZIP文件...", message_count);
             create_zip_from_dir(temp_dir.clone(), file_path.clone()).await?;
             let _ = tokio::fs::remove_dir_all(&temp_dir).await;
@@ -1557,8 +1758,8 @@ async fn process_export_task(
         .as_ref()
         .and_then(|s| serde_json::to_value(s).ok());
     let summary_message = build_resource_summary_message(resource_summary.as_ref());
-    let completion_message = summary_message
-        .map_or_else(|| "导出完成".to_string(), |s| format!("导出完成 · {s}"));
+    let completion_message =
+        summary_message.map_or_else(|| "导出完成".to_string(), |s| format!("导出完成 · {s}"));
 
     update_task(
         state,
@@ -1586,7 +1787,11 @@ async fn process_export_task(
         &final_file_path,
         &final_file_name,
         &req.custom_output_dir,
-        if is_zip_export { "/download?file=" } else { "/downloads/" },
+        if is_zip_export {
+            "/download?file="
+        } else {
+            "/downloads/"
+        },
     );
     state.broadcast_ws(&json!({
         "type": "export_complete",
@@ -1639,5 +1844,85 @@ async fn dir_or_file_size(path: &FsPath) -> u64 {
             .unwrap_or(0)
         }
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod file_name_tests {
+    use super::{
+        build_export_dir_name, build_export_file_name, release_export_path,
+        reserve_export_file_name, sanitize_chat_name,
+    };
+
+    #[test]
+    fn sanitizes_windows_unsafe_and_reserved_components() {
+        assert_eq!(
+            sanitize_chat_name(" AxT<>:\"/\\|?* 鸽子窝. ", 64),
+            "AxT_鸽子窝"
+        );
+        assert_eq!(sanitize_chat_name("CON.", 64), "_CON");
+        assert_eq!(sanitize_chat_name("Lpt9", 64), "_Lpt9");
+        assert_eq!(sanitize_chat_name("你好世界", 3), "你好世");
+    }
+
+    #[test]
+    fn builds_readable_friend_group_and_streaming_names() {
+        assert_eq!(
+            build_export_file_name(
+                "friend",
+                "1687657986",
+                "笨蛋Darf v2",
+                "20260712",
+                "163632123",
+                "html",
+                false,
+                false,
+            ),
+            "friend_笨蛋Darf_v2_1687657986_20260712_163632123.html"
+        );
+        assert_eq!(
+            build_export_dir_name(
+                "group",
+                "960420904",
+                "AxT 鸽子窝",
+                "20260712",
+                "163632123",
+                "_chunked_jsonl",
+                false,
+                false,
+            ),
+            "group_AxT_鸽子窝_960420904_20260712_163632123_chunked_jsonl"
+        );
+    }
+
+    #[test]
+    fn disambiguates_existing_files_and_directories_without_overwriting() {
+        let base =
+            std::env::temp_dir().join(format!("qce-export-name-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join("friend_name_1_20260712_163632123.html"), b"old").unwrap();
+        let file_collision =
+            reserve_export_file_name(&base, "friend_name_1_20260712_163632123.html");
+        assert_eq!(
+            file_collision,
+            "friend_name_1_20260712_163632123_2.html"
+        );
+        release_export_path(&base.join(file_collision));
+
+        std::fs::create_dir(base.join("group_name_2_20260712_163632123_chunked_jsonl")).unwrap();
+        let dir_collision =
+            reserve_export_file_name(&base, "group_name_2_20260712_163632123_chunked_jsonl");
+        assert_eq!(
+            dir_collision,
+            "group_name_2_20260712_163632123_chunked_jsonl_2"
+        );
+        release_export_path(&base.join(dir_collision));
+        let concurrent = reserve_export_file_name(&base, "friend_concurrent_1_20260712_163632123.html");
+        let concurrent_2 =
+            reserve_export_file_name(&base, "friend_concurrent_1_20260712_163632123.html");
+        assert_eq!(concurrent_2, "friend_concurrent_1_20260712_163632123_2.html");
+        release_export_path(&base.join(concurrent));
+        release_export_path(&base.join(concurrent_2));
+        std::fs::remove_dir_all(base).unwrap();
     }
 }

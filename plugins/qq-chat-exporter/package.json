@@ -19,15 +19,14 @@
     "homepage": "https://github.com/shuakami/qq-chat-exporter"
   },
   "scripts": {
-    "gen:overlay": "node tools/gen-overlay.cjs && node tools/create-overlay-runtime.cjs",
-    "fix:imports": "node tools/fix-imports.cjs && node tools/fix-ts-imports.cjs",
+    "gen:overlay": "node tools/create-overlay-runtime.cjs",
     "typecheck": "tsc --noEmit --allowJs --checkJs --module NodeNext --moduleResolution NodeNext --target ES2022 --types node index.mjs runtime/ApiLauncher.mjs runtime/rustBridge.mjs",
-    "pretest": "node __tests__/scripts/ensure-platform-esbuild.mjs",
+    "pretest": "npm run gen:overlay",
     "test": "node __tests__/scripts/run-tests.mjs \"__tests__/**/*.test.ts\"",
-    "test:legacy": "node test-plugin.mjs",
-    "test:legacy:full": "node test-plugin-full.mjs",
     "test:unit": "node __tests__/scripts/run-tests.mjs \"__tests__/unit/**/*.test.ts\" \"__tests__/smoke.test.ts\"",
-    "test:integration": "node __tests__/scripts/run-tests.mjs \"__tests__/integration/**/*.test.ts\"",
+    "test:entrypoint": "node test-plugin.mjs",
+    "test:runtime": "node test-plugin-full.mjs",
+    "test:context": "node test-plugin-init-context.mjs",
     "mock:server": "node __tests__/scripts/mock-server.mjs"
   },
   "keywords": [
@@ -41,18 +40,8 @@
   "author": "shuakami",
   "dependencies": {},
   "devDependencies": {
-    "@breezystack/lamejs": "^1.2.7",
-    "@types/archiver": "^7.0.0",
-    "archiver": "^7.0.1",
-    "cors": "^2.8.5",
-    "express": "^4.21.1",
-    "silk-wasm": "^3.6.1",
     "tsx": "^4.19.2",
-    "ws": "^8.18.0",
-    "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.0",
     "@types/node": "^22.9.1",
-    "@types/ws": "^8.5.13",
     "typescript": "^5.7.2"
   },
   "engines": {

@@ -454,6 +454,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
         peer: {
           chatType: form.chatType,
           peerUid: form.peerUid,
+          ...(form.peerUin && { peerUin: form.peerUin }),
           guildId: "",
         },
         sessionName: form.sessionName,

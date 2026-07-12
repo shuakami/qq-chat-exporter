@@ -431,11 +431,23 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: "下载发布构建产物"
+      - name: "Download Windows Shell package artifact"
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/
-          pattern: NapCat-*
+          path: artifacts/NapCat-QCE-Windows-x64
+          name: NapCat-QCE-Windows-x64
+
+      - name: "Download Linux Shell package artifact"
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/NapCat-QCE-Linux-x64
+          name: NapCat-QCE-Linux-x64
+
+      - name: "Download Framework package artifact"
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/NapCat-Framework-QCE
+          name: NapCat-Framework-QCE
 
       - name: "下载 NapCat 插件构建产物"
         uses: actions/download-artifact@v4

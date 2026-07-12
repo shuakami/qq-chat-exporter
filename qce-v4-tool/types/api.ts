@@ -149,6 +149,7 @@ export interface ExportTask {
   peer: {
     chatType: number
     peerUid: string
+    peerUin?: string
     guildId: string
   }
   sessionName: string
@@ -203,6 +204,8 @@ export interface ExportResourceSummary {
 export interface CreateTaskForm {
   chatType: number
   peerUid: string
+  /** 已知 QQ 号；用于生成可读文件名，避免后端重复查询。 */
+  peerUin?: string
   sessionName: string
   format: string
   startTime?: string
@@ -225,13 +228,9 @@ export interface CreateTaskForm {
   streamingZipMode?: boolean
   /** 自定义导出路径（Issue #192） */
   outputDir?: string
-  /** 在文件名中包含聊天名称（Issue #216） */
+  /** 旧客户端兼容字段；新命名始终包含聊天名称。 */
   useNameInFileName?: boolean
-  /**
-   * 使用友好文件名格式 `<名称>(<QQ号>).<扩展名>`（Issue #134）。
-   * 启用后丢掉业务前缀与时间戳；同名碰撞时会自动追加 `_<日期>_<时间>` 后缀。
-   * 优先级高于 useNameInFileName；缺少可用 sessionName 时退回默认名称。
-   */
+  /** 旧客户端兼容字段；新命名固定包含类型、名称、号码和时间。 */
   useFriendlyFileName?: boolean
   /** 群聊导出时优先使用群成员名称（Issue #358） */
   preferGroupMemberName?: boolean
@@ -246,6 +245,7 @@ export interface CreateTaskRequest {
   peer: {
     chatType: number
     peerUid: string
+    peerUin?: string
     guildId: string
   }
   sessionName?: string
@@ -269,9 +269,9 @@ export interface CreateTaskRequest {
     embedResourcesAsDataUri?: boolean
     /** 自定义导出路径（Issue #192） */
     outputDir?: string
-    /** 在文件名中包含聊天名称（Issue #216） */
+    /** 旧客户端兼容字段。 */
     useNameInFileName?: boolean
-    /** 使用友好文件名格式 `<名称>(<QQ号>).<扩展名>`（Issue #134） */
+    /** 旧客户端兼容字段。 */
     useFriendlyFileName?: boolean
     /** 群聊导出时优先使用群成员名称（Issue #358） */
     preferGroupMemberName?: boolean
@@ -366,8 +366,10 @@ export interface ScheduledExport {
   peer: {
     chatType: number
     peerUid: string
+    peerUin?: string
     guildId: string
   }
+  sessionName?: string
   scheduleType: 'daily' | 'weekly' | 'monthly' | 'custom'
   cronExpression?: string
   executeTime: string
@@ -413,6 +415,7 @@ export interface CreateScheduledExportForm {
   name: string
   chatType: number
   peerUid: string
+  peerUin?: string
   sessionName: string
   scheduleType: 'daily' | 'weekly' | 'monthly' | 'custom'
   cronExpression?: string
