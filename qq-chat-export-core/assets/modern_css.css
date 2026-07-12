@@ -864,6 +864,21 @@
             background: var(--bubble-self);
             color: var(--bubble-self-text);
         }
+
+        .message-bubble.reply-jump-highlight {
+            animation: reply-jump-highlight 700ms ease-out;
+        }
+
+        @keyframes reply-jump-highlight {
+            0%, 100% { filter: brightness(1); }
+            35% { filter: brightness(1.08); }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .message-bubble.reply-jump-highlight {
+                animation-duration: 1ms;
+            }
+        }
         
         /* 去掉消息角 - 直接用圆角矩形 */
         
@@ -944,14 +959,13 @@
         
         /* 引用消息 */
         .reply-content {
-            background: var(--reply-bg);
-            padding: 10px 12px;
-            border-radius: 8px;
+            background: transparent;
+            padding: 0;
             margin-bottom: 8px;
             font-size: 13px;
             line-height: 1.5;
             color: var(--text-secondary);
-            transition: background-color 0.2s, opacity 0.2s;
+            transition: opacity 0.2s;
         }
         
         .reply-content[data-reply-to] {
@@ -959,7 +973,7 @@
         }
 
         .reply-content[data-reply-to]:hover {
-            background: color-mix(in srgb, var(--reply-bg) 97%, var(--text-primary));
+            opacity: 0.82;
         }
 
         .reply-content[data-reply-to]:focus-visible {
@@ -1017,16 +1031,41 @@
             margin: 0 2px;
         }
         
-        .message.self .reply-content {
-            background: rgba(0, 0, 0, 0.08);
-        }
-        
-        .message.self .reply-content[data-reply-to]:hover {
-            background: rgba(0, 0, 0, 0.1);
-        }
-        
         .message.self .reply-content strong {
             color: var(--bubble-self-text);
+        }
+
+        .reply-back-button {
+            position: fixed;
+            left: 50%;
+            bottom: 24px;
+            z-index: 1000;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px;
+            border: 0;
+            background: transparent;
+            box-shadow: none;
+            color: var(--text-secondary);
+            font: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            transform: translateX(-50%);
+        }
+
+        .reply-back-button:hover {
+            color: var(--text-primary);
+        }
+
+        .reply-back-button svg {
+            width: 14px;
+            height: 14px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
         
         /* 音频包装器 */
@@ -1158,17 +1197,10 @@
         .forward-card-header {
             display: flex;
             align-items: center;
-            gap: 8px;
             margin-bottom: 9px;
             font-size: 13px;
             font-weight: 600;
             color: inherit;
-        }
-        
-        .forward-card-icon {
-            width: 17px;
-            height: 17px;
-            opacity: 0.72;
         }
         
         .forward-card-content {
@@ -1210,8 +1242,7 @@
         .forward-card-footer {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            gap: 12px;
+            justify-content: flex-end;
             margin-top: 10px;
             padding-top: 8px;
             border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
@@ -1223,7 +1254,6 @@
         .forward-card-toggle {
             display: inline-flex;
             align-items: center;
-            gap: 3px;
             padding: 0;
             border: 0;
             background: transparent;
@@ -1237,16 +1267,6 @@
             opacity: 0.78;
         }
 
-        .forward-card-toggle svg {
-            width: 14px;
-            height: 14px;
-            transition: transform 0.18s ease;
-        }
-
-        .forward-card.is-expanded > .forward-card-footer .forward-card-toggle svg {
-            transform: rotate(180deg);
-        }
-        
         /* 图片模态框 */
         .image-modal {
             display: none;

@@ -10,6 +10,10 @@ import { toast } from "@/components/ui/toast"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { BatchExportItem, BatchExportConfig } from "@/components/ui/batch-export-dialog"
 import { SessionList } from "@/components/ui/session-list"
+import {
+  sessionTaskStatsKey,
+  type SessionTaskStats,
+} from "@/lib/session-sort"
 
 const TaskWizard = lazy(() => import("@/components/ui/task-wizard").then(m => ({ default: m.TaskWizard })))
 const ScheduledExportWizard = lazy(() => import("@/components/ui/scheduled-export-wizard").then(m => ({ default: m.ScheduledExportWizard })))
@@ -375,6 +379,24 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     })
   }, [])
 
+  const handleQceNotification = useCallback((notification: {
+    type: 'success' | 'error' | 'info'
+    title: string
+    message: string
+    actions?: Array<{
+      label: string
+      onClick: () => void
+      variant?: 'default' | 'destructive'
+    }>
+  }) => {
+    addNotification(
+      notification.type,
+      notification.title,
+      notification.message,
+      notification.actions
+    )
+  }, [addNotification])
+
   const {
     systemInfo,
     refreshSystemInfo,
@@ -398,52 +420,13 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     avatarExportLoading,
     isJsonlExport,
     openTaskFileLocation,
-  } = useQCE({
-    onNotification: (notification) => {
-      addNotification(
-        notification.type,
-        notification.title,
-        notification.message,
-        notification.actions
-      )
-    }
-  })
-
-  // 导出群成员头像
-  const handleExportGroupAvatars = async (groupCode: string, groupName: string) => {
-    const loadingId = addNotification('info', '正在导出', `正在导出群"${groupName}"的成员头像...`)
-    
-    try {
-      const result = await exportGroupAvatars(groupCode)
-      removeNotification(loadingId)
-      
-      if (result) {
-        addNotification(
-          'success',
-          '导出成功',
-          `已导出 ${result.successCount} 个头像\n文件: ${result.fileName}`,
-          [
-            {
-              label: '打开文件位置',
-              onClick: () => openFileLocation(result.filePath)
-            }
-          ],
-          0
-        )
-      } else {
-        addNotification('error', '导出失败', '导出群头像失败')
-      }
-    } catch (error) {
-      removeNotification(loadingId)
-      addNotification('error', '导出失败', error instanceof Error ? error.message : '未知错误')
-    }
-  }
+  } = useQCE({ onNotification: handleQceNotification })
 
   // 打开群精华消息模态框
-  const handleOpenEssenceModal = (groupCode: string, groupName: string) => {
+  const handleOpenEssenceModal = useCallback((groupCode: string, groupName: string) => {
     setEssenceGroup({ groupCode, groupName })
     setIsEssenceModalOpen(true)
-  }
+  }, [])
 
   // 关闭群精华消息模态框
   const handleCloseEssenceModal = () => {
@@ -452,10 +435,10 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   }
 
   // 打开群文件/群相册模态框
-  const handleOpenGroupFilesModal = (groupCode: string, groupName: string) => {
+  const handleOpenGroupFilesModal = useCallback((groupCode: string, groupName: string) => {
     setGroupFilesTarget({ groupCode, groupName })
     setIsGroupFilesModalOpen(true)
-  }
+  }, [])
 
   // 关闭群文件/群相册模态框
   const handleCloseGroupFilesModal = () => {
@@ -464,9 +447,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   }
 
   // 打开文件位置
-  const openFileLocation = async (filePath?: string) => {
-    console.log('[QCE] openFileLocation called with:', { filePath, hasFilePath: !!filePath })
-    
+  const openFileLocation = useCallback(async (filePath?: string) => {
     if (!filePath) {
       addNotification('error', '打开失败', '文件路径不存在')
       return
@@ -488,7 +469,36 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
       console.error('[QCE] Open file location error:', error)
       addNotification('error', '打开失败', error instanceof Error ? error.message : '未知错误')
     }
-  }
+  }, [addNotification])
+
+  const handleExportGroupAvatars = useCallback(async (groupCode: string, groupName: string) => {
+    const loadingId = addNotification('info', '正在导出', `正在导出群"${groupName}"的成员头像...`)
+
+    try {
+      const result = await exportGroupAvatars(groupCode)
+      removeNotification(loadingId)
+
+      if (result) {
+        addNotification(
+          'success',
+          '导出成功',
+          `已导出 ${result.successCount} 个头像\n文件: ${result.fileName}`,
+          [
+            {
+              label: '打开文件位置',
+              onClick: () => openFileLocation(result.filePath)
+            }
+          ],
+          0
+        )
+      } else {
+        addNotification('error', '导出失败', '导出群头像失败')
+      }
+    } catch (error) {
+      removeNotification(loadingId)
+      addNotification('error', '导出失败', error instanceof Error ? error.message : '未知错误')
+    }
+  }, [addNotification, exportGroupAvatars, openFileLocation, removeNotification])
 
   // 打开导出目录
   const openExportDirectory = async () => {
@@ -572,12 +582,12 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   const [gallerySearchInput, setGallerySearchInput] = useState('')
   const [gallerySearchActive, setGallerySearchActive] = useState('')
 
-  const handleOpenTaskWizard = (preset?: Partial<CreateTaskForm>) => {
+  const handleOpenTaskWizard = useCallback((preset?: Partial<CreateTaskForm>) => {
     setSelectedPreset(preset)
     setIsTaskWizardOpen(true)
-  }
+  }, [])
 
-  const handlePreviewChat = (
+  const handlePreviewChat = useCallback((
     type: 'group' | 'friend',
     id: string,
     name: string,
@@ -585,7 +595,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   ) => {
     setPreviewingChat({ type, id, name, peer })
     setIsPreviewModalOpen(true)
-  }
+  }, [])
 
   const handleCloseTaskWizard = () => {
     setIsTaskWizardOpen(false)
@@ -634,23 +644,22 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
       removeNotification(loadingId)
       
       if (result) {
-        const exportPath = result.exportPath || '未知路径'
+        const exportPath = result.exportPath
         addNotification(
-          'success', 
-          '导出成功', 
-          `表情包"${packName}"已导出\n${exportPath}`
+          'success',
+          '导出成功',
+          `表情包“${packName}”已导出`,
+          exportPath ? [
+            {
+              label: '打开位置',
+              onClick: () => openFileLocation(exportPath)
+            }
+          ] : undefined,
+          0
         )
-        // 刷新列表和导出记录
         stickerPacksLoadedRef.current = false
         await Promise.all([loadStickerPacks(), loadStickerExportRecords()])
         stickerPacksLoadedRef.current = true
-        // 滚动到导出记录区域
-        setTimeout(() => {
-          const exportHistoryElement = document.getElementById('sticker-export-history')
-          if (exportHistoryElement) {
-            exportHistoryElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }
-        }, 500)
       } else {
         addNotification('error', '导出失败', `表情包"${packName}"导出失败`)
       }
@@ -668,24 +677,23 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
       removeNotification(loadingId)
       
       if (result) {
-        const exportPath = result.exportPath || '未知路径'
+        const exportPath = result.exportPath
         const packCount = result.packCount || 0
         addNotification(
-          'success', 
-          '导出成功', 
-          `已导出 ${packCount} 个表情包\n${exportPath}`
+          'success',
+          '导出成功',
+          `已导出 ${packCount} 个表情包`,
+          exportPath ? [
+            {
+              label: '打开位置',
+              onClick: () => openFileLocation(exportPath)
+            }
+          ] : undefined,
+          0
         )
-        // 刷新列表和导出记录
         stickerPacksLoadedRef.current = false
         await Promise.all([loadStickerPacks(), loadStickerExportRecords()])
         stickerPacksLoadedRef.current = true
-        // 滚动到导出记录区域
-        setTimeout(() => {
-          const exportHistoryElement = document.getElementById('sticker-export-history')
-          if (exportHistoryElement) {
-            exportHistoryElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }
-        }, 500)
       } else {
         addNotification('error', '导出失败', '表情包导出失败')
       }
@@ -813,15 +821,12 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   }
 
   // 批量模式处理函数
-  const handleToggleBatchMode = () => {
+  const handleToggleBatchMode = useCallback(() => {
     setBatchMode(!batchMode)
-    if (batchMode) {
-      // 退出批量模式时清空选择
-      setSelectedItems(new Set())
-    }
-  }
+    if (batchMode) setSelectedItems(new Set())
+  }, [batchMode])
 
-  const handleSelectAll = (filteredIds?: Set<string>) => {
+  const handleSelectAll = useCallback((filteredIds?: Set<string>) => {
     if (filteredIds) {
       setSelectedItems(filteredIds)
     } else {
@@ -830,11 +835,11 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
       friends.forEach(f => allIds.add(`friend_${f.uid}`))
       setSelectedItems(allIds)
     }
-  }
+  }, [friends, groups])
 
-  const handleClearSelection = () => {
+  const handleClearSelection = useCallback(() => {
     setSelectedItems(new Set())
-  }
+  }, [])
 
   /**
    * Issue #344: 区间多选 / 分类全选用的批量增删入口。
@@ -842,7 +847,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
    * - mode = 'remove' 把 ids 全部从当前选区移除。
    * 不替换其它已选项，避免按「全选群」会清掉用户手挑的好友。
    */
-  const handleSelectMany = (ids: Set<string>, mode: 'add' | 'remove') => {
+  const handleSelectMany = useCallback((ids: Set<string>, mode: 'add' | 'remove') => {
     setSelectedItems((prev) => {
       const next = new Set(prev)
       if (mode === 'add') {
@@ -852,23 +857,22 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
       }
       return next
     })
-  }
+  }, [])
 
-  const handleToggleItem = (type: 'group' | 'friend', id: string) => {
+  const handleToggleItem = useCallback((type: 'group' | 'friend', id: string) => {
     const itemId = `${type}_${id}`
-    const newSet = new Set(selectedItems)
-    if (newSet.has(itemId)) {
-      newSet.delete(itemId)
-    } else {
-      newSet.add(itemId)
-    }
-    setSelectedItems(newSet)
-  }
+    setSelectedItems((previous) => {
+      const next = new Set(previous)
+      if (next.has(itemId)) next.delete(itemId)
+      else next.add(itemId)
+      return next
+    })
+  }, [])
 
-  const handleOpenBatchExportDialog = () => {
+  const handleOpenBatchExportDialog = useCallback(() => {
     if (selectedItems.size === 0) return
     setIsBatchExportDialogOpen(true)
-  }
+  }, [selectedItems.size])
 
   // 获取批量导出的项目列表
   const getBatchExportItems = (): BatchExportItem[] => {
@@ -1156,15 +1160,64 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   // 对于大列表（超过50项），禁用 stagger 动画以提升性能
   const hasLargeList = groups.length > 50 || friends.length > 50
 
-  // Issue #344: 把已完成 / 进行中 / 失败任务的 `messageCount` 按 peerUid 累加，
-  // 给会话列表「按已导出消息数」排序提供数据。每次 tasks 变化都会重新算。
-  const taskCountMap = useMemo<Record<string, number>>(() => {
-    const map: Record<string, number> = {}
+  const taskStatsCacheRef = useRef<{
+    size: number
+    value: Record<string, SessionTaskStats>
+  }>({ size: 0, value: {} })
+  const taskStatsMap = useMemo<Record<string, SessionTaskStats>>(() => {
+    const map: Record<string, SessionTaskStats> = {}
+    let size = 0
     for (const t of tasks) {
       const uid = t.peer?.peerUid
-      if (!uid || typeof t.messageCount !== 'number') continue
-      map[uid] = (map[uid] ?? 0) + t.messageCount
+      if (!uid || t.status !== 'completed') continue
+      const type = t.peer.chatType === 2 ? 'group' : 'friend'
+      const key = sessionTaskStatsKey(type, uid)
+      let stats = map[key]
+      if (!stats) {
+        stats = {
+          exportedMessageCount: 0,
+          successfulExportCount: 0,
+        }
+        map[key] = stats
+        size += 1
+      }
+
+      if (typeof t.messageCount === 'number') {
+        stats.exportedMessageCount += t.messageCount
+      }
+
+      stats.successfulExportCount += 1
+      const completedAt = Date.parse(t.completedAt ?? t.createdAt)
+      if (
+        Number.isFinite(completedAt) &&
+        (stats.lastSuccessfulExportAt === undefined ||
+          completedAt > stats.lastSuccessfulExportAt)
+      ) {
+        stats.lastSuccessfulExportAt = completedAt
+      }
     }
+
+    const previous = taskStatsCacheRef.current
+    if (previous.size === size) {
+      let unchanged = true
+      for (const key in map) {
+        const stats = map[key]
+        const old = previous.value[key]
+        if (!(
+          old?.exportedMessageCount === stats.exportedMessageCount &&
+          old.successfulExportCount === stats.successfulExportCount &&
+          old.lastSuccessfulExportAt === stats.lastSuccessfulExportAt
+        )) {
+          unchanged = false
+          break
+        }
+      }
+      if (unchanged) {
+        return previous.value
+      }
+    }
+
+    taskStatsCacheRef.current = { size, value: map }
     return map
   }, [tasks])
   const STAG = useMemo(() => makeStagger(reduceMotion || hasLargeList ? 0 : 0.06, reduceMotion || hasLargeList), [reduceMotion, hasLargeList])
@@ -1798,7 +1851,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                       selectedItems={selectedItems}
                       avatarExportLoading={avatarExportLoading}
                       recentActivityMap={recentActivityMap}
-                      taskCountMap={taskCountMap}
+                      taskStatsMap={taskStatsMap}
                       onRefresh={loadChatData}
                       onToggleBatchMode={handleToggleBatchMode}
                       onSelectAll={handleSelectAll}
@@ -2108,38 +2161,41 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
             {/* ==================== HISTORY ==================== */}
             {activeTab === "history" && (
               <div className="p-5 space-y-4">
-                {/* Stats line */}
-                <div className="text-[12px] text-muted-foreground/50 px-1">
-                  {getChatHistoryStats().total} 个文件
-                  {resourceIndex && ` · ${resourceIndex.summary.totalResources.toLocaleString()} 资源 · ${formatResourceSize(resourceIndex.summary.totalSize)}`}
-                </div>
-
                 {/* Sub Tabs */}
-                <div className="flex items-center gap-0.5 px-1">
-                  <button
-                    onClick={() => setHistorySubTab('records')}
-                    className={`px-2.5 py-1 rounded-full text-[12px] transition-colors ${
-                      historySubTab === 'records'
-                        ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium'
-                        : 'text-muted-foreground/60 hover:text-muted-foreground'
-                    }`}
-                  >
-                    记录列表
-                  </button>
-                  <button
-                    onClick={() => {
-                      // 切到画廊后由专门的 useEffect 监听 historySubTab / galleryType /
-                      // gallerySearchActive 触发首次加载；这里只切 sub tab，避免重复打后端。
-                      setHistorySubTab('gallery')
-                    }}
-                    className={`px-2.5 py-1 rounded-full text-[12px] transition-colors ${
-                      historySubTab === 'gallery'
-                        ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium'
-                        : 'text-muted-foreground/60 hover:text-muted-foreground'
-                    }`}
-                  >
-                    资源画廊
-                  </button>
+                <div className="flex items-center justify-between gap-4 flex-wrap px-1">
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      onClick={() => setHistorySubTab('records')}
+                      className={`px-2.5 py-1 rounded-full text-[12px] transition-colors ${
+                        historySubTab === 'records'
+                          ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium'
+                          : 'text-muted-foreground/60 hover:text-muted-foreground'
+                      }`}
+                    >
+                      记录列表
+                    </button>
+                    <button
+                      onClick={() => {
+                        setHistorySubTab('gallery')
+                      }}
+                      className={`px-2.5 py-1 rounded-full text-[12px] transition-colors ${
+                        historySubTab === 'gallery'
+                          ? 'bg-black/[0.05] dark:bg-white/[0.05] text-foreground font-medium'
+                          : 'text-muted-foreground/60 hover:text-muted-foreground'
+                      }`}
+                    >
+                      资源画廊
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-end gap-3 text-[12px] text-muted-foreground/50">
+                    <span>{getChatHistoryStats().total} 个文件</span>
+                    {resourceIndex && (
+                      <>
+                        <span>{resourceIndex.summary.totalResources.toLocaleString()} 资源</span>
+                        <span>{formatResourceSize(resourceIndex.summary.totalSize)}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {/* Records View */}
@@ -2673,12 +2729,9 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                           {record.success && record.exportPath && (
                             <button
                               className="text-[11px] text-muted-foreground/40 hover:text-foreground transition-colors opacity-0 group-hover:opacity-100"
-                              onClick={() => {
-                                navigator.clipboard.writeText(record.exportPath)
-                                addNotification('success', '已复制', '路径已复制到剪贴板')
-                              }}
+                              onClick={() => openFileLocation(record.exportPath)}
                             >
-                              复制路径
+                              打开位置
                             </button>
                           )}
                         </div>

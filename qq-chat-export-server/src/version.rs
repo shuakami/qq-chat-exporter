@@ -74,6 +74,18 @@ impl AppNameLazy {
     }
 }
 
+impl serde::Serialize for AppNameLazy {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.get())
+    }
+}
+
+impl std::fmt::Display for AppNameLazy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.get())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::VERSION;
@@ -84,17 +96,5 @@ mod tests {
             return;
         };
         assert_eq!(VERSION.get(), injected.trim().trim_start_matches('v'));
-    }
-}
-
-impl serde::Serialize for AppNameLazy {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.get())
-    }
-}
-
-impl std::fmt::Display for AppNameLazy {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.get())
     }
 }

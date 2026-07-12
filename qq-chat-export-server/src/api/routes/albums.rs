@@ -15,7 +15,7 @@ use crate::api::state::SharedState;
 const RECORD_LIMIT: usize = 100;
 
 fn export_base_path(state: &SharedState) -> PathBuf {
-    state.path_manager.default_base_dir().join("group-albums")
+    state.path_manager.exports_dir().join("group-albums")
 }
 
 fn records_path(state: &SharedState) -> PathBuf {

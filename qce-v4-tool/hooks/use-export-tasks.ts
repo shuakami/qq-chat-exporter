@@ -1,4 +1,4 @@
-import { Fragment, createElement, useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { Fragment, createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import type {
   APIResponse,
   CreateTaskForm,
@@ -394,6 +394,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
 
       if (response.success) {
         dismissTaskToast(taskId)
+        completedToastIdsRef.current.delete(taskId)
         setTasks((prev) => prev.filter((task) => task.id !== taskId))
         return true
       }
@@ -738,28 +739,32 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     return deleteOriginalFilesInternal(taskId)
   }, [deleteOriginalFilesInternal])
 
-  const getTaskStats = useCallback(() => {
-    return {
-      total: tasks.length,
-      running: tasks.filter((task) => task.status === "running").length,
-      completed: tasks.filter((task) => task.status === "completed").length,
-      failed: tasks.filter((task) => task.status === "failed").length,
+  const taskStats = useMemo(() => {
+    let running = 0
+    let completed = 0
+    let failed = 0
+    for (const task of tasks) {
+      if (task.status === "running") running += 1
+      else if (task.status === "completed") completed += 1
+      else if (task.status === "failed") failed += 1
     }
+    return { total: tasks.length, running, completed, failed }
   }, [tasks])
+  const getTaskStats = useCallback(() => taskStats, [taskStats])
 
   const isDataStale = useCallback(() => {
     return lastLoadTime > 0 && Date.now() - lastLoadTime > 30000
   }, [lastLoadTime])
 
-  useEffect(() => {
-    const hasRunningTasks = tasks.some((task) => task.status === "running")
+  const hasRunningTasks = taskStats.running > 0
 
+  useEffect(() => {
     if (pollingTimerRef.current) {
       clearInterval(pollingTimerRef.current)
       pollingTimerRef.current = null
     }
 
-    if (hasRunningTasks && tasks.length > 0) {
+    if (hasRunningTasks) {
       pollingTimerRef.current = setInterval(() => {
         void refreshTasks()
       }, 8000)
@@ -771,7 +776,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
         pollingTimerRef.current = null
       }
     }
-  }, [tasks, refreshTasks])
+  }, [hasRunningTasks, refreshTasks])
 
   return {
     tasks,

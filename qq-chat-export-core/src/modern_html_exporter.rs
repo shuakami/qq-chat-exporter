@@ -2204,7 +2204,10 @@ fn render_market_face_element(data: &Value) -> String {
             n = escape_html(&name)
         );
     }
-    format!("<span class=\"text-content\">[{}]</span>", escape_html(&name))
+    format!(
+        "<span class=\"sticker-wrap\"><span class=\"text-content\">[{}]</span></span>",
+        escape_html(&name)
+    )
 }
 
 /// 人类可读文件大小（B/KB/MB/GB）。0 时返回空串。
@@ -2296,7 +2299,6 @@ fn utf16_slice(s: &str, max: usize) -> (String, bool) {
 
 /// 渲染合并转发卡片（对应 TS `renderForwardElement`，issue #161 / #434）。
 fn render_forward_element(data: &Value, depth: usize) -> String {
-    let title = str_field(data, "title").unwrap_or_else(|| "聊天记录".to_owned());
     let raw_summary = str_field(data, "summary")
         .or_else(|| str_field(data, "content"))
         .unwrap_or_default();
@@ -2431,11 +2433,6 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
         }
     }
 
-    let footer_label = if message_count > 0 {
-        format!("转发消息 · {message_count}条")
-    } else {
-        "转发消息".to_owned()
-    };
     let nested_class = if depth > 0 {
         " forward-card-nested"
     } else {
@@ -2450,33 +2447,31 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
         format!(
             r#"<button type="button" class="forward-card-toggle" aria-expanded="false" data-count="{message_count}">
                 <span class="forward-card-toggle-label">展开全部 {message_count} 条</span>
-                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
-                    <path d="m6 8 4 4 4-4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
             </button>"#
         )
     } else {
         String::new()
     };
+    let footer_html = if toggle_html.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<div class="forward-card-footer">
+                {toggle_html}
+            </div>"#
+        )
+    };
 
     format!(
         r#"<div class="forward-card{nested_class}">
             <div class="forward-card-header">
-                <svg class="forward-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <span>{}</span>
+                <span>转发消息</span>
             </div>
             <div class="forward-card-content">
                 {content_html}
             </div>
-            <div class="forward-card-footer">
-                <span>{}</span>
-                {toggle_html}
-            </div>
-        </div>"#,
-        escape_html(&title),
-        escape_html(&footer_label)
+            {footer_html}
+        </div>"#
     )
 }
 
@@ -2622,12 +2617,7 @@ fn extract_plain_text(message: &CleanMessage) -> String {
                     parts.push(name);
                 }
             }
-            "market_face" => {
-                let name = str_field(d, "name")
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| "商城表情".to_owned());
-                parts.push(format!("[{name}]"));
-            }
+            "market_face" => {}
             "reply" => {
                 if let Some(content) = str_field(d, "content").filter(|s| !s.is_empty()) {
                     parts.push(content);
@@ -3196,5 +3186,51 @@ pub fn get_face_name_by_id(id: &str) -> String {
         format!("/表情{id}")
     } else {
         name.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_plain_text;
+    use crate::types::CleanMessage;
+    use serde_json::json;
+
+    fn search_message(elements: serde_json::Value, text: &str) -> CleanMessage {
+        serde_json::from_value(json!({
+            "id": "message-1",
+            "seq": "1",
+            "timestamp": 1,
+            "time": "2026-07-12 12:00:00",
+            "sender": {
+                "uid": "10001",
+                "name": "测试用户"
+            },
+            "type": "normal",
+            "content": {
+                "text": text,
+                "elements": elements
+            }
+        }))
+        .expect("valid search message")
+    }
+
+    #[test]
+    fn search_text_excludes_market_face_names() {
+        let mixed = search_message(
+            json!([
+                { "type": "text", "data": { "text": "普通正文" } },
+                { "type": "market_face", "data": { "name": "一箱猫猫" } }
+            ]),
+            "普通正文[一箱猫猫]",
+        );
+        assert_eq!(extract_plain_text(&mixed), "普通正文");
+
+        let sticker_only = search_message(
+            json!([
+                { "type": "market_face", "data": { "name": "一箱猫猫" } }
+            ]),
+            "[一箱猫猫]",
+        );
+        assert!(extract_plain_text(&sticker_only).is_empty());
     }
 }

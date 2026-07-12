@@ -418,6 +418,10 @@ async fn modern_html_renders_nested_forwards_and_print_options() {
     assert!(html.contains("data-count=\"6\""));
     assert!(html.contains("展开全部 6 条"));
     assert!(html.contains("forward-card-toggle-label"));
+    assert!(html.contains("<span>转发消息</span>"));
+    assert!(!html.contains("forward-card-icon"));
+    assert!(!html.contains("转发消息 ·"));
+    assert!(!html.contains("<svg viewBox=\"0 0 20 20\""));
     assert!(!html.contains("[转发消息: 2条]"));
     assert!(html.contains("<div class=\"toolbar\" style=\"display:none\">"));
     assert!(html.contains("window.__QCE_ENABLE_VIRTUAL_SCROLL = false"));

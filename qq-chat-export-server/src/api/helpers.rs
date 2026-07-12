@@ -11,7 +11,7 @@ use crate::napcat::NapCatBridgeClient;
 const SESSION_NAME_TIMEOUT_MS: u64 = 2000;
 
 /// 下载 URL 到内存（30 秒超时，跟随重定向；失败返回 `None`）。
-pub async fn http_get_bytes(url: &str) -> Option<Vec<u8>> {
+pub async fn http_get_bytes(url: &str) -> Option<bytes::Bytes> {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     let client = CLIENT.get_or_init(|| {
         reqwest::Client::builder()
@@ -23,7 +23,7 @@ pub async fn http_get_bytes(url: &str) -> Option<Vec<u8>> {
     if !response.status().is_success() {
         return None;
     }
-    response.bytes().await.ok().map(|b| b.to_vec())
+    response.bytes().await.ok()
 }
 
 /// 宽松转数字（对应 TS `toNumber`）。
@@ -214,6 +214,7 @@ pub fn resolve_peer_uin(
         .map(str::to_string)
 }
 
+#[must_use]
 pub fn chat_avatar_url(chat_type: &str, peer_uid: &str, peer_uin: Option<&str>) -> Option<String> {
     if chat_type == "group" {
         return (!peer_uid.is_empty())

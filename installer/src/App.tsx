@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ExternalLink,
   RefreshCw,
-  TriangleAlert,
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -182,6 +181,21 @@ const FRAMEWORK_DOWNLOAD_URL = 'https://github.com/shuakami/qq-chat-exporter/rel
 const isAlreadyLoggedIn = (msg: string) =>
   msg.includes('已登录') || /is\s*logined|already\s*log/i.test(msg);
 
+const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, message: string) =>
+  new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+
 export default function App() {
   const [step, setStep] = useState<InstallStep>('welcome');
   const [setupStep, setSetupStep] = useState<SetupStep>('intro');
@@ -189,7 +203,6 @@ export default function App() {
   const [setupProgress, setSetupProgress] = useState(0);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [direction, setDirection] = useState<Direction>('none');
-  const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [currentLog, setCurrentLog] = useState('准备安装环境...');
   const [progress, setProgress] = useState(0);
   const [activeTipIndex, setActiveTipIndex] = useState(0);
@@ -368,7 +381,7 @@ export default function App() {
         if (cancelled) return;
         setAccounts(list);
         if (list.length > 0) {
-          setSelectedUin((prev) => prev || list[0].uin);
+          setSelectedUin((prev) => list.some((account) => account.uin === prev) ? prev : list[0].uin);
           setLoginMethod('quick');
         } else {
           setLoginMethod('qrcode');
@@ -549,17 +562,12 @@ export default function App() {
     setRepairing(true);
     setRuntimeError('');
     try {
-      await api.restartService();
-      for (let attempt = 0; attempt < 20; attempt++) {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        const info = await api.isQceRunning();
-        if (info.running) {
-          if (info.webuiUrl) setWebuiUrl(info.webuiUrl);
-          setRuntimeStopped(false);
-          return;
-        }
-      }
-      throw new Error('服务启动超时，请查看运行日志');
+      await withTimeout(api.restartService(), 15_000, '服务重启超时，请查看运行日志');
+      setRuntimeStopped(false);
+      setLoginError('');
+      setAccounts([]);
+      setLoginMethod('quick');
+      setSetupStep('login');
     } catch (err) {
       setRuntimeStopped(true);
       setRuntimeError(String(err).replace(/^Error:\s*/, ''));
@@ -569,10 +577,15 @@ export default function App() {
   }, []);
 
   const handleExit = useCallback(async () => {
+    setExiting(true);
     try {
-      await api.exitApp();
-    } catch {
-      await api.closeWindow();
+      try {
+        await api.exitApp();
+      } catch {
+        await api.closeWindow();
+      }
+    } finally {
+      setExiting(false);
     }
   }, []);
 
@@ -904,7 +917,7 @@ export default function App() {
                           }
                           setAccounts(list);
                           if (list.length > 0) {
-                            setSelectedUin((prev) => prev || list[0].uin);
+                            setSelectedUin((prev) => list.some((account) => account.uin === prev) ? prev : list[0].uin);
                             setLoginMethod('quick');
                           } else {
                             setLoginMethod('qrcode');
@@ -999,9 +1012,6 @@ export default function App() {
             {setupStep === 'running' && (
               runtimeStopped ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center w-full max-w-sm mx-auto animate-fade-in">
-                  <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[#E54D2E]/10 text-[#D94829]">
-                    <TriangleAlert size={25} strokeWidth={1.8} />
-                  </div>
                   <h2 className="text-[17px] font-bold text-[var(--color-text)] mb-1.5">
                     {repairing ? '正在修复服务' : '服务已停止'}
                   </h2>
@@ -1026,7 +1036,8 @@ export default function App() {
                     <Button fullWidth size="lg" variant="secondary" onClick={() => api.openLogFile()} className="h-9 font-medium">
                       查看运行日志
                     </Button>
-                    <button onClick={() => setShowExitConfirm(true)} disabled={repairing} className="text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors py-1 disabled:opacity-50">
+                    <button onClick={handleExit} disabled={repairing || exiting} className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors py-1 disabled:opacity-50">
+                      {exiting && <Loader size={14} />}
                       退出并关闭
                     </button>
                   </div>
@@ -1055,7 +1066,8 @@ export default function App() {
                     <Button fullWidth size="lg" variant="secondary" onClick={() => api.openLogFile()} className="h-9 font-medium">
                       查看运行日志
                     </Button>
-                    <button onClick={() => setShowExitConfirm(true)} className="text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors py-1">
+                    <button onClick={handleExit} disabled={exiting} className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors py-1 disabled:opacity-50">
+                      {exiting && <Loader size={14} />}
                       退出服务并关闭
                     </button>
                   </div>
@@ -1064,38 +1076,6 @@ export default function App() {
             )}
           </div>
         )}
-
-        <AnimatePresence>
-          {showExitConfirm && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/40 z-[100] flex items-center justify-center"
-            >
-              <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-[var(--color-bg)] rounded-[12px] border border-[var(--color-border)] shadow-xl w-[320px] overflow-hidden">
-                <div className="p-6 text-center">
-                  <h3 className="text-[16px] font-bold text-[var(--color-text)] mb-2">确认退出</h3>
-                  <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed mb-6">
-                    退出后后台服务将停止，无法继续导出与搜索聊天记录。确定要退出吗？
-                  </p>
-                  <div className="flex gap-3 justify-center">
-                    <button onClick={() => setShowExitConfirm(false)} disabled={exiting} className="px-6 py-2 rounded-md bg-transparent hover:bg-[var(--color-hover)] text-[13px] font-medium text-[var(--color-text)] border border-[var(--color-border)] transition-colors disabled:opacity-50">
-                      取消
-                    </button>
-                    <button
-                      onClick={async () => { setExiting(true); await handleExit(); }}
-                      disabled={exiting}
-                      className="px-6 py-2 rounded-md text-[13px] font-medium text-white bg-[#E54D2E] hover:bg-[#ce4529] transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
-                    >
-                      {exiting ? <><Loader size={14} /> 退出中...</> : '确认退出'}
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     </div>
   );

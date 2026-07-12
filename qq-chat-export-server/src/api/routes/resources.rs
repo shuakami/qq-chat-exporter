@@ -1494,6 +1494,10 @@ fn open_in_file_manager(target: &FsPath, select_file: bool) {
     }
 }
 
+fn should_select_in_file_manager(target: &FsPath) -> bool {
+    !target.is_dir()
+}
+
 /// 打开文件所在位置（文件管理器中选中该文件）。
 pub async fn open_file_location(
     Extension(RequestId(request_id)): Extension<RequestId>,
@@ -1509,7 +1513,7 @@ pub async fn open_file_location(
         let err = ApiError::validation("文件不存在", "FILE_NOT_FOUND");
         return response::error(&err, &request_id);
     }
-    open_in_file_manager(&path, true);
+    open_in_file_manager(&path, should_select_in_file_manager(&path));
     response::success(json!({ "message": "已打开文件位置" }), &request_id)
 }
 
@@ -2088,8 +2092,11 @@ pub async fn merge_resources(
 
 #[cfg(test)]
 mod metadata_tests {
-    use super::{apply_file_metadata, avatar_url, parse_manifest_metadata};
+    use super::{
+        apply_file_metadata, avatar_url, parse_manifest_metadata, should_select_in_file_manager,
+    };
     use serde_json::json;
+    use std::fs;
 
     #[test]
     fn private_avatar_rejects_uid_and_zero_values() {
@@ -2118,5 +2125,21 @@ mod metadata_tests {
             file["avatarUrl"],
             "https://q1.qlogo.cn/g?b=qq&nk=1687657986&s=100"
         );
+    }
+
+    #[test]
+    fn file_manager_selects_files_but_opens_directories() {
+        let base = std::env::temp_dir().join(format!(
+            "qce-open-location-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let file = base.join("export.html");
+        fs::create_dir_all(&base).unwrap();
+        fs::write(&file, b"test").unwrap();
+
+        assert!(!should_select_in_file_manager(&base));
+        assert!(should_select_in_file_manager(&file));
+
+        fs::remove_dir_all(base).unwrap();
     }
 }

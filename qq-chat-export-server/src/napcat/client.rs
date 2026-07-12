@@ -63,7 +63,10 @@ impl NapCatBridgeClient {
                 .to_string();
             return Err(BridgeError::Rpc(error));
         }
-        Ok(body.get("result").cloned().unwrap_or(Value::Null))
+        match body {
+            Value::Object(mut map) => Ok(map.remove("result").unwrap_or(Value::Null)),
+            _ => Ok(Value::Null),
+        }
     }
 
     /// bridge 健康检查（`GET /healthz`）。
@@ -82,12 +85,14 @@ impl NapCatBridgeClient {
 
     /// 获取群列表。
     pub async fn get_groups(&self, force_refresh: bool) -> Result<Value, BridgeError> {
-        self.call("GroupApi.getGroups", json!([force_refresh])).await
+        self.call("GroupApi.getGroups", json!([force_refresh]))
+            .await
     }
 
     /// 获取群详情。
     pub async fn fetch_group_detail(&self, group_code: &str) -> Result<Value, BridgeError> {
-        self.call("GroupApi.fetchGroupDetail", json!([group_code])).await
+        self.call("GroupApi.fetchGroupDetail", json!([group_code]))
+            .await
     }
 
     /// 获取群全部成员。
@@ -96,8 +101,22 @@ impl NapCatBridgeClient {
         group_code: &str,
         force_update: bool,
     ) -> Result<Value, BridgeError> {
-        self.call("GroupApi.getGroupMemberAll", json!([group_code, force_update]))
+        match self
+            .call(
+                "GroupService.getAllMemberList",
+                json!([group_code, force_update]),
+            )
             .await
+        {
+            Ok(result) => Ok(result),
+            Err(_) => {
+                self.call(
+                    "GroupApi.getGroupMemberAll",
+                    json!([group_code, force_update]),
+                )
+                .await
+            }
+        }
     }
 
     /// 获取群系统消息（入群申请等）。
@@ -106,18 +125,24 @@ impl NapCatBridgeClient {
     }
 
     /// 获取群文件数量。
-    pub async fn get_group_file_count(&self, group_codes: Vec<String>) -> Result<Value, BridgeError> {
-        self.call("GroupApi.getGroupFileCount", json!([group_codes])).await
+    pub async fn get_group_file_count(
+        &self,
+        group_codes: Vec<String>,
+    ) -> Result<Value, BridgeError> {
+        self.call("GroupApi.getGroupFileCount", json!([group_codes]))
+            .await
     }
 
     /// 获取好友列表（带分组）。
     pub async fn get_buddy_v2_ex_with_cate(&self, refresh: bool) -> Result<Value, BridgeError> {
-        self.call("FriendApi.getBuddyV2ExWithCate", json!([refresh])).await
+        self.call("FriendApi.getBuddyV2ExWithCate", json!([refresh]))
+            .await
     }
 
     /// 获取好友列表（简单版）。
     pub async fn get_friends(&self, force_refresh: bool) -> Result<Value, BridgeError> {
-        self.call("FriendApi.getFriends", json!([force_refresh])).await
+        self.call("FriendApi.getFriends", json!([force_refresh]))
+            .await
     }
 
     /// 获取用户详细信息。
@@ -137,10 +162,7 @@ impl NapCatBridgeClient {
     }
 
     /// 获取最近会话列表快照。
-    pub async fn get_recent_contact_list_snapshot(
-        &self,
-        count: i64,
-    ) -> Result<Value, BridgeError> {
+    pub async fn get_recent_contact_list_snapshot(&self, count: i64) -> Result<Value, BridgeError> {
         self.call("UserApi.getRecentContactListSnapShot", json!([count]))
             .await
     }
@@ -152,8 +174,22 @@ impl NapCatBridgeClient {
         root_msg_id: &str,
         parent_msg_id: &str,
     ) -> Result<Value, BridgeError> {
-        self.call("MsgApi.getMultiMsg", json!([peer, root_msg_id, parent_msg_id]))
+        match self
+            .call(
+                "MsgService.getMultiMsg",
+                json!([peer, root_msg_id, parent_msg_id]),
+            )
             .await
+        {
+            Ok(result) => Ok(result),
+            Err(_) => {
+                self.call(
+                    "MsgApi.getMultiMsg",
+                    json!([peer, root_msg_id, parent_msg_id]),
+                )
+                .await
+            }
+        }
     }
 
     /// 下载媒体资源，返回本地路径。
@@ -171,7 +207,16 @@ impl NapCatBridgeClient {
     ) -> Result<Value, BridgeError> {
         self.call(
             "FileApi.downloadMedia",
-            json!([msg_id, chat_type, peer_uid, element_id, this_path, source_path, timeout_ms, force]),
+            json!([
+                msg_id,
+                chat_type,
+                peer_uid,
+                element_id,
+                this_path,
+                source_path,
+                timeout_ms,
+                force
+            ]),
         )
         .await
     }
@@ -189,7 +234,8 @@ impl NapCatBridgeClient {
 
     /// 获取群精华消息（全部）。
     pub async fn get_group_essence_msg_all(&self, group_code: &str) -> Result<Value, BridgeError> {
-        self.call("WebApi.getGroupEssenceMsgAll", json!([group_code])).await
+        self.call("WebApi.getGroupEssenceMsgAll", json!([group_code]))
+            .await
     }
 
     /// 获取群荣誉信息。
@@ -204,7 +250,8 @@ impl NapCatBridgeClient {
 
     /// 获取群相册列表。
     pub async fn get_album_list(&self, group_code: &str) -> Result<Value, BridgeError> {
-        self.call("WebApi.getAlbumListByNTQQ", json!([group_code])).await
+        self.call("WebApi.getAlbumListByNTQQ", json!([group_code]))
+            .await
     }
 
     /// 获取群相册媒体列表。
@@ -275,30 +322,6 @@ impl ForwardFetcher for NapCatBridgeClient {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::extract_forward_messages;
-    use serde_json::json;
-
-    #[test]
-    fn extracts_forward_messages_from_supported_response_shapes() {
-        let message = json!({"msgId": "inner-1"});
-        assert_eq!(
-            extract_forward_messages(&json!({"msgList": [message.clone()]})),
-            Some(vec![message.clone()])
-        );
-        assert_eq!(
-            extract_forward_messages(&json!({"messages": [message.clone()]})),
-            Some(vec![message.clone()])
-        );
-        assert_eq!(
-            extract_forward_messages(&json!({"data": {"messages": [message]}})).map(|v| v.len()),
-            Some(1)
-        );
-        assert_eq!(extract_forward_messages(&json!({"data": {}})), None);
-    }
-}
-
 #[async_trait::async_trait]
 impl crate::resource::MediaDownloader for NapCatBridgeClient {
     async fn download_media(
@@ -334,12 +357,17 @@ impl MessageFetchApi for NapCatBridgeClient {
         peer: &Peer,
         count: i64,
     ) -> Result<Value, String> {
-        self.call(
-            "MsgApi.getAioFirstViewLatestMsgs",
-            json!([peer_to_value(peer), count]),
-        )
-        .await
-        .map_err(|error| error.to_string())
+        let params = json!([peer_to_value(peer), count]);
+        match self
+            .call("MsgService.getAioFirstViewLatestMsgs", params.clone())
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(_) => self
+                .call("MsgApi.getAioFirstViewLatestMsgs", params)
+                .await
+                .map_err(|error| error.to_string()),
+        }
     }
 
     async fn get_msg_history(
@@ -348,12 +376,17 @@ impl MessageFetchApi for NapCatBridgeClient {
         msg_id: &str,
         count: i64,
     ) -> Result<Value, String> {
-        self.call(
-            "MsgApi.getMsgHistory",
-            json!([peer_to_value(peer), msg_id, count, true]),
-        )
-        .await
-        .map_err(|error| error.to_string())
+        let params = json!([peer_to_value(peer), msg_id, count, true]);
+        match self
+            .call("MsgService.getMsgsIncludeSelf", params.clone())
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(_) => self
+                .call("MsgApi.getMsgHistory", params)
+                .await
+                .map_err(|error| error.to_string()),
+        }
     }
 
     async fn get_msgs_by_seq_range(
@@ -378,4 +411,28 @@ fn peer_to_value(peer: &Peer) -> Value {
         "peerUid": peer.peer_uid,
         "guildId": peer.guild_id.clone().unwrap_or_default(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_forward_messages;
+    use serde_json::json;
+
+    #[test]
+    fn extracts_forward_messages_from_supported_response_shapes() {
+        let message = json!({"msgId": "inner-1"});
+        assert_eq!(
+            extract_forward_messages(&json!({"msgList": [message.clone()]})),
+            Some(vec![message.clone()])
+        );
+        assert_eq!(
+            extract_forward_messages(&json!({"messages": [message.clone()]})),
+            Some(vec![message.clone()])
+        );
+        assert_eq!(
+            extract_forward_messages(&json!({"data": {"messages": [message]}})).map(|v| v.len()),
+            Some(1)
+        );
+        assert_eq!(extract_forward_messages(&json!({"data": {}})), None);
+    }
 }

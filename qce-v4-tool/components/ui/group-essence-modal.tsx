@@ -4,7 +4,6 @@ import { useState, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { 
   RefreshCw,
-  Download,
   Star,
   Clock
 } from "lucide-react"
@@ -62,7 +61,7 @@ export function GroupEssenceModal({
       onNotification?.(
         'success', 
         '导出成功', 
-        `已导出 ${result.totalCount} 条精华消息\n${result.filePath}`,
+        `已导出 ${result.totalCount} 条精华消息`,
         result.filePath ? [{ label: '打开位置', onClick: () => onOpenFileLocation?.(result.filePath) }] : undefined,
         0
       )
@@ -154,7 +153,7 @@ export function GroupEssenceModal({
               disabled={exporting || messages.length === 0}
               className="rounded-full text-[13px] h-8 px-6 bg-[#317CFF] text-white hover:bg-[#2867d6]"
             >
-              {exporting ? <Loader size={16} className="mr-2" /> : <Download className="w-4 h-4 mr-2" />}
+              {exporting && <Loader size={16} />}
               导出
             </Button>
           </div>
