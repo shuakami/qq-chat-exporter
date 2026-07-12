@@ -17,9 +17,8 @@ static FACE_CONFIG: &str = include_str!("../../../assets/face_config.json");
 /// 导出记录保留上限。
 const RECORD_LIMIT: usize = 100;
 
-/// 表情包导出根目录（`~/.qq-chat-exporter/sticker-packs`）。
 fn export_base_path(state: &SharedState) -> PathBuf {
-    state.path_manager.default_base_dir().join("sticker-packs")
+    state.path_manager.exports_dir().join("sticker-packs")
 }
 
 /// 导出记录文件路径。

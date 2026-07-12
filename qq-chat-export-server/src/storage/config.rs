@@ -59,8 +59,9 @@ impl Default for SystemConfig {
                 .join("database.db")
                 .to_string_lossy()
                 .into_owned(),
-            output_root_dir: home
-                .join(".qq-chat-exporter")
+            output_root_dir: dirs::document_dir()
+                .unwrap_or(home)
+                .join("QQChatExporter")
                 .join("exports")
                 .to_string_lossy()
                 .into_owned(),
