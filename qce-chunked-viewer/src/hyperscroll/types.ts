@@ -13,6 +13,8 @@ export interface DataSource {
    * the render window (~100 at a time), so it may be moderately expensive.
    */
   renderToString(index: number): string;
+  /** Optional lightweight HTML used while seeking with the native scrollbar. */
+  renderSeekToString?(index: number): string;
   /** Optional pre-measure height estimate in px, used before first render. */
   estimateHeight?(index: number): number;
 }
