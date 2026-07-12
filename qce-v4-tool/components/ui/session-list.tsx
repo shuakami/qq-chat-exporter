@@ -37,6 +37,7 @@ import {
 import {
   formatCompactCount,
   formatRelativeFromNow,
+  type SessionTaskStats,
 } from "@/lib/session-sort"
 import { QqLookupCard } from "./qq-lookup-card"
 
@@ -54,11 +55,7 @@ export interface SessionListProps {
    * 供「按最近活跃」排序 / 列表徽标显示。
    */
   recentActivityMap?: Record<string, string | undefined>
-  /**
-   * Issue #344: peerUid → 该会话在本地任务里已导出的消息总数。供「按
-   * 已导出消息数」排序。
-   */
-  taskCountMap?: Record<string, number | undefined>
+  taskStatsMap?: Record<string, SessionTaskStats | undefined>
   onRefresh?: () => void
   onToggleBatchMode?: () => void
   onSelectAll?: (filteredIds?: Set<string>) => void
@@ -86,7 +83,7 @@ export function SessionList({
   selectedItems = new Set(),
   avatarExportLoading,
   recentActivityMap,
-  taskCountMap,
+  taskStatsMap,
   onRefresh,
   onToggleBatchMode,
   onSelectAll,
@@ -124,7 +121,7 @@ export function SessionList({
     friendCount,
   } = useSessionFilter(groups, friends, {
     recentActivityMap,
-    taskCountMap,
+    taskStatsMap,
   })
 
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -456,6 +453,7 @@ export function SessionList({
             value={sortField}
             onChange={(v) => setSortField(v as SortField)}
             options={[
+              { value: "frequentExport", label: "常用导出" },
               { value: "name", label: "名称" },
               { value: "memberCount", label: "人数" },
               { value: "id", label: "ID" },
@@ -482,10 +480,10 @@ export function SessionList({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 rounded-full text-[13px] text-muted-foreground hover:text-foreground"
+              className="h-8 rounded-full text-[13px] leading-none text-muted-foreground hover:text-foreground"
               onClick={resetFilters}
             >
-              <X className="w-3.5 h-3.5 mr-1" />
+              <X className="w-3.5 h-3.5" />
               清除
             </Button>
           )}

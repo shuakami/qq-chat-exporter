@@ -14,6 +14,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Loader } from "@/components/ui/loader"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toggleSkipResourceType, type SkipDownloadResourceType } from "@/lib/skip-resource-types"
+import { EXPORT_OPTION_TOOLTIPS } from "@/lib/export-option-tooltips"
 
 const PILL_INPUT =
   "h-[36px] px-3.5 rounded-full border-0 bg-black/[0.04] dark:bg-white/[0.06] text-[13px] outline-none placeholder:text-muted-foreground/70 focus:bg-black/[0.06] dark:focus:bg-white/[0.09] transition-colors"
@@ -348,7 +349,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                       <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-[250px]">
-                      选择全部消息则导出全部记录
+                      {EXPORT_OPTION_TOOLTIPS.allMessages}
                     </TooltipContent>
                   </Tooltip>
                 </h2>
@@ -398,16 +399,16 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                 {/* 开关选项（分组卡片） */}
                 {(() => {
                   const allOptions = [
-                    { id: "streamingZipMode", checked: streamingZipMode, set: setStreamingZipMode, title: "流式导出（超大消息量专用）", desc: format === "HTML" ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式。" : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式。", tip: "普通导出会把全部消息放进内存再写文件，消息超多时可能卡死或崩溃；流式模式边读边写，内存占用恒定。十万条以下一般不需要开启。", visible: format === "HTML" || format === "JSON", highlight: true, group: "性能与处理" },
-                    { id: "includeSystemMessages", checked: includeSystemMessages, set: setIncludeSystemMessages, title: "包含系统消息", desc: "包含入群通知、撤回提示等系统提示消息", tip: "关闭后导出结果更干净，但会丢失撤回、入群、离群等上下文线索，事后无法补回。存档备份建议保持开启。", visible: true, highlight: false, group: "导出内容" },
-                    { id: "filterPureImageMessages", checked: filterPureImageMessages, set: setFilterPureImageMessages, title: "快速导出（跳过资源下载）", desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度", tip: "资源下载通常占导出总耗时的 90% 以上。只需要文字记录时开启此项，图片等会以占位符显示。", visible: true, highlight: false, group: "导出内容" },
+                    { id: "streamingZipMode", checked: streamingZipMode, set: setStreamingZipMode, title: "流式导出（超大消息量专用）", desc: format === "HTML" ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式。" : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式。", tip: EXPORT_OPTION_TOOLTIPS.streaming, visible: format === "HTML" || format === "JSON", highlight: true, group: "性能与处理" },
+                    { id: "includeSystemMessages", checked: includeSystemMessages, set: setIncludeSystemMessages, title: "包含系统消息", desc: "包含入群通知、撤回提示等系统提示消息", tip: EXPORT_OPTION_TOOLTIPS.includeSystemMessages, visible: true, highlight: false, group: "导出内容" },
+                    { id: "filterPureImageMessages", checked: filterPureImageMessages, set: setFilterPureImageMessages, title: "快速导出（跳过资源下载）", desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度", tip: EXPORT_OPTION_TOOLTIPS.quickExport, visible: true, highlight: false, group: "导出内容" },
                     // Issue #344：分别控制图片 / 视频 / 音频 / 文件四种资源是否参与下载。
-                    { id: "skipFileDownloadOnly", checked: !!skipDownloadResourceTypes?.includes('file'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'file', v)), title: "仅保留文件元数据，不下载文件", desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。", tip: "群文件往往体积大且有过期风险，下载失败率高。开启后可避免卡在大文件上，事后仍可凭 MD5 校验手动补档。", visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
-                    { id: "skipImageDownload", checked: !!skipDownloadResourceTypes?.includes('image'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'image', v)), title: "不下载图片", desc: "批量导出时跳过图片，HTML 中以占位形式显示。需要保留图片可关闭此项。", tip: "图片通常是数量最多的资源。活跃群聊动辄数万张，跳过后导出时间和磁盘占用都能降一个量级。", visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
-                    { id: "skipVideoDownload", checked: !!skipDownloadResourceTypes?.includes('video'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'video', v)), title: "不下载视频", desc: "批量导出时跳过视频，避免长时间或群聊导出时占用大量带宽和磁盘空间。", tip: "单个视频动辄几十到几百 MB，是磁盘占用的大头。不确定时建议先跳过，有需要再单独重导。", visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
-                    { id: "skipAudioDownload", checked: !!skipDownloadResourceTypes?.includes('audio'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'audio', v)), title: "不下载语音", desc: "批量导出时跳过 SILK / AMR 等语音消息。对只想保留文字记录的场景很有用。", tip: "语音需要额外转码才能在浏览器播放，耗时较长；另外部分年代久远的语音已无法从服务器拉取。", visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
-                    { id: "preferGroupMemberName", checked: preferGroupMemberName, set: setPreferGroupMemberName, title: "优先使用群成员名称", desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。这个选项仅对群聊生效。", tip: "群名片更贴近群内日常称呼，但成员退群后名片会丢失，此时会自动回退到 QQ 昵称。", visible: true, highlight: false, group: "导出内容" },
-                    { id: "exportAsZip", checked: exportAsZip, set: setExportAsZip, title: "导出为ZIP压缩包", desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）", tip: "HTML 导出默认是一个页面加一个 resources 目录，直接发送给别人容易漏文件；打包成单个 ZIP 更便于传输和归档。", visible: format === "HTML" && !streamingZipMode, highlight: false, group: "性能与处理" },
+                    { id: "skipFileDownloadOnly", checked: !!skipDownloadResourceTypes?.includes('file'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'file', v)), title: "仅保留文件元数据，不下载文件", desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。", tip: EXPORT_OPTION_TOOLTIPS.fileMetadataOnly, visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
+                    { id: "skipImageDownload", checked: !!skipDownloadResourceTypes?.includes('image'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'image', v)), title: "不下载图片", desc: "批量导出时跳过图片，HTML 中以占位形式显示。需要保留图片可关闭此项。", tip: EXPORT_OPTION_TOOLTIPS.skipImages, visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
+                    { id: "skipVideoDownload", checked: !!skipDownloadResourceTypes?.includes('video'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'video', v)), title: "不下载视频", desc: "批量导出时跳过视频，避免长时间或群聊导出时占用大量带宽和磁盘空间。", tip: EXPORT_OPTION_TOOLTIPS.skipVideos, visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
+                    { id: "skipAudioDownload", checked: !!skipDownloadResourceTypes?.includes('audio'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'audio', v)), title: "不下载语音", desc: "批量导出时跳过 SILK / AMR 等语音消息。对只想保留文字记录的场景很有用。", tip: EXPORT_OPTION_TOOLTIPS.skipAudio, visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
+                    { id: "preferGroupMemberName", checked: preferGroupMemberName, set: setPreferGroupMemberName, title: "优先使用群成员名称", desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。这个选项仅对群聊生效。", tip: EXPORT_OPTION_TOOLTIPS.preferGroupMemberName, visible: true, highlight: false, group: "导出内容" },
+                    { id: "exportAsZip", checked: exportAsZip, set: setExportAsZip, title: "导出为ZIP压缩包", desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）", tip: EXPORT_OPTION_TOOLTIPS.exportAsZip, visible: format === "HTML" && !streamingZipMode, highlight: false, group: "性能与处理" },
                     {
                       id: "useNameInFileName",
                       checked: useNameInFileName,
@@ -415,7 +416,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                       set: (v: boolean) => { setUseNameInFileName(v); if (v) setUseFriendlyFileName(false); },
                       title: "文件名包含聊天名称",
                       desc: "导出文件名中包含聊天对象的名称，方便识别",
-                      tip: "关闭后文件名只剩会话 ID 和时间戳，批量导出后很难分辨哪个文件对应哪个会话。",
+                      tip: EXPORT_OPTION_TOOLTIPS.includeChatName,
                       visible: true,
                       highlight: false,
                       group: "文件命名",
@@ -427,14 +428,14 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                       set: (v: boolean) => { setUseFriendlyFileName(v); if (v) setUseNameInFileName(false); },
                       title: "使用友好命名（名称(QQ号).html）",
                       desc: "导出文件名使用 `名称(QQ号).<扩展名>` 格式，去掉前缀与时间戳；同名碰撞时自动追加 `_<日期>_<时间>` 后缀。与「文件名包含聊天名称」互斥。",
-                      tip: "适合反复覆盖式备份：文件名稳定不变，同步盘/网盘不会因时间戳变化而重复上传。",
+                      tip: EXPORT_OPTION_TOOLTIPS.friendlyFileName,
                       visible: true,
                       highlight: false,
                       group: "文件命名",
                     },
-                    { id: "embedAvatarsAsBase64", checked: embedAvatarsAsBase64, set: setEmbedAvatarsAsBase64, title: "嵌入头像为Base64", desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）", tip: "默认只存头像 URL，离线或头像更换后就看不到原图；嵌入后数据永久自包含，代价是文件变大。", visible: format === "JSON", highlight: false, group: "导出内容" },
+                    { id: "embedAvatarsAsBase64", checked: embedAvatarsAsBase64, set: setEmbedAvatarsAsBase64, title: "嵌入头像为Base64", desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）", tip: EXPORT_OPTION_TOOLTIPS.embedAvatars, visible: format === "JSON", highlight: false, group: "导出内容" },
                     // Issue #311: 自包含 HTML
-                    { id: "embedResourcesAsDataUri", checked: embedResourcesAsDataUri, set: setEmbedResourcesAsDataUri, title: "生成自包含 HTML", desc: "将图片、语音、视频、小于 50 MB 的文件以 base64 内联到单个 HTML中，不再产出 resources 目录。适合需要单独发送的场景。", tip: "base64 内联会使体积膨胀约 33%，消息量很大时浏览器打开会变慢；只建议在需要单文件分享时使用。", visible: format === "HTML" && !exportAsZip && !streamingZipMode, highlight: false, group: "导出内容" }
+                    { id: "embedResourcesAsDataUri", checked: embedResourcesAsDataUri, set: setEmbedResourcesAsDataUri, title: "生成自包含 HTML", desc: "将图片、语音、视频、小于 50 MB 的文件以 base64 内联到单个 HTML中，不再产出 resources 目录。适合需要单独发送的场景。", tip: EXPORT_OPTION_TOOLTIPS.selfContainedHtml, visible: format === "HTML" && !exportAsZip && !streamingZipMode, highlight: false, group: "导出内容" }
                   ].filter((opt) => opt.visible)
                   return ["导出内容", "文件命名", "性能与处理"]
                     .map((groupName) => ({ groupName, opts: allOptions.filter((o) => o.group === groupName) }))

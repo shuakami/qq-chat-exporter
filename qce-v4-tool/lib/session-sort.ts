@@ -4,6 +4,7 @@
  */
 
 export type SortField =
+  | 'frequentExport'
   | 'name'
   | 'memberCount'
   | 'id'
@@ -27,6 +28,21 @@ export interface SortableSessionItem {
    * 已完成任务里 `messageCount` 求和。没有历史任务时为 `0`。
    */
   exportedMessageCount?: number
+  successfulExportCount?: number
+  lastSuccessfulExportAt?: number
+}
+
+export interface SessionTaskStats {
+  exportedMessageCount: number
+  successfulExportCount: number
+  lastSuccessfulExportAt?: number
+}
+
+export function sessionTaskStatsKey(
+  type: 'group' | 'friend',
+  id: string,
+): string {
+  return `${type}:${id}`
 }
 
 /**
@@ -61,6 +77,28 @@ export function compareSessionItems(
   const direction = order === 'asc' ? 1 : -1
 
   switch (field) {
+    case 'frequentExport': {
+      const aCount = a.successfulExportCount ?? 0
+      const bCount = b.successfulExportCount ?? 0
+      if (aCount !== bCount) {
+        return (aCount - bCount) * direction
+      }
+
+      const aT = a.lastSuccessfulExportAt
+      const bT = b.lastSuccessfulExportAt
+      if (aT !== bT) {
+        if (aT === undefined) return 1
+        if (bT === undefined) return -1
+        return (aT - bT) * direction
+      }
+
+      return (
+        a.name.localeCompare(b.name, 'zh-CN') ||
+        a.id.localeCompare(b.id) ||
+        a.type.localeCompare(b.type)
+      )
+    }
+
     case 'name':
       return a.name.localeCompare(b.name, 'zh-CN') * direction
 

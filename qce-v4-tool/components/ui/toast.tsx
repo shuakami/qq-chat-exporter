@@ -735,7 +735,7 @@ export const Toast = React.memo(({
               {resolvedActions.map((action, index) => {
                 const actionClassName = action.variant === "destructive"
                   ? "bg-rose-500 text-white hover:bg-rose-600"
-                  : `${theme.buttonBg} ${theme.buttonText} ${theme.buttonHover}`
+                  : `bg-transparent ${theme.buttonText} opacity-80 hover:opacity-100`
 
                 return (
                   <button
@@ -745,7 +745,7 @@ export const Toast = React.memo(({
                       action.onClick()
                       if (!action.keepOpen) onRemove(toast.id)
                     }}
-                    className={`px-3 py-1.5 ${actionClassName} text-[12px] font-medium rounded-full transition-all active:scale-95 shadow-sm`}
+                    className={`border-0 px-3 py-1.5 ${actionClassName} text-[12px] font-medium rounded-full shadow-none transition-opacity`}
                   >
                     {action.label}
                   </button>
@@ -866,7 +866,7 @@ export const Toaster: React.FC<ToasterProps> = ({
 
   return (
     <div
-      className={`fixed ${positionClasses[position]} w-[calc(100vw-32px)] sm:w-[360px] z-[100] pointer-events-none`}
+      className={`fixed ${positionClasses[position]} w-[calc(100vw-32px)] sm:w-[360px] z-[1000] pointer-events-none`}
       style={{ height: items.length > 0 ? (isHovered ? totalHeight : 80) : 0 }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
