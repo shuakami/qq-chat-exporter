@@ -7,7 +7,9 @@ use crate::modern_html_templates::{
     MODERN_SINGLE_SCRIPTS_HTML, MODERN_TOOLBAR_HTML,
 };
 use crate::reply_preview_renderer::{render_reply_preview_elements, ReplyPreviewRenderContext};
-use crate::reply_render::{choose_reply_jump_target, format_reply_timestamp, ReplyRenderInput};
+use crate::reply_render::{
+    choose_reply_jump_target, format_reply_timestamp, reply_timestamp_millis, ReplyRenderInput,
+};
 use crate::types::{ChatInfo, CleanMessage};
 use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone, Timelike, Utc};
 use serde_json::{json, Value};
@@ -132,6 +134,8 @@ pub struct ModernHtmlExporter {
     data_uri_cache: HashMap<String, String>,
     /// Issue #311：已尝试过、确认不可内联的资源 key，避免重复磁盘探测。
     data_uri_misses: HashSet<String>,
+    rendered_message_ids: HashSet<String>,
+    message_id_by_time_sender: HashMap<(i64, String), Option<String>>,
     /// 资源引用基础路径（URL 相对前缀）。
     /// - 单文件导出使用 `./resources`（资源目录与 HTML 同级，便于独立移动，
     ///   修复 Issue #213）；
@@ -169,6 +173,8 @@ impl ModernHtmlExporter {
             last_rendered_date: None,
             data_uri_cache: HashMap::new(),
             data_uri_misses: HashSet::new(),
+            rendered_message_ids: HashSet::new(),
+            message_id_by_time_sender: HashMap::new(),
             resource_base_href: "./resources".to_owned(),
         }
     }
@@ -197,6 +203,7 @@ impl ModernHtmlExporter {
 
         self.current_chat_info = Some(chat_info.clone());
         self.last_rendered_date = None;
+        self.prepare_reply_targets(messages);
 
         let mut total_messages = 0usize;
         let mut first_time: Option<i64> = None;
@@ -561,7 +568,8 @@ impl ModernHtmlExporter {
                 .await
                 .map_err(|e| ExportError::io("createWriteStream", &abs_path, e))?;
             let mut ws = BufWriter::new(file);
-            let header = format!("window.__QCE_MSGID_INDEX__ && window.__QCE_MSGID_INDEX__({i}, [\n");
+            let header =
+                format!("window.__QCE_MSGID_INDEX__ && window.__QCE_MSGID_INDEX__({i}, [\n");
             write_chunk(&mut ws, &abs_path, &header).await?;
             bucket_streams.push(ws);
             bucket_paths.push(abs_path);
@@ -591,6 +599,7 @@ impl ModernHtmlExporter {
         // setup exporter state
         self.current_chat_info = Some(chat_info.clone());
         self.last_rendered_date = None;
+        self.prepare_reply_targets(messages);
 
         // For chunked viewer, resource href base should be "resources"
         let old_resource_base_href =
@@ -706,10 +715,16 @@ impl ModernHtmlExporter {
                 }
             }
             if !date_key.is_empty() {
-                if min_date_key.as_deref().is_none_or(|m| date_key.as_str() < m) {
+                if min_date_key
+                    .as_deref()
+                    .is_none_or(|m| date_key.as_str() < m)
+                {
                     *min_date_key = Some(date_key.clone());
                 }
-                if max_date_key.as_deref().is_none_or(|m| date_key.as_str() > m) {
+                if max_date_key
+                    .as_deref()
+                    .is_none_or(|m| date_key.as_str() > m)
+                {
                     *max_date_key = Some(date_key.clone());
                 }
             }
@@ -792,8 +807,8 @@ impl ModernHtmlExporter {
 
             // write msgId -> chunkId mapping (bucketed)
             let dom_msg_id = format!("msg-{}", message.id);
-            let bucket = (fnv1a32(&dom_msg_id, 0x811c_9dc5) % limits.msg_id_index_bucket_count)
-                as usize;
+            let bucket =
+                (fnv1a32(&dom_msg_id, 0x811c_9dc5) % limits.msg_id_index_bucket_count) as usize;
             let pair = json!([dom_msg_id, chunk.id]).to_string();
             let sep = if bucket_first[bucket] { "" } else { ",\n" };
             bucket_first[bucket] = false;
@@ -950,9 +965,8 @@ impl ModernHtmlExporter {
         let manifest_js_path = data_dir.join("manifest.js");
         let manifest_json_path = data_dir.join("manifest.json");
 
-        let manifest_js = format!(
-            "window.__QCE_MANIFEST__ && window.__QCE_MANIFEST__({manifest});\n"
-        );
+        let manifest_js =
+            format!("window.__QCE_MANIFEST__ && window.__QCE_MANIFEST__({manifest});\n");
         fs::write(&manifest_js_path, manifest_js)
             .await
             .map_err(|e| ExportError::io("writeFile", &manifest_js_path, e))?;
@@ -975,8 +989,11 @@ impl ModernHtmlExporter {
             "mode": "chunked",
         });
 
-        let header_html =
-            self.generate_header(chat_info, TotalMessages::Count(*total_messages), &time_range_text);
+        let header_html = self.generate_header(
+            chat_info,
+            TotalMessages::Count(*total_messages),
+            &time_range_text,
+        );
         let index_html = render_template(
             MODERN_CHUNKED_INDEX_HTML_TEMPLATE,
             &[
@@ -1148,7 +1165,7 @@ impl ModernHtmlExporter {
                 <span class="meta-value" id="info-total">{}</span>
         </div>
             <div class="meta-item">
-                <span class="meta-label">时间范围</span>
+                <span class="meta-label">范围</span>
                 <span class="meta-value" id="info-range">{}</span>
                 </div>
             </div>
@@ -1310,16 +1327,20 @@ impl ModernHtmlExporter {
             if is_valid_resource_path(&local_path) {
                 let base_name = base_name_of(&local_path);
                 // Issue #311: 自包含模式下优先取内联 data URI，未命中才退回相对路径。
-                return self.lookup_data_uri(type_dir, &base_name).unwrap_or_else(|| {
-                    format!("{}/{type_dir}/{base_name}", self.resource_base_href)
-                });
+                return self
+                    .lookup_data_uri(type_dir, &base_name)
+                    .unwrap_or_else(|| {
+                        format!("{}/{type_dir}/{base_name}", self.resource_base_href)
+                    });
             }
         }
         if let Some(filename) = str_field(data, "filename") {
             if !filename.is_empty() && self.options.include_resource_links {
-                return self.lookup_data_uri(type_dir, &filename).unwrap_or_else(|| {
-                    format!("{}/{type_dir}/{filename}", self.resource_base_href)
-                });
+                return self
+                    .lookup_data_uri(type_dir, &filename)
+                    .unwrap_or_else(|| {
+                        format!("{}/{type_dir}/{filename}", self.resource_base_href)
+                    });
             }
         }
         if let Some(url) = str_field(data, "url") {
@@ -1453,7 +1474,7 @@ impl ModernHtmlExporter {
         // 历史的 replyMsgId / time 字段不同；这两个 helper 把字段挑选
         // 统一掉，并把时间格式化成「MM-DD HH:mm」中文串。
         let input = ReplyRenderInput::from_value(data);
-        let jump_target = choose_reply_jump_target(&input);
+        let jump_target = self.resolve_reply_jump_target(data, &input);
         let time_str = format_reply_timestamp(input.timestamp.as_ref().or(input.time.as_ref()));
 
         // Issue #128 子项：被引用消息里如果带图片 / 表情 / 音视频 / 文件，
@@ -1470,13 +1491,14 @@ impl ModernHtmlExporter {
             let mut image_html = String::new();
             let img_src = str_field(data, "imageUrl").or_else(|| str_field(data, "image"));
             if let Some(img_src) = img_src.filter(|s| !s.is_empty()) {
-                image_html =
-                    format!("<img src=\"{img_src}\" class=\"reply-content-thumb\" alt=\"引用图片\">");
+                image_html = format!(
+                    "<img src=\"{img_src}\" class=\"reply-content-thumb\" alt=\"引用图片\">"
+                );
             } else if content.contains("[图片]") {
                 if let Some(elements) = data.get("elements").and_then(Value::as_array) {
-                    let img_element = elements.iter().find(|el| {
-                        el.get("type").and_then(Value::as_str) == Some("image")
-                    });
+                    let img_element = elements
+                        .iter()
+                        .find(|el| el.get("type").and_then(Value::as_str) == Some("image"));
                     if let Some(local_path) = img_element
                         .and_then(|el| el.get("data"))
                         .and_then(|d| d.get("localPath"))
@@ -1485,9 +1507,10 @@ impl ModernHtmlExporter {
                     {
                         let base_name = base_name_of(local_path);
                         let img_src =
-                            self.lookup_data_uri("images", &base_name).unwrap_or_else(|| {
-                                format!("{}/images/{base_name}", self.resource_base_href)
-                            });
+                            self.lookup_data_uri("images", &base_name)
+                                .unwrap_or_else(|| {
+                                    format!("{}/images/{base_name}", self.resource_base_href)
+                                });
                         image_html = format!(
                             "<img src=\"{img_src}\" class=\"reply-content-thumb\" alt=\"引用图片\" loading=\"lazy\">"
                         );
@@ -1509,11 +1532,7 @@ impl ModernHtmlExporter {
         let interaction_attrs = jump_target
             .as_deref()
             .map(|t| {
-                let target_id = if t.starts_with("msg-") {
-                    t.to_owned()
-                } else {
-                    format!("msg-{t}")
-                };
+                let target_id = format!("msg-{t}");
                 format!(
                     "data-reply-to=\"{}\" role=\"button\" tabindex=\"0\" aria-label=\"跳转到原消息\"",
                     escape_html(&target_id)
@@ -1539,6 +1558,76 @@ impl ModernHtmlExporter {
         </div>"#,
             escape_html(&sender_name)
         )
+    }
+
+    fn prepare_reply_targets(&mut self, messages: &[CleanMessage]) {
+        self.rendered_message_ids.clear();
+        self.message_id_by_time_sender.clear();
+        for message in messages {
+            if message.id.trim().is_empty() {
+                continue;
+            }
+            self.rendered_message_ids.insert(message.id.clone());
+            for sender in [
+                Some(message.sender.uid.as_str()),
+                message.sender.uin.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .map(str::trim)
+            .filter(|sender| !sender.is_empty())
+            {
+                let key = (message.timestamp, sender.to_string());
+                match self.message_id_by_time_sender.entry(key) {
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(Some(message.id.clone()));
+                    }
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        if entry.get().as_deref() != Some(message.id.as_str()) {
+                            entry.insert(None);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn resolve_reply_jump_target(
+        &self,
+        data: &Value,
+        input: &ReplyRenderInput,
+    ) -> Option<String> {
+        if let Some(candidate) = choose_reply_jump_target(input) {
+            if self.rendered_message_ids.contains(&candidate) {
+                return Some(candidate);
+            }
+            if let Some(raw_id) = candidate.strip_prefix("msg-") {
+                if self.rendered_message_ids.contains(raw_id) {
+                    return Some(raw_id.to_string());
+                }
+            }
+        }
+
+        let timestamp =
+            reply_timestamp_millis(input.timestamp.as_ref().or(input.time.as_ref()))?;
+        let mut matches = HashSet::new();
+        for sender in ["senderUin", "senderUidStr", "senderUid"]
+            .iter()
+            .filter_map(|key| str_field(data, key))
+            .map(|sender| sender.trim().to_string())
+            .filter(|sender| !sender.is_empty())
+        {
+            if let Some(Some(message_id)) =
+                self.message_id_by_time_sender.get(&(timestamp, sender))
+            {
+                matches.insert(message_id.clone());
+            }
+        }
+        if matches.len() == 1 {
+            matches.into_iter().next()
+        } else {
+            None
+        }
     }
 
     fn is_self_message(&self, message: &CleanMessage) -> bool {
@@ -1720,11 +1809,7 @@ async fn finish_chunk(
 /* ------------------------ 流式写入 / 并发复制 ------------------------ */
 
 /// 写入一段字符串（对应 TS `writeChunk`；tokio `write_all` 天然遵循 backpressure）。
-async fn write_chunk(
-    ws: &mut BufWriter<fs::File>,
-    path: &Path,
-    chunk: &str,
-) -> ExportResultT<()> {
+async fn write_chunk(ws: &mut BufWriter<fs::File>, path: &Path, chunk: &str) -> ExportResultT<()> {
     ws.write_all(chunk.as_bytes())
         .await
         .map_err(|e| ExportError::io("writeChunk", path, e))
@@ -2111,10 +2196,7 @@ fn num_field_display(data: &Value, key: &str) -> String {
 
 /// 提取路径最后一段文件名（对应 `path.basename`，同时兼容 Windows 分隔符）。
 fn base_name_of(path: &str) -> String {
-    path.rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(path)
-        .to_owned()
+    path.rsplit(['/', '\\']).next().unwrap_or(path).to_owned()
 }
 
 /// 外链 URL 过滤：排除 file:// 协议和本地文件系统路径（对齐 TS 判断）。
@@ -2129,7 +2211,10 @@ fn is_acceptable_remote_url(url: &str) -> bool {
 
 fn render_text_element(data: &Value) -> String {
     let text = str_field(data, "text").unwrap_or_default();
-    format!("<span class=\"text-content\">{}</span>", linkify_escaped(&text))
+    format!(
+        "<span class=\"text-content\">{}</span>",
+        linkify_escaped(&text)
+    )
 }
 
 /// URL 中允许的字符（保守集合，遇到空白/中文/引号/尖括号等即截止）。
@@ -2447,6 +2532,9 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
         format!(
             r#"<button type="button" class="forward-card-toggle" aria-expanded="false" data-count="{message_count}">
                 <span class="forward-card-toggle-label">展开全部 {message_count} 条</span>
+                <svg class="forward-card-toggle-icon" viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="m5 7.5 5 5 5-5"></path>
+                </svg>
             </button>"#
         )
     } else {
@@ -2495,7 +2583,10 @@ fn render_system_element(data: &Value) -> String {
     let text = str_field(data, "text")
         .or_else(|| str_field(data, "content"))
         .unwrap_or_else(|| "系统消息".to_owned());
-    if let Some(items) = data.get("items").and_then(Value::as_array).filter(|items| !items.is_empty())
+    if let Some(items) = data
+        .get("items")
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
     {
         let content = items
             .iter()
@@ -2854,12 +2945,10 @@ fn locale_datetime_zh(d: DateTime<Local>) -> String {
 
 /// `Date#toLocaleDateString('zh-CN')` 等价输出：`YYYY/M/D`（不补零）。
 fn locale_date_zh(ts_ms: i64) -> String {
-    Local
-        .timestamp_millis_opt(ts_ms)
-        .single()
-        .map_or_else(|| "--".to_owned(), |d| {
-            format!("{}/{}/{}", d.year(), d.month(), d.day())
-        })
+    Local.timestamp_millis_opt(ts_ms).single().map_or_else(
+        || "--".to_owned(),
+        |d| format!("{}/{}/{}", d.year(), d.month(), d.day()),
+    )
 }
 
 /// 当前时间 ISO 8601（UTC，与 JS `Date#toISOString` 一致）。
@@ -2881,16 +2970,14 @@ fn generate_avatar_html(uin: Option<&str>, name: Option<&str>) -> String {
     match uin.filter(|u| !u.is_empty()) {
         Some(uin) => {
             let avatar_url = format!("http://q.qlogo.cn/g?b=qq&nk={uin}&s=100");
-            let fallback_text = name
-                .filter(|n| !n.is_empty())
-                .map_or_else(
-                    || {
-                        let units: Vec<u16> = uin.encode_utf16().collect();
-                        let start = units.len().saturating_sub(2);
-                        String::from_utf16_lossy(&units[start..])
-                    },
-                    first_char_upper,
-                );
+            let fallback_text = name.filter(|n| !n.is_empty()).map_or_else(
+                || {
+                    let units: Vec<u16> = uin.encode_utf16().collect();
+                    let start = units.len().saturating_sub(2);
+                    String::from_utf16_lossy(&units[start..])
+                },
+                first_char_upper,
+            );
             format!(
                 "<img src=\"{avatar_url}\" alt=\"{}\" onerror=\"this.style.display='none'; this.nextSibling.style.display='inline-flex';\" />\n                    <span style=\"display:none; width:40px; height:40px; border-radius:50%; background:#007AFF; color:white; align-items:center; justify-content:center; font-size:14px; font-weight:500;\">{}</span>",
                 escape_html(name.filter(|n| !n.is_empty()).unwrap_or(uin)),

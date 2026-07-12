@@ -7,9 +7,6 @@ pub const MODERN_TOOLBAR_HTML: &str = include_str!("../assets/modern_toolbar.htm
 /// 页脚 HTML。
 pub const MODERN_FOOTER_HTML: &str = include_str!("../assets/modern_footer.html");
 
-/// 单文件模式内联脚本主体（不含 `<script>` 包裹外的运行期开关）。
-pub const MODERN_SINGLE_APP_JS: &str = include_str!("../assets/modern_single_app.js");
-
 /// 单文件模式脚本 HTML（lucide CDN + 内联脚本）。
 pub const MODERN_SINGLE_SCRIPTS_HTML: &str = include_str!("../assets/modern_single_scripts.html");
 

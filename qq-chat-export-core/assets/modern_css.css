@@ -1254,6 +1254,7 @@
         .forward-card-toggle {
             display: inline-flex;
             align-items: center;
+            gap: 4px;
             padding: 0;
             border: 0;
             background: transparent;
@@ -1261,6 +1262,21 @@
             font: inherit;
             font-weight: 600;
             cursor: pointer;
+        }
+
+        .forward-card-toggle-icon {
+            width: 14px;
+            height: 14px;
+            fill: none;
+            stroke: currentColor;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-width: 2;
+            transition: transform 160ms ease;
+        }
+
+        .forward-card-toggle[aria-expanded="true"] .forward-card-toggle-icon {
+            transform: rotate(180deg);
         }
 
         .forward-card-toggle:hover {

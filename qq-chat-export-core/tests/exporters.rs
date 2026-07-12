@@ -1,6 +1,8 @@
 use qce_exporter::html_exporter::{HtmlExporter, HtmlFormatOptions};
 use qce_exporter::json_exporter::{JsonExporter, JsonFormatOptions};
-use qce_exporter::modern_html_exporter::{HtmlExportOptions, ModernHtmlExporter};
+use qce_exporter::modern_html_exporter::{
+    ChunkedHtmlExportOptions, HtmlExportOptions, ModernHtmlExporter,
+};
 use qce_exporter::reply_preview_renderer::{
     render_reply_preview_element, render_reply_preview_elements, ReplyPreviewRenderContext,
 };
@@ -233,9 +235,103 @@ async fn modern_html_renders_structured_system_rows_and_flat_json_cards() {
             }),
         }],
     );
-    let (reply_html, _) = render_modern_html(&temp, "reply", reply_message, |_| {}).await;
+    let original_message = message(
+        "original",
+        1_718_454_800_000,
+        vec![MessageElement {
+            element_type: "text".to_owned(),
+            data: json!({ "text": "原消息" }),
+        }],
+    );
+    let (reply_html, _) =
+        render_modern_messages(&temp, "reply", vec![original_message, reply_message], |_| {}).await;
     assert!(reply_html.contains("data-reply-to=\"msg-original\""));
     assert!(!reply_html.contains("data-reply-to=\"msg-msg-original\""));
+}
+
+#[tokio::test]
+async fn modern_html_repairs_historical_reply_ids_for_single_and_chunked_exports() {
+    let temp = TestDir::new("historical-reply-targets");
+    let image_target = message(
+        "7550661840517106706",
+        1_758_025_456_000,
+        vec![MessageElement {
+            element_type: "image".to_owned(),
+            data: json!({ "md5": "2fba99613c5656a48d0cb2801b20af1d" }),
+        }],
+    );
+    let text_target = message(
+        "7550661067109350011",
+        1_758_025_276_000,
+        vec![MessageElement {
+            element_type: "text".to_owned(),
+            data: json!({ "text": "终于不用每次切后台关vpn了" }),
+        }],
+    );
+    let image_reply = message(
+        "7550673423851295946",
+        1_758_028_153_000,
+        vec![MessageElement {
+            element_type: "reply".to_owned(),
+            data: json!({
+                "messageId": "7550673423851295947",
+                "referencedMessageId": "7550673423851295947",
+                "senderUin": "10001",
+                "senderName": "笨蛋Darf v2",
+                "content": "[图片]",
+                "timestamp": 1_758_025_456
+            }),
+        }],
+    );
+    let text_reply = message(
+        "7550673536078933491",
+        1_758_028_179_000,
+        vec![MessageElement {
+            element_type: "reply".to_owned(),
+            data: json!({
+                "messageId": "7550673536078933492",
+                "referencedMessageId": "7550673536078933492",
+                "senderUin": "10001",
+                "senderName": "笨蛋Darf v2",
+                "content": "终于不用每次切后台关vpn了",
+                "timestamp": 1_758_025_276
+            }),
+        }],
+    );
+    let messages = vec![image_target, text_target, image_reply, text_reply];
+
+    let (single_html, _) =
+        render_modern_messages(&temp, "single-repaired", messages.clone(), |_| {}).await;
+    assert!(single_html.contains("data-reply-to=\"msg-7550661840517106706\""));
+    assert!(single_html.contains("data-reply-to=\"msg-7550661067109350011\""));
+    assert!(!single_html.contains("data-reply-to=\"msg-7550673423851295947\""));
+    assert!(!single_html.contains("data-reply-to=\"msg-7550673536078933492\""));
+
+    let chunked_dir = temp.join("chunked-repaired");
+    fs::create_dir_all(&chunked_dir).expect("create chunked output directory");
+    let mut exporter = ModernHtmlExporter::new(HtmlExportOptions {
+        output_path: chunked_dir.join("index.html"),
+        ..HtmlExportOptions::default()
+    });
+    exporter
+        .export_chunked(
+            &messages,
+            &chat_info(),
+            &ChunkedHtmlExportOptions::default(),
+        )
+        .await
+        .expect("chunked export");
+    let chunk = fs::read_dir(chunked_dir.join("data/chunks"))
+        .expect("read chunks directory")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("js"))
+        .and_then(|path| fs::read_to_string(path).ok())
+        .expect("read chunk");
+    assert!(chunk.contains("msg-7550661840517106706"));
+    assert!(chunk.contains("msg-7550661067109350011"));
+    assert!(!chunk.contains("msg-7550673423851295947"));
+    assert!(!chunk.contains("msg-7550673536078933492"));
 }
 
 fn resource_message(resource_type: &str, filename: &str, source: &Path) -> CleanMessage {
@@ -259,6 +355,15 @@ async fn render_modern_html(
     message: CleanMessage,
     options: impl FnOnce(&mut HtmlExportOptions),
 ) -> (String, PathBuf) {
+    render_modern_messages(temp, name, vec![message], options).await
+}
+
+async fn render_modern_messages(
+    temp: &TestDir,
+    name: &str,
+    messages: Vec<CleanMessage>,
+    options: impl FnOnce(&mut HtmlExportOptions),
+) -> (String, PathBuf) {
     let output_dir = temp.join(name);
     fs::create_dir_all(&output_dir).expect("create output directory");
     let output_path = output_dir.join("chat.html");
@@ -269,7 +374,7 @@ async fn render_modern_html(
     options(&mut html_options);
     let mut exporter = ModernHtmlExporter::new(html_options);
     exporter
-        .export(&[message], &chat_info())
+        .export(&messages, &chat_info())
         .await
         .expect("modern html export");
     (
@@ -418,10 +523,13 @@ async fn modern_html_renders_nested_forwards_and_print_options() {
     assert!(html.contains("data-count=\"6\""));
     assert!(html.contains("展开全部 6 条"));
     assert!(html.contains("forward-card-toggle-label"));
+    assert!(html.contains("class=\"forward-card-toggle-icon\""));
+    assert!(html.contains("aria-expanded=\"false\""));
+    assert!(html.contains("function toggleForwardCard(target)"));
+    assert!(html.contains("button.setAttribute('aria-expanded', expanded ? 'true' : 'false')"));
     assert!(html.contains("<span>转发消息</span>"));
     assert!(!html.contains("forward-card-icon"));
     assert!(!html.contains("转发消息 ·"));
-    assert!(!html.contains("<svg viewBox=\"0 0 20 20\""));
     assert!(!html.contains("[转发消息: 2条]"));
     assert!(html.contains("<div class=\"toolbar\" style=\"display:none\">"));
     assert!(html.contains("window.__QCE_ENABLE_VIRTUAL_SCROLL = false"));
@@ -440,9 +548,8 @@ async fn modern_html_keeps_default_print_options_and_caps_forward_depth() {
     assert!(defaults.contains("<div class=\"toolbar\">"));
     assert!(!defaults.contains("<div class=\"toolbar\" style=\"display:none\">"));
     assert!(defaults.contains("window.__QCE_ENABLE_VIRTUAL_SCROLL = true"));
-    assert!(defaults.contains(
-        "window.__QCE_ENABLE_VIRTUAL_SCROLL !== false && messageBlocks.length > 100"
-    ));
+    assert!(defaults
+        .contains("window.__QCE_ENABLE_VIRTUAL_SCROLL !== false && messageBlocks.length > 100"));
 
     fn nested_forward(depth: usize) -> Value {
         if depth == 0 {
@@ -670,8 +777,7 @@ fn reply_preview_renderer_uses_data_uris_and_safe_fallbacks() {
     );
     assert!(relative_image.contains("src=\"resources/images/other.jpg\""));
 
-    let missing_image =
-        render_reply_preview_element(&json!({ "type": "image" }), &context);
+    let missing_image = render_reply_preview_element(&json!({ "type": "image" }), &context);
     assert_eq!(missing_image, "[图片]");
 
     let market_face = render_reply_preview_element(

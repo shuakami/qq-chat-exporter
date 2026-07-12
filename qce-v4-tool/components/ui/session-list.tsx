@@ -69,7 +69,7 @@ export interface SessionListProps {
   onSelectMany?: (ids: Set<string>, mode: 'add' | 'remove') => void
   onOpenBatchExportDialog?: () => void
   onPreviewChat?: (type: 'group' | 'friend', id: string, name: string, peer: { chatType: number, peerUid: string }) => void
-  onOpenTaskWizard?: (preset: { chatType: number, peerUid: string, sessionName: string }) => void
+  onOpenTaskWizard?: (preset: { chatType: number, peerUid: string, peerUin?: string, sessionName: string }) => void
   onExportGroupAvatars?: (groupCode: string, groupName: string) => void
   onOpenEssenceModal?: (groupCode: string, groupName: string) => void
   onOpenGroupFilesModal?: (groupCode: string, groupName: string) => void
@@ -360,6 +360,7 @@ function SessionListComponent({
                     onOpenTaskWizard?.({
                       chatType: 2,
                       peerUid: item.id,
+                      peerUin: item.id,
                       sessionName: item.name,
                     })
                   }}
@@ -399,6 +400,9 @@ function SessionListComponent({
                   onOpenTaskWizard?.({
                     chatType: isGroup ? 2 : 1,
                     peerUid: item.id,
+                    peerUin: isGroup
+                      ? item.id
+                      : String((item.raw as Friend).uin || ""),
                     sessionName: item.name,
                   })
                 }}
