@@ -30,7 +30,7 @@ impl ReplyRenderInput {
         Self {
             referenced_message_id: get_str("referencedMessageId"),
             reply_msg_id: get_str("replyMsgId"),
-            msg_id: get_str("msgId"),
+            msg_id: get_str("msgId").or_else(|| get_str("messageId")),
             timestamp: data.get("timestamp").cloned(),
             time: data.get("time").cloned(),
         }

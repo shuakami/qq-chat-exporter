@@ -1325,9 +1325,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                         <Icon className="w-4 h-4 flex-shrink-0" />
                         <span className="truncate">{item.label}</span>
                         {item.id === "tasks" && getTaskStats().running > 0 && (
-                          <span className="ml-auto text-[11px] text-blue-600 dark:text-blue-400 font-medium tabular-nums">
-                            {getTaskStats().running}
-                          </span>
+                          <Loader size={12} className="ml-auto text-blue-600 dark:text-blue-400" />
                         )}
                       </motion.button>
                     )

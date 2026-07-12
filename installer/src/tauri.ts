@@ -71,6 +71,8 @@ const api = {
   startService: () => invoke<void>('start_service'),
   /** Stop QCE / NapCat and any spawned QQ. */
   stopService: () => invoke<void>('stop_service'),
+  /** Restart the runtime and discard stale process/auth state. */
+  restartService: () => invoke<void>('restart_service'),
   isQceRunning: () => invoke<RunningInfo>('qce_status'),
   getWebuiUrl: () => invoke<string | null>('get_webui_url'),
 
