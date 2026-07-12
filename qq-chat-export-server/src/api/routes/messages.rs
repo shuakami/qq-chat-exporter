@@ -435,7 +435,7 @@ pub async fn fetch_messages(
     let mut reached_target = false;
 
     loop {
-        let batch = match fetcher.fetch_next_batch(&peer, &fetch_filter, previous.as_ref()).await {
+        let mut batch = match fetcher.fetch_next_batch(&peer, &fetch_filter, previous.as_ref()).await {
             Ok(Some(batch)) => batch,
             Ok(None) => break,
             Err(error) => {
@@ -443,14 +443,14 @@ pub async fn fetch_messages(
                 return response::error(&err, &request_id);
             }
         };
-        for message in &batch.messages {
+        for message in batch.messages.drain(..) {
             let msg_id = message
                 .get("msgId")
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
             if msg_id.is_empty() || seen_ids.insert(msg_id) {
-                all_messages.push(message.clone());
+                all_messages.push(message);
             }
         }
         if all_messages.len() >= target_count {
@@ -464,20 +464,21 @@ pub async fn fetch_messages(
     // 按时间戳倒序。
     all_messages.sort_by_key(|m| std::cmp::Reverse(msg_time_ms(m)));
 
+    let has_next = all_messages.len() > end_index || has_more;
+    let paginated = paginate_response(&all_messages, has_next, cache_hit);
     {
         let mut cache = state.message_cache.lock().await;
         cache.insert(
             cache_key,
             MessageCacheEntry {
-                messages: all_messages.clone(),
+                messages: all_messages,
                 last_update: now_ms(),
                 has_more,
             },
         );
     }
 
-    let has_next = all_messages.len() > end_index || has_more;
-    paginate_response(&all_messages, has_next, cache_hit)
+    paginated
 }
 
 /// 导出请求的公共参数。
@@ -1154,13 +1155,13 @@ async fn process_export_task(
             fetcher.cancel();
             return Err("任务已被用户停止".to_string());
         }
-        let batch = match fetcher.fetch_next_batch(&peer, &fetch_filter, previous.as_ref()).await {
+        let mut batch = match fetcher.fetch_next_batch(&peer, &fetch_filter, previous.as_ref()).await {
             Ok(Some(batch)) => batch,
             Ok(None) => break,
             Err(error) => return Err(format!("获取消息失败: {error}")),
         };
         batch_count += 1;
-        all_messages.extend(batch.messages.iter().cloned());
+        all_messages.append(&mut batch.messages);
 
         let progress = (batch_count * 10).min(50);
         let message = format!("已获取 {} 条消息...", all_messages.len());

@@ -87,6 +87,9 @@ async fn run() -> Result<(), String> {
     // ============ 路径管理器 + 用户自定义目录 ============
     let path_manager = Arc::new(PathManager::new());
     load_custom_dirs(&path_manager).await;
+    if let Err(error) = path_manager.migrate_legacy_export_dirs().await {
+        tracing::warn!("[QCE] Failed to migrate legacy export directories: {error}");
+    }
 
     // ============ 数据库 ============
     // 与 TS 侧 ConfigManager 对齐：databasePath = ~/.qq-chat-exporter/database.db，

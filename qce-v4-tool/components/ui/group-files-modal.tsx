@@ -88,10 +88,11 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
       const albumIds = selectedAlbums.size > 0 ? Array.from(selectedAlbums) : undefined
       const result = await exportAlbum(groupCode, groupName, albumIds)
       if (result?.success) {
-        const msg = result.exportPath 
-          ? `已导出到 ${result.exportPath}` 
-          : `已导出 ${result.albumCount} 个相册，共 ${result.downloadedCount} 个媒体文件`
-        onNotification?.('success', '导出成功', msg)
+        onNotification?.(
+          'success',
+          '导出成功',
+          `已导出 ${result.albumCount} 个相册，共 ${result.downloadedCount} 个媒体文件`
+        )
         setSelectedAlbums(new Set())
       } else {
         onNotification?.('error', '导出失败', result?.error || '未知错误')
@@ -137,10 +138,7 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
     try {
       const result = await exportFilesMetadata(groupCode, groupName)
       if (result?.success) {
-        const msg = result.exportPath
-          ? `已导出到 ${result.exportPath}`
-          : `已导出文件列表，共 ${result.fileCount} 个文件`
-        onNotification?.('success', '导出成功', msg)
+        onNotification?.('success', '导出成功', `已导出文件列表，共 ${result.fileCount} 个文件`)
       } else {
         onNotification?.('error', '导出失败', result?.error || '未知错误')
       }
@@ -157,10 +155,11 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
     try {
       const result = await exportFilesWithDownload(groupCode, groupName)
       if (result?.success) {
-        const msg = result.exportPath
-          ? `已导出到 ${result.exportPath}`
-          : `已下载 ${result.downloadedCount}/${result.fileCount} 个文件`
-        onNotification?.('success', '导出成功', msg)
+        onNotification?.(
+          'success',
+          '导出成功',
+          `已下载 ${result.downloadedCount}/${result.fileCount} 个文件`
+        )
       } else {
         onNotification?.('error', '导出失败', result?.error || '未知错误')
       }
@@ -250,7 +249,7 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                       {loading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
                     </Button>
                     <Button size="sm" onClick={handleExportAlbums} disabled={loading || exporting} className="rounded-full">
-                      {exporting ? <Loader size={16} /> : <Download className="w-4 h-4 mr-1" />}
+                      {exporting && <Loader size={16} />}
                       {selectedAlbums.size > 0 ? '导出选中' : '导出全部'}
                     </Button>
                   </div>
@@ -404,7 +403,7 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
 
                 <div className="flex justify-end gap-2 pt-4 mt-4">
                   <Button variant="outline" onClick={handleExportFilesList} disabled={loading || exporting} className="rounded-full">
-                    {exporting ? <Loader size={16} className="mr-1" /> : <FileText className="w-4 h-4 mr-1" />}
+                    {exporting && <Loader size={16} />}
                     导出列表
                   </Button>
                   <Button onClick={handleExportFilesWithDownload} disabled={loading || exporting} className="rounded-full">

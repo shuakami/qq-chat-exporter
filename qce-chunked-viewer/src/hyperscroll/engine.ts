@@ -52,6 +52,7 @@ export class HyperScroll {
   private range: RenderRange = { start: 0, end: 0 };
   private lastRebuildMs = 0;
   private ignoreScroll = false;
+  private scrollSyncReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSetScrollTop = -1;
   private smoothRemainder = 0;
   private smoothVel = 0;
@@ -177,6 +178,9 @@ export class HyperScroll {
     this.destroyed = true;
     this.abort.abort();
     this.cancelNativeSeek();
+    if (this.scrollSyncReleaseTimer !== null) {
+      clearTimeout(this.scrollSyncReleaseTimer);
+    }
     this.resizeObserver?.disconnect();
     this.layer.remove();
     this.spacer.remove();
@@ -239,6 +243,11 @@ export class HyperScroll {
   }
 
   private readonly onPointerDown = (): void => {
+    if (this.scrollSyncReleaseTimer !== null) {
+      clearTimeout(this.scrollSyncReleaseTimer);
+      this.scrollSyncReleaseTimer = null;
+    }
+    this.ignoreScroll = false;
     this.pointerActive = true;
   };
 
@@ -610,9 +619,13 @@ export class HyperScroll {
     if (Math.abs(this.viewport.scrollTop - target) >= 1) {
       this.ignoreScroll = true;
       this.viewport.scrollTop = target;
-      requestAnimationFrame(() => {
+      if (this.scrollSyncReleaseTimer !== null) {
+        clearTimeout(this.scrollSyncReleaseTimer);
+      }
+      this.scrollSyncReleaseTimer = setTimeout(() => {
         this.ignoreScroll = false;
-      });
+        this.scrollSyncReleaseTimer = null;
+      }, 48);
     }
   }
 }

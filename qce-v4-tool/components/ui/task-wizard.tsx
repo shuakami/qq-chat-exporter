@@ -19,11 +19,151 @@ import type { CreateTaskForm, Group, Friend, GroupMember } from "@/types/api"
 import { Checkbox } from "./checkbox"
 import { Switch } from "./switch"
 import { toggleSkipResourceType } from "@/lib/skip-resource-types"
+import { EXPORT_OPTION_TOOLTIPS } from "@/lib/export-option-tooltips"
 
 // 统一的药丸输入样式（与新版模态框 UI 对齐：无边框、浅底、聚焦加深）
 const PILL_INPUT =
   "h-[36px] px-3.5 rounded-full border-0 bg-black/[0.04] dark:bg-white/[0.06] text-[13px] outline-none placeholder:text-muted-foreground/70 focus:bg-black/[0.06] dark:focus:bg-white/[0.09] transition-colors"
 const SECTION_TITLE = "text-[14px] font-medium text-foreground mb-5"
+const ADVANCED_PREFERENCES_KEY = "qce.taskWizard.advancedPreferences.v1"
+
+type SkipDownloadResourceType = NonNullable<CreateTaskForm["skipDownloadResourceTypes"]>[number]
+
+interface AdvancedPreferences {
+  includeSystemMessages: boolean
+  filterPureImageMessages: boolean
+  skipDownloadResourceTypes?: SkipDownloadResourceType[]
+  preferGroupMemberName: boolean
+  exportAsZip: boolean
+  useNameInFileName: boolean
+  useFriendlyFileName: boolean
+  embedAvatarsAsBase64: boolean
+  embedResourcesAsDataUri: boolean
+  streamingZipMode: boolean
+  outputDir: string
+}
+
+const createDefaultForm = (): CreateTaskForm => ({
+  chatType: 2,
+  peerUid: "",
+  sessionName: "",
+  format: "JSON",
+  startTime: "",
+  endTime: "",
+  keywords: "",
+  excludeUserUins: "",
+  includeUserUins: "",
+  includeRecalled: false,
+  includeSystemMessages: true,
+  filterPureImageMessages: true,
+  exportAsZip: false,
+  embedAvatarsAsBase64: false,
+  embedResourcesAsDataUri: false,
+  streamingZipMode: false,
+  outputDir: "",
+  useNameInFileName: false,
+  useFriendlyFileName: false,
+  preferGroupMemberName: true,
+})
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const isSkipDownloadResourceType = (value: unknown): value is SkipDownloadResourceType =>
+  value === "image" || value === "video" || value === "audio" || value === "file"
+
+const readAdvancedPreferences = (): Partial<AdvancedPreferences> => {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(ADVANCED_PREFERENCES_KEY) || "null")
+    if (!isRecord(parsed)) return {}
+
+    const preferences: Partial<AdvancedPreferences> = {}
+    const booleanKeys = [
+      "includeSystemMessages",
+      "filterPureImageMessages",
+      "preferGroupMemberName",
+      "exportAsZip",
+      "useNameInFileName",
+      "useFriendlyFileName",
+      "embedAvatarsAsBase64",
+      "embedResourcesAsDataUri",
+      "streamingZipMode",
+    ] as const
+    for (const key of booleanKeys) {
+      if (typeof parsed[key] === "boolean") preferences[key] = parsed[key]
+    }
+    if (typeof parsed.outputDir === "string") preferences.outputDir = parsed.outputDir
+    if (Array.isArray(parsed.skipDownloadResourceTypes)) {
+      preferences.skipDownloadResourceTypes =
+        parsed.skipDownloadResourceTypes.filter(isSkipDownloadResourceType)
+    }
+    return preferences
+  } catch {
+    return {}
+  }
+}
+
+const selectAdvancedPreferences = (form: CreateTaskForm): AdvancedPreferences => ({
+  includeSystemMessages: form.includeSystemMessages,
+  filterPureImageMessages: form.filterPureImageMessages,
+  skipDownloadResourceTypes: form.skipDownloadResourceTypes,
+  preferGroupMemberName: form.preferGroupMemberName ?? true,
+  exportAsZip: form.exportAsZip ?? false,
+  useNameInFileName: form.useNameInFileName ?? false,
+  useFriendlyFileName: form.useFriendlyFileName ?? false,
+  embedAvatarsAsBase64: form.embedAvatarsAsBase64 ?? false,
+  embedResourcesAsDataUri: form.embedResourcesAsDataUri ?? false,
+  streamingZipMode: form.streamingZipMode ?? false,
+  outputDir: form.outputDir ?? "",
+})
+
+const writeAdvancedPreferences = (form: CreateTaskForm) => {
+  try {
+    window.localStorage.setItem(
+      ADVANCED_PREFERENCES_KEY,
+      JSON.stringify(selectAdvancedPreferences(form))
+    )
+  } catch {
+    // Browser storage may be unavailable in restricted or private contexts.
+  }
+}
+
+const mergePrefilledForm = (
+  base: CreateTaskForm,
+  prefilledData?: Partial<CreateTaskForm>
+): CreateTaskForm => {
+  if (!prefilledData) return base
+  return {
+    chatType: prefilledData.chatType ?? base.chatType,
+    peerUid: prefilledData.peerUid ?? base.peerUid,
+    sessionName: prefilledData.sessionName ?? base.sessionName,
+    format: prefilledData.format ?? base.format,
+    startTime: prefilledData.startTime ?? base.startTime,
+    endTime: prefilledData.endTime ?? base.endTime,
+    keywords: prefilledData.keywords ?? base.keywords,
+    excludeUserUins: prefilledData.excludeUserUins ?? base.excludeUserUins,
+    includeUserUins: prefilledData.includeUserUins ?? base.includeUserUins,
+    includeRecalled: prefilledData.includeRecalled ?? base.includeRecalled,
+    includeSystemMessages:
+      prefilledData.includeSystemMessages ?? base.includeSystemMessages,
+    filterPureImageMessages:
+      prefilledData.filterPureImageMessages ?? base.filterPureImageMessages,
+    skipDownloadResourceTypes:
+      prefilledData.skipDownloadResourceTypes ?? base.skipDownloadResourceTypes,
+    exportAsZip: prefilledData.exportAsZip ?? base.exportAsZip,
+    embedAvatarsAsBase64:
+      prefilledData.embedAvatarsAsBase64 ?? base.embedAvatarsAsBase64,
+    embedResourcesAsDataUri:
+      prefilledData.embedResourcesAsDataUri ?? base.embedResourcesAsDataUri,
+    streamingZipMode: prefilledData.streamingZipMode ?? base.streamingZipMode,
+    outputDir: prefilledData.outputDir ?? base.outputDir,
+    useNameInFileName: prefilledData.useNameInFileName ?? base.useNameInFileName,
+    useFriendlyFileName:
+      prefilledData.useFriendlyFileName ?? base.useFriendlyFileName,
+    preferGroupMemberName:
+      prefilledData.preferGroupMemberName ?? base.preferGroupMemberName,
+  }
+}
 
 interface TaskWizardProps {
   isOpen: boolean
@@ -84,74 +224,45 @@ export function TaskWizard({
   const [selectedMemberUins, setSelectedMemberUins] = useState<Set<string>>(new Set())
   const [memberSearchTerm, setMemberSearchTerm] = useState("")
 
-  const [form, setForm] = useState<CreateTaskForm>({
-    chatType: 2,
-    peerUid: "",
-    sessionName: "",
-    format: "JSON",
-    startTime: "",
-    endTime: "",
-    keywords: "",
-    excludeUserUins: "",
-    includeUserUins: "",
-    includeRecalled: false,
-    includeSystemMessages: true,
-    filterPureImageMessages: true, // JSON/TXT默认启用
-    exportAsZip: false,
-    embedAvatarsAsBase64: false,
-    embedResourcesAsDataUri: false, // Issue #311: 自包含 HTML
-    streamingZipMode: false, // 流式ZIP导出模式
-    outputDir: "", // Issue #192: 自定义导出路径
-    useNameInFileName: false, // Issue #216: 文件名包含聊天名称
-    useFriendlyFileName: false, // Issue #134: 友好文件名格式 `<名称>(<QQ号>).<扩展名>`
-    preferGroupMemberName: true, // Issue #358: 群聊优先使用群成员名称
-  })
+  const [form, setForm] = useState<CreateTaskForm>(createDefaultForm)
+  const [preferencesReady, setPreferencesReady] = useState(false)
+  const preferencesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { groupSearch, friendSearch } = useSearch()
 
-  // 格式改变时自动调整filterPureImageMessages默认值
   useEffect(() => {
-    if (form.format === 'HTML') {
-      setForm(p => ({ ...p, filterPureImageMessages: false }))
-    } else if (form.format === 'JSON' || form.format === 'TXT') {
-      setForm(p => ({ ...p, filterPureImageMessages: true }))
-    }
-  }, [form.format])
-
-  // ----- sync prefilled
-  useEffect(() => {
-    if (prefilledData && isOpen) {
-      const format = prefilledData.format || "JSON"
-      // 根据format设置filterPureImageMessages的默认值
-      const defaultFilter = format === 'JSON' || format === 'TXT' ? true : false
-      
-      setForm({
-        chatType: prefilledData.chatType || 2,
-        peerUid: prefilledData.peerUid || "",
-        sessionName: prefilledData.sessionName || "",
-        format: format,
-        startTime: prefilledData.startTime || "",
-        endTime: prefilledData.endTime || "",
-        keywords: prefilledData.keywords || "",
-        excludeUserUins: prefilledData.excludeUserUins || "",
-        includeUserUins: prefilledData.includeUserUins || "",
-        includeRecalled: prefilledData.includeRecalled || false,
-        includeSystemMessages:
-          prefilledData.includeSystemMessages !== undefined ? prefilledData.includeSystemMessages : true,
-        filterPureImageMessages: prefilledData.filterPureImageMessages !== undefined 
-          ? prefilledData.filterPureImageMessages 
-          : defaultFilter,
-        exportAsZip: prefilledData.exportAsZip || false,
-        embedAvatarsAsBase64: prefilledData.embedAvatarsAsBase64 || false,
-        embedResourcesAsDataUri: prefilledData.embedResourcesAsDataUri || false, // Issue #311
-        streamingZipMode: prefilledData.streamingZipMode || false,
-        outputDir: prefilledData.outputDir || "",  // Issue #192
-        useNameInFileName: prefilledData.useNameInFileName || false,  // Issue #216
-        useFriendlyFileName: prefilledData.useFriendlyFileName || false,  // Issue #134
-        preferGroupMemberName: prefilledData.preferGroupMemberName !== undefined ? prefilledData.preferGroupMemberName : true,
-      })
-    }
+    if (!isOpen) return
+    setPreferencesReady(false)
+    const nextForm = mergePrefilledForm(
+      { ...createDefaultForm(), ...readAdvancedPreferences() },
+      prefilledData
+    )
+    setForm(nextForm)
+    setPreferencesReady(true)
   }, [prefilledData, isOpen])
+
+  useEffect(() => {
+    if (!isOpen || !preferencesReady) return
+    if (preferencesTimerRef.current) clearTimeout(preferencesTimerRef.current)
+    preferencesTimerRef.current = setTimeout(() => writeAdvancedPreferences(form), 200)
+    return () => {
+      if (preferencesTimerRef.current) clearTimeout(preferencesTimerRef.current)
+    }
+  }, [
+    isOpen,
+    preferencesReady,
+    form.includeSystemMessages,
+    form.filterPureImageMessages,
+    form.skipDownloadResourceTypes,
+    form.preferGroupMemberName,
+    form.exportAsZip,
+    form.useNameInFileName,
+    form.useFriendlyFileName,
+    form.embedAvatarsAsBase64,
+    form.embedResourcesAsDataUri,
+    form.streamingZipMode,
+    form.outputDir,
+  ])
 
   useEffect(() => {
     if (prefilledData?.peerUid && isOpen) {
@@ -198,6 +309,8 @@ export function TaskWizard({
 
   useEffect(() => {
     if (!isOpen) {
+      if (preferencesReady) writeAdvancedPreferences(form)
+      setPreferencesReady(false)
       setSelectedTarget(null)
       setSearchTerm("")
       setShowTargetSelector(true)
@@ -211,28 +324,7 @@ export function TaskWizard({
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
       groupSearchRef.current.clear()
       friendSearchRef.current.clear()
-      setForm({
-        chatType: 2,
-        peerUid: "",
-        sessionName: "",
-        format: "JSON",
-        startTime: "",
-        endTime: "",
-        keywords: "",
-        excludeUserUins: "",
-        includeUserUins: "",
-        includeRecalled: false,
-        includeSystemMessages: true,
-        filterPureImageMessages: true, // JSON默认启用
-        exportAsZip: false,
-        embedAvatarsAsBase64: false,
-        embedResourcesAsDataUri: false, // Issue #311
-        streamingZipMode: false,
-        outputDir: "", // Issue #192: 重置自定义导出路径
-        useNameInFileName: false, // Issue #216: 重置文件名包含聊天名称
-        useFriendlyFileName: false, // Issue #134: 重置友好文件名格式
-        preferGroupMemberName: true, // Issue #358: 重置群成员名称选项
-      })
+      setForm(createDefaultForm())
     }
   }, [isOpen])
 
@@ -889,7 +981,13 @@ export function TaskWizard({
                           ? "bg-white dark:bg-white/10 text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
                           : "text-muted-foreground hover:text-foreground"
                       ].join(" ")}
-                      onClick={() => setForm((p) => ({ ...p, format: fmt }))}
+                      onClick={() =>
+                        setForm((p) => ({
+                          ...p,
+                          format: fmt,
+                          filterPureImageMessages: fmt === "JSON" || fmt === "TXT",
+                        }))
+                      }
                     >
                       {fmt}
                     </button>
@@ -906,7 +1004,7 @@ export function TaskWizard({
                     <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-[250px]">
-                    选择全部消息则导出全部记录
+                    {EXPORT_OPTION_TOOLTIPS.allMessages}
                   </TooltipContent>
                 </Tooltip>
               </label>
@@ -965,7 +1063,7 @@ export function TaskWizard({
             type="button"
             aria-expanded={filtersOpen}
             onClick={() => setFiltersOpen((open) => !open)}
-            className="mb-5 flex w-full items-center justify-between gap-4 text-left"
+            className="mb-5 inline-flex items-center gap-2 text-left"
           >
             <div className="flex min-w-0 items-center gap-2">
               <span className="text-[14px] font-medium text-foreground">过滤条件</span>
@@ -1081,7 +1179,7 @@ export function TaskWizard({
                 desc: form.format === "HTML" 
                   ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式，适合导出超大群聊记录。"
                   : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式，适合导出超大群聊记录。",
-                tip: "普通导出会把全部消息放进内存再写文件，消息超多时可能卡死或崩溃；流式模式边读边写，内存占用恒定。十万条以下一般不需要开启。",
+                tip: EXPORT_OPTION_TOOLTIPS.streaming,
                 visible: form.format === "HTML" || form.format === "JSON",
                 highlight: true,
                 group: "性能与处理"
@@ -1092,7 +1190,7 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, includeSystemMessages: v })),
                 title: "包含系统消息",
                 desc: "包含入群通知、撤回提示等系统提示消息",
-                tip: "关闭后导出结果更干净，但会丢失撤回、入群、离群等上下文线索，事后无法补回。存档备份建议保持开启。",
+                tip: EXPORT_OPTION_TOOLTIPS.includeSystemMessages,
                 visible: true,
                 group: "导出内容"
               },
@@ -1102,7 +1200,7 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, filterPureImageMessages: v })),
                 title: "快速导出（跳过资源下载）",
                 desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度",
-                tip: "资源下载通常占导出总耗时的 90% 以上。只需要文字记录时开启此项，图片等会以占位符显示。",
+                tip: EXPORT_OPTION_TOOLTIPS.quickExport,
                 visible: true,
                 group: "导出内容"
               },
@@ -1116,7 +1214,7 @@ export function TaskWizard({
                 })),
                 title: "仅保留文件元数据，不下载文件",
                 desc: "图片 / 视频 / 音频仍正常下载；只有文件类资源（群文件、聊天发送的文档等）只保留文件名、大小、MD5 等元信息。适合不需要本地副本的备份场景。",
-                tip: "群文件往往体积大且有过期风险，下载失败率高。开启后可避免卡在大文件上，事后仍可凭 MD5 校验手动补档。",
+                tip: EXPORT_OPTION_TOOLTIPS.fileMetadataOnly,
                 visible: !form.filterPureImageMessages,
                 group: "导出内容"
               },
@@ -1130,7 +1228,7 @@ export function TaskWizard({
                 })),
                 title: "不下载图片",
                 desc: "导出时跳过图片资源的下载，HTML 中以占位形式显示，JSON / TXT 仅保留消息文本与元数据。需要保留图片可关闭此项。",
-                tip: "图片通常是数量最多的资源。活跃群聊动辄数万张，跳过后导出时间和磁盘占用都能降一个量级。",
+                tip: EXPORT_OPTION_TOOLTIPS.skipImages,
                 visible: !form.filterPureImageMessages,
                 group: "导出内容"
               },
@@ -1143,7 +1241,7 @@ export function TaskWizard({
                 })),
                 title: "不下载视频",
                 desc: "导出时跳过视频资源的下载。视频文件通常体积较大，长时间或群聊导出时容易占用大量带宽和磁盘空间。",
-                tip: "单个视频动辄几十到几百 MB，是磁盘占用的大头。不确定时建议先跳过，有需要再单独重导。",
+                tip: EXPORT_OPTION_TOOLTIPS.skipVideos,
                 visible: !form.filterPureImageMessages,
                 group: "导出内容"
               },
@@ -1156,7 +1254,7 @@ export function TaskWizard({
                 })),
                 title: "不下载语音",
                 desc: "导出时跳过 SILK / AMR 等语音消息的下载。对只想保留文字记录的备份场景很有用。",
-                tip: "语音需要额外转码才能在浏览器播放，耗时较长；另外部分年代久远的语音已无法从服务器拉取。",
+                tip: EXPORT_OPTION_TOOLTIPS.skipAudio,
                 visible: !form.filterPureImageMessages,
                 group: "导出内容"
               },
@@ -1166,7 +1264,7 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, preferGroupMemberName: v })),
                 title: "优先使用群成员名称",
                 desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。",
-                tip: "群名片更贴近群内日常称呼，但成员退群后名片会丢失，此时会自动回退到 QQ 昵称。",
+                tip: EXPORT_OPTION_TOOLTIPS.preferGroupMemberName,
                 visible: form.chatType === 2,
                 group: "导出内容"
               },
@@ -1176,7 +1274,7 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, exportAsZip: v })),
                 title: "导出为ZIP压缩包",
                 desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）",
-                tip: "HTML 导出默认是一个页面加一个 resources 目录，直接发送给别人容易漏文件；打包成单个 ZIP 更便于传输和归档。",
+                tip: EXPORT_OPTION_TOOLTIPS.exportAsZip,
                 visible: form.format === "HTML" && !form.streamingZipMode,
                 group: "性能与处理"
               },
@@ -1192,7 +1290,7 @@ export function TaskWizard({
                   })),
                 title: "文件名包含聊天名称",
                 desc: "在导出文件名中包含群名或好友昵称，方便批量导出后识别文件",
-                tip: "关闭后文件名只剩会话 ID 和时间戳，批量导出后很难分辨哪个文件对应哪个会话。",
+                tip: EXPORT_OPTION_TOOLTIPS.includeChatName,
                 visible: true,
                 group: "文件命名"
               },
@@ -1208,7 +1306,7 @@ export function TaskWizard({
                   })),
                 title: "使用友好命名（名称(QQ号).html）",
                 desc: "导出文件名使用 `名称(QQ号).<扩展名>` 格式，去掉 friend_/group_ 前缀与时间戳。多次导出同一会话同名碰撞时，会自动追加 `_<日期>_<时间>` 后缀避免覆盖。启用后与「文件名包含聊天名称」互斥。",
-                tip: "适合反复覆盖式备份：文件名稳定不变，同步盘/网盘不会因时间戳变化而重复上传。",
+                tip: EXPORT_OPTION_TOOLTIPS.friendlyFileName,
                 visible: true,
                 group: "文件命名"
               },
@@ -1218,7 +1316,7 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, embedAvatarsAsBase64: v })),
                 title: "嵌入头像为Base64",
                 desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）",
-                tip: "默认只存头像 URL，离线或头像更换后就看不到原图；嵌入后数据永久自包含，代价是文件变大。",
+                tip: EXPORT_OPTION_TOOLTIPS.embedAvatars,
                 visible: form.format === "JSON",
                 group: "导出内容"
               },
@@ -1229,7 +1327,7 @@ export function TaskWizard({
                 set: (v: boolean) => setForm((p) => ({ ...p, embedResourcesAsDataUri: v })),
                 title: "生成自包含 HTML",
                 desc: "将图片、语音、视频、小于 50 MB 的文件以 base64 内联到单个 HTML文件中，不再产出 resources 目录。适合需要单独发送 / 在手机上丢进文件传输查看的场景。资源较多时 HTML 体积会明显增大。",
-                tip: "base64 内联会使体积膨胀约 33%，消息量很大时浏览器打开会变慢；只建议在需要单文件分享时使用。",
+                tip: EXPORT_OPTION_TOOLTIPS.selfContainedHtml,
                 visible: form.format === "HTML" && !form.exportAsZip && !form.streamingZipMode,
                 group: "导出内容"
               }
@@ -1279,7 +1377,7 @@ export function TaskWizard({
             <label className="block text-[12px] font-medium text-muted-foreground pl-1">自定义存储路径</label>
             <Input
               id="outputDir"
-              placeholder="默认: .qq-chat-exporter/exports"
+              placeholder="留空则使用默认导出目录"
               value={form.outputDir || ""}
               onChange={(e) => setForm((p) => ({ ...p, outputDir: e.target.value }))}
               className={PILL_INPUT + " w-full"}

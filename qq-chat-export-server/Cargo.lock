@@ -1233,6 +1233,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64",
+ "bytes",
  "chrono",
  "dirs",
  "futures-util",

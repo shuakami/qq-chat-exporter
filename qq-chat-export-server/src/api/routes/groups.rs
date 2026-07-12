@@ -1,11 +1,12 @@
 use std::collections::HashMap;
-use std::io::Write;
+use std::io;
 use std::path::PathBuf;
 
 use axum::extract::{Extension, Path, Query, State};
 use axum::response::Response;
 use axum::Json;
 use chrono::Utc;
+use futures_util::{stream, StreamExt};
 use serde_json::{json, Value};
 
 use crate::api::helpers::normalize_group_system_notify;
@@ -139,6 +140,7 @@ pub fn extract_member_list(result: &Value) -> Vec<Value> {
     let infos = result
         .get("result")
         .and_then(|r| r.get("infos"))
+        .or_else(|| result.get("infos"))
         .unwrap_or(result);
     match infos {
         Value::Array(list) => list.clone(),
@@ -212,12 +214,11 @@ pub async fn group_join_requests(
                 items
                     .iter()
                     .filter(|item| {
-                        item.get("groupId")
-                            .is_some_and(|g| match g {
-                                Value::String(s) => s == &group_code,
-                                Value::Number(n) => n.to_string() == group_code,
-                                _ => false,
-                            })
+                        item.get("groupId").is_some_and(|g| match g {
+                            Value::String(s) => s == &group_code,
+                            Value::Number(n) => n.to_string() == group_code,
+                            _ => false,
+                        })
                     })
                     .cloned()
                     .collect()
@@ -262,7 +263,11 @@ fn flatten_essence_messages(essence_list: &Value) -> Vec<Value> {
         .map(|entries| {
             entries
                 .iter()
-                .filter_map(|e| e.get("data").and_then(|d| d.get("msg_list")).and_then(Value::as_array))
+                .filter_map(|e| {
+                    e.get("data")
+                        .and_then(|d| d.get("msg_list"))
+                        .and_then(Value::as_array)
+                })
                 .flatten()
                 .filter(|m| !m.is_null())
                 .cloned()
@@ -275,7 +280,11 @@ fn flatten_essence_messages(essence_list: &Value) -> Vec<Value> {
 fn format_seconds_local(seconds: Option<&Value>) -> String {
     let secs = seconds.and_then(Value::as_i64).unwrap_or(0);
     chrono::DateTime::from_timestamp(secs, 0)
-        .map(|dt| dt.with_timezone(&chrono::Local).format("%Y/%m/%d %H:%M:%S").to_string())
+        .map(|dt| {
+            dt.with_timezone(&chrono::Local)
+                .format("%Y/%m/%d %H:%M:%S")
+                .to_string()
+        })
         .unwrap_or_default()
 }
 
@@ -329,7 +338,10 @@ async fn lookup_group_name(state: &SharedState, group_code: &str, fallback_prefi
     if let Ok(groups) = state.napcat.get_groups(false).await {
         if let Some(list) = groups.as_array() {
             for group in list {
-                let code = group.get("groupCode").and_then(Value::as_str).unwrap_or_default();
+                let code = group
+                    .get("groupCode")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 if code == group_code {
                     if let Some(name) = group.get("groupName").and_then(Value::as_str) {
                         if !name.is_empty() {
@@ -352,10 +364,22 @@ fn generate_essence_html(group_name: &str, group_code: &str, messages: &[Value])
     let escape = qce_exporter::base::escape_html;
     let mut items = String::new();
     for msg in messages {
-        let sender = msg.get("senderNick").and_then(Value::as_str).unwrap_or("未知");
-        let time = msg.get("senderTimeFormatted").and_then(Value::as_str).unwrap_or("");
-        let digest_nick = msg.get("addDigestNick").and_then(Value::as_str).unwrap_or("");
-        let digest_time = msg.get("addDigestTimeFormatted").and_then(Value::as_str).unwrap_or("");
+        let sender = msg
+            .get("senderNick")
+            .and_then(Value::as_str)
+            .unwrap_or("未知");
+        let time = msg
+            .get("senderTimeFormatted")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let digest_nick = msg
+            .get("addDigestNick")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let digest_time = msg
+            .get("addDigestTimeFormatted")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let mut content_html = String::new();
         if let Some(content) = msg.get("content").and_then(Value::as_array) {
             for item in content {
@@ -446,9 +470,13 @@ pub async fn export_group_essence(
         })
         .collect();
 
-    let export_dir = state.path_manager.default_base_dir().join("exports").join("essence");
+    let export_dir = state.path_manager.exports_dir().join("essence");
     if let Err(error) = tokio::fs::create_dir_all(&export_dir).await {
-        let err = ApiError::new(ErrorType::FileSystem, error.to_string(), "CREATE_DIR_FAILED");
+        let err = ApiError::new(
+            ErrorType::FileSystem,
+            error.to_string(),
+            "CREATE_DIR_FAILED",
+        );
         return response::error(&err, &request_id);
     }
 
@@ -476,7 +504,11 @@ pub async fn export_group_essence(
 
     let file_path = export_dir.join(&file_name);
     if let Err(error) = tokio::fs::write(&file_path, file_content.as_bytes()).await {
-        let err = ApiError::new(ErrorType::FileSystem, error.to_string(), "WRITE_FILE_FAILED");
+        let err = ApiError::new(
+            ErrorType::FileSystem,
+            error.to_string(),
+            "WRITE_FILE_FAILED",
+        );
         return response::error(&err, &request_id);
     }
     let file_size = tokio::fs::metadata(&file_path)
@@ -509,7 +541,9 @@ async fn download_avatar(http: &reqwest::Client, url: &str, dest: &PathBuf) -> R
         .error_for_status()
         .map_err(|e| e.to_string())?;
     let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-    tokio::fs::write(dest, &bytes).await.map_err(|e| e.to_string())
+    tokio::fs::write(dest, &bytes)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// `POST /api/groups/:groupCode/avatars/export` — 导出群成员头像 ZIP。
@@ -539,7 +573,11 @@ pub async fn export_group_avatars(
 
     let export_dir = state.path_manager.avatars_dir();
     if let Err(error) = tokio::fs::create_dir_all(&export_dir).await {
-        let err = ApiError::new(ErrorType::FileSystem, error.to_string(), "CREATE_DIR_FAILED");
+        let err = ApiError::new(
+            ErrorType::FileSystem,
+            error.to_string(),
+            "CREATE_DIR_FAILED",
+        );
         return response::error(&err, &request_id);
     }
 
@@ -547,7 +585,11 @@ pub async fn export_group_avatars(
     let safe_group_name = sanitize_file_component(&group_name, 50);
     let temp_dir = export_dir.join(format!("{safe_group_name}_{group_code}_{timestamp}"));
     if let Err(error) = tokio::fs::create_dir_all(&temp_dir).await {
-        let err = ApiError::new(ErrorType::FileSystem, error.to_string(), "CREATE_DIR_FAILED");
+        let err = ApiError::new(
+            ErrorType::FileSystem,
+            error.to_string(),
+            "CREATE_DIR_FAILED",
+        );
         return response::error(&err, &request_id);
     }
 
@@ -562,36 +604,63 @@ pub async fn export_group_avatars(
         }
     };
 
-    let mut success_count = 0usize;
-    let mut fail_count = 0usize;
-    for member in &members {
-        let uin = member
-            .get("uin")
-            .and_then(Value::as_str)
-            .map(ToString::to_string)
-            .or_else(|| member.get("uin").and_then(Value::as_i64).map(|n| n.to_string()))
-            .or_else(|| member.get("uid").and_then(Value::as_str).map(ToString::to_string));
-        let Some(uin) = uin.filter(|u| !u.is_empty()) else {
-            continue;
-        };
-        let nick = member
-            .get("nick")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-            .or_else(|| member.get("cardName").and_then(Value::as_str).filter(|s| !s.is_empty()))
-            .unwrap_or(&uin);
-        let safe_nick = sanitize_file_component(nick, 30);
-        let avatar_url = format!("https://q1.qlogo.cn/g?b=qq&nk={uin}&s=640");
-        let file_path = temp_dir.join(format!("{safe_nick}_{uin}.jpg"));
-        match download_avatar(&http, &avatar_url, &file_path).await {
-            Ok(()) => success_count += 1,
-            Err(error) => {
-                fail_count += 1;
-                tracing::warn!("[ApiServer] 下载头像失败: {error}");
-                let _ = tokio::fs::remove_file(&file_path).await;
+    let jobs: Vec<(String, PathBuf)> = members
+        .iter()
+        .filter_map(|member| {
+            let uin = member
+                .get("uin")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+                .or_else(|| {
+                    member
+                        .get("uin")
+                        .and_then(Value::as_i64)
+                        .map(|n| n.to_string())
+                })
+                .or_else(|| {
+                    member
+                        .get("uid")
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string)
+                })
+                .filter(|uin| !uin.is_empty())?;
+            let nick = member
+                .get("nick")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    member
+                        .get("cardName")
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.is_empty())
+                })
+                .unwrap_or(&uin);
+            let safe_nick = sanitize_file_component(nick, 30);
+            let avatar_url = format!("https://q1.qlogo.cn/g?b=qq&nk={uin}&s=640");
+            let file_path = temp_dir.join(format!("{safe_nick}_{uin}.jpg"));
+            Some((avatar_url, file_path))
+        })
+        .collect();
+
+    let results = stream::iter(jobs)
+        .map(|(avatar_url, file_path)| {
+            let http = &http;
+            async move {
+                match download_avatar(http, &avatar_url, &file_path).await {
+                    Ok(()) => true,
+                    Err(error) => {
+                        tracing::warn!("[ApiServer] 下载头像失败: {error}");
+                        let _ = tokio::fs::remove_file(&file_path).await;
+                        false
+                    }
+                }
             }
-        }
-    }
+        })
+        .buffer_unordered(8)
+        .collect::<Vec<bool>>()
+        .await;
+    let success_count = results.iter().filter(|success| **success).count();
+    let fail_count = results.len() - success_count;
 
     let zip_file_name = format!("{safe_group_name}_{group_code}_avatars_{timestamp}.zip");
     let zip_file_path = export_dir.join(&zip_file_name);
@@ -617,8 +686,8 @@ pub async fn export_group_avatars(
                 .map_err(|e| e.to_string())?;
             zip.start_file(rel.to_string_lossy(), options)
                 .map_err(|e| e.to_string())?;
-            let data = std::fs::read(entry.path()).map_err(|e| e.to_string())?;
-            zip.write_all(&data).map_err(|e| e.to_string())?;
+            let mut source = std::fs::File::open(entry.path()).map_err(|e| e.to_string())?;
+            io::copy(&mut source, &mut zip).map_err(|e| e.to_string())?;
         }
         zip.finish().map_err(|e| e.to_string())?;
         Ok(())
@@ -658,4 +727,33 @@ pub async fn export_group_avatars(
         }),
         &request_id,
     )
+}
+
+#[cfg(test)]
+mod member_list_tests {
+    use super::extract_member_list;
+    use serde_json::json;
+
+    #[test]
+    fn extracts_bridge_serialized_member_map() {
+        let members = extract_member_list(&json!({
+            "result": {
+                "infos": {
+                    "u_1": { "uin": "10001", "nick": "one" },
+                    "u_2": { "uin": "10002", "nick": "two" }
+                }
+            }
+        }));
+        assert_eq!(members.len(), 2);
+        assert!(members.iter().any(|member| member["uin"] == "10001"));
+        assert!(members.iter().any(|member| member["uin"] == "10002"));
+    }
+
+    #[test]
+    fn extracts_direct_infos_shape() {
+        let members = extract_member_list(&json!({
+            "infos": [{ "uin": "10001" }]
+        }));
+        assert_eq!(members, vec![json!({ "uin": "10001" })]);
+    }
 }
