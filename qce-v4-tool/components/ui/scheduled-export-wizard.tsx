@@ -41,6 +41,7 @@ interface SelectedTarget {
   name: string
   chatType: number
   peerUid: string
+  peerUin?: string
   avatarUrl?: string
 }
 
@@ -139,6 +140,7 @@ export function ScheduledExportWizard({
           name: prefilledData.sessionName,
           chatType: prefilledData.chatType || 2,
           peerUid: prefilledData.peerUid,
+          peerUin: prefilledData.peerUin,
         }
         setSelectedTargets([target])
         setShowTargetSelector(false)
@@ -204,6 +206,7 @@ export function ScheduledExportWizard({
         name: baseForm.namePrefix ? `${baseForm.namePrefix}-${target.name}` : target.name,
         chatType: target.chatType,
         peerUid: target.peerUid,
+        peerUin: target.peerUin,
         sessionName: target.name,
         scheduleType: baseForm.scheduleType,
         cronExpression: baseForm.cronExpression,
@@ -296,6 +299,7 @@ export function ScheduledExportWizard({
       name,
       chatType: isGroup ? 2 : friendChatType,
       peerUid: id,
+      peerUin: isGroup ? undefined : String((target as Friend).uin || "") || undefined,
       avatarUrl: target.avatarUrl,
     }
     

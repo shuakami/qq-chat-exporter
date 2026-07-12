@@ -891,6 +891,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
             name: group.groupName,
             chatType: 2,
             peerUid: group.groupCode,
+            peerUin: group.groupCode,
             avatarUrl: group.avatarUrl
           })
         }
@@ -905,6 +906,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
             name: friend.remark || friend.nick,
             chatType: friend.chatType ?? 1,
             peerUid: friend.uid,
+            peerUin: String(friend.uin || ""),
             avatarUrl: friend.avatarUrl
           })
         }
@@ -947,6 +949,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
         const form: CreateTaskForm = {
           chatType: item.chatType,
           peerUid: item.peerUid,
+          peerUin: item.peerUin,
           sessionName: item.name,
           format: config.format,
           startTime,

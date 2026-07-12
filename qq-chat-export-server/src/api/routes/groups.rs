@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path as FsPath, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use axum::extract::{Extension, Path, Query, State};
 use axum::response::Response;
 use axum::Json;
-use chrono::Utc;
+use chrono::{Local, Utc};
 use futures_util::{stream, StreamExt};
 use serde_json::{json, Value};
 
@@ -28,27 +29,134 @@ fn page_and_limit(params: &HashMap<String, String>) -> (usize, usize) {
     (page, limit)
 }
 
-/// 文件名安全化（对应 TS `replace(/[<>:"/\\|?*]/g, '_')`）。
+/// 文件名安全化，兼容 Windows 保留字符、控制字符和设备名。
 #[must_use]
 pub fn sanitize_file_component(name: &str, max_len: usize) -> String {
-    let replaced: String = name
-        .chars()
-        .map(|c| {
-            if matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
-                '_'
-            } else {
-                c
+    let mut safe = String::new();
+    let mut last_underscore = false;
+    for ch in name.chars() {
+        let mapped = if matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+            || (ch as u32) < 0x20
+            || ch == '\u{7f}'
+            || ch.is_whitespace()
+        {
+            '_'
+        } else {
+            ch
+        };
+        if mapped == '_' {
+            if !last_underscore {
+                safe.push('_');
             }
-        })
+            last_underscore = true;
+        } else {
+            safe.push(mapped);
+            last_underscore = false;
+        }
+    }
+    let mut safe: String = safe
+        .trim_matches(['_', ' ', '.'])
+        .chars()
+        .take(max_len)
         .collect();
-    replaced.chars().take(max_len).collect()
+    safe = safe
+        .trim_end_matches(['_', ' ', '.'])
+        .to_string();
+    if matches!(
+        safe.to_ascii_uppercase().as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    ) {
+        safe.insert(0, '_');
+    }
+    safe
 }
 
-/// 时间戳文件名片段（对应 TS `new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)`）。
+fn collision_name(file_name: &str, suffix: u32) -> String {
+    let (base, extension) = match file_name.rsplit_once('.') {
+        Some((base, extension)) => (base, format!(".{extension}")),
+        None => (file_name, String::new()),
+    };
+    format!("{base}_{suffix}{extension}")
+}
+
+fn reserved_group_export_paths() -> &'static Mutex<HashSet<PathBuf>> {
+    static RESERVED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    RESERVED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn reserve_unique_file_name(directory: &FsPath, file_name: &str) -> String {
+    let mut reserved = reserved_group_export_paths()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for suffix in 1_u32.. {
+        let candidate = if suffix == 1 {
+            file_name.to_string()
+        } else {
+            collision_name(file_name, suffix)
+        };
+        let path = directory.join(&candidate);
+        if !path.exists() && !reserved.contains(&path) {
+            reserved.insert(path);
+            return candidate;
+        }
+    }
+    unreachable!("u32 filename suffix space exhausted")
+}
+
+fn release_group_export_path(path: &FsPath) {
+    reserved_group_export_paths()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(path);
+}
+
+fn group_export_file_name(
+    content_type: &str,
+    group_name: &str,
+    group_code: &str,
+    timestamp: &str,
+    extension: &str,
+) -> String {
+    let safe_name = sanitize_file_component(group_name, 40);
+    let safe_name = if safe_name.is_empty() {
+        "未命名群聊"
+    } else {
+        &safe_name
+    };
+    let safe_code = sanitize_file_component(group_code, 32);
+    let safe_code = if safe_code.is_empty() {
+        "unknown"
+    } else {
+        &safe_code
+    };
+    format!("group_{content_type}_{safe_name}_{safe_code}_{timestamp}.{extension}")
+}
+
+/// 本地时间文件名片段（YYYYMMDD_HHMMSSmmm）。
 #[must_use]
 pub fn timestamp_slug() -> String {
-    let iso = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    iso.replace([':', '.'], "-").chars().take(19).collect()
+    Local::now().format("%Y%m%d_%H%M%S%3f").to_string()
 }
 
 /// `GET /api/groups` — 群列表（分页 + 头像）。
@@ -481,11 +589,9 @@ pub async fn export_group_essence(
     }
 
     let timestamp = timestamp_slug();
-    let safe_group_name = sanitize_file_component(&group_name, 50);
-
-    let (file_name, file_content) = if format == "html" {
+    let (base_file_name, file_content) = if format == "html" {
         (
-            format!("{safe_group_name}_{group_code}_essence_{timestamp}.html"),
+            group_export_file_name("essence", &group_name, &group_code, &timestamp, "html"),
             generate_essence_html(&group_name, &group_code, &messages),
         )
     } else {
@@ -497,13 +603,15 @@ pub async fn export_group_essence(
             "messages": messages,
         });
         (
-            format!("{safe_group_name}_{group_code}_essence_{timestamp}.json"),
+            group_export_file_name("essence", &group_name, &group_code, &timestamp, "json"),
             serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()),
         )
     };
+    let file_name = reserve_unique_file_name(&export_dir, &base_file_name);
 
     let file_path = export_dir.join(&file_name);
     if let Err(error) = tokio::fs::write(&file_path, file_content.as_bytes()).await {
+        release_group_export_path(&file_path);
         let err = ApiError::new(
             ErrorType::FileSystem,
             error.to_string(),
@@ -511,6 +619,7 @@ pub async fn export_group_essence(
         );
         return response::error(&err, &request_id);
     }
+    release_group_export_path(&file_path);
     let file_size = tokio::fs::metadata(&file_path)
         .await
         .map_or(0, |meta| meta.len());
@@ -582,8 +691,12 @@ pub async fn export_group_avatars(
     }
 
     let timestamp = timestamp_slug();
-    let safe_group_name = sanitize_file_component(&group_name, 50);
-    let temp_dir = export_dir.join(format!("{safe_group_name}_{group_code}_{timestamp}"));
+    let safe_group_name = sanitize_file_component(&group_name, 40);
+    let safe_group_code = sanitize_file_component(&group_code, 32);
+    let temp_dir = export_dir.join(format!(
+        ".group_avatars_{safe_group_name}_{safe_group_code}_{timestamp}_{}",
+        uuid::Uuid::new_v4().simple()
+    ));
     if let Err(error) = tokio::fs::create_dir_all(&temp_dir).await {
         let err = ApiError::new(
             ErrorType::FileSystem,
@@ -662,7 +775,9 @@ pub async fn export_group_avatars(
     let success_count = results.iter().filter(|success| **success).count();
     let fail_count = results.len() - success_count;
 
-    let zip_file_name = format!("{safe_group_name}_{group_code}_avatars_{timestamp}.zip");
+    let base_zip_file_name =
+        group_export_file_name("avatars", &group_name, &group_code, &timestamp, "zip");
+    let zip_file_name = reserve_unique_file_name(&export_dir, &base_zip_file_name);
     let zip_file_path = export_dir.join(&zip_file_name);
 
     // ZIP 打包在阻塞线程执行（zip crate 是同步 I/O）。
@@ -693,6 +808,7 @@ pub async fn export_group_avatars(
         Ok(())
     })
     .await;
+    release_group_export_path(&zip_file_path);
 
     let _ = tokio::fs::remove_dir_all(&temp_dir).await;
 
@@ -731,7 +847,10 @@ pub async fn export_group_avatars(
 
 #[cfg(test)]
 mod member_list_tests {
-    use super::extract_member_list;
+    use super::{
+        extract_member_list, group_export_file_name, release_group_export_path,
+        reserve_unique_file_name, sanitize_file_component,
+    };
     use serde_json::json;
 
     #[test]
@@ -755,5 +874,56 @@ mod member_list_tests {
             "infos": [{ "uin": "10001" }]
         }));
         assert_eq!(members, vec![json!({ "uin": "10001" })]);
+    }
+
+    #[test]
+    fn group_export_names_are_readable_and_windows_safe() {
+        assert_eq!(sanitize_file_component("CON.", 64), "_CON");
+        assert_eq!(
+            group_export_file_name(
+                "avatars",
+                "AxT 鸽子窝: Ultra/Pro",
+                "960420904",
+                "20260712_163632123",
+                "zip",
+            ),
+            "group_avatars_AxT_鸽子窝_Ultra_Pro_960420904_20260712_163632123.zip"
+        );
+        assert_eq!(
+            group_export_file_name("essence", "群名", "960420904", "20260712_163632123", "html",),
+            "group_essence_群名_960420904_20260712_163632123.html"
+        );
+    }
+
+    #[test]
+    fn group_export_names_do_not_overwrite_existing_files() {
+        let base = std::env::temp_dir().join(format!(
+            "qce-group-export-name-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+        let name = "group_avatars_name_1_20260712_163632123.zip";
+        std::fs::write(base.join(name), b"old").unwrap();
+        let collision = reserve_unique_file_name(&base, name);
+        assert_eq!(
+            collision,
+            "group_avatars_name_1_20260712_163632123_2.zip"
+        );
+        release_group_export_path(&base.join(collision));
+        let first = reserve_unique_file_name(
+            &base,
+            "group_essence_name_1_20260712_163632123.html",
+        );
+        let second = reserve_unique_file_name(
+            &base,
+            "group_essence_name_1_20260712_163632123.html",
+        );
+        assert_eq!(
+            second,
+            "group_essence_name_1_20260712_163632123_2.html"
+        );
+        release_group_export_path(&base.join(first));
+        release_group_export_path(&base.join(second));
+        std::fs::remove_dir_all(base).unwrap();
     }
 }

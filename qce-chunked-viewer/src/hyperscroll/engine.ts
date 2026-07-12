@@ -1,5 +1,6 @@
 import { indexToScrollTop, normalizeAnchor, scrollTopToIndex } from './anchor.js';
 import { HeightCache } from './height-cache.js';
+import { settleSmoothOffset } from './settling.mjs';
 import type { Anchor, DataSource, EngineDebugStats, HyperScrollOptions, RenderRange } from './types.js';
  
 const BASE_STYLE = `
@@ -225,10 +226,12 @@ export class HyperScroll {
       this.smoothLastTs = now;
       const remainder = this.smoothRemainder;
       if (Math.abs(remainder) < 0.5) {
-        // settle on an integer pixel so text is never subpixel-rendered
         this.smoothRemainder = 0;
         this.smoothVel = 0;
-        this.anchor = { ...this.anchor, offset: Math.round(this.anchor.offset + remainder) };
+        this.anchor = {
+          ...this.anchor,
+          offset: settleSmoothOffset(this.anchor.offset, remainder),
+        };
         this.position();
         this.smoothRunning = false;
         return;

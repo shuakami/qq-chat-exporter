@@ -35,7 +35,7 @@ interface QqLookupCardProps {
     /** 初始 QQ 号；常见用法是把搜索框里的纯数字传进来。 */
     initialUin?: string
     /** 用户点击「导出聊天记录」时回调，给上层去打开任务向导。 */
-    onStartExport: (preset: { chatType: number; peerUid: string; sessionName: string }) => void
+    onStartExport: (preset: { chatType: number; peerUid: string; peerUin?: string; sessionName: string }) => void
     /** 用户点击「预览」时回调；不传则不展示预览按钮。 */
     onPreview?: (peer: { chatType: number; peerUid: string }, sessionName: string) => void
 }
@@ -169,6 +169,7 @@ export function QqLookupCard({ initialUin = "", onStartExport, onPreview }: QqLo
                                 onStartExport({
                                     chatType: 1,
                                     peerUid: result.uid!,
+                                    peerUin: result.uin,
                                     sessionName: result.remark || result.nick || result.uin,
                                 })
                             }

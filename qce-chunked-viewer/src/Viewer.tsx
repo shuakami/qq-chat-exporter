@@ -775,7 +775,7 @@ export default function Viewer(): React.ReactElement {
                 <dd className="text-right font-medium tabular-nums">{stats.totalMessages.toLocaleString()}</dd>
               </div>
               <div className="contents">
-                <dt className="text-muted-foreground">时间范围</dt>
+                <dt className="text-muted-foreground">范围</dt>
                 <dd className="flex items-center justify-end gap-1.5 whitespace-nowrap text-right font-medium tabular-nums">
                   {fmtDate(stats.minDateKey)}
                   <MoveRightIcon className="size-3 shrink-0 text-muted-foreground" />

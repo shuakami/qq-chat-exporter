@@ -58,6 +58,45 @@ pub fn choose_reply_jump_target(data: &ReplyRenderInput) -> Option<String> {
     None
 }
 
+/// 把 reply 时间字段规范化成毫秒级 Unix 时间戳。
+#[must_use]
+pub fn reply_timestamp_millis(value: Option<&Value>) -> Option<i64> {
+    match value {
+        Some(Value::Number(n)) => n
+            .as_f64()
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .map(|value| {
+                #[allow(clippy::cast_possible_truncation)]
+                if value > 1e12 {
+                    value as i64
+                } else {
+                    (value * 1000.0) as i64
+                }
+            }),
+        Some(Value::String(value)) => {
+            let value = value.trim();
+            if value.is_empty() {
+                None
+            } else if value.chars().all(|character| character.is_ascii_digit()) {
+                value.parse::<i64>().ok().filter(|number| *number > 0).map(
+                    |number| {
+                        if number > 1_000_000_000_000 {
+                            number
+                        } else {
+                            number * 1000
+                        }
+                    },
+                )
+            } else {
+                DateTime::parse_from_rfc3339(value)
+                    .map(|date| date.timestamp_millis())
+                    .ok()
+            }
+        }
+        _ => None,
+    }
+}
+
 /// 把 reply 元素里五花八门的时间字段统一成「MM-DD HH:mm」展示串。
 ///
 /// - 数字：> 1e12 视为毫秒，否则视为秒级 epoch；
@@ -67,44 +106,7 @@ pub fn choose_reply_jump_target(data: &ReplyRenderInput) -> Option<String> {
 /// 与 TS 一致固定走 UTC 计算，保证跨时区 / CI 稳定。
 #[must_use]
 pub fn format_reply_timestamp(value: Option<&Value>) -> String {
-    let Some(value) = value else {
-        return String::new();
-    };
-
-    let ms: Option<i64> = match value {
-        Value::Number(n) => n
-            .as_f64()
-            .filter(|v| v.is_finite() && *v > 0.0)
-            .map(|v| {
-                #[allow(clippy::cast_possible_truncation)]
-                if v > 1e12 {
-                    v as i64
-                } else {
-                    (v * 1000.0) as i64
-                }
-            }),
-        Value::String(s) => {
-            let trimmed = s.trim();
-            if trimmed.is_empty() {
-                None
-            } else if trimmed.chars().all(|c| c.is_ascii_digit()) {
-                trimmed.parse::<i64>().ok().filter(|n| *n > 0).map(|n| {
-                    if n > 1_000_000_000_000 {
-                        n
-                    } else {
-                        n * 1000
-                    }
-                })
-            } else {
-                DateTime::parse_from_rfc3339(trimmed)
-                    .map(|dt| dt.timestamp_millis())
-                    .ok()
-            }
-        }
-        _ => None,
-    };
-
-    let Some(ms) = ms.filter(|m| *m > 0) else {
+    let Some(ms) = reply_timestamp_millis(value) else {
         return String::new();
     };
     let Some(date) = DateTime::<Utc>::from_timestamp_millis(ms) else {

@@ -46,6 +46,7 @@ interface AdvancedPreferences {
 const createDefaultForm = (): CreateTaskForm => ({
   chatType: 2,
   peerUid: "",
+  peerUin: "",
   sessionName: "",
   format: "JSON",
   startTime: "",
@@ -136,6 +137,7 @@ const mergePrefilledForm = (
   return {
     chatType: prefilledData.chatType ?? base.chatType,
     peerUid: prefilledData.peerUid ?? base.peerUid,
+    peerUin: prefilledData.peerUin ?? base.peerUin,
     sessionName: prefilledData.sessionName ?? base.sessionName,
     format: prefilledData.format ?? base.format,
     startTime: prefilledData.startTime ?? base.startTime,
@@ -336,7 +338,13 @@ export function TaskWizard({
     setSelectedMemberUins(new Set())
     setMemberSelectorMode(null)
     if ("groupCode" in target) {
-      setForm((p) => ({ ...p, chatType: 2, peerUid: target.groupCode, sessionName: target.groupName }))
+      setForm((p) => ({
+        ...p,
+        chatType: 2,
+        peerUid: target.groupCode,
+        peerUin: target.groupCode,
+        sessionName: target.groupName,
+      }))
     } else {
       // Issue #364: 合并自最近联系人的特殊会话（QQ Bot / 服务号 / 临时会话）会
       // 携带原始 chatType，按其透传，避免被覆写为普通好友（chatType=1）。
@@ -344,6 +352,7 @@ export function TaskWizard({
         ...p,
         chatType: target.chatType ?? 1,
         peerUid: target.uid,
+        peerUin: String(target.uin || ""),
         sessionName: target.remark || target.nick,
       }))
     }
@@ -603,13 +612,14 @@ export function TaskWizard({
       ...p,
       chatType: 1, // 私聊
       peerUid: qqNumber,
+      peerUin: qqNumber,
       sessionName: manualSessionName.trim() || `好友 ${qqNumber}`
     }))
     
     // 创建一个虚拟的 Friend 对象用于显示
     const virtualFriend: Friend = {
       uid: qqNumber,
-      uin: qqNumber,
+      uin: Number(qqNumber),
       nick: manualSessionName.trim() || `好友 ${qqNumber}`,
       remark: manualSessionName.trim() || null,
       avatarUrl: `https://q1.qlogo.cn/g?b=qq&nk=${qqNumber}&s=640`,
@@ -643,6 +653,7 @@ export function TaskWizard({
         ...p,
         chatType: 2,
         peerUid: groupCode,
+        peerUin: groupCode,
         sessionName: groupName,
       }))
 
@@ -1277,38 +1288,6 @@ export function TaskWizard({
                 tip: EXPORT_OPTION_TOOLTIPS.exportAsZip,
                 visible: form.format === "HTML" && !form.streamingZipMode,
                 group: "性能与处理"
-              },
-              {
-                id: "useNameInFileName",
-                checked: form.useNameInFileName || false,
-                set: (v: boolean) =>
-                  setForm((p) => ({
-                    ...p,
-                    useNameInFileName: v,
-                    // 两种命名互斥：选上带名称后关掉友好命名，避免不一致。
-                    useFriendlyFileName: v ? false : p.useFriendlyFileName,
-                  })),
-                title: "文件名包含聊天名称",
-                desc: "在导出文件名中包含群名或好友昵称，方便批量导出后识别文件",
-                tip: EXPORT_OPTION_TOOLTIPS.includeChatName,
-                visible: true,
-                group: "文件命名"
-              },
-              {
-                // Issue #134: 友好文件名格式
-                id: "useFriendlyFileName",
-                checked: form.useFriendlyFileName || false,
-                set: (v: boolean) =>
-                  setForm((p) => ({
-                    ...p,
-                    useFriendlyFileName: v,
-                    useNameInFileName: v ? false : p.useNameInFileName,
-                  })),
-                title: "使用友好命名（名称(QQ号).html）",
-                desc: "导出文件名使用 `名称(QQ号).<扩展名>` 格式，去掉 friend_/group_ 前缀与时间戳。多次导出同一会话同名碰撞时，会自动追加 `_<日期>_<时间>` 后缀避免覆盖。启用后与「文件名包含聊天名称」互斥。",
-                tip: EXPORT_OPTION_TOOLTIPS.friendlyFileName,
-                visible: true,
-                group: "文件命名"
               },
               {
                 id: "embedAvatarsAsBase64",
