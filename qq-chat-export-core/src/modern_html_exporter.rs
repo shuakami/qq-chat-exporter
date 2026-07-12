@@ -7,7 +7,9 @@ use crate::modern_html_templates::{
     MODERN_SINGLE_SCRIPTS_HTML, MODERN_TOOLBAR_HTML,
 };
 use crate::reply_preview_renderer::{render_reply_preview_elements, ReplyPreviewRenderContext};
-use crate::reply_render::{choose_reply_jump_target, format_reply_timestamp, ReplyRenderInput};
+use crate::reply_render::{
+    choose_reply_jump_target, format_reply_timestamp, reply_timestamp_millis, ReplyRenderInput,
+};
 use crate::types::{ChatInfo, CleanMessage};
 use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone, Timelike, Utc};
 use serde_json::{json, Value};
@@ -132,6 +134,8 @@ pub struct ModernHtmlExporter {
     data_uri_cache: HashMap<String, String>,
     /// Issue #311：已尝试过、确认不可内联的资源 key，避免重复磁盘探测。
     data_uri_misses: HashSet<String>,
+    rendered_message_ids: HashSet<String>,
+    message_id_by_time_sender: HashMap<(i64, String), Option<String>>,
     /// 资源引用基础路径（URL 相对前缀）。
     /// - 单文件导出使用 `./resources`（资源目录与 HTML 同级，便于独立移动，
     ///   修复 Issue #213）；
@@ -169,6 +173,8 @@ impl ModernHtmlExporter {
             last_rendered_date: None,
             data_uri_cache: HashMap::new(),
             data_uri_misses: HashSet::new(),
+            rendered_message_ids: HashSet::new(),
+            message_id_by_time_sender: HashMap::new(),
             resource_base_href: "./resources".to_owned(),
         }
     }
@@ -197,6 +203,7 @@ impl ModernHtmlExporter {
 
         self.current_chat_info = Some(chat_info.clone());
         self.last_rendered_date = None;
+        self.prepare_reply_targets(messages);
 
         let mut total_messages = 0usize;
         let mut first_time: Option<i64> = None;
@@ -561,7 +568,8 @@ impl ModernHtmlExporter {
                 .await
                 .map_err(|e| ExportError::io("createWriteStream", &abs_path, e))?;
             let mut ws = BufWriter::new(file);
-            let header = format!("window.__QCE_MSGID_INDEX__ && window.__QCE_MSGID_INDEX__({i}, [\n");
+            let header =
+                format!("window.__QCE_MSGID_INDEX__ && window.__QCE_MSGID_INDEX__({i}, [\n");
             write_chunk(&mut ws, &abs_path, &header).await?;
             bucket_streams.push(ws);
             bucket_paths.push(abs_path);
@@ -591,6 +599,7 @@ impl ModernHtmlExporter {
         // setup exporter state
         self.current_chat_info = Some(chat_info.clone());
         self.last_rendered_date = None;
+        self.prepare_reply_targets(messages);
 
         // For chunked viewer, resource href base should be "resources"
         let old_resource_base_href =
@@ -706,10 +715,16 @@ impl ModernHtmlExporter {
                 }
             }
             if !date_key.is_empty() {
-                if min_date_key.as_deref().is_none_or(|m| date_key.as_str() < m) {
+                if min_date_key
+                    .as_deref()
+                    .is_none_or(|m| date_key.as_str() < m)
+                {
                     *min_date_key = Some(date_key.clone());
                 }
-                if max_date_key.as_deref().is_none_or(|m| date_key.as_str() > m) {
+                if max_date_key
+                    .as_deref()
+                    .is_none_or(|m| date_key.as_str() > m)
+                {
                     *max_date_key = Some(date_key.clone());
                 }
             }
@@ -792,8 +807,8 @@ impl ModernHtmlExporter {
 
             // write msgId -> chunkId mapping (bucketed)
             let dom_msg_id = format!("msg-{}", message.id);
-            let bucket = (fnv1a32(&dom_msg_id, 0x811c_9dc5) % limits.msg_id_index_bucket_count)
-                as usize;
+            let bucket =
+                (fnv1a32(&dom_msg_id, 0x811c_9dc5) % limits.msg_id_index_bucket_count) as usize;
             let pair = json!([dom_msg_id, chunk.id]).to_string();
             let sep = if bucket_first[bucket] { "" } else { ",\n" };
             bucket_first[bucket] = false;
@@ -950,9 +965,8 @@ impl ModernHtmlExporter {
         let manifest_js_path = data_dir.join("manifest.js");
         let manifest_json_path = data_dir.join("manifest.json");
 
-        let manifest_js = format!(
-            "window.__QCE_MANIFEST__ && window.__QCE_MANIFEST__({manifest});\n"
-        );
+        let manifest_js =
+            format!("window.__QCE_MANIFEST__ && window.__QCE_MANIFEST__({manifest});\n");
         fs::write(&manifest_js_path, manifest_js)
             .await
             .map_err(|e| ExportError::io("writeFile", &manifest_js_path, e))?;
@@ -975,8 +989,11 @@ impl ModernHtmlExporter {
             "mode": "chunked",
         });
 
-        let header_html =
-            self.generate_header(chat_info, TotalMessages::Count(*total_messages), &time_range_text);
+        let header_html = self.generate_header(
+            chat_info,
+            TotalMessages::Count(*total_messages),
+            &time_range_text,
+        );
         let index_html = render_template(
             MODERN_CHUNKED_INDEX_HTML_TEMPLATE,
             &[
@@ -1148,7 +1165,7 @@ impl ModernHtmlExporter {
                 <span class="meta-value" id="info-total">{}</span>
         </div>
             <div class="meta-item">
-                <span class="meta-label">时间范围</span>
+                <span class="meta-label">范围</span>
                 <span class="meta-value" id="info-range">{}</span>
                 </div>
             </div>
@@ -1275,10 +1292,11 @@ impl ModernHtmlExporter {
                 "video" => result.push_str(&self.render_video_element(data)),
                 "file" => result.push_str(&self.render_file_element(data)),
                 "face" => result.push_str(&render_face_element(data)),
+                "at" => result.push_str(&render_at_element(data)),
                 "market_face" => result.push_str(&render_market_face_element(data)),
                 "reply" => result.push_str(&self.render_reply_element(data)),
                 "json" => result.push_str(&render_json_element(data)),
-                "forward" => result.push_str(&render_forward_element(data, 0)),
+                "forward" => result.push_str(&render_forward_element(self, data, 0)),
                 "system" => result.push_str(&render_system_element(data)),
                 "location" => result.push_str(&render_location_element(data)),
                 _ => {
@@ -1310,16 +1328,20 @@ impl ModernHtmlExporter {
             if is_valid_resource_path(&local_path) {
                 let base_name = base_name_of(&local_path);
                 // Issue #311: 自包含模式下优先取内联 data URI，未命中才退回相对路径。
-                return self.lookup_data_uri(type_dir, &base_name).unwrap_or_else(|| {
-                    format!("{}/{type_dir}/{base_name}", self.resource_base_href)
-                });
+                return self
+                    .lookup_data_uri(type_dir, &base_name)
+                    .unwrap_or_else(|| {
+                        format!("{}/{type_dir}/{base_name}", self.resource_base_href)
+                    });
             }
         }
         if let Some(filename) = str_field(data, "filename") {
             if !filename.is_empty() && self.options.include_resource_links {
-                return self.lookup_data_uri(type_dir, &filename).unwrap_or_else(|| {
-                    format!("{}/{type_dir}/{filename}", self.resource_base_href)
-                });
+                return self
+                    .lookup_data_uri(type_dir, &filename)
+                    .unwrap_or_else(|| {
+                        format!("{}/{type_dir}/{filename}", self.resource_base_href)
+                    });
             }
         }
         if let Some(url) = str_field(data, "url") {
@@ -1392,15 +1414,7 @@ impl ModernHtmlExporter {
         let filename = str_field(data, "filename").unwrap_or_else(|| "视频".to_owned());
         let src = self.pick_resource_src(data, "videos");
         if !src.is_empty() {
-            // video-bubble：首帧当缩略图（#t=0.1），播放角标 + 文件名，点击进预览层。
-            return format!(
-                "<div class=\"video-bubble\" data-src=\"{src}\" data-name=\"{fname}\" role=\"button\" tabindex=\"0\">\
-                    <video class=\"img\" src=\"{src}#t=0.1\" preload=\"metadata\" muted playsinline></video>\
-                    <span class=\"vbadge\"><span class=\"vtri\"></span>视频</span>\
-                    <span class=\"vname\">{fname}</span>\
-                </div>",
-                fname = escape_html(&filename)
-            );
+            return render_video_bubble(&src, &filename);
         }
         format!(
             "<span class=\"text-content\">🎬 {}</span>",
@@ -1423,8 +1437,11 @@ impl ModernHtmlExporter {
         let size_label = format_file_size(size_bytes);
         let icon = file_icon_svg(&filename);
         if !href.is_empty() {
+            if is_video_filename(&filename) {
+                return render_video_bubble(&href, &filename);
+            }
             return format!(
-                "<a href=\"{href}\" class=\"message-file file-bubble\" download=\"{fname}\">\
+                "<a href=\"{href}\" class=\"message-file file-bubble\" target=\"_blank\" rel=\"noopener noreferrer\">\
                     <span class=\"ficon\">{icon}</span>\
                     <span class=\"fmeta\"><span class=\"fname\">{fname}</span>{size_html}</span>\
                 </a>",
@@ -1453,7 +1470,7 @@ impl ModernHtmlExporter {
         // 历史的 replyMsgId / time 字段不同；这两个 helper 把字段挑选
         // 统一掉，并把时间格式化成「MM-DD HH:mm」中文串。
         let input = ReplyRenderInput::from_value(data);
-        let jump_target = choose_reply_jump_target(&input);
+        let jump_target = self.resolve_reply_jump_target(data, &input);
         let time_str = format_reply_timestamp(input.timestamp.as_ref().or(input.time.as_ref()));
 
         // Issue #128 子项：被引用消息里如果带图片 / 表情 / 音视频 / 文件，
@@ -1470,13 +1487,14 @@ impl ModernHtmlExporter {
             let mut image_html = String::new();
             let img_src = str_field(data, "imageUrl").or_else(|| str_field(data, "image"));
             if let Some(img_src) = img_src.filter(|s| !s.is_empty()) {
-                image_html =
-                    format!("<img src=\"{img_src}\" class=\"reply-content-thumb\" alt=\"引用图片\">");
+                image_html = format!(
+                    "<img src=\"{img_src}\" class=\"reply-content-thumb\" alt=\"引用图片\">"
+                );
             } else if content.contains("[图片]") {
                 if let Some(elements) = data.get("elements").and_then(Value::as_array) {
-                    let img_element = elements.iter().find(|el| {
-                        el.get("type").and_then(Value::as_str) == Some("image")
-                    });
+                    let img_element = elements
+                        .iter()
+                        .find(|el| el.get("type").and_then(Value::as_str) == Some("image"));
                     if let Some(local_path) = img_element
                         .and_then(|el| el.get("data"))
                         .and_then(|d| d.get("localPath"))
@@ -1485,9 +1503,10 @@ impl ModernHtmlExporter {
                     {
                         let base_name = base_name_of(local_path);
                         let img_src =
-                            self.lookup_data_uri("images", &base_name).unwrap_or_else(|| {
-                                format!("{}/images/{base_name}", self.resource_base_href)
-                            });
+                            self.lookup_data_uri("images", &base_name)
+                                .unwrap_or_else(|| {
+                                    format!("{}/images/{base_name}", self.resource_base_href)
+                                });
                         image_html = format!(
                             "<img src=\"{img_src}\" class=\"reply-content-thumb\" alt=\"引用图片\" loading=\"lazy\">"
                         );
@@ -1509,11 +1528,7 @@ impl ModernHtmlExporter {
         let interaction_attrs = jump_target
             .as_deref()
             .map(|t| {
-                let target_id = if t.starts_with("msg-") {
-                    t.to_owned()
-                } else {
-                    format!("msg-{t}")
-                };
+                let target_id = format!("msg-{t}");
                 format!(
                     "data-reply-to=\"{}\" role=\"button\" tabindex=\"0\" aria-label=\"跳转到原消息\"",
                     escape_html(&target_id)
@@ -1532,6 +1547,10 @@ impl ModernHtmlExporter {
         format!(
             r#"<div class="reply-content" {interaction_attrs}>
             <div class="reply-content-header">
+                <svg class="reply-content-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M9 17 4 12l5-5"></path>
+                    <path d="M4 12h9a7 7 0 0 1 7 7"></path>
+                </svg>
                 <strong>{}</strong>
                 {time_html}
             </div>
@@ -1539,6 +1558,70 @@ impl ModernHtmlExporter {
         </div>"#,
             escape_html(&sender_name)
         )
+    }
+
+    fn prepare_reply_targets(&mut self, messages: &[CleanMessage]) {
+        self.rendered_message_ids.clear();
+        self.message_id_by_time_sender.clear();
+        for message in messages {
+            if message.id.trim().is_empty() {
+                continue;
+            }
+            self.rendered_message_ids.insert(message.id.clone());
+            for sender in [
+                Some(message.sender.uid.as_str()),
+                message.sender.uin.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .map(str::trim)
+            .filter(|sender| !sender.is_empty())
+            {
+                let key = (message.timestamp, sender.to_string());
+                match self.message_id_by_time_sender.entry(key) {
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(Some(message.id.clone()));
+                    }
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        if entry.get().as_deref() != Some(message.id.as_str()) {
+                            entry.insert(None);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn resolve_reply_jump_target(&self, data: &Value, input: &ReplyRenderInput) -> Option<String> {
+        if let Some(candidate) = choose_reply_jump_target(input) {
+            if self.rendered_message_ids.contains(&candidate) {
+                return Some(candidate);
+            }
+            if let Some(raw_id) = candidate.strip_prefix("msg-") {
+                if self.rendered_message_ids.contains(raw_id) {
+                    return Some(raw_id.to_string());
+                }
+            }
+        }
+
+        let timestamp = reply_timestamp_millis(input.timestamp.as_ref().or(input.time.as_ref()))?;
+        let mut matches = HashSet::new();
+        for sender in ["senderUin", "senderUidStr", "senderUid"]
+            .iter()
+            .filter_map(|key| str_field(data, key))
+            .map(|sender| sender.trim().to_string())
+            .filter(|sender| !sender.is_empty())
+        {
+            if let Some(Some(message_id)) = self.message_id_by_time_sender.get(&(timestamp, sender))
+            {
+                matches.insert(message_id.clone());
+            }
+        }
+        if matches.len() == 1 {
+            matches.into_iter().next()
+        } else {
+            None
+        }
     }
 
     fn is_self_message(&self, message: &CleanMessage) -> bool {
@@ -1720,11 +1803,7 @@ async fn finish_chunk(
 /* ------------------------ 流式写入 / 并发复制 ------------------------ */
 
 /// 写入一段字符串（对应 TS `writeChunk`；tokio `write_all` 天然遵循 backpressure）。
-async fn write_chunk(
-    ws: &mut BufWriter<fs::File>,
-    path: &Path,
-    chunk: &str,
-) -> ExportResultT<()> {
+async fn write_chunk(ws: &mut BufWriter<fs::File>, path: &Path, chunk: &str) -> ExportResultT<()> {
     ws.write_all(chunk.as_bytes())
         .await
         .map_err(|e| ExportError::io("writeChunk", path, e))
@@ -2111,25 +2190,24 @@ fn num_field_display(data: &Value, key: &str) -> String {
 
 /// 提取路径最后一段文件名（对应 `path.basename`，同时兼容 Windows 分隔符）。
 fn base_name_of(path: &str) -> String {
-    path.rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(path)
-        .to_owned()
+    path.rsplit(['/', '\\']).next().unwrap_or(path).to_owned()
 }
 
-/// 外链 URL 过滤：排除 file:// 协议和本地文件系统路径（对齐 TS 判断）。
+/// 外链 URL 过滤：只允许可在浏览器安全打开的 HTTP(S) URL。
 fn is_acceptable_remote_url(url: &str) -> bool {
-    if url.starts_with("file://") || url.starts_with("C:/") || url.starts_with("D:/") {
-        return false;
-    }
-    // 等价于 TS 的 /^[A-Z]:\\/ 判断
-    let bytes = url.as_bytes();
-    !(bytes.len() >= 3 && bytes[0].is_ascii_uppercase() && bytes[1] == b':' && bytes[2] == b'\\')
+    let url = url.trim();
+    url.starts_with("https://") || url.starts_with("http://")
 }
 
 fn render_text_element(data: &Value) -> String {
     let text = str_field(data, "text").unwrap_or_default();
-    format!("<span class=\"text-content\">{}</span>", linkify_escaped(&text))
+    if text.trim().is_empty() {
+        return String::new();
+    }
+    format!(
+        "<span class=\"text-content\">{}</span>",
+        linkify_escaped(&text)
+    )
 }
 
 /// URL 中允许的字符（保守集合，遇到空白/中文/引号/尖括号等即截止）。
@@ -2192,7 +2270,42 @@ fn render_face_element(data: &Value) -> String {
     let name = str_field(data, "name")
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| get_face_name_by_id(&id));
+    if !id.is_empty() && id.chars().all(|character| character.is_ascii_digit()) {
+        return format!(
+            "<img class=\"face-emoji face-emoji-image\" src=\"https://res.qlogo.cn/qqface/{id}/100\" alt=\"{name}\" title=\"{name}\" loading=\"lazy\" referrerpolicy=\"no-referrer\" onerror=\"this.replaceWith(document.createTextNode(this.alt))\">",
+            name = escape_html(&name)
+        );
+    }
     format!("<span class=\"face-emoji\">{}</span>", escape_html(&name))
+}
+
+fn render_at_element(data: &Value) -> String {
+    let name = str_field(data, "name")
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "某人".to_string());
+    format!("<span class=\"at-mention\">@{}</span>", escape_html(&name))
+}
+
+fn is_video_filename(filename: &str) -> bool {
+    let extension = Path::new(filename)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default();
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "mp4" | "webm" | "mov" | "m4v" | "mkv" | "avi"
+    )
+}
+
+fn render_video_bubble(src: &str, filename: &str) -> String {
+    format!(
+        "<div class=\"video-bubble\" data-src=\"{src}\" data-name=\"{fname}\" role=\"button\" tabindex=\"0\">\
+            <video class=\"img\" src=\"{src}#t=0.1\" preload=\"metadata\" muted playsinline></video>\
+            <span class=\"vbadge\"><span class=\"vtri\"></span>视频</span>\
+            <span class=\"vname\">{fname}</span>\
+        </div>",
+        fname = escape_html(filename)
+    )
 }
 
 fn render_market_face_element(data: &Value) -> String {
@@ -2298,7 +2411,7 @@ fn utf16_slice(s: &str, max: usize) -> (String, bool) {
 }
 
 /// 渲染合并转发卡片（对应 TS `renderForwardElement`，issue #161 / #434）。
-fn render_forward_element(data: &Value, depth: usize) -> String {
+fn render_forward_element(exporter: &ModernHtmlExporter, data: &Value, depth: usize) -> String {
     let raw_summary = str_field(data, "summary")
         .or_else(|| str_field(data, "content"))
         .unwrap_or_default();
@@ -2386,30 +2499,35 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
             if truncated {
                 trimmed.push('…');
             }
-            let nested_html: String = if depth < MAX_RENDER_DEPTH {
-                m.get("content")
-                    .and_then(|c| c.get("elements"))
-                    .and_then(Value::as_array)
-                    .map(|els| {
-                        els.iter()
-                            .filter(|el| {
-                                el.get("type").and_then(Value::as_str) == Some("forward")
-                                    && el.get("data").is_some_and(|d| !d.is_null())
-                            })
-                            .map(|el| {
-                                render_forward_element(
-                                    el.get("data").unwrap_or(&Value::Null),
-                                    depth + 1,
-                                )
-                            })
-                            .collect::<String>()
-                    })
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-            // 子消息只是一条嵌套转发时，正文就是"[转发消息: N条]"这类占位，已由内层卡片表达，去掉避免重复。
-            let body_text = if !nested_html.is_empty() && text.starts_with("[转发消息") {
+            let element_html: String = m
+                .get("content")
+                .and_then(|c| c.get("elements"))
+                .and_then(Value::as_array)
+                .map(|els| {
+                    els.iter()
+                        .filter_map(|element| {
+                            let data = element.get("data").unwrap_or(&Value::Null);
+                            match element.get("type").and_then(Value::as_str) {
+                                Some("forward") if depth < MAX_RENDER_DEPTH && !data.is_null() => {
+                                    Some(render_forward_element(exporter, data, depth + 1))
+                                }
+                                Some("image") => Some(exporter.render_image_element(data)),
+                                Some("video") => Some(exporter.render_video_element(data)),
+                                Some("audio") => Some(exporter.render_audio_element(data)),
+                                Some("file") => Some(exporter.render_file_element(data)),
+                                Some("face") => Some(render_face_element(data)),
+                                Some("market_face") => Some(render_market_face_element(data)),
+                                _ => None,
+                            }
+                        })
+                        .collect::<String>()
+                })
+                .unwrap_or_default();
+            let body_is_media_placeholder =
+                ["[图片", "[视频", "[语音", "[文件", "[表情", "[转发消息"]
+                    .iter()
+                    .any(|prefix| text.starts_with(prefix));
+            let body_text = if !element_html.is_empty() && body_is_media_placeholder {
                 String::new()
             } else {
                 trimmed
@@ -2428,7 +2546,7 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
                 "forward-card-line"
             };
             preview_html.push_str(&format!(
-                "<div class=\"{line_class}\"><span class=\"forward-card-sender\">{name}:</span> {body_html}{nested_html}</div>"
+                "<div class=\"{line_class}\"><span class=\"forward-card-sender\">{name}:</span> {body_html}{element_html}</div>"
             ));
         }
     }
@@ -2447,6 +2565,9 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
         format!(
             r#"<button type="button" class="forward-card-toggle" aria-expanded="false" data-count="{message_count}">
                 <span class="forward-card-toggle-label">展开全部 {message_count} 条</span>
+                <svg class="forward-card-toggle-icon" viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="m5 7.5 5 5 5-5"></path>
+                </svg>
             </button>"#
         )
     } else {
@@ -2491,11 +2612,101 @@ fn normalize_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn group_member_name(value: &Value, fallback: &str) -> String {
+    str_field(value, "name")
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn group_member_add_summary(data: &Value) -> Option<String> {
+    let group = data
+        .get("originalData")
+        .and_then(|value| value.get("groupElement"))
+        .filter(|value| !value.is_null())?;
+    if group.get("type").and_then(Value::as_i64) != Some(1) {
+        return None;
+    }
+    let member_add = group.get("memberAdd")?.as_object()?;
+    let show_type = member_add
+        .get("showType")
+        .and_then(Value::as_i64)
+        .unwrap_or(-1);
+    let member_name = str_field(group, "memberNick")
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "成员".to_string());
+    let member = |key: &str| {
+        member_add
+            .get(key)
+            .filter(|value| !value.is_null())
+            .map(|value| group_member_name(value, &member_name))
+    };
+    let invitation = |key: &str| {
+        member_add
+            .get(key)
+            .filter(|value| !value.is_null())
+            .map(|value| {
+                let invited = value.get("invited").map_or_else(
+                    || member_name.clone(),
+                    |item| group_member_name(item, &member_name),
+                );
+                let inviter = value.get("inviter").map_or_else(
+                    || "成员".to_string(),
+                    |item| group_member_name(item, "成员"),
+                );
+                (inviter, invited)
+            })
+    };
+
+    Some(match show_type {
+        0 => format!(
+            "{}加入了群聊",
+            member("otherAdd").unwrap_or_else(|| member_name.clone())
+        ),
+        1 => "你加入了群聊".to_string(),
+        2 => {
+            let (inviter, invited) = invitation("otherAddByOtherQRCode")
+                .unwrap_or_else(|| ("成员".to_string(), member_name.clone()));
+            format!("{invited}通过{inviter}分享的二维码加入了群聊")
+        }
+        3 => format!(
+            "{}通过你的二维码加入了群聊",
+            member("otherAddByYourQRCode").unwrap_or_else(|| member_name.clone())
+        ),
+        4 => format!(
+            "你通过{}分享的二维码加入了群聊",
+            member("youAddByOtherQRCode").unwrap_or_else(|| "成员".to_string())
+        ),
+        5 => {
+            let (inviter, invited) = invitation("otherInviteOther")
+                .unwrap_or_else(|| ("成员".to_string(), member_name.clone()));
+            format!("{inviter}邀请{invited}加入了群聊")
+        }
+        6 => format!(
+            "{}邀请你加入了群聊",
+            member("otherInviteYou").unwrap_or_else(|| "成员".to_string())
+        ),
+        7 => format!(
+            "你邀请{}加入了群聊",
+            member("youInviteOther").unwrap_or_else(|| member_name.clone())
+        ),
+        8 => "你已是群成员".to_string(),
+        _ => format!("{member_name}加入了群聊"),
+    })
+}
+
 fn render_system_element(data: &Value) -> String {
-    let text = str_field(data, "text")
+    let mut text = str_field(data, "text")
         .or_else(|| str_field(data, "content"))
         .unwrap_or_else(|| "系统消息".to_owned());
-    if let Some(items) = data.get("items").and_then(Value::as_array).filter(|items| !items.is_empty())
+    if text == "群聊更新" {
+        if let Some(summary) = group_member_add_summary(data) {
+            text = summary;
+        }
+    }
+    if let Some(items) = data
+        .get("items")
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
     {
         let content = items
             .iter()
@@ -2854,12 +3065,10 @@ fn locale_datetime_zh(d: DateTime<Local>) -> String {
 
 /// `Date#toLocaleDateString('zh-CN')` 等价输出：`YYYY/M/D`（不补零）。
 fn locale_date_zh(ts_ms: i64) -> String {
-    Local
-        .timestamp_millis_opt(ts_ms)
-        .single()
-        .map_or_else(|| "--".to_owned(), |d| {
-            format!("{}/{}/{}", d.year(), d.month(), d.day())
-        })
+    Local.timestamp_millis_opt(ts_ms).single().map_or_else(
+        || "--".to_owned(),
+        |d| format!("{}/{}/{}", d.year(), d.month(), d.day()),
+    )
 }
 
 /// 当前时间 ISO 8601（UTC，与 JS `Date#toISOString` 一致）。
@@ -2881,16 +3090,14 @@ fn generate_avatar_html(uin: Option<&str>, name: Option<&str>) -> String {
     match uin.filter(|u| !u.is_empty()) {
         Some(uin) => {
             let avatar_url = format!("http://q.qlogo.cn/g?b=qq&nk={uin}&s=100");
-            let fallback_text = name
-                .filter(|n| !n.is_empty())
-                .map_or_else(
-                    || {
-                        let units: Vec<u16> = uin.encode_utf16().collect();
-                        let start = units.len().saturating_sub(2);
-                        String::from_utf16_lossy(&units[start..])
-                    },
-                    first_char_upper,
-                );
+            let fallback_text = name.filter(|n| !n.is_empty()).map_or_else(
+                || {
+                    let units: Vec<u16> = uin.encode_utf16().collect();
+                    let start = units.len().saturating_sub(2);
+                    String::from_utf16_lossy(&units[start..])
+                },
+                first_char_upper,
+            );
             format!(
                 "<img src=\"{avatar_url}\" alt=\"{}\" onerror=\"this.style.display='none'; this.nextSibling.style.display='inline-flex';\" />\n                    <span style=\"display:none; width:40px; height:40px; border-radius:50%; background:#007AFF; color:white; align-items:center; justify-content:center; font-size:14px; font-weight:500;\">{}</span>",
                 escape_html(name.filter(|n| !n.is_empty()).unwrap_or(uin)),

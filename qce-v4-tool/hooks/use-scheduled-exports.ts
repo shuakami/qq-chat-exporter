@@ -9,8 +9,10 @@ export interface ScheduledExportConfig {
     peer: {
         chatType: number;
         peerUid: string;
+        peerUin?: string;
         guildId: string;
     };
+    sessionName?: string;
     scheduleType: 'daily' | 'weekly' | 'monthly' | 'custom';
     executeTime: string;
     cronExpression?: string;
@@ -89,8 +91,10 @@ export function useScheduledExports() {
                 peer: {
                     chatType: formData.chatType,
                     peerUid: formData.peerUid,
+                    ...(formData.peerUin && { peerUin: formData.peerUin }),
                     guildId: "",
                 },
+                sessionName: formData.sessionName,
                 scheduleType: formData.scheduleType,
                 executeTime: formData.executeTime,
                 cronExpression: formData.cronExpression,

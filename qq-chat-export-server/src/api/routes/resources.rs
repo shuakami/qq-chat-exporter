@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
 
@@ -40,7 +39,9 @@ fn encode_uri_component(input: &str) -> String {
 }
 
 fn resource_type_from_ext(ext: &str) -> &'static str {
-    const IMAGES: [&str; 8] = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".ico", ".svg"];
+    const IMAGES: [&str; 8] = [
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".ico", ".svg",
+    ];
     const VIDEOS: [&str; 7] = [".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv"];
     const AUDIOS: [&str; 9] = [
         ".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a", ".wma", ".amr", ".silk",
@@ -107,8 +108,7 @@ fn valid_qq_uin(value: &str) -> bool {
 
 fn avatar_url(chat_type: &str, chat_id: &str) -> Option<String> {
     if chat_type == "friend" {
-        valid_qq_uin(chat_id)
-            .then(|| format!("https://q1.qlogo.cn/g?b=qq&nk={chat_id}&s=100"))
+        valid_qq_uin(chat_id).then(|| format!("https://q1.qlogo.cn/g?b=qq&nk={chat_id}&s=100"))
     } else {
         Some(format!("https://p.qlogo.cn/gh/{chat_id}/{chat_id}/100"))
     }
@@ -142,24 +142,28 @@ async fn build_uid_to_uin_map(state: &SharedState) -> std::collections::HashMap<
 /// 根据 UID→UIN 查找表修正文件列表中的 avatarUrl（将 `u_xxx` 替换为 QQ 号码）。
 fn fix_avatar_urls(files: &mut [Value], uid_to_uin: &std::collections::HashMap<String, String>) {
     for file in files.iter_mut() {
-        let chat_type = file.get("chatType").and_then(Value::as_str).unwrap_or_default();
+        let chat_type = file
+            .get("chatType")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         if chat_type != "friend" {
             continue;
         }
-        let chat_id = file.get("chatId").and_then(Value::as_str).unwrap_or_default();
+        let chat_id = file
+            .get("chatId")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         if !chat_id.starts_with("u_") {
             continue;
         }
         if let Some(uin) = uid_to_uin.get(chat_id).filter(|value| valid_qq_uin(value)) {
-            file["avatarUrl"] = Value::String(
-                format!("https://q1.qlogo.cn/g?b=qq&nk={uin}&s=100"),
-            );
+            file["avatarUrl"] = Value::String(format!("https://q1.qlogo.cn/g?b=qq&nk={uin}&s=100"));
             file["peerUin"] = Value::String(uin.clone());
         }
     }
 }
 
-/// 解析 `(friend|group)_<middle>_<YYYYMMDD>_<HHMMSS>` 结构，返回
+/// 解析 `(friend|group)_<middle>_<YYYYMMDD>_<HHMMSS[mmm]>` 结构，返回
 /// `(chatType, chatId, exportDate, displayName)`。
 fn parse_base_name(base: &str) -> Option<(String, String, String, Option<String>)> {
     let re = base_name_re();
@@ -209,7 +213,8 @@ fn parse_base_name(base: &str) -> Option<(String, String, String, Option<String>
 fn base_name_re() -> &'static regex::Regex {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     RE.get_or_init(|| {
-        regex::Regex::new(r"(?i)^(friend|group)_(.+)_(\d{8})_(\d{6})$").expect("valid regex")
+        regex::Regex::new(r"(?i)^(friend|group)_(.+)_(\d{8})_(\d{6,9})(?:_\d+)?$")
+            .expect("valid regex")
     })
 }
 
@@ -333,8 +338,10 @@ fn parse_json_metadata(file_path: &FsPath) -> FileMetadata {
         .and_then(Value::as_str)
         .map(String::from);
     let time_range = match (
-        data.pointer("/statistics/timeRange/start").and_then(Value::as_str),
-        data.pointer("/statistics/timeRange/end").and_then(Value::as_str),
+        data.pointer("/statistics/timeRange/start")
+            .and_then(Value::as_str),
+        data.pointer("/statistics/timeRange/end")
+            .and_then(Value::as_str),
     ) {
         (Some(start), Some(end)) => Some(format!("{start} ~ {end}")),
         _ => None,
@@ -363,8 +370,7 @@ fn apply_file_metadata(file_info: &mut Value, metadata: FileMetadata) {
         file_info["peerUid"] = json!(peer_uid);
     }
     if let Some(peer_uin) = metadata.peer_uin.filter(|value| valid_qq_uin(value)) {
-        file_info["avatarUrl"] =
-            json!(format!("https://q1.qlogo.cn/g?b=qq&nk={peer_uin}&s=100"));
+        file_info["avatarUrl"] = json!(format!("https://q1.qlogo.cn/g?b=qq&nk={peer_uin}&s=100"));
         file_info["peerUin"] = json!(peer_uin);
     } else if let Some(avatar_url) = metadata.avatar_url {
         file_info["avatarUrl"] = json!(avatar_url);
@@ -390,7 +396,11 @@ fn parse_manifest_metadata(manifest: &Value) -> FileMetadata {
 }
 
 /// 获取聊天对象显示名（群名 / 好友昵称）。
-async fn display_name_for_chat(state: &SharedState, chat_type: &str, chat_id: &str) -> Option<String> {
+async fn display_name_for_chat(
+    state: &SharedState,
+    chat_type: &str,
+    chat_id: &str,
+) -> Option<String> {
     if chat_type == "group" {
         let groups = state.napcat.get_groups(false).await.ok()?;
         groups.as_array()?.iter().find_map(|g| {
@@ -465,8 +475,17 @@ fn scan_jsonl_directory(dir: &FsPath) -> (i64, i64) {
 }
 
 /// 扫描单个导出目录，把识别出的文件加入 `files`。
-async fn scan_export_dir(state: &SharedState, dir: &FsPath, is_scheduled: bool, files: &mut Vec<Value>) {
-    let prefix = if is_scheduled { "/scheduled-downloads" } else { "/downloads" };
+async fn scan_export_dir(
+    state: &SharedState,
+    dir: &FsPath,
+    is_scheduled: bool,
+    files: &mut Vec<Value>,
+) {
+    let prefix = if is_scheduled {
+        "/scheduled-downloads"
+    } else {
+        "/downloads"
+    };
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -490,8 +509,7 @@ async fn scan_export_dir(state: &SharedState, dir: &FsPath, is_scheduled: bool, 
             }
         } else if meta.is_file() && normalized.ends_with("_streaming.zip") {
             info = parse_streaming_zip_file_name(&file_name);
-        } else if meta.is_file()
-            && (normalized.ends_with(".html") || normalized.ends_with(".json"))
+        } else if meta.is_file() && (normalized.ends_with(".html") || normalized.ends_with(".json"))
         {
             if let Some(mut file_info) = parse_export_file_name(&file_name) {
                 let format = file_info
@@ -631,8 +649,10 @@ pub async fn export_file_info(
                     detailed.insert("messageCount".into(), json!(count));
                 }
                 if let (Some(start), Some(end)) = (
-                    data.pointer("/statistics/timeRange/start").and_then(Value::as_str),
-                    data.pointer("/statistics/timeRange/end").and_then(Value::as_str),
+                    data.pointer("/statistics/timeRange/start")
+                        .and_then(Value::as_str),
+                    data.pointer("/statistics/timeRange/end")
+                        .and_then(Value::as_str),
                 ) {
                     detailed.insert("timeRange".into(), json!(format!("{start} ~ {end}")));
                 }
@@ -647,7 +667,10 @@ pub async fn export_file_info(
         }
     } else if let Ok(html_content) = std::fs::read_to_string(&file_path) {
         for (pattern, key) in [
-            (r"<title>([^<]+?)(?:\s*-\s*聊天记录)?</title>", "displayName"),
+            (
+                r"<title>([^<]+?)(?:\s*-\s*聊天记录)?</title>",
+                "displayName",
+            ),
             (r#"<div class="info-value">([^<]+)</div>"#, "exportTime"),
             (r#"<span class="sender">([^<]+)</span>"#, "senderName"),
         ] {
@@ -657,22 +680,25 @@ pub async fn export_file_info(
                 }
             }
         }
-        if let Ok(re) = regex::Regex::new(r#"(?s)消息总数.*?<div class="info-value">(\d+)</div>"#) {
+        if let Ok(re) = regex::Regex::new(r#"(?s)消息总数.*?<div class="info-value">(\d+)</div>"#)
+        {
             if let Some(caps) = re.captures(&html_content) {
                 if let Ok(count) = caps[1].parse::<i64>() {
                     detailed.insert("messageCount".into(), json!(count));
                 }
             }
         }
-        if let Ok(re) = regex::Regex::new(r#"(?s)时间范围.*?<div class="info-value">([^<]+)</div>"#) {
-            if let Some(caps) = re.captures(&html_content) {
-                detailed.insert("timeRange".into(), json!(&caps[1]));
-            }
+        if let Some(time_range) = extract_html_time_range(&html_content) {
+            detailed.insert("timeRange".into(), json!(time_range));
         }
     }
 
     let (create_time, modify_time) = file_times(&meta);
-    let prefix = if is_scheduled { "/scheduled-downloads" } else { "/downloads" };
+    let prefix = if is_scheduled {
+        "/scheduled-downloads"
+    } else {
+        "/downloads"
+    };
     let mut result = json!({
         "fileName": file_name,
         "filePath": file_path.to_string_lossy(),
@@ -926,7 +952,13 @@ async fn find_resource_file(state: &SharedState, resource_path: &str) -> Option<
     let short_name = path.file_name().map(|n| n.to_string_lossy().into_owned())?;
     let cache = build_resource_cache(state, &dir_path).await;
     let actual = cache.get(&short_name)?;
-    Some(state.path_manager.resources_dir().join(dir_path).join(actual))
+    Some(
+        state
+            .path_manager
+            .resources_dir()
+            .join(dir_path)
+            .join(actual),
+    )
 }
 
 /// HTML 预览页面的资源文件服务。
@@ -939,7 +971,10 @@ pub async fn export_file_resource(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path((file_name, resource_path)): Path<(String, String)>,
 ) -> Response {
-    if resource_path.contains("..") || resource_path.starts_with('/') || resource_path.starts_with('\\') {
+    if resource_path.contains("..")
+        || resource_path.starts_with('/')
+        || resource_path.starts_with('\\')
+    {
         let err = ApiError::validation("非法的资源路径", "INVALID_PATH");
         return response::error(&err, &request_id);
     }
@@ -1019,7 +1054,10 @@ async fn find_export_local_resource(
 
     // 带 MD5 前缀匹配：目录下文件名为 `md5_originalName.ext`
     let path = FsPath::new(resource_path);
-    let parent = path.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let parent = path
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let short_name = path.file_name()?.to_string_lossy().into_owned();
 
     let search_dir = if parent.is_empty() {
@@ -1096,7 +1134,9 @@ pub async fn resources_index(
     // 2. 扫描导出目录。
     let mut exports: Vec<Value> = Vec::new();
     for dir in [&exports_dir, &scheduled_dir] {
-        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             let full_path = entry.path();
@@ -1150,7 +1190,12 @@ pub async fn resources_index(
                         "chatId": info.as_ref().and_then(|i| i.get("chatId")).cloned(),
                         "displayName": info.as_ref().and_then(|i| i.get("displayName")).cloned(),
                     }));
-                    bump(&mut by_source, "zip", 0, i64::try_from(meta.len()).unwrap_or(0));
+                    bump(
+                        &mut by_source,
+                        "zip",
+                        0,
+                        i64::try_from(meta.len()).unwrap_or(0),
+                    );
                 } else if ext == ".html" || ext == ".json" {
                     let info = parse_export_file_name(&name);
                     let base_name = html_json_re().replace(&name, "").into_owned();
@@ -1260,7 +1305,8 @@ pub async fn export_file_resources(
             }));
         }
     }
-    resources.sort_by_key(|r| std::cmp::Reverse(r.get("size").and_then(Value::as_i64).unwrap_or(0)));
+    resources
+        .sort_by_key(|r| std::cmp::Reverse(r.get("size").and_then(Value::as_i64).unwrap_or(0)));
 
     response::success(json!({ "resources": resources }), &request_id)
 }
@@ -1323,7 +1369,9 @@ pub async fn global_resource_files(
     let mut files: Vec<Value> = Vec::new();
     for (dir_name, resource_type) in dirs_to_scan {
         let dir = resources_dir.join(dir_name);
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             if !entry.file_type().is_ok_and(|t| t.is_file()) {
                 continue;
@@ -1390,11 +1438,20 @@ pub async fn download_file(
 
     // 安全检查：危险字符（规范化前后各查一次）。
     if raw_path.contains("..") || raw_path.contains('\0') || raw_path.contains("%00") {
-        return response::error(&permission_err("非法的文件路径", "INVALID_PATH"), &request_id);
+        return response::error(
+            &permission_err("非法的文件路径", "INVALID_PATH"),
+            &request_id,
+        );
     }
     let normalized = PathBuf::from(raw_path);
-    if normalized.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
-        return response::error(&permission_err("非法的文件路径", "INVALID_PATH"), &request_id);
+    if normalized
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return response::error(
+            &permission_err("非法的文件路径", "INVALID_PATH"),
+            &request_id,
+        );
     }
 
     // 只允许下载导出文件扩展名。
@@ -1462,16 +1519,34 @@ pub async fn download_file(
 // POST /api/open-file-location / /api/open-export-directory
 // ===================
 
+fn extract_html_time_range(html: &str) -> Option<String> {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(
+            r#"(?s)(?:时间范围|范围).*?class\s*=\s*["'][^"']*(?:info-value|meta-value)[^"']*["'][^>]*>\s*([^<]+)<"#,
+        )
+        .expect("valid time range regex")
+    });
+    re.captures(html)
+        .and_then(|captures| captures.get(1))
+        .map(|value| value.as_str().trim().to_string())
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn windows_explorer_args(target: &FsPath, select_file: bool) -> Vec<std::ffi::OsString> {
+    let path = target.to_string_lossy().replace('/', "\\");
+    if select_file {
+        vec!["/select,".into(), path.into()]
+    } else {
+        vec![path.into()]
+    }
+}
+
 fn open_in_file_manager(target: &FsPath, select_file: bool) {
     #[cfg(target_os = "windows")]
     {
-        let arg = target.to_string_lossy().replace('/', "\\");
         let mut cmd = std::process::Command::new("explorer");
-        if select_file {
-            cmd.arg(format!("/select,{arg}"));
-        } else {
-            cmd.arg(arg);
-        }
+        cmd.args(windows_explorer_args(target, select_file));
         let _ = cmd.spawn();
     }
     #[cfg(target_os = "macos")]
@@ -1486,7 +1561,9 @@ fn open_in_file_manager(target: &FsPath, select_file: bool) {
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let dir = if select_file {
-            target.parent().map_or_else(|| target.to_path_buf(), FsPath::to_path_buf)
+            target
+                .parent()
+                .map_or_else(|| target.to_path_buf(), FsPath::to_path_buf)
         } else {
             target.to_path_buf()
         };
@@ -1503,7 +1580,10 @@ pub async fn open_file_location(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Json(body): Json<Value>,
 ) -> Response {
-    let Some(file_path) = body.get("filePath").and_then(Value::as_str).filter(|p| !p.is_empty())
+    let Some(file_path) = body
+        .get("filePath")
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
     else {
         let err = ApiError::validation("缺少文件路径参数", "MISSING_FILE_PATH");
         return response::error(&err, &request_id);
@@ -1546,22 +1626,12 @@ struct ManualExportInfo {
 /// 解析手动导出文件名（新旧三种命名格式）。
 fn parse_manual_export_file_name(file_name: &str) -> Option<ManualExportInfo> {
     static RE_FRIENDLY: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    static RE_NAMED: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    static RE_DEFAULT: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re_friendly = RE_FRIENDLY.get_or_init(|| {
-        regex::Regex::new(r"^(.+?)\((\d+)\)(?:_(\d{8})_(\d{6}))?\.(html|json)$")
-            .expect("valid regex")
-    });
-    let re_named = RE_NAMED.get_or_init(|| {
-        regex::Regex::new(r"^(friend|group)_(.+?)_(\d+)_(\d{8})_(\d{6})\.(html|json)$")
-            .expect("valid regex")
-    });
-    let re_default = RE_DEFAULT.get_or_init(|| {
-        regex::Regex::new(r"^(friend|group)_(\d+)_(\d{8})_(\d{6})\.(html|json)$")
+        regex::Regex::new(r"^(.+?)\((\d+)\)(?:_(\d{8})_(\d{6,9})(?:_\d+)?)?\.(html|json)$")
             .expect("valid regex")
     });
 
-    // 1. `<safeName>(<uid>).<ext>`（友好命名无法区分 friend/group，默认 friend）。
+    // `<safeName>(<uid>).<ext>`（旧友好命名无法区分 friend/group，默认 friend）。
     if let Some(caps) = re_friendly.captures(file_name) {
         let timestamp = match (caps.get(3), caps.get(4)) {
             (Some(date), Some(time)) => Some(format!("{}-{}", date.as_str(), time.as_str())),
@@ -1574,25 +1644,17 @@ fn parse_manual_export_file_name(file_name: &str) -> Option<ManualExportInfo> {
             timestamp,
         });
     }
-    // 2. `<chatType>_<safeName>_<uid>_<date>_<time>.<ext>`（#216）。
-    if let Some(caps) = re_named.captures(file_name) {
-        return Some(ManualExportInfo {
-            chat_type: caps[1].to_string(),
-            peer_uid: caps[3].to_string(),
-            session_name: Some(caps[2].to_string()),
-            timestamp: Some(format!("{}-{}", &caps[4], &caps[5])),
-        });
-    }
-    // 3. `<chatType>_<uid>_<date>_<time>.<ext>`（默认）。
-    if let Some(caps) = re_default.captures(file_name) {
-        return Some(ManualExportInfo {
-            chat_type: caps[1].to_string(),
-            peer_uid: caps[2].to_string(),
-            session_name: None,
-            timestamp: Some(format!("{}-{}", &caps[3], &caps[4])),
-        });
-    }
-    None
+
+    let stem = file_name
+        .strip_suffix(".html")
+        .or_else(|| file_name.strip_suffix(".json"))?;
+    let (chat_type, peer_uid, timestamp, session_name) = parse_base_name(stem)?;
+    Some(ManualExportInfo {
+        chat_type,
+        peer_uid,
+        session_name,
+        timestamp: Some(timestamp),
+    })
 }
 
 // ===================
@@ -1619,7 +1681,9 @@ pub async fn merge_available_tasks(
             if !name.ends_with(".html") && !name.ends_with(".json") {
                 continue;
             }
-            let Some(caps) = re_scheduled.captures(&name) else { continue };
+            let Some(caps) = re_scheduled.captures(&name) else {
+                continue;
+            };
             let Ok(meta) = entry.metadata() else { continue };
             let created_at = meta.modified().map(iso).unwrap_or_default();
             scheduled_groups
@@ -1653,8 +1717,14 @@ pub async fn merge_available_tasks(
         })
         .collect();
     scheduled_tasks.sort_by(|a, b| {
-        let time_a = a.pointer("/latestBackup/createdAt").and_then(Value::as_str).unwrap_or("");
-        let time_b = b.pointer("/latestBackup/createdAt").and_then(Value::as_str).unwrap_or("");
+        let time_a = a
+            .pointer("/latestBackup/createdAt")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let time_b = b
+            .pointer("/latestBackup/createdAt")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         time_b.cmp(time_a)
     });
 
@@ -1710,7 +1780,13 @@ pub async fn merge_available_tasks(
             let task_name = named
                 .and_then(|it| it.get("sessionName").and_then(Value::as_str))
                 .map_or_else(
-                    || latest.get("taskName").and_then(Value::as_str).unwrap_or("").to_string(),
+                    || {
+                        latest
+                            .get("taskName")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string()
+                    },
                     String::from,
                 );
             json!({
@@ -1725,8 +1801,14 @@ pub async fn merge_available_tasks(
         })
         .collect();
     manual_tasks.sort_by(|a, b| {
-        let time_a = a.pointer("/latestBackup/createdAt").and_then(Value::as_str).unwrap_or("");
-        let time_b = b.pointer("/latestBackup/createdAt").and_then(Value::as_str).unwrap_or("");
+        let time_a = a
+            .pointer("/latestBackup/createdAt")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let time_b = b
+            .pointer("/latestBackup/createdAt")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         time_b.cmp(time_a)
     });
 
@@ -1821,14 +1903,25 @@ fn merge_source_messages(sources: &[MergeSource], deduplicate: bool) -> (Vec<Val
     let mut deduplicated = 0usize;
 
     for source in sources {
-        let Some(json_path) = &source.json_file else { continue };
-        let Ok(content) = std::fs::read_to_string(json_path) else { continue };
-        let Ok(data) = serde_json::from_str::<Value>(&content) else { continue };
-        let Some(messages) = data.get("messages").and_then(Value::as_array) else { continue };
+        let Some(json_path) = &source.json_file else {
+            continue;
+        };
+        let Ok(content) = std::fs::read_to_string(json_path) else {
+            continue;
+        };
+        let Ok(data) = serde_json::from_str::<Value>(&content) else {
+            continue;
+        };
+        let Some(messages) = data.get("messages").and_then(Value::as_array) else {
+            continue;
+        };
         for message in messages {
             if deduplicate {
                 let id = message.get("id").and_then(Value::as_str).unwrap_or("");
-                let ts = message.get("timestamp").and_then(Value::as_i64).unwrap_or(0);
+                let ts = message
+                    .get("timestamp")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0);
                 let key = format!("{id}_{ts}");
                 if !seen.insert(key) {
                     deduplicated += 1;
@@ -1875,13 +1968,17 @@ fn merge_resource_files(
         }
         for type_name in ["images", "videos", "audios", "files"] {
             let source_dir = source.resource_dir.join(type_name);
-            let Ok(entries) = std::fs::read_dir(&source_dir) else { continue };
+            let Ok(entries) = std::fs::read_dir(&source_dir) else {
+                continue;
+            };
             for entry in entries.flatten() {
                 if !entry.file_type().is_ok_and(|t| t.is_file()) {
                     continue;
                 }
                 let source_path = entry.path();
-                let Some(md5) = md5_of_file(&source_path) else { continue };
+                let Some(md5) = md5_of_file(&source_path) else {
+                    continue;
+                };
                 if copied.contains_key(&md5) {
                     continue;
                 }
@@ -1951,7 +2048,9 @@ async fn write_merged_data(
         exporter_version: Some(crate::version::VERSION.get().to_string()),
         ..HtmlExportOptions::default()
     });
-    let html_result = exporter.export_single_inline(&clean_messages, &chat_info).await;
+    let html_result = exporter
+        .export_single_inline(&clean_messages, &chat_info)
+        .await;
     let final_html = if html_result.is_ok() {
         html_path
     } else {
@@ -2093,7 +2192,9 @@ pub async fn merge_resources(
 #[cfg(test)]
 mod metadata_tests {
     use super::{
-        apply_file_metadata, avatar_url, parse_manifest_metadata, should_select_in_file_manager,
+        apply_file_metadata, avatar_url, extract_html_time_range, parse_export_file_name,
+        parse_manifest_metadata, parse_manual_export_file_name, should_select_in_file_manager,
+        windows_explorer_args,
     };
     use serde_json::json;
     use std::fs;
@@ -2141,5 +2242,70 @@ mod metadata_tests {
         assert!(should_select_in_file_manager(&file));
 
         fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn explorer_receives_select_switch_separately_from_unicode_path() {
+        let target = std::path::Path::new(
+            "C:/Users/QCE/Documents/AxT 鸽子窝_960420904_群头像_20260712_163632.zip",
+        );
+        let args = windows_explorer_args(target, true);
+        assert_eq!(args.len(), 2);
+        assert_eq!(args[0], "/select,");
+        assert_eq!(
+            args[1],
+            r"C:\Users\QCE\Documents\AxT 鸽子窝_960420904_群头像_20260712_163632.zip"
+        );
+
+        let directory_args = windows_explorer_args(target.parent().unwrap(), false);
+        assert_eq!(directory_args.len(), 1);
+        assert_eq!(directory_args[0], r"C:\Users\QCE\Documents");
+    }
+
+    #[test]
+    fn time_range_metadata_accepts_old_and_new_labels() {
+        let old = r#"<span>时间范围</span><div class="info-value">old range</div>"#;
+        let new = r#"<span class="meta-label">范围</span><span class="meta-value" id="info-range">new range</span>"#;
+        assert_eq!(extract_html_time_range(old).as_deref(), Some("old range"));
+        assert_eq!(extract_html_time_range(new).as_deref(), Some("new range"));
+
+        let reordered = r#"
+            <span data-kind="range" class="meta-label">范围</span>
+            <span id="info-range" data-extra="yes" class='value meta-value compact'>
+                reordered range
+            </span>
+        "#;
+        assert_eq!(
+            extract_html_time_range(reordered).as_deref(),
+            Some("reordered range")
+        );
+    }
+
+    #[test]
+    fn filename_parsers_accept_legacy_and_millisecond_names() {
+        let legacy =
+            parse_export_file_name("friend_u_UPWhwEIrK6nqDmJUmoYq3Q_20260713_002703.html").unwrap();
+        assert_eq!(legacy["chatId"], "u_UPWhwEIrK6nqDmJUmoYq3Q");
+
+        let modern =
+            parse_export_file_name("friend_笨蛋Darf_v2_1687657986_20260713_002703456.html")
+                .unwrap();
+        assert_eq!(modern["chatId"], "1687657986");
+        assert_eq!(modern["displayName"], "笨蛋Darf v2");
+        assert_eq!(modern["exportDate"], "2026-07-13 00:27:03");
+
+        let duplicate =
+            parse_manual_export_file_name("group_AxT_鸽子窝_960420904_20260713_002703456_2.json")
+                .unwrap();
+        assert_eq!(duplicate.chat_type, "group");
+        assert_eq!(duplicate.peer_uid, "960420904");
+        assert_eq!(duplicate.session_name.as_deref(), Some("AxT 鸽子窝"));
+
+        let uid_fallback = parse_manual_export_file_name(
+            "friend_联系人_u_UPWhwEIrK6nqDmJUmoYq3Q_20260713_002703456.html",
+        )
+        .unwrap();
+        assert_eq!(uid_fallback.peer_uid, "u_UPWhwEIrK6nqDmJUmoYq3Q");
+        assert_eq!(uid_fallback.session_name.as_deref(), Some("联系人"));
     }
 }

@@ -1,4 +1,6 @@
-use crate::base::{escape_html, format_timestamp, ms_to_local, preprocess_messages, ExporterContext};
+use crate::base::{
+    escape_html, format_timestamp, ms_to_local, preprocess_messages, ExporterContext,
+};
 use crate::error::{ExportError, ExportResultT};
 use crate::types::{ChatInfo, CleanMessage, ExportFormat, ExportOptions, ExportOutcome};
 use chrono::Local;
@@ -654,7 +656,7 @@ impl HtmlExporter {
             .map(|c| format!("<div>参与人数: {c}</div>"))
             .unwrap_or_default();
         let time_range_block = time_range
-            .map(|r| format!("<div>时间范围: {r}</div>"))
+            .map(|r| format!("<div>范围: {r}</div>"))
             .unwrap_or_default();
 
         format!(
@@ -688,9 +690,12 @@ impl HtmlExporter {
             }
             elements.push(self.generate_message_html(message));
             if i % 50 == 0 {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
-                let current =
-                    (messages.len() as f64 * 0.7 + i as f64 * 0.25).round() as usize;
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    clippy::cast_precision_loss
+                )]
+                let current = (messages.len() as f64 * 0.7 + i as f64 * 0.25).round() as usize;
                 self.ctx.update_progress(
                     current,
                     messages.len(),
