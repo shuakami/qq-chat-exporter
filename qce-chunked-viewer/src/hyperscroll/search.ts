@@ -208,6 +208,7 @@ export class SearchScanner {
 export class FilteredDataSource implements DataSource {
   private readonly indices: BitsetIndex;
   estimateHeight?: (index: number) => number;
+  renderSeekToString?: (index: number) => string;
  
   constructor(
     private readonly inner: DataSource,
@@ -217,6 +218,8 @@ export class FilteredDataSource implements DataSource {
     for (const i of initial) this.indices.push(i);
     const est = inner.estimateHeight?.bind(inner);
     if (est) this.estimateHeight = (index) => est(this.sourceIndex(index));
+    const seek = inner.renderSeekToString?.bind(inner);
+    if (seek) this.renderSeekToString = (index) => seek(this.sourceIndex(index));
   }
  
   get count(): number {
