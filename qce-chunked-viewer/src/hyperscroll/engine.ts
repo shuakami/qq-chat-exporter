@@ -7,8 +7,13 @@ const BASE_STYLE = `
 .hs-spacer{width:1px;pointer-events:none;}
 .hs-layer{position:sticky;top:0;left:0;height:0;overflow:visible;}
 .hs-list{will-change:transform;}
-.hs-item{content-visibility:auto;}
+.hs-item{content-visibility:auto;contain-intrinsic-size:auto var(--hs-estimated-item-height,60px);}
 `;
+
+const SEEK_IDLE_MS = 90;
+const SEEK_OVERSCAN_PX = 400;
+const SEEK_MIN_ITEMS = 8;
+const SEEK_MAX_ITEMS = 48;
  
 let styleInjected = false;
 function injectBaseStyle(doc: Document): void {
@@ -53,9 +58,12 @@ export class HyperScroll {
   private smoothRunning = false;
   private smoothLastTs = 0;
   private framePending = false;
-  private scrollRebuildPending = false;
-  private pendingScrollIndex = -1;
   private smoothTau = 110;
+  private pointerActive = false;
+  private seekFramePending = false;
+  private pendingSeekIndex = -1;
+  private nativeSeekActive = false;
+  private seekSettleTimer: ReturnType<typeof setTimeout> | null = null;
   private touchY: number | null = null;
   private touchVel = 0;
   private touchLastT = 0;
@@ -78,6 +86,10 @@ export class HyperScroll {
     const doc = container.ownerDocument;
     injectBaseStyle(doc);
     container.classList.add('hs-viewport');
+    container.style.setProperty(
+      '--hs-estimated-item-height',
+      `${this.opts.estimatedItemHeight}px`,
+    );
     this.viewport = container;
     this.layer = doc.createElement('div');
     this.layer.className = 'hs-layer';
@@ -93,6 +105,9 @@ export class HyperScroll {
     const signal = this.abort.signal;
     container.addEventListener('wheel', this.onWheel, { passive: false, signal });
     container.addEventListener('scroll', this.onScroll, { passive: true, signal });
+    container.addEventListener('pointerdown', this.onPointerDown, { passive: true, signal });
+    doc.defaultView?.addEventListener('pointerup', this.onPointerUp, { passive: true, signal });
+    doc.defaultView?.addEventListener('pointercancel', this.onPointerUp, { passive: true, signal });
     container.addEventListener('touchstart', this.onTouchStart, { passive: true, signal });
     container.addEventListener('touchmove', this.onTouchMove, { passive: false, signal });
     container.addEventListener('touchend', this.onTouchEnd, { passive: true, signal });
@@ -110,6 +125,7 @@ export class HyperScroll {
   /** Jump so that item `index` is at the viewport top (+`offset` px). */
   scrollToIndex(index: number, offset = 0): void {
     const count = this.opts.dataSource.count;
+    this.cancelNativeSeek();
     // Drop any in-flight wheel momentum: letting it keep draining after a
     // jump drags the viewport away from the target.
     this.smoothRemainder = 0;
@@ -120,12 +136,17 @@ export class HyperScroll {
  
   /** Scroll by a pixel delta along the precise (anchor) path. */
   scrollBy(px: number): void {
+    this.cancelNativeSeek();
     this.anchor = { ...this.anchor, offset: this.anchor.offset + px };
     this.scheduleFrame();
   }
  
   /** Re-render in place (e.g. after the data source contents change). */
   refresh(): void {
+    if (this.nativeSeekActive) {
+      this.renderSeekWindow(this.anchor.index);
+      return;
+    }
     this.rebuild();
   }
  
@@ -134,6 +155,7 @@ export class HyperScroll {
    * view). Resets the anchor to the top of the new source.
    */
   setDataSource(source: DataSource): void {
+    this.cancelNativeSeek();
     this.opts.dataSource = source;
     this.anchor = { index: 0, offset: 0 };
     this.smoothRemainder = 0;
@@ -154,16 +176,19 @@ export class HyperScroll {
     if (this.destroyed) return;
     this.destroyed = true;
     this.abort.abort();
+    this.cancelNativeSeek();
     this.resizeObserver?.disconnect();
     this.layer.remove();
     this.spacer.remove();
     this.viewport.classList.remove('hs-viewport');
+    this.viewport.style.removeProperty('--hs-estimated-item-height');
   }
  
   // ------------------------------------------------------------------ input
  
   private readonly onWheel = (e: WheelEvent): void => {
     e.preventDefault();
+    this.cancelNativeSeek();
     const px = e.deltaMode === 1 ? e.deltaY * 24 : e.deltaY;
     if (this.opts.smoothWheel) {
       this.smoothTau = 110;
@@ -212,6 +237,15 @@ export class HyperScroll {
     };
     requestAnimationFrame(tick);
   }
+
+  private readonly onPointerDown = (): void => {
+    this.pointerActive = true;
+  };
+
+  private readonly onPointerUp = (): void => {
+    this.pointerActive = false;
+    this.scheduleSeekSettle(0);
+  };
  
   private readonly onScroll = (): void => {
     if (this.ignoreScroll) return;
@@ -220,6 +254,14 @@ export class HyperScroll {
     // resolution is coarse (1px may span many items), so treating an echo as
     // a user drag would teleport the anchor. Ignore near-identical positions.
     if (this.lastSetScrollTop >= 0 && Math.abs(scrollTop - this.lastSetScrollTop) < 3) return;
+    const delta = scrollTop - this.lastSetScrollTop;
+    const wheelLike = Math.max(this.viewport.clientHeight, 1000);
+    if (!this.pointerActive && this.lastSetScrollTop >= 0 && Math.abs(delta) <= wheelLike) {
+      this.lastSetScrollTop = scrollTop;
+      this.anchor = { ...this.anchor, offset: this.anchor.offset + delta };
+      this.scheduleFrame();
+      return;
+    }
     const count = this.opts.dataSource.count;
     const max = this.opts.scrollbarHeight - this.viewport.clientHeight;
     const idx = scrollTopToIndex(scrollTop, max, count);
@@ -227,22 +269,14 @@ export class HyperScroll {
     if (Math.abs(idx - this.anchor.index) > Math.max(2, itemsPerPx * 3)) {
       this.smoothRemainder = 0;
       this.smoothVel = 0;
-      // Coalesce to one rebuild per frame: scrollbar drags emit scroll events
-      // far faster than frames, and each rebuild is a full innerHTML write.
-      this.pendingScrollIndex = idx;
-      if (this.scrollRebuildPending) return;
-      this.scrollRebuildPending = true;
-      requestAnimationFrame(() => {
-        this.scrollRebuildPending = false;
-        if (this.destroyed || this.pendingScrollIndex < 0) return;
-        this.anchor = { index: this.pendingScrollIndex, offset: 0 };
-        this.pendingScrollIndex = -1;
-        this.rebuild();
-      });
+      this.pendingSeekIndex = idx;
+      this.scheduleSeekFrame();
+      this.scheduleSeekSettle(SEEK_IDLE_MS);
     }
   };
  
   private readonly onTouchStart = (e: TouchEvent): void => {
+    this.cancelNativeSeek();
     this.touchY = e.touches[0]?.clientY ?? null;
     this.touchVel = 0;
     this.touchLastT = e.timeStamp;
@@ -303,6 +337,86 @@ export class HyperScroll {
       this.framePending = false;
       if (!this.destroyed) this.position();
     });
+  }
+
+  private scheduleSeekFrame(): void {
+    if (this.seekFramePending || this.destroyed) return;
+    this.seekFramePending = true;
+    requestAnimationFrame(() => {
+      this.seekFramePending = false;
+      if (this.destroyed || this.pendingSeekIndex < 0) return;
+      const index = this.pendingSeekIndex;
+      this.pendingSeekIndex = -1;
+      this.renderSeekWindow(index);
+    });
+  }
+
+  private scheduleSeekSettle(delay: number): void {
+    if (!this.nativeSeekActive && this.pendingSeekIndex < 0) return;
+    if (this.seekSettleTimer !== null) clearTimeout(this.seekSettleTimer);
+    this.seekSettleTimer = setTimeout(() => {
+      this.seekSettleTimer = null;
+      if (this.destroyed) return;
+      if (this.pendingSeekIndex >= 0) {
+        const index = this.pendingSeekIndex;
+        this.pendingSeekIndex = -1;
+        this.renderSeekWindow(index);
+      }
+      this.nativeSeekActive = false;
+      this.rebuild();
+    }, delay);
+  }
+
+  private cancelNativeSeek(): void {
+    this.pendingSeekIndex = -1;
+    this.nativeSeekActive = false;
+    if (this.seekSettleTimer !== null) {
+      clearTimeout(this.seekSettleTimer);
+      this.seekSettleTimer = null;
+    }
+  }
+
+  private estimatedHeightAt(index: number): number {
+    return this.opts.dataSource.estimateHeight?.(index) ?? this.heights.get(index);
+  }
+
+  private renderSeekWindow(index: number): void {
+    if (this.destroyed) return;
+    const t0 = performance.now();
+    const src = this.opts.dataSource;
+    const count = src.count;
+    if (count <= 0) {
+      this.anchor = { index: 0, offset: 0 };
+      this.range = { start: 0, end: 0 };
+      this.list.innerHTML = '';
+      this.list.style.transform = '';
+      return;
+    }
+
+    const start = Math.min(Math.max(index, 0), count - 1);
+    const targetHeight = this.viewport.clientHeight + SEEK_OVERSCAN_PX;
+    const render = src.renderSeekToString?.bind(src) ?? src.renderToString.bind(src);
+    let estimatedHeight = 0;
+    let end = start;
+    let html = '';
+    while (
+      end < count &&
+      end - start < SEEK_MAX_ITEMS &&
+      (end - start < SEEK_MIN_ITEMS || estimatedHeight < targetHeight)
+    ) {
+      html += render(end);
+      estimatedHeight += Math.max(this.estimatedHeightAt(end), 1);
+      end += 1;
+    }
+
+    this.anchor = { index: start, offset: 0 };
+    this.range = { start, end };
+    this.nativeSeekActive = true;
+    this.list.innerHTML = html;
+    this.list.style.transform = '';
+    this.lastRebuildMs = performance.now() - t0;
+    this.opts.onRangeChange?.({ ...this.range }, this.lastRebuildMs);
+    this.opts.onAnchorChange?.({ ...this.anchor });
   }
  
   private heightAt = (index: number): number => {

@@ -137,6 +137,13 @@ function rowHtml(i: number, inner: string): string {
   return `<div class="hs-item" data-i="${i}">${inner}</div>`;
 }
 
+const SEEK_MEDIA_TAG = /<(?:img|video|audio|source)\b[^>]*>/gi;
+const SEEK_MEDIA_SOURCE = /\s(?:src|srcset|poster)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+
+function withoutSeekMediaSources(html: string): string {
+  return html.replace(SEEK_MEDIA_TAG, (tag) => tag.replace(SEEK_MEDIA_SOURCE, ''));
+}
+
 /**
  * Estimates a row's rendered height from its content so the virtual scroller
  * places offscreen rows close to their real size — this is what keeps big
@@ -400,14 +407,15 @@ export default function Viewer(): React.ReactElement {
   const manifestRef = useRef<QceManifest | null>(null);
 
   function withHighlight(src: DataSource): DataSource {
+    const highlight = (html: string): string =>
+      highlightRef.current ? highlightHtml(html, highlightRef.current) : html;
+    const renderSeek = src.renderSeekToString?.bind(src);
     return {
       get count() {
         return src.count;
       },
-      renderToString: (i) =>
-        highlightRef.current
-          ? highlightHtml(src.renderToString(i), highlightRef.current)
-          : src.renderToString(i),
+      renderToString: (i) => highlight(src.renderToString(i)),
+      renderSeekToString: renderSeek ? (i) => highlight(renderSeek(i)) : undefined,
       estimateHeight: src.estimateHeight?.bind(src),
     };
   }
@@ -479,6 +487,10 @@ export default function Viewer(): React.ReactElement {
       renderToString(i) {
         const rec = store.get(i);
         return rec ? rowHtml(i, rec.html) : skeletonHtml(i);
+      },
+      renderSeekToString(i) {
+        const rec = store.get(i);
+        return rec ? rowHtml(i, withoutSeekMediaSources(rec.html)) : skeletonHtml(i);
       },
       estimateHeight: (i) => estimateRowHeight(store.get(i)),
     };
