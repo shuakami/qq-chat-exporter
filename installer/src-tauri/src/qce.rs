@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::State;
 
-use crate::state::AppState;
+use crate::state::{AppState, Inner};
 use crate::util::{self, QCE_PORT};
 
 fn log(state: &State<'_, AppState>, msg: &str) {
@@ -49,7 +49,10 @@ fn read_access_token(state: &State<'_, AppState>) -> Option<String> {
             }
         }
     }
-    log(state, &format!("access token not found in {:?}", candidates));
+    log(
+        state,
+        &format!("access token not found in {:?}", candidates),
+    );
     None
 }
 
@@ -59,6 +62,23 @@ fn get_webui_url_inner(state: &State<'_, AppState>) -> Option<String> {
         Some(token) => Some(format!("{base}/auth?token={}", urlencode(&token))),
         None => Some(base),
     }
+}
+
+fn take_webui_url_ready_log_slot_inner(inner: &mut Inner) -> bool {
+    if inner.webui_url_ready_logged {
+        false
+    } else {
+        inner.webui_url_ready_logged = true;
+        true
+    }
+}
+
+fn take_webui_url_ready_log_slot(state: &State<'_, AppState>) -> bool {
+    state
+        .0
+        .lock()
+        .map(|mut inner| take_webui_url_ready_log_slot_inner(&mut inner))
+        .unwrap_or(false)
 }
 
 #[tauri::command]
@@ -83,7 +103,7 @@ pub async fn qce_status(state: State<'_, AppState>) -> Result<RunningInfo, Strin
                 }
             }
         }
-        if url.is_some() {
+        if url.is_some() && take_webui_url_ready_log_slot(&state) {
             log(&state, "webui url ready");
         }
         url
@@ -160,4 +180,20 @@ fn urlencode(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::take_webui_url_ready_log_slot_inner;
+    use crate::state::Inner;
+
+    #[test]
+    fn webui_ready_is_logged_once_per_app_session() {
+        let mut inner = Inner::default();
+        assert!(take_webui_url_ready_log_slot_inner(&mut inner));
+        assert!(!take_webui_url_ready_log_slot_inner(&mut inner));
+
+        inner.webui_url_ready_logged = false;
+        assert!(take_webui_url_ready_log_slot_inner(&mut inner));
+    }
 }

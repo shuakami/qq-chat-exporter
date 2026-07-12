@@ -12,6 +12,8 @@
    - NapCat lifecycle/bridge: `plugins/qq-chat-exporter/index.mjs` and `runtime/`
    - main UI: `qce-v4-tool`
    - chunked export UI: `qce-chunked-viewer`
+   - production startup: `index.mjs` → `runtime/ApiLauncher.mjs` →
+     `runtime/rustBridge.mjs` → `qce-server`
 4. Keep changes focused; do not mechanically rewrite unrelated files.
 5. Run all checks in the `AGENTS.md` change-impact matrix.
 
@@ -55,16 +57,21 @@ Use this only when a local `NapCat-QCE-Windows-x64` package directory is availab
 
 ```powershell
 node plugins/qq-chat-exporter/tools/create-overlay-runtime.cjs
-Copy-Item -Recurse -Force "plugins\qq-chat-exporter\lib\*" "NapCat-QCE-Windows-x64\plugins\qq-chat-exporter\lib\"
-Remove-Item -Recurse -Force "NapCat-QCE-Windows-x64\plugins\qq-chat-exporter\node_modules\NapCatQQ" -ErrorAction SilentlyContinue
-Copy-Item -Recurse -Force "plugins\qq-chat-exporter\node_modules\NapCatQQ" "NapCat-QCE-Windows-x64\plugins\qq-chat-exporter\node_modules\"
+$PluginSource = "plugins\qq-chat-exporter"
+$PluginTarget = "NapCat-QCE-Windows-x64\plugins\qq-chat-exporter"
+Remove-Item -Recurse -Force $PluginTarget -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $PluginTarget
+Copy-Item "$PluginSource\index.mjs", "$PluginSource\icon.png", "$PluginSource\package.json" $PluginTarget
+Copy-Item -Recurse -Force "$PluginSource\runtime" "$PluginTarget\runtime"
 
 Remove-Item -Recurse -Force "NapCat-QCE-Windows-x64\static\qce" -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path "NapCat-QCE-Windows-x64\static\qce"
 Copy-Item -Recurse -Force "qce-v4-tool\out\*" "NapCat-QCE-Windows-x64\static\qce\"
 ```
 
-Copy the complete `NapCatQQ` directory, not only its contents, and preserve the frontend `_next/static` hierarchy.
+The deployed plugin directory must contain only the ESM entrypoint, `runtime/`,
+icon, and release package metadata. The server binary remains at the package
+root. Preserve the frontend `_next/static` hierarchy.
 
 ## Stop-before-finish check
 

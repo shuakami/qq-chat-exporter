@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -60,10 +60,23 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             .filter(|s| !s.is_empty())
             .ok_or("peer.peerUid 无效")?
             .to_string();
+        let peer_uin = peer_value
+            .get("peerUin")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         let task_name = task
             .get("name")
             .and_then(Value::as_str)
             .unwrap_or("scheduled_export")
+            .to_string();
+        let session_name = task
+            .get("sessionName")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(&task_name)
             .to_string();
         let format = task
             .get("format")
@@ -159,10 +172,6 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         self.resource_handler.set_skip_download_types(None).await;
 
         // ============ 阶段 3：文件名 / 输出目录 ============
-        let timestamp = chrono::Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
-        let session_name = sanitize_task_name(&task_name);
-        let file_name = format!("{session_name}_{timestamp}.{}", format.to_lowercase());
-
         let output_dir = task
             .get("outputDir")
             .and_then(Value::as_str)
@@ -172,6 +181,22 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         tokio::fs::create_dir_all(&output_dir)
             .await
             .map_err(|e| format!("创建输出目录失败: {e}"))?;
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S%3f");
+        let chat_type_name = if chat_type == 2 { "group" } else { "friend" };
+        let peer_identity = if chat_type == 2 {
+            peer_uid.as_str()
+        } else {
+            peer_uin.as_deref().unwrap_or(&peer_uid)
+        };
+        let base_file_name = scheduled_export_file_name(
+            chat_type_name,
+            &session_name,
+            peer_identity,
+            &timestamp.to_string(),
+            &format.to_lowercase(),
+        );
+        let (file_name, _reservation) =
+            reserve_scheduled_file_name(&output_dir, &base_file_name);
         let file_path = output_dir.join(&file_name);
 
         // ============ 阶段 4：解析 + 导出 ============
@@ -200,11 +225,15 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         let self_uid = self_info.get("uid").and_then(Value::as_str).map(str::to_string);
         let self_uin = self_info.get("uin").and_then(Value::as_str).map(str::to_string);
         let peer_uin = (chat_type != 2)
-            .then(|| resolve_peer_uin(&peer_uid, self_uin.as_deref(), &clean_messages))
+            .then(|| {
+                peer_uin.clone().or_else(|| {
+                    resolve_peer_uin(&peer_uid, self_uin.as_deref(), &clean_messages)
+                })
+            })
             .flatten();
         let normalized_chat_type = classify_chat_type_binary(Some(chat_type)).to_string();
         let chat_info = ChatInfo {
-            name: task_name.clone(),
+            name: session_name,
             chat_type: normalized_chat_type.clone(),
             avatar: chat_avatar_url(&normalized_chat_type, &peer_uid, peer_uin.as_deref()),
             participant_count: None,
@@ -303,17 +332,106 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
     }
 }
 
-/// 任务名 → 文件名片段（对应 TS `task.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_')`）。
-fn sanitize_task_name(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || ('\u{4e00}'..='\u{9fa5}').contains(&c) {
-                c
-            } else {
-                '_'
+fn sanitize_task_name(name: &str, max_length: usize) -> String {
+    let mut safe = String::new();
+    let mut last_underscore = false;
+    for ch in name.chars() {
+        let mapped = match ch {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            value if (value as u32) < 0x20 || value == '\u{7f}' => '_',
+            value if value.is_whitespace() => '_',
+            value => value,
+        };
+        if mapped == '_' {
+            if !last_underscore {
+                safe.push(mapped);
             }
-        })
-        .collect()
+            last_underscore = true;
+        } else {
+            safe.push(mapped);
+            last_underscore = false;
+        }
+        if safe.chars().count() >= max_length {
+            break;
+        }
+    }
+    let mut safe = safe.trim_matches([' ', '.', '_']).to_string();
+    if safe.is_empty() {
+        safe = "unknown".to_string();
+    }
+    let device_name = safe.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    if matches!(device_name.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || device_name
+            .strip_prefix("COM")
+            .is_some_and(|value| matches!(value, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
+        || device_name
+            .strip_prefix("LPT")
+            .is_some_and(|value| matches!(value, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
+    {
+        safe.insert(0, '_');
+    }
+    safe
+}
+
+fn scheduled_export_file_name(
+    chat_type: &str,
+    session_name: &str,
+    peer_identity: &str,
+    timestamp: &str,
+    extension: &str,
+) -> String {
+    format!(
+        "{chat_type}_{}_{}_{timestamp}.{extension}",
+        sanitize_task_name(session_name, 40),
+        sanitize_task_name(peer_identity, 32),
+    )
+}
+
+fn collision_name(file_name: &str, suffix: u32) -> String {
+    let (base, extension) = file_name
+        .rsplit_once('.')
+        .map_or((file_name, String::new()), |(base, extension)| {
+            (base, format!(".{extension}"))
+        });
+    format!("{base}_{suffix}{extension}")
+}
+
+fn reserved_scheduled_paths() -> &'static Mutex<HashSet<PathBuf>> {
+    static RESERVED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    RESERVED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+struct ScheduledPathReservation(PathBuf);
+
+impl Drop for ScheduledPathReservation {
+    fn drop(&mut self) {
+        reserved_scheduled_paths()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.0);
+    }
+}
+
+fn reserve_scheduled_file_name(
+    output_dir: &std::path::Path,
+    file_name: &str,
+) -> (String, ScheduledPathReservation) {
+    let mut reserved = reserved_scheduled_paths()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for suffix in 1_u32.. {
+        let candidate = if suffix == 1 {
+            file_name.to_string()
+        } else {
+            collision_name(file_name, suffix)
+        };
+        let path = output_dir.join(&candidate);
+        if !path.exists() && !reserved.contains(&path) {
+            reserved.insert(path.clone());
+            return (candidate, ScheduledPathReservation(path));
+        }
+    }
+    unreachable!("u32 filename suffix space exhausted")
 }
 
 /// 从 JSON 里宽松取 i64（数字或数字字符串）。
@@ -378,4 +496,39 @@ fn to_value_resource_map(
             (msg_id.clone(), values)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{reserve_scheduled_file_name, sanitize_task_name, scheduled_export_file_name};
+
+    #[test]
+    fn scheduled_names_are_readable_safe_and_reserved_concurrently() {
+        assert_eq!(sanitize_task_name("CON.", 40), "_CON");
+        let file_name = scheduled_export_file_name(
+            "friend",
+            "笨蛋 Darf/v2",
+            "1687657986",
+            "20260713_002703456",
+            "html",
+        );
+        assert_eq!(
+            file_name,
+            "friend_笨蛋_Darf_v2_1687657986_20260713_002703456.html"
+        );
+
+        let base = std::env::temp_dir().join(format!(
+            "qce-scheduled-export-name-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+        let (first, _first_reservation) = reserve_scheduled_file_name(&base, &file_name);
+        let (second, _second_reservation) = reserve_scheduled_file_name(&base, &file_name);
+        assert_eq!(first, file_name);
+        assert_eq!(
+            second,
+            "friend_笨蛋_Darf_v2_1687657986_20260713_002703456_2.html"
+        );
+        std::fs::remove_dir_all(base).unwrap();
+    }
 }

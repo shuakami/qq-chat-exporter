@@ -28,6 +28,7 @@ export interface BatchExportItem {
   name: string
   chatType: number
   peerUid: string
+  peerUin?: string
   avatarUrl?: string
 }
 
@@ -409,30 +410,6 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                     { id: "skipAudioDownload", checked: !!skipDownloadResourceTypes?.includes('audio'), set: (v: boolean) => setSkipDownloadResourceTypes((curr) => toggleSkipResourceType(curr, 'audio', v)), title: "不下载语音", desc: "批量导出时跳过 SILK / AMR 等语音消息。对只想保留文字记录的场景很有用。", tip: EXPORT_OPTION_TOOLTIPS.skipAudio, visible: !filterPureImageMessages, highlight: false, group: "导出内容" },
                     { id: "preferGroupMemberName", checked: preferGroupMemberName, set: setPreferGroupMemberName, title: "优先使用群成员名称", desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。这个选项仅对群聊生效。", tip: EXPORT_OPTION_TOOLTIPS.preferGroupMemberName, visible: true, highlight: false, group: "导出内容" },
                     { id: "exportAsZip", checked: exportAsZip, set: setExportAsZip, title: "导出为ZIP压缩包", desc: "将HTML文件和资源文件打包为ZIP格式（仅HTML格式可用）", tip: EXPORT_OPTION_TOOLTIPS.exportAsZip, visible: format === "HTML" && !streamingZipMode, highlight: false, group: "性能与处理" },
-                    {
-                      id: "useNameInFileName",
-                      checked: useNameInFileName,
-                      // Issue #134: 与友好命名互斥，避免输出双重前缀。
-                      set: (v: boolean) => { setUseNameInFileName(v); if (v) setUseFriendlyFileName(false); },
-                      title: "文件名包含聊天名称",
-                      desc: "导出文件名中包含聊天对象的名称，方便识别",
-                      tip: EXPORT_OPTION_TOOLTIPS.includeChatName,
-                      visible: true,
-                      highlight: false,
-                      group: "文件命名",
-                    },
-                    {
-                      // Issue #134: 友好命名 `名称(QQ号).<ext>`
-                      id: "useFriendlyFileName",
-                      checked: useFriendlyFileName,
-                      set: (v: boolean) => { setUseFriendlyFileName(v); if (v) setUseNameInFileName(false); },
-                      title: "使用友好命名（名称(QQ号).html）",
-                      desc: "导出文件名使用 `名称(QQ号).<扩展名>` 格式，去掉前缀与时间戳；同名碰撞时自动追加 `_<日期>_<时间>` 后缀。与「文件名包含聊天名称」互斥。",
-                      tip: EXPORT_OPTION_TOOLTIPS.friendlyFileName,
-                      visible: true,
-                      highlight: false,
-                      group: "文件命名",
-                    },
                     { id: "embedAvatarsAsBase64", checked: embedAvatarsAsBase64, set: setEmbedAvatarsAsBase64, title: "嵌入头像为Base64", desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）", tip: EXPORT_OPTION_TOOLTIPS.embedAvatars, visible: format === "JSON", highlight: false, group: "导出内容" },
                     // Issue #311: 自包含 HTML
                     { id: "embedResourcesAsDataUri", checked: embedResourcesAsDataUri, set: setEmbedResourcesAsDataUri, title: "生成自包含 HTML", desc: "将图片、语音、视频、小于 50 MB 的文件以 base64 内联到单个 HTML中，不再产出 resources 目录。适合需要单独发送的场景。", tip: EXPORT_OPTION_TOOLTIPS.selfContainedHtml, visible: format === "HTML" && !exportAsZip && !streamingZipMode, highlight: false, group: "导出内容" }

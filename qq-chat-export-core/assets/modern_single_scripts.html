@@ -245,7 +245,25 @@
                 return true;
             }
 
+            function toggleForwardCard(target) {
+                if (!target) return false;
+                var button = target.closest('.forward-card-toggle');
+                if (!button) return false;
+                var card = button.closest('.forward-card');
+                if (!card) return false;
+                var expanded = card.classList.toggle('is-expanded');
+                button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                var label = button.querySelector('.forward-card-toggle-label');
+                if (label) {
+                    var count = button.getAttribute('data-count') ||
+                        card.querySelectorAll(':scope > .forward-card-content > .forward-card-line').length;
+                    label.textContent = expanded ? '收起' : '展开全部 ' + count + ' 条';
+                }
+                return true;
+            }
+
             document.addEventListener('click', function(e) {
+                if (toggleForwardCard(e.target)) return;
                 activateReplyJump(e.target);
             });
             document.addEventListener('keydown', function(e) {

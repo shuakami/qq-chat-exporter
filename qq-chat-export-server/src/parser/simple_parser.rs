@@ -1,9 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
-use qce_exporter::types::{CleanMessage, MessageContent, MessageElement, MessageResource, Mention, Sender};
+use qce_exporter::types::{
+    CleanMessage, Mention, MessageContent, MessageElement, MessageResource, Sender,
+};
 use serde_json::{json, Map, Value};
 
 use super::multi_forward_xml::parse_multi_forward_xml;
@@ -27,7 +29,8 @@ pub trait ForwardFetcher: Send + Sync {
 }
 
 /// 发件人群头衔解析器（issue #331）。
-pub type SenderTitleResolver = Arc<dyn Fn(Option<&str>, Option<&str>) -> Option<String> + Send + Sync>;
+pub type SenderTitleResolver =
+    Arc<dyn Fn(Option<&str>, Option<&str>) -> Option<String> + Send + Sync>;
 
 /// 解析器配置。
 #[derive(Default)]
@@ -139,6 +142,328 @@ mod gray_tip_tests {
             "速冻饺子邀请笨蛋Darf v2加入了群聊，并附带了30条聊天记录。"
         );
     }
+
+    #[tokio::test]
+    async fn describes_member_add_gray_tips_and_deduplicates_message_ids() {
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let mut tip = raw_message("group-update", "", "0", "");
+        tip["msgType"] = json!(5);
+        tip["chatType"] = json!(2);
+        tip["elements"] = json!([{
+            "elementType": 8,
+            "grayTipElement": {
+                "subElementType": 4,
+                "groupElement": {
+                    "type": 1,
+                    "memberUid": "u_self",
+                    "memberNick": "速冻饺子",
+                    "adminUid": "u_admin",
+                    "adminNick": "小wu君",
+                    "memberAdd": {
+                        "showType": 1,
+                        "otherAdd": null,
+                        "otherAddByOtherQRCode": null,
+                        "otherAddByYourQRCode": null,
+                        "youAddByOtherQRCode": null,
+                        "otherInviteOther": null,
+                        "otherInviteYou": null,
+                        "youInviteOther": null
+                    }
+                }
+            }
+        }]);
+
+        let parsed = parser.parse_messages(&[tip.clone(), tip]).await;
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].content.text, "你加入了群聊");
+    }
+}
+
+#[cfg(test)]
+mod reply_target_tests {
+    use super::{SimpleMessageParser, SimpleParserOptions};
+    use serde_json::{json, Value};
+
+    fn raw_message(
+        id: &str,
+        seq: &str,
+        timestamp: i64,
+        sender_uin: &str,
+        elements: Value,
+    ) -> Value {
+        json!({
+            "msgId": id,
+            "msgSeq": seq,
+            "clientSeq": seq,
+            "msgTime": timestamp,
+            "msgType": 2,
+            "chatType": 1,
+            "peerUid": "u_peer",
+            "senderUid": format!("u_{sender_uin}"),
+            "senderUin": sender_uin,
+            "sendNickName": if sender_uin == "1687657986" { "笨蛋Darf v2" } else { "速冻饺子" },
+            "elements": elements
+        })
+    }
+
+    fn reply_message(id: &str, reply: Value) -> Value {
+        raw_message(
+            id,
+            "900",
+            1_758_028_200,
+            "12519212",
+            json!([
+                { "elementType": 7, "replyElement": reply },
+                { "elementType": 1, "textElement": { "content": "回复正文" } }
+            ]),
+        )
+    }
+
+    fn reply_data(message: &qce_exporter::CleanMessage) -> &Value {
+        &message
+            .content
+            .elements
+            .iter()
+            .find(|element| element.element_type == "reply")
+            .expect("reply element")
+            .data
+    }
+
+    #[tokio::test]
+    async fn repairs_wrong_image_and_text_reply_ids_from_unique_time_and_sender() {
+        let image = raw_message(
+            "7550661840517106706",
+            "508",
+            1_758_025_456,
+            "1687657986",
+            json!([{
+                "elementType": 2,
+                "picElement": {
+                    "fileName": "2FBA99613C5656A48D0CB2801B20AF1D.png",
+                    "md5HexStr": "2fba99613c5656a48d0cb2801b20af1d",
+                    "originImageUrl": "/download/image"
+                }
+            }]),
+        );
+        let text = raw_message(
+            "7550661067109350011",
+            "506",
+            1_758_025_276,
+            "1687657986",
+            json!([{
+                "elementType": 1,
+                "textElement": { "content": "终于不用每次切后台关vpn了" }
+            }]),
+        );
+        let image_reply = reply_message(
+            "7550673423851295946",
+            json!({
+                "replayMsgId": "7550673423851295947",
+                "replyMsgTime": 1_758_025_456,
+                "senderUin": "1687657986",
+                "sourceMsgText": "[图片]"
+            }),
+        );
+        let text_reply = reply_message(
+            "7550673536078933491",
+            json!({
+                "referencedMessageId": "7550673536078933492",
+                "replayMsgTime": "1758025276",
+                "senderUin": "1687657986",
+                "sourceMsgText": "终于不用每次切后台关vpn了"
+            }),
+        );
+
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let parsed = parser
+            .parse_messages(&[image, text, image_reply, text_reply])
+            .await;
+
+        assert_eq!(
+            reply_data(&parsed[2])["referencedMessageId"],
+            "7550661840517106706"
+        );
+        assert_eq!(reply_data(&parsed[2])["messageId"], "7550661840517106706");
+        assert_eq!(
+            reply_data(&parsed[2])["previewElements"][0]["md5"],
+            "2fba99613c5656a48d0cb2801b20af1d"
+        );
+        assert_eq!(
+            reply_data(&parsed[3])["referencedMessageId"],
+            "7550661067109350011"
+        );
+        assert_eq!(reply_data(&parsed[3])["messageId"], "7550661067109350011");
+        assert_eq!(
+            reply_data(&parsed[3])["content"],
+            "终于不用每次切后台关vpn了"
+        );
+    }
+
+    #[tokio::test]
+    async fn does_not_guess_when_time_and_sender_match_multiple_messages() {
+        let first = raw_message(
+            "first",
+            "1",
+            1_758_025_276,
+            "1687657986",
+            json!([{ "elementType": 1, "textElement": { "content": "first" } }]),
+        );
+        let second = raw_message(
+            "second",
+            "2",
+            1_758_025_276,
+            "1687657986",
+            json!([{ "elementType": 1, "textElement": { "content": "second" } }]),
+        );
+        let reply = reply_message(
+            "reply",
+            json!({
+                "replayMsgId": "missing",
+                "sourceMsgTime": 1_758_025_276_000_i64,
+                "senderUin": "1687657986",
+                "sourceMsgText": "preview"
+            }),
+        );
+
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let parsed = parser.parse_messages(&[first, second, reply]).await;
+        let data = reply_data(&parsed[2]);
+
+        assert!(data["referencedMessageId"].is_null());
+        assert_eq!(data["messageId"], "0");
+        assert_eq!(data["content"], "preview");
+    }
+
+    #[tokio::test]
+    async fn prefers_valid_ids_then_unique_seq_and_client_seq_indexes() {
+        let mut first = raw_message(
+            "first",
+            "101",
+            1_758_025_100,
+            "1687657986",
+            json!([{ "elementType": 1, "textElement": { "content": "first" } }]),
+        );
+        first["clientSeq"] = json!("201");
+        let mut second = raw_message(
+            "second",
+            "102",
+            1_758_025_200,
+            "1687657986",
+            json!([{ "elementType": 1, "textElement": { "content": "second" } }]),
+        );
+        second["clientSeq"] = json!("202");
+
+        let valid_id = reply_message(
+            "reply-id",
+            json!({
+                "replyMsgId": "first",
+                "replyMsgSeq": "102",
+                "sourceMsgText": "preview"
+            }),
+        );
+        let seq = reply_message(
+            "reply-seq",
+            json!({
+                "replayMsgId": "missing",
+                "sourceMsgSeq": "101",
+                "sourceMsgText": "preview"
+            }),
+        );
+        let client_seq = reply_message(
+            "reply-client-seq",
+            json!({
+                "referencedMessageId": "missing",
+                "replyMsgClientSeq": "202",
+                "sourceMsgText": "preview"
+            }),
+        );
+
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let parsed = parser
+            .parse_messages(&[first, second, valid_id, seq, client_seq])
+            .await;
+
+        assert_eq!(reply_data(&parsed[2])["referencedMessageId"], "first");
+        assert_eq!(reply_data(&parsed[3])["referencedMessageId"], "first");
+        assert_eq!(reply_data(&parsed[4])["referencedMessageId"], "second");
+    }
+}
+
+#[cfg(test)]
+mod forward_resource_tests {
+    use std::collections::HashMap;
+
+    use super::{SimpleMessageParser, SimpleParserOptions};
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn exposes_and_backfills_forwarded_media_resources() {
+        let inner = json!({
+            "msgId": "inner-image",
+            "msgTime": "1778262589",
+            "senderUid": "u_sender",
+            "senderUin": "1094950020",
+            "sendNickName": "吹雪ChuiXue",
+            "elements": [{
+                "elementId": "image-element",
+                "elementType": 2,
+                "picElement": {
+                    "fileName": "97F15333FCA7C66054F2F08C4169308A.jpg",
+                    "fileSize": 1_417_227,
+                    "md5HexStr": "97f15333fca7c66054f2f08c4169308a",
+                    "originImageUrl": "/download?appid=1407"
+                }
+            }]
+        });
+        let outer = json!({
+            "msgId": "outer-forward",
+            "msgTime": "1778262645",
+            "msgType": 8,
+            "chatType": 2,
+            "peerUid": "1031246136",
+            "senderUid": "u_sender",
+            "senderUin": "616359549",
+            "sendNickName": "吹雪ChuiXue",
+            "records": [inner],
+            "elements": [{
+                "elementId": "forward-element",
+                "elementType": 16,
+                "multiForwardMsgElement": {
+                    "resId": "forward-resource",
+                    "xmlContent": ""
+                }
+            }]
+        });
+
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let mut parsed = parser.parse_messages(&[outer]).await;
+        let forward_raw = parser.take_forward_raw_messages();
+        assert_eq!(forward_raw.len(), 1);
+        assert_eq!(forward_raw[0]["msgId"], "inner-image");
+        assert_eq!(forward_raw[0]["chatType"], 2);
+        assert_eq!(forward_raw[0]["peerUid"], "1031246136");
+
+        let resources = HashMap::from([(
+            "inner-image".to_string(),
+            vec![json!({
+                "type": "image",
+                "localPath": "/cache/97f15333_97F15333FCA7C66054F2F08C4169308A.jpg"
+            })],
+        )]);
+        SimpleMessageParser::update_message_resource_paths_recursive(&mut parsed[0], &resources);
+
+        let image_data =
+            &parsed[0].content.elements[0].data["messages"][0]["content"]["elements"][0]["data"];
+        assert_eq!(
+            image_data["localPath"],
+            "images/97f15333_97F15333FCA7C66054F2F08C4169308A.jpg"
+        );
+        assert_eq!(
+            image_data["url"],
+            "resources/images/97f15333_97F15333FCA7C66054F2F08C4169308A.jpg"
+        );
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -159,8 +484,14 @@ struct SenderDisplayInfo {
 pub struct SimpleMessageParser {
     options: SimpleParserOptions,
     message_map: HashMap<String, Value>,
+    rendered_message_ids: HashSet<String>,
+    message_id_by_seq: HashMap<String, Option<String>>,
+    message_id_by_client_seq: HashMap<String, Option<String>>,
+    message_id_by_time_sender: HashMap<(i64, String), Option<String>>,
     sender_info_cache: HashMap<String, CachedSenderInfo>,
     face_map: HashMap<String, String>,
+    forward_raw_messages: Vec<Value>,
+    forward_raw_message_ids: HashSet<String>,
 }
 
 /* ------------------------------ Value 访问工具 ------------------------------ */
@@ -227,6 +558,21 @@ fn millis_from_unix_seconds(value: Option<&Value>) -> i64 {
     }
 }
 
+fn unix_seconds(value: Option<&Value>) -> Option<i64> {
+    let timestamp = match value? {
+        Value::Number(number) => number.as_i64()?,
+        Value::String(text) => text.trim().parse::<i64>().ok()?,
+        _ => return None,
+    };
+    if timestamp <= 0 {
+        None
+    } else if timestamp > 1_000_000_000_000 {
+        Some(timestamp / 1000)
+    } else {
+        Some(timestamp)
+    }
+}
+
 /// HTML 转义（与 TS `escapeHtmlFast` 语义一致）。
 #[must_use]
 pub fn escape_html_fast(text: &str) -> String {
@@ -270,8 +616,14 @@ impl SimpleMessageParser {
         Self {
             options,
             message_map: HashMap::new(),
+            rendered_message_ids: HashSet::new(),
+            message_id_by_seq: HashMap::new(),
+            message_id_by_client_seq: HashMap::new(),
+            message_id_by_time_sender: HashMap::new(),
             sender_info_cache: HashMap::new(),
             face_map: Self::initialize_face_map(),
+            forward_raw_messages: Vec::new(),
+            forward_raw_message_ids: HashSet::new(),
         }
     }
 
@@ -299,20 +651,26 @@ impl SimpleMessageParser {
     /// 解析消息列表（有序输出）。
     pub async fn parse_messages(&mut self, messages: &[Value]) -> Vec<CleanMessage> {
         self.message_map.clear();
+        self.rendered_message_ids.clear();
+        self.message_id_by_seq.clear();
+        self.message_id_by_client_seq.clear();
+        self.message_id_by_time_sender.clear();
         self.sender_info_cache.clear();
+        self.forward_raw_messages.clear();
+        self.forward_raw_message_ids.clear();
         for msg in messages {
-            if let Some(id) = v_str(msg, "msgId") {
-                if !id.is_empty() {
-                    self.message_map.insert(id.to_string(), msg.clone());
-                    self.cache_sender_info(msg);
-                    if let Some(records) = v_get(msg, "records").and_then(Value::as_array) {
-                        for record in records {
-                            if let Some(rid) = v_str(record, "msgId") {
-                                if !rid.is_empty() {
-                                    self.message_map.insert(rid.to_string(), record.clone());
-                                    self.cache_sender_info(record);
-                                }
-                            }
+            if let Some(id) = trimmed_field(msg, "msgId") {
+                self.rendered_message_ids.insert(id.clone());
+                self.message_map.insert(id.clone(), msg.clone());
+                self.index_rendered_message(msg, &id);
+                self.cache_sender_info(msg);
+                if let Some(records) = v_get(msg, "records").and_then(Value::as_array) {
+                    for record in records {
+                        if let Some(record_id) = trimmed_field(record, "msgId") {
+                            self.message_map
+                                .entry(record_id)
+                                .or_insert_with(|| record.clone());
+                            self.cache_sender_info(record);
                         }
                     }
                 }
@@ -320,13 +678,90 @@ impl SimpleMessageParser {
         }
 
         let mut out = Vec::with_capacity(messages.len());
+        let mut emitted_ids = HashSet::new();
         for message in messages {
+            if let Some(id) = trimmed_field(message, "msgId") {
+                if id != "0" && !emitted_ids.insert(id) {
+                    continue;
+                }
+            }
             out.push(self.parse_message(message).await);
         }
 
         self.message_map.clear();
+        self.rendered_message_ids.clear();
+        self.message_id_by_seq.clear();
+        self.message_id_by_client_seq.clear();
+        self.message_id_by_time_sender.clear();
         self.sender_info_cache.clear();
         out
+    }
+
+    #[must_use]
+    pub fn take_forward_raw_messages(&mut self) -> Vec<Value> {
+        std::mem::take(&mut self.forward_raw_messages)
+    }
+
+    fn insert_unique_index(
+        index: &mut HashMap<String, Option<String>>,
+        key: Option<String>,
+        message_id: &str,
+    ) {
+        let Some(key) = key.filter(|value| !value.is_empty() && value != "0") else {
+            return;
+        };
+        match index.entry(key) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(Some(message_id.to_string()));
+            }
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                if entry.get().as_deref() != Some(message_id) {
+                    entry.insert(None);
+                }
+            }
+        }
+    }
+
+    fn index_rendered_message(&mut self, message: &Value, message_id: &str) {
+        Self::insert_unique_index(
+            &mut self.message_id_by_seq,
+            trimmed_field(message, "msgSeq"),
+            message_id,
+        );
+        Self::insert_unique_index(
+            &mut self.message_id_by_client_seq,
+            trimmed_field(message, "clientSeq"),
+            message_id,
+        );
+        let Some(timestamp) = unix_seconds(v_get(message, "msgTime")) else {
+            return;
+        };
+        for sender in ["senderUin", "senderUidStr", "senderUid"]
+            .iter()
+            .filter_map(|key| trimmed_field(message, key))
+        {
+            let key = (timestamp, sender);
+            match self.message_id_by_time_sender.entry(key) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(Some(message_id.to_string()));
+                }
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    if entry.get().as_deref() != Some(message_id) {
+                        entry.insert(None);
+                    }
+                }
+            }
+        }
+    }
+
+    fn indexed_message(
+        &self,
+        index: &HashMap<String, Option<String>>,
+        key: Option<String>,
+    ) -> Option<(String, Value)> {
+        let message_id = index.get(key.as_deref()?)?.as_ref()?;
+        let message = self.message_map.get(message_id)?.clone();
+        Some((message_id.clone(), message))
     }
 
     /// 解析单条消息（公开）。
@@ -392,8 +827,8 @@ impl SimpleMessageParser {
         let msg_type = v_i64(message, "msgType").unwrap_or(0);
 
         CleanMessage {
-            id: v_str(message, "msgId").unwrap_or_default().to_string(),
-            seq: v_str(message, "msgSeq").unwrap_or_default().to_string(),
+            id: trimmed_field(message, "msgId").unwrap_or_default(),
+            seq: trimmed_field(message, "msgSeq").unwrap_or_default(),
             timestamp,
             time: rfc3339_from_millis(timestamp),
             sender: Sender {
@@ -443,7 +878,11 @@ impl SimpleMessageParser {
     }
 
     /// 单趟解析消息内容。
-    async fn parse_message_content(&mut self, message: &Value, forward_depth: u32) -> MessageContent {
+    async fn parse_message_content(
+        &mut self,
+        message: &Value,
+        forward_depth: u32,
+    ) -> MessageContent {
         let empty = Vec::new();
         let elements = v_get(message, "elements")
             .and_then(Value::as_array)
@@ -704,10 +1143,7 @@ impl SimpleMessageParser {
             let parsed_json = Self::parse_json_content(&json_content);
             let title = v_str(&parsed_json, "title");
             let description = v_str(&parsed_json, "description");
-            let summary = title
-                .or(description)
-                .unwrap_or("JSON消息")
-                .to_string();
+            let summary = title.or(description).unwrap_or("JSON消息").to_string();
             return Some(MessageElement {
                 element_type: "json".to_string(),
                 data: json!({
@@ -755,7 +1191,9 @@ impl SimpleMessageParser {
                 2 => "视频通话",
                 _ => "通话",
             };
-            let status_text = v_str(av, "text").filter(|s| !s.is_empty()).unwrap_or("已结束");
+            let status_text = v_str(av, "text")
+                .filter(|s| !s.is_empty())
+                .unwrap_or("已结束");
             return Some(MessageElement {
                 element_type: "av_record".to_string(),
                 data: json!({
@@ -894,7 +1332,9 @@ impl SimpleMessageParser {
         }
 
         // 未知类型
-        let element_type = v_get(element, "elementType").cloned().unwrap_or(Value::Null);
+        let element_type = v_get(element, "elementType")
+            .cloned()
+            .unwrap_or(Value::Null);
         let summary = Self::get_system_message_summary(&element_type);
         Some(MessageElement {
             element_type: "system".to_string(),
@@ -907,7 +1347,10 @@ impl SimpleMessageParser {
     }
 
     fn extract_resource(element: &MessageElement) -> Option<MessageResource> {
-        if !matches!(element.element_type.as_str(), "image" | "file" | "video" | "audio") {
+        if !matches!(
+            element.element_type.as_str(),
+            "image" | "file" | "video" | "audio"
+        ) {
             return None;
         }
         let d = &element.data;
@@ -933,7 +1376,11 @@ impl SimpleMessageParser {
         match element.element_type.as_str() {
             "text" => {
                 let t = v_str(d, "text").unwrap_or("").to_string();
-                let html = if html_enabled { escape_html_fast(&t) } else { String::new() };
+                let html = if html_enabled {
+                    escape_html_fast(&t)
+                } else {
+                    String::new()
+                };
                 (t, html)
             }
             "face" => {
@@ -944,7 +1391,11 @@ impl SimpleMessageParser {
                         other => other.to_string(),
                     })
                 );
-                let html = if html_enabled { t.clone() } else { String::new() };
+                let html = if html_enabled {
+                    t.clone()
+                } else {
+                    String::new()
+                };
                 (t, html)
             }
             "market_face" => {
@@ -952,14 +1403,21 @@ impl SimpleMessageParser {
                     "[{}]",
                     v_str(d, "name").filter(|s| !s.is_empty()).unwrap_or("表情")
                 );
-                let html = if html_enabled { t.clone() } else { String::new() };
+                let html = if html_enabled {
+                    t.clone()
+                } else {
+                    String::new()
+                };
                 (t, html)
             }
             "image" => {
                 let filename = v_str(d, "filename").unwrap_or("");
                 let t = format!("[图片:{filename}]");
                 let html = if html_enabled {
-                    format!("<img alt=\"{}\" class=\"image\">", escape_html_fast(filename))
+                    format!(
+                        "<img alt=\"{}\" class=\"image\">",
+                        escape_html_fast(filename)
+                    )
                 } else {
                     String::new()
                 };
@@ -1000,7 +1458,9 @@ impl SimpleMessageParser {
             "at" => {
                 let name = v_str(d, "name").filter(|s| !s.is_empty()).unwrap_or("某人");
                 let t = format!("@{name}");
-                let uid = v_str(d, "uid").filter(|s| !s.is_empty()).unwrap_or("unknown");
+                let uid = v_str(d, "uid")
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("unknown");
                 let html = if html_enabled {
                     if uid == "all" {
                         format!(
@@ -1300,7 +1760,11 @@ impl SimpleMessageParser {
             inner_html.push_str("<ul class=\"forward-inner\">");
             for m in inner {
                 let (name, body) = inner_line(m);
-                let name = if name.is_empty() { "未知".to_string() } else { name };
+                let name = if name.is_empty() {
+                    "未知".to_string()
+                } else {
+                    name
+                };
                 inner_html.push_str(&format!(
                     "<li><span class=\"forward-inner-sender\">{}</span><span class=\"forward-inner-text\">{}</span></li>",
                     escape_html_fast(&name),
@@ -1359,6 +1823,32 @@ impl SimpleMessageParser {
             return Vec::new();
         }
 
+        let parent_chat_type = v_get(message, "chatType").cloned();
+        let parent_peer_uid = v_get(message, "peerUid").cloned();
+        for raw in &mut raws {
+            let Some(raw_object) = raw.as_object_mut() else {
+                continue;
+            };
+            if !raw_object.contains_key("chatType") {
+                if let Some(chat_type) = &parent_chat_type {
+                    raw_object.insert("chatType".to_string(), chat_type.clone());
+                }
+            }
+            if !raw_object.contains_key("peerUid") {
+                if let Some(peer_uid) = &parent_peer_uid {
+                    raw_object.insert("peerUid".to_string(), peer_uid.clone());
+                }
+            }
+            let raw_id = raw_object
+                .get("msgId")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !raw_id.is_empty() && self.forward_raw_message_ids.insert(raw_id.to_string()) {
+                self.forward_raw_messages
+                    .push(Value::Object(raw_object.clone()));
+            }
+        }
+
         let mut out: Vec<Value> = Vec::with_capacity(raws.len());
         for raw in &raws {
             if raw.is_null() {
@@ -1412,10 +1902,9 @@ impl SimpleMessageParser {
 
         // #274：当本条消息没有任何可读名字时，回退到同发件人在其他消息上出现过的名字。
         if group_card.is_none() && remark.is_none() && nickname.is_none() {
-            if let Some(cached) = self.lookup_cached_sender_info(
-                v_str(message, "senderUid"),
-                v_str(message, "senderUin"),
-            ) {
+            if let Some(cached) = self
+                .lookup_cached_sender_info(v_str(message, "senderUid"), v_str(message, "senderUin"))
+            {
                 group_card = cached.group_card.clone();
                 remark = cached.remark.clone();
                 nickname = cached.nickname.clone();
@@ -1424,7 +1913,10 @@ impl SimpleMessageParser {
 
         let primary = if is_group_chat {
             if prefer_group_member_name {
-                group_card.clone().or_else(|| remark.clone()).or_else(|| nickname.clone())
+                group_card
+                    .clone()
+                    .or_else(|| remark.clone())
+                    .or_else(|| nickname.clone())
             } else {
                 nickname.clone()
             }
@@ -1460,7 +1952,8 @@ impl SimpleMessageParser {
         let actual_text = message.content.text.trim();
         if !actual_text.is_empty() {
             static CQ_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-            let cq_re = CQ_RE.get_or_init(|| regex::Regex::new(r"\[CQ:[^\]]+\]").expect("valid regex"));
+            let cq_re =
+                CQ_RE.get_or_init(|| regex::Regex::new(r"\[CQ:[^\]]+\]").expect("valid regex"));
             let without_cq = cq_re.replace_all(actual_text, "");
             if !without_cq.trim().is_empty() {
                 return false;
@@ -1493,7 +1986,10 @@ impl SimpleMessageParser {
         // 更新 elements 中的 URL：按类型和顺序匹配。
         let mut resource_index = 0usize;
         for el in &mut message.content.elements {
-            if !matches!(el.element_type.as_str(), "image" | "video" | "audio" | "file") {
+            if !matches!(
+                el.element_type.as_str(),
+                "image" | "video" | "audio" | "file"
+            ) {
                 continue;
             }
             let matching = resources
@@ -1510,10 +2006,105 @@ impl SimpleMessageParser {
                     let res_type = v_str(r, "type").unwrap_or("file");
                     let type_dir = format!("{res_type}s");
                     if let Some(obj) = el.data.as_object_mut() {
-                        obj.insert("localPath".to_string(), json!(format!("{type_dir}/{file_name}")));
-                        obj.insert("url".to_string(), json!(format!("resources/{type_dir}/{file_name}")));
+                        obj.insert(
+                            "localPath".to_string(),
+                            json!(format!("{type_dir}/{file_name}")),
+                        );
+                        obj.insert(
+                            "url".to_string(),
+                            json!(format!("resources/{type_dir}/{file_name}")),
+                        );
                     }
                     resource_index = idx + 1;
+                }
+            }
+        }
+    }
+
+    pub fn update_message_resource_paths_recursive(
+        message: &mut CleanMessage,
+        resource_map: &HashMap<String, Vec<Value>>,
+    ) {
+        if let Some(resources) = resource_map.get(&message.id) {
+            Self::update_single_message_resource_paths(message, resources);
+        }
+        for element in &mut message.content.elements {
+            if element.element_type == "forward" {
+                Self::update_forward_resource_paths(&mut element.data, resource_map);
+            }
+        }
+    }
+
+    fn update_forward_resource_paths(data: &mut Value, resource_map: &HashMap<String, Vec<Value>>) {
+        let Some(messages) = data.get_mut("messages").and_then(Value::as_array_mut) else {
+            return;
+        };
+        for message in messages {
+            let message_id = v_str(message, "id").unwrap_or_default().to_string();
+            let Some(elements) = message
+                .get_mut("content")
+                .and_then(|content| content.get_mut("elements"))
+                .and_then(Value::as_array_mut)
+            else {
+                continue;
+            };
+
+            if let Some(resources) = resource_map.get(&message_id) {
+                let mut resource_index = 0usize;
+                for element in elements.iter_mut() {
+                    let Some(element_type) = element
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                    else {
+                        continue;
+                    };
+                    if !matches!(element_type.as_str(), "image" | "video" | "audio" | "file") {
+                        continue;
+                    }
+                    let matching =
+                        resources
+                            .iter()
+                            .enumerate()
+                            .skip(resource_index)
+                            .find(|(_, resource)| {
+                                v_str(resource, "type") == Some(element_type.as_str())
+                            });
+                    let Some((index, resource)) = matching else {
+                        continue;
+                    };
+                    let Some(local_path) =
+                        v_str(resource, "localPath").filter(|path| !path.is_empty())
+                    else {
+                        continue;
+                    };
+                    let file_name = std::path::Path::new(local_path)
+                        .file_name()
+                        .map(|name| name.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let resource_type = v_str(resource, "type").unwrap_or("file");
+                    let type_dir = format!("{resource_type}s");
+                    if let Some(element_data) =
+                        element.get_mut("data").and_then(Value::as_object_mut)
+                    {
+                        element_data.insert(
+                            "localPath".to_string(),
+                            json!(format!("{type_dir}/{file_name}")),
+                        );
+                        element_data.insert(
+                            "url".to_string(),
+                            json!(format!("resources/{type_dir}/{file_name}")),
+                        );
+                    }
+                    resource_index = index + 1;
+                }
+            }
+
+            for element in elements {
+                if element.get("type").and_then(Value::as_str) == Some("forward") {
+                    if let Some(nested_data) = element.get_mut("data") {
+                        Self::update_forward_resource_paths(nested_data, resource_map);
+                    }
                 }
             }
         }
@@ -1533,7 +2124,8 @@ impl SimpleMessageParser {
                 if el.element_type != "image" {
                     continue;
                 }
-                let Some(local_path) = v_str(&el.data, "localPath").filter(|s| !s.is_empty()) else {
+                let Some(local_path) = v_str(&el.data, "localPath").filter(|s| !s.is_empty())
+                else {
                     continue;
                 };
                 let md5 = v_str(&el.data, "md5").unwrap_or("").to_string();
@@ -1581,7 +2173,9 @@ impl SimpleMessageParser {
                     let by_md5 = if pe_md5.is_empty() {
                         None
                     } else {
-                        ref_imgs.iter().find(|(md5, _)| !md5.is_empty() && *md5 == pe_md5)
+                        ref_imgs
+                            .iter()
+                            .find(|(md5, _)| !md5.is_empty() && *md5 == pe_md5)
                     };
                     let candidate = by_md5.or_else(|| ref_imgs.get(fallback_idx));
                     if let Some((_, local_path)) = candidate {
@@ -1654,58 +2248,100 @@ impl SimpleMessageParser {
     }
 
     fn extract_reply_content(&self, reply_element: &Value, message: &Value) -> Value {
-        // 使用 replayMsgId 作为被引用消息的真实ID（但要排除 "0" 的情况）
-        let replay_msg_id = v_str(reply_element, "replayMsgId");
-        let mut referenced_message_id: Option<String> = replay_msg_id
-            .filter(|id| !id.is_empty() && *id != "0")
-            .map(str::to_string);
-
-        let source_msg_id = v_str(reply_element, "sourceMsgIdInRecords");
+        let candidate_ids = [
+            trimmed_field(reply_element, "sourceMsgIdInRecords"),
+            trimmed_field(reply_element, "replayMsgId"),
+            trimmed_field(reply_element, "replyMsgId"),
+            trimmed_field(reply_element, "referencedMessageId"),
+        ];
+        let mut referenced_message_id: Option<String> = None;
         let mut referenced_message: Option<Value> = None;
 
-        // 1. replayMsgId 从全局消息映射中查找
-        if let Some(ref_id) = &referenced_message_id {
-            if let Some(hit) = self.message_map.get(ref_id) {
+        for candidate_id in candidate_ids.iter().flatten() {
+            if candidate_id != "0" && self.rendered_message_ids.contains(candidate_id) {
+                let Some(hit) = self.message_map.get(candidate_id) else {
+                    continue;
+                };
                 referenced_message = Some(hit.clone());
+                referenced_message_id = Some(candidate_id.clone());
+                break;
             }
         }
 
-        // 2. 从当前消息的 records 数组中查找
         if referenced_message.is_none() {
-            if let Some(src_id) = source_msg_id.filter(|id| !id.is_empty() && *id != "0") {
-                if let Some(records) = v_get(message, "records").and_then(Value::as_array) {
-                    if let Some(hit) = records.iter().find(|r| v_str(r, "msgId") == Some(src_id)) {
+            for key in ["replayMsgSeq", "replyMsgSeq", "sourceMsgSeq"] {
+                let Some((message_id, hit)) = self
+                    .indexed_message(&self.message_id_by_seq, trimmed_field(reply_element, key))
+                else {
+                    continue;
+                };
+                referenced_message_id = Some(message_id);
+                referenced_message = Some(hit);
+                break;
+            }
+        }
+
+        if referenced_message.is_none() {
+            for key in [
+                "replyMsgClientSeq",
+                "replayMsgClientSeq",
+                "sourceMsgClientSeq",
+            ] {
+                let Some((message_id, hit)) = self.indexed_message(
+                    &self.message_id_by_client_seq,
+                    trimmed_field(reply_element, key),
+                ) else {
+                    continue;
+                };
+                referenced_message_id = Some(message_id);
+                referenced_message = Some(hit);
+                break;
+            }
+        }
+
+        if referenced_message.is_none() {
+            let reply_time = ["replyMsgTime", "replayMsgTime", "sourceMsgTime"]
+                .iter()
+                .find_map(|key| unix_seconds(v_get(reply_element, key)));
+            let reply_senders = [
+                trimmed_field(reply_element, "senderUin"),
+                trimmed_field(reply_element, "senderUidStr"),
+                trimmed_field(reply_element, "senderUid"),
+            ];
+            if let Some(reply_time) = reply_time {
+                for sender in reply_senders.iter().flatten() {
+                    let key = (reply_time, sender.clone());
+                    let Some(Some(message_id)) = self.message_id_by_time_sender.get(&key) else {
+                        continue;
+                    };
+                    let Some(hit) = self.message_map.get(message_id) else {
+                        continue;
+                    };
+                    referenced_message_id = Some(message_id.clone());
+                    referenced_message = Some(hit.clone());
+                    break;
+                }
+            }
+        }
+
+        if referenced_message.is_none() {
+            if let Some(records) = v_get(message, "records").and_then(Value::as_array) {
+                for candidate_id in candidate_ids.iter().flatten() {
+                    if let Some(hit) = records.iter().find(|record| {
+                        trimmed_field(record, "msgId").as_deref() == Some(candidate_id)
+                    }) {
                         referenced_message = Some(hit.clone());
-                        referenced_message_id = v_str(hit, "msgId").map(str::to_string);
+                        break;
                     }
                 }
             }
         }
 
-        // 3. replayMsgSeq 匹配 msgSeq
         if referenced_message.is_none() {
-            if let Some(seq) = v_str(reply_element, "replayMsgSeq").filter(|s| !s.is_empty()) {
-                if let Some(hit) = self
-                    .message_map
-                    .values()
-                    .find(|m| v_str(m, "msgSeq") == Some(seq))
-                {
+            for candidate_id in candidate_ids.iter().flatten() {
+                if let Some(hit) = self.message_map.get(candidate_id) {
                     referenced_message = Some(hit.clone());
-                    referenced_message_id = v_str(hit, "msgId").map(str::to_string);
-                }
-            }
-        }
-
-        // 4. replyMsgClientSeq 匹配 clientSeq
-        if referenced_message.is_none() {
-            if let Some(cseq) = v_str(reply_element, "replyMsgClientSeq").filter(|s| !s.is_empty()) {
-                if let Some(hit) = self
-                    .message_map
-                    .values()
-                    .find(|m| v_str(m, "clientSeq") == Some(cseq))
-                {
-                    referenced_message = Some(hit.clone());
-                    referenced_message_id = v_str(hit, "msgId").map(str::to_string);
+                    break;
                 }
             }
         }
@@ -1714,12 +2350,9 @@ impl SimpleMessageParser {
         let sender_name =
             self.resolve_reply_sender_name(reply_element, message, referenced_message.as_ref());
 
-        let message_id = source_msg_id
-            .filter(|s| !s.is_empty())
-            .or(replay_msg_id.filter(|s| !s.is_empty()))
-            .or_else(|| v_str(reply_element, "replayMsgSeq").filter(|s| !s.is_empty()))
-            .unwrap_or("0")
-            .to_string();
+        let message_id = referenced_message_id
+            .clone()
+            .unwrap_or_else(|| "0".to_string());
 
         let mut sender_uin = v_str(reply_element, "senderUin")
             .filter(|s| !s.is_empty())
@@ -1760,7 +2393,8 @@ impl SimpleMessageParser {
                             "originUrl": v_str(pe, "originImageUrl").unwrap_or(""),
                             "fileName": v_str(pe, "fileName").unwrap_or("")
                         }));
-                    } else if let Some(ve) = v_get(element, "videoElement").filter(|v| !v.is_null()) {
+                    } else if let Some(ve) = v_get(element, "videoElement").filter(|v| !v.is_null())
+                    {
                         let video_name = v_str(ve, "fileName").unwrap_or("");
                         let video_text = if video_name.is_empty() {
                             "[视频]".to_string()
@@ -1776,7 +2410,8 @@ impl SimpleMessageParser {
                     } else if v_get(element, "pttElement").is_some_and(|v| !v.is_null()) {
                         parts.push("[语音]".to_string());
                         preview_elements.push(json!({ "type": "audio", "text": "[语音]" }));
-                    } else if let Some(fe) = v_get(element, "fileElement").filter(|v| !v.is_null()) {
+                    } else if let Some(fe) = v_get(element, "fileElement").filter(|v| !v.is_null())
+                    {
                         let file_name = v_str(fe, "fileName").unwrap_or("");
                         let file_text = if file_name.is_empty() {
                             "[文件]".to_string()
@@ -1789,7 +2424,9 @@ impl SimpleMessageParser {
                             "text": file_text,
                             "fileName": file_name
                         }));
-                    } else if let Some(face) = v_get(element, "faceElement").filter(|v| !v.is_null()) {
+                    } else if let Some(face) =
+                        v_get(element, "faceElement").filter(|v| !v.is_null())
+                    {
                         let face_id = v_get(face, "faceIndex").map_or(String::new(), |v| match v {
                             Value::Number(n) => n.to_string(),
                             Value::String(s) => s.clone(),
@@ -1811,7 +2448,9 @@ impl SimpleMessageParser {
                             "text": face_part,
                             "faceIndex": v_get(face, "faceIndex").cloned().unwrap_or(Value::Null)
                         }));
-                    } else if let Some(mf) = v_get(element, "marketFaceElement").filter(|v| !v.is_null()) {
+                    } else if let Some(mf) =
+                        v_get(element, "marketFaceElement").filter(|v| !v.is_null())
+                    {
                         let face_name = v_str(mf, "faceName")
                             .filter(|s| !s.is_empty())
                             .unwrap_or("超级表情");
@@ -1838,7 +2477,8 @@ impl SimpleMessageParser {
             // 备用方案：从 replyElement 中提取内容
             if let Some(text) = v_str(reply_element, "sourceMsgText").filter(|s| !s.is_empty()) {
                 content = text.to_string();
-            } else if let Some(elems) = v_get(reply_element, "sourceMsgTextElems").and_then(Value::as_array)
+            } else if let Some(elems) =
+                v_get(reply_element, "sourceMsgTextElems").and_then(Value::as_array)
             {
                 let parts: Vec<&str> = elems
                     .iter()
@@ -1860,24 +2500,11 @@ impl SimpleMessageParser {
             }
         }
 
-        if let Some(t) = v_get(reply_element, "replayMsgTime") {
-            match t {
-                Value::Number(n) => {
-                    if let Some(v) = n.as_i64() {
-                        if v != 0 {
-                            timestamp = v;
-                        }
-                    }
-                }
-                Value::String(s) => {
-                    if let Ok(v) = s.parse::<i64>() {
-                        if v != 0 {
-                            timestamp = v;
-                        }
-                    }
-                }
-                _ => {}
-            }
+        if let Some(reply_time) = ["replyMsgTime", "replayMsgTime", "sourceMsgTime"]
+            .iter()
+            .find_map(|key| unix_seconds(v_get(reply_element, key)))
+        {
+            timestamp = reply_time;
         }
 
         json!({
@@ -1993,6 +2620,82 @@ impl SimpleMessageParser {
         name
     }
 
+    fn group_member_name(value: &Value, fallback: &str) -> String {
+        v_str(value, "name")
+            .filter(|name| !name.is_empty())
+            .unwrap_or(fallback)
+            .to_string()
+    }
+
+    fn group_member_add_summary(group: &Value) -> Option<String> {
+        let member_add = v_get(group, "memberAdd")?.as_object()?;
+        let show_type = member_add
+            .get("showType")
+            .and_then(Value::as_i64)
+            .unwrap_or(-1);
+        let member_name = v_str(group, "memberNick")
+            .filter(|name| !name.is_empty())
+            .unwrap_or("成员");
+        let member = |key: &str| {
+            member_add
+                .get(key)
+                .filter(|value| !value.is_null())
+                .map(|value| Self::group_member_name(value, member_name))
+        };
+        let invitation = |key: &str| {
+            member_add
+                .get(key)
+                .filter(|value| !value.is_null())
+                .map(|value| {
+                    let invited = value.get("invited").map_or_else(
+                        || member_name.to_string(),
+                        |item| Self::group_member_name(item, member_name),
+                    );
+                    let inviter = value.get("inviter").map_or_else(
+                        || "成员".to_string(),
+                        |item| Self::group_member_name(item, "成员"),
+                    );
+                    (inviter, invited)
+                })
+        };
+
+        Some(match show_type {
+            0 => format!(
+                "{}加入了群聊",
+                member("otherAdd").unwrap_or_else(|| member_name.to_string())
+            ),
+            1 => "你加入了群聊".to_string(),
+            2 => {
+                let (inviter, invited) = invitation("otherAddByOtherQRCode")
+                    .unwrap_or_else(|| ("成员".to_string(), member_name.to_string()));
+                format!("{invited}通过{inviter}分享的二维码加入了群聊")
+            }
+            3 => format!(
+                "{}通过你的二维码加入了群聊",
+                member("otherAddByYourQRCode").unwrap_or_else(|| member_name.to_string())
+            ),
+            4 => format!(
+                "你通过{}分享的二维码加入了群聊",
+                member("youAddByOtherQRCode").unwrap_or_else(|| "成员".to_string())
+            ),
+            5 => {
+                let (inviter, invited) = invitation("otherInviteOther")
+                    .unwrap_or_else(|| ("成员".to_string(), member_name.to_string()));
+                format!("{inviter}邀请{invited}加入了群聊")
+            }
+            6 => format!(
+                "{}邀请你加入了群聊",
+                member("otherInviteYou").unwrap_or_else(|| "成员".to_string())
+            ),
+            7 => format!(
+                "你邀请{}加入了群聊",
+                member("youInviteOther").unwrap_or_else(|| member_name.to_string())
+            ),
+            8 => "你已是群成员".to_string(),
+            _ => format!("{member_name}加入了群聊"),
+        })
+    }
+
     fn decode_gray_tip_xml(value: &str) -> String {
         value
             .replace("&quot;", "\"")
@@ -2101,7 +2804,10 @@ impl SimpleMessageParser {
             .filter(|s| !s.is_empty())
             .or_else(|| v_str(&parsed, "content").filter(|s| !s.is_empty()))
         {
-            return Some((text.to_string(), vec![json!({ "type": "text", "text": text })]));
+            return Some((
+                text.to_string(),
+                vec![json!({ "type": "text", "text": text })],
+            ));
         }
         let items = v_get(&parsed, "items").and_then(Value::as_array)?;
         let mut text = String::new();
@@ -2151,12 +2857,16 @@ impl SimpleMessageParser {
                 let operator_uid = v_str(revoke, "operatorUid").unwrap_or_default();
                 let operator_fallback = Self::gray_tip_name(
                     revoke,
-                    &["operatorName", "operatorNick", "operatorRemark", "operatorMemRemark"],
+                    &[
+                        "operatorName",
+                        "operatorNick",
+                        "operatorRemark",
+                        "operatorMemRemark",
+                    ],
                 );
                 let operator_name =
                     self.gray_tip_sender_name(operator_uid, operator_fallback.as_deref());
-                let original_sender_uid =
-                    v_str(revoke, "origMsgSenderUid").unwrap_or_default();
+                let original_sender_uid = v_str(revoke, "origMsgSenderUid").unwrap_or_default();
                 let original_sender_fallback = Self::gray_tip_name(
                     revoke,
                     &[
@@ -2166,10 +2876,8 @@ impl SimpleMessageParser {
                         "origMsgSenderMemRemark",
                     ],
                 );
-                let original_sender_name = self.gray_tip_sender_name(
-                    original_sender_uid,
-                    original_sender_fallback.as_deref(),
-                );
+                let original_sender_name = self
+                    .gray_tip_sender_name(original_sender_uid, original_sender_fallback.as_deref());
                 let is_self = v_get(revoke, "isSelfOperate")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
@@ -2182,10 +2890,7 @@ impl SimpleMessageParser {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                 {
-                    text = format!(
-                        "{text}（{}）",
-                        wording.trim_end_matches(['。', '！', '？'])
-                    );
+                    text = format!("{text}（{}）", wording.trim_end_matches(['。', '！', '？']));
                 }
             }
         } else if sub_type == 10 {
@@ -2198,8 +2903,13 @@ impl SimpleMessageParser {
             if let Some(ge) = v_get(gray_tip, "groupElement").filter(|v| !v.is_null()) {
                 text = v_str(ge, "content")
                     .filter(|s| !s.is_empty())
-                    .unwrap_or("群聊更新")
-                    .to_string();
+                    .map(str::to_string)
+                    .or_else(|| {
+                        (v_i64(ge, "type") == Some(1))
+                            .then(|| Self::group_member_add_summary(ge))
+                            .flatten()
+                    })
+                    .unwrap_or_else(|| "群聊更新".to_string());
             }
         } else if let Some(jg) = v_get(gray_tip, "jsonGrayTipElement").filter(|v| !v.is_null()) {
             let json_content = v_str(jg, "jsonStr").unwrap_or("{}");
@@ -2209,7 +2919,8 @@ impl SimpleMessageParser {
             } else {
                 text = "系统提示".to_string();
             }
-        } else if let Some(aio_op) = v_get(gray_tip, "aioOpGrayTipElement").filter(|v| !v.is_null()) {
+        } else if let Some(aio_op) = v_get(gray_tip, "aioOpGrayTipElement").filter(|v| !v.is_null())
+        {
             if v_i64(aio_op, "operateType") == Some(1) {
                 let from_user = v_str(aio_op, "peerName")
                     .filter(|s| !s.is_empty())
