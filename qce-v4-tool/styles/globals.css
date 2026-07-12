@@ -124,6 +124,11 @@
   }
 }
 
+/* Inter 延迟加载完成后（InterFontLoader 加 qce-inter class）才把它排进字体栈。 */
+html.qce-inter body {
+  --font-geist-sans: 'Inter Variable', GeistSans, 'GeistSans Fallback', sans-serif;
+}
+
 /* Scrollbar styling for Linear-like feel */
 ::-webkit-scrollbar {
   width: 6px;

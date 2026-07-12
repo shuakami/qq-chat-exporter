@@ -5,6 +5,7 @@ import { Analytics } from '@vercel/analytics/next'
 import { LoadingProvider } from '@/components/loading-provider'
 import { AuthProvider } from '@/components/auth-provider'
 import { Toaster } from '@/components/ui/toast'
+import { InterFontLoader } from '@/components/inter-font-loader'
 import '@/styles/globals.css'
 
 export const metadata: Metadata = {
@@ -63,6 +64,7 @@ export default function RootLayout({
             <Toaster position="bottom-right" theme="macos" />
           </LoadingProvider>
         </AuthProvider>
+        <InterFontLoader />
         <Analytics />
       </body>
     </html>
