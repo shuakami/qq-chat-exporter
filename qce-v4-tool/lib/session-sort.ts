@@ -23,6 +23,7 @@ export interface SortableSessionItem {
    * `lastMsgTime`。没有最近联系人记录时为 `undefined`。
    */
   lastMessageTime?: string
+  lastMessageTimestamp?: number | null
   /**
    * 该会话已经通过任务导出的消息条数累计值。后端 `/api/tasks` 返回的
    * 已完成任务里 `messageCount` 求和。没有历史任务时为 `0`。
@@ -31,6 +32,8 @@ export interface SortableSessionItem {
   successfulExportCount?: number
   lastSuccessfulExportAt?: number
 }
+
+const zhCollator = new Intl.Collator('zh-CN')
 
 export interface SessionTaskStats {
   exportedMessageCount: number
@@ -93,20 +96,20 @@ export function compareSessionItems(
       }
 
       return (
-        a.name.localeCompare(b.name, 'zh-CN') ||
+        zhCollator.compare(a.name, b.name) ||
         a.id.localeCompare(b.id) ||
         a.type.localeCompare(b.type)
       )
     }
 
     case 'name':
-      return a.name.localeCompare(b.name, 'zh-CN') * direction
+      return zhCollator.compare(a.name, b.name) * direction
 
     case 'memberCount': {
       const aCount = a.memberCount ?? -1
       const bCount = b.memberCount ?? -1
       if (aCount === bCount) {
-        return a.name.localeCompare(b.name, 'zh-CN')
+        return zhCollator.compare(a.name, b.name)
       }
       return (aCount - bCount) * direction
     }
@@ -115,16 +118,20 @@ export function compareSessionItems(
       return a.id.localeCompare(b.id) * direction
 
     case 'lastActivity': {
-      const aT = parseLastActivity(a.lastMessageTime)
-      const bT = parseLastActivity(b.lastMessageTime)
+      const aT = a.lastMessageTimestamp === undefined
+        ? parseLastActivity(a.lastMessageTime)
+        : a.lastMessageTimestamp
+      const bT = b.lastMessageTimestamp === undefined
+        ? parseLastActivity(b.lastMessageTime)
+        : b.lastMessageTimestamp
       // 没有 lastMessageTime 的会话不论升降序都沉到最底，避免空数据顶头。
       if (aT === null && bT === null) {
-        return a.name.localeCompare(b.name, 'zh-CN')
+        return zhCollator.compare(a.name, b.name)
       }
       if (aT === null) return 1
       if (bT === null) return -1
       if (aT === bT) {
-        return a.name.localeCompare(b.name, 'zh-CN')
+        return zhCollator.compare(a.name, b.name)
       }
       return (aT - bT) * direction
     }
@@ -133,7 +140,7 @@ export function compareSessionItems(
       const aN = a.exportedMessageCount ?? 0
       const bN = b.exportedMessageCount ?? 0
       if (aN === bN) {
-        return a.name.localeCompare(b.name, 'zh-CN')
+        return zhCollator.compare(a.name, b.name)
       }
       return (aN - bN) * direction
     }

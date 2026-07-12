@@ -174,8 +174,7 @@ impl PathManager {
         if self
             .custom_output_dir
             .read()
-            .map(|guard| guard.is_none())
-            .unwrap_or(false)
+            .is_ok_and(|guard| guard.is_none())
         {
             let exports_dir = self.default_export_root_dir().join("exports");
             migrations.push((self.default_base_dir().join("exports"), exports_dir.clone()));
@@ -195,8 +194,7 @@ impl PathManager {
         if self
             .custom_scheduled_export_dir
             .read()
-            .map(|guard| guard.is_none())
-            .unwrap_or(false)
+            .is_ok_and(|guard| guard.is_none())
         {
             migrations.push((
                 self.default_base_dir().join("scheduled-exports"),

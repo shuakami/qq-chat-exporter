@@ -39,6 +39,7 @@ import {
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { Loader } from '@/components/ui/loader';
 import { MediaPreview, downloadUrl, type MediaItem } from '@/components/ui/media-preview';
+import { createTextBloomProbe, createTokenBloomProbe } from './qce/bloom';
 import { ChunkStore, loadManifest, type QceManifest } from './qce/chunk-store';
 
 const QCE_REPO = 'https://github.com/shuakami/qq-chat-exporter';
@@ -105,17 +106,30 @@ function GithubMark({ className }: { className?: string }): React.ReactElement {
 
 // Highlights matches inside the message bubble only, never in sender names or
 // other chrome, and never inside tags/attributes.
+let highlightQuery = '';
+let highlightRegex: RegExp | null = null;
+
+function getHighlightRegex(q: string): RegExp {
+  if (q !== highlightQuery || !highlightRegex) {
+    highlightQuery = q;
+    highlightRegex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  }
+  highlightRegex.lastIndex = 0;
+  return highlightRegex;
+}
+
 function highlightHtml(html: string, q: string): string {
   const at = html.indexOf('class="message-bubble');
   if (at === -1) return html;
   const open = html.indexOf('>', at);
   if (open === -1) return html;
-  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  const re = getHighlightRegex(q);
   let out = html.slice(0, open + 1);
   let i = open + 1;
   while (i < html.length) {
     const lt = html.indexOf('<', i);
     const text = lt === -1 ? html.slice(i) : html.slice(i, lt);
+    re.lastIndex = 0;
     out += text.replace(re, (m) => `<mark class="hl">${m}</mark>`);
     if (lt === -1) break;
     const gt = html.indexOf('>', lt);
@@ -530,11 +544,16 @@ export default function Viewer(): React.ReactElement {
       const saved = Number(localStorage.getItem('qce-scroll') ?? -1);
       if (saved > 0 && saved < manifest.stats.totalMessages) engine.scrollToIndex(saved);
     }
+    let lastSavedAnchor: number | null = null;
     const settingsTimer = window.setInterval(() => {
       const s = settingsRef.current;
       if (filterSourceRef.current) return;
+      if (!s.rememberScroll && !s.prefetchChunks) return;
       const a = engine.getStats().anchor;
-      if (s.rememberScroll) localStorage.setItem('qce-scroll', String(a.index));
+      if (s.rememberScroll && a.index !== lastSavedAnchor) {
+        localStorage.setItem('qce-scroll', String(a.index));
+        lastSavedAnchor = a.index;
+      }
       if (s.prefetchChunks) {
         const c = store.chunkOf(a.index);
         if (c + 1 < store.manifest.chunks.length && !store.isLoaded(c + 1)) void store.load(c + 1);
@@ -598,6 +617,7 @@ export default function Viewer(): React.ReactElement {
     filterSourceRef.current = src;
     engine.setDataSource(withHighlight(src));
     setFilterStatus('筛选中…');
+    const senderProbe = createTokenBloomProbe(next.sender);
     void (async () => {
       let skipped = 0;
       for (let c = 0; c < store.manifest.chunks.length; c++) {
@@ -606,7 +626,7 @@ export default function Viewer(): React.ReactElement {
         const outsideRange =
           (next.endMs > 0 && meta.startTs > next.endMs) ||
           (next.startMs > 0 && meta.endTs < next.startMs);
-        if (outsideRange || (next.sender && !store.senderMayContain(c, next.sender))) {
+        if (outsideRange || (next.sender && !store.senderMayContain(c, senderProbe))) {
           skipped += 1;
           continue;
         }
@@ -675,6 +695,7 @@ export default function Viewer(): React.ReactElement {
     };
     searchRef.current = s;
     const f = filtersRef.current;
+    const textProbe = createTextBloomProbe(q);
     const t0 = performance.now();
     void (async () => {
       let firstJump = true;
@@ -683,7 +704,7 @@ export default function Viewer(): React.ReactElement {
         const meta = store.manifest.chunks[c]!;
         const outsideRange =
           (f.endMs > 0 && meta.startTs > f.endMs) || (f.startMs > 0 && meta.endTs < f.startMs);
-        if (outsideRange || !store.textMayContain(c, q)) {
+        if (outsideRange || !store.textMayContain(c, textProbe)) {
           s.chunksSkipped += 1;
           continue;
         }
