@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef, useCallback } from "react"
 import { Dialog, DialogContent, DialogTitle } from "./dialog"
 import { Button } from "./button"
 import { Input } from "./input"
-import { Textarea } from "./textarea"
 import { DateRangePicker } from "./date-range-picker"
 import { Label } from "./label"
 import { Badge } from "./badge"
@@ -24,8 +23,6 @@ import { toggleSkipResourceType } from "@/lib/skip-resource-types"
 // 统一的药丸输入样式（与新版模态框 UI 对齐：无边框、浅底、聚焦加深）
 const PILL_INPUT =
   "h-[36px] px-3.5 rounded-full border-0 bg-black/[0.04] dark:bg-white/[0.06] text-[13px] outline-none placeholder:text-muted-foreground/70 focus:bg-black/[0.06] dark:focus:bg-white/[0.09] transition-colors"
-const PILL_TEXTAREA =
-  "px-3.5 py-2.5 rounded-[18px] border-0 bg-black/[0.04] dark:bg-white/[0.06] text-[13px] outline-none placeholder:text-muted-foreground/70 focus:bg-black/[0.06] dark:focus:bg-white/[0.09] transition-colors"
 const SECTION_TITLE = "text-[14px] font-medium text-foreground mb-5"
 
 interface TaskWizardProps {
@@ -963,25 +960,20 @@ export function TaskWizard({
         </section>
 
         {/* 过滤条件 */}
-        <section className="overflow-hidden rounded-2xl border border-black/[0.06] bg-black/[0.02] dark:border-white/[0.08] dark:bg-white/[0.03]">
+        <section>
           <button
             type="button"
             aria-expanded={filtersOpen}
             onClick={() => setFiltersOpen((open) => !open)}
-            className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left transition-colors hover:bg-black/[0.025] dark:hover:bg-white/[0.035]"
+            className="mb-5 flex w-full items-center justify-between gap-4 text-left"
           >
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-[14px] font-medium text-foreground">过滤条件</span>
-                {configuredFilterCount > 0 && (
-                  <span className="rounded-full bg-[#317CFF]/10 px-2 py-0.5 text-[10px] font-medium text-[#317CFF]">
-                    已配置 {configuredFilterCount} 项
-                  </span>
-                )}
-              </div>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                按关键词或发送者筛选导出内容
-              </p>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="text-[14px] font-medium text-foreground">过滤条件</span>
+              {configuredFilterCount > 0 && (
+                <span className="rounded-full bg-[#317CFF]/10 px-2 py-0.5 text-[10px] font-medium text-[#317CFF]">
+                  已配置 {configuredFilterCount} 项
+                </span>
+              )}
             </div>
             <ChevronDown
               className={[
@@ -992,16 +984,15 @@ export function TaskWizard({
           </button>
 
           {filtersOpen && (
-            <div className="space-y-5 border-t border-black/[0.06] px-4 pb-4 pt-5 dark:border-white/[0.08]">
+            <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-[13px] font-medium text-foreground/80">关键词过滤</label>
-                <Textarea
+                <Input
                   id="keywords"
                   placeholder="用逗号分隔多个关键词，如：重要,会议,通知"
                   value={form.keywords}
                   onChange={(e) => setForm((p) => ({ ...p, keywords: e.target.value }))}
-                  rows={3}
-                  className={PILL_TEXTAREA}
+                  className={PILL_INPUT + " w-full"}
                 />
               </div>
 
@@ -1024,13 +1015,12 @@ export function TaskWizard({
 
                 {renderMemberSelectorPanel('exclude')}
 
-                <Textarea
+                <Input
                   id="excludeUserUins"
-                  placeholder="用逗号分隔多个QQ号，如：123456789,987654321&#10;这些用户的消息将被过滤掉（适合过滤机器人）"
+                  placeholder="用逗号分隔多个 QQ 号，这些用户的消息将被过滤"
                   value={form.excludeUserUins || ""}
                   onChange={(e) => setForm((p) => ({ ...p, excludeUserUins: e.target.value }))}
-                  rows={2}
-                  className={PILL_TEXTAREA}
+                  className={PILL_INPUT + " w-full"}
                 />
                 {form.excludeUserUins && (
                   <p className="text-xs text-muted-foreground">
@@ -1058,13 +1048,12 @@ export function TaskWizard({
 
                 {renderMemberSelectorPanel('include')}
 
-                <Textarea
+                <Input
                   id="includeUserUins"
-                  placeholder="用逗号分隔多个QQ号，如：123456789,987654321&#10;留空表示不限制；填写后只会导出这些用户的消息"
+                  placeholder="用逗号分隔多个 QQ 号，留空表示不限制"
                   value={form.includeUserUins || ""}
                   onChange={(e) => setForm((p) => ({ ...p, includeUserUins: e.target.value }))}
-                  rows={2}
-                  className={PILL_TEXTAREA}
+                  className={PILL_INPUT + " w-full"}
                 />
                 {form.includeUserUins && (
                   <p className="text-xs text-muted-foreground">
