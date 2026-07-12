@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "@/components/ui/toast"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { BatchExportItem, BatchExportConfig } from "@/components/ui/batch-export-dialog"
 import { SessionList } from "@/components/ui/session-list"
 
@@ -93,9 +94,20 @@ function TaskFormatLabel({ format, className }: { format: string; className?: st
     const suffix = format === "STREAMING_ZIP" ? "ZIP" : "JSONL"
     return (
       <span className={`inline-flex items-center gap-1 ${className ?? ""}`}>
-        <span className="inline-flex items-center justify-center w-[15px] h-[15px] rounded-[4px] bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 text-[9px] font-bold leading-none">
-          S
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="inline-flex items-center justify-center w-[15px] h-[15px] rounded-[4px] bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-200 text-[9px] font-bold leading-none cursor-help outline-none"
+              aria-label="流式导出"
+              tabIndex={0}
+            >
+              S
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={6}>
+            流式导出（Streaming）
+          </TooltipContent>
+        </Tooltip>
         <span className="font-medium tracking-wide">{suffix}</span>
       </span>
     )
