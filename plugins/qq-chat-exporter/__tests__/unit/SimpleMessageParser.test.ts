@@ -256,6 +256,26 @@ test('reply resolves the exported target by timestamp when QQ provides a stale m
     assert.equal(replyEl!.data.content, 'the question');
 });
 
+test('reply does not expose a stale message id when no exported target matches', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const reply = msg()
+        .reply({
+            sourceMsgId: '7550351837487264154',
+            senderUin: '22222',
+            msgSeq: '999999',
+            msgTime: T,
+            content: '[图片]'
+        })
+        .text('the answer')
+        .at_time(T + 60)
+        .build();
+    const [parsed] = await parser.parseMessages([reply]);
+    const replyEl = parsed.content.elements.find((e) => e.type === 'reply');
+    assert.ok(replyEl, 'expected a reply element');
+    assert.equal(replyEl!.data.referencedMessageId, undefined);
+});
+
 test('reply falls back to senderUin (QQ number) when referenced message is outside the batch (#289)', async () => {
     const { SimpleMessageParser } = await loadParser();
     const parser = new SimpleMessageParser({ html: 'none' });
@@ -448,6 +468,39 @@ test('forward element exposes inner messages from inline records (#161)', async 
     // 普通文本应该被解析成扁平 elements，方便 JSON 导出。
     assert.equal(fw.data.messages[0].content.elements[0].type, 'text');
     assert.equal(fw.data.messages[0].content.elements[0].data.text, 'inner1');
+});
+
+test('QQ JSON chat record card is parsed as an expandable forward', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const inner = [
+        msg().sender({ uid: 'u_alice', uin: '11111', nick: 'Alice' }).text('inner1').at_time(T).build(),
+        msg().sender({ uid: 'u_bob', uin: '22222', nick: 'Bob' }).text('inner2').at_time(T + 60).build()
+    ];
+    const outer = msg()
+        .arkJson({
+            app: 'com.tencent.multimsg',
+            prompt: '[聊天记录]',
+            view: 'contact',
+            meta: {
+                detail: {
+                    resid: 'fw_json_001',
+                    source: 'Alice 和 Bob 的聊天记录',
+                    summary: '查看2条转发消息',
+                    news: [{ text: 'Alice: inner1' }, { text: 'Bob: inner2' }]
+                }
+            }
+        })
+        .at_time(T + 120)
+        .build();
+    outer.records = inner;
+    const [parsed] = await parser.parseMessages([outer]);
+    const fw = parsed.content.elements[0];
+    assert.equal(fw.type, 'forward');
+    assert.equal(fw.data.resId, 'fw_json_001');
+    assert.equal(fw.data.messageCount, 2);
+    assert.equal(fw.data.messages[0].content.text, 'inner1');
+    assert.equal(fw.data.messages[1].content.text, 'inner2');
 });
 
 test('forward inline-records fallback feeds bridge MsgApi.getMultiMsg (#161)', async () => {

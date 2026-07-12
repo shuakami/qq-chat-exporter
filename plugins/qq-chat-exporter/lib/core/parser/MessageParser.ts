@@ -1449,7 +1449,8 @@ export class MessageParser {
     
     // 使用 replayMsgId 作为被引用消息的真实ID（但要排除 "0" 的情况）
     const replayMsgId = reply.replayMsgId || '';
-    let referencedMessageId: string | undefined = (replayMsgId && replayMsgId !== '0') ? replayMsgId : undefined;
+    const replayMessageId = (replayMsgId && replayMsgId !== '0') ? replayMsgId : undefined;
+    let referencedMessageId: string | undefined;
     
     // sourceMsgIdInRecords 用于内部查找（在 records 数组中）
     const sourceMsgId = reply.sourceMsgIdInRecords || '';
@@ -1458,18 +1459,19 @@ export class MessageParser {
     // 都来自同一条消息，避免「内容取自 A、发件人取自 reply 元素」导致的发件人错位。
     // 依次尝试：replayMsgId → sourceMsgIdInRecords → replayMsgSeq → replyMsgClientSeq。
     let referencedRef: MsgRef | undefined;
-    if (referencedMessageId && this.messageMap.has(referencedMessageId)) {
-      referencedRef = this.messageMap.get(referencedMessageId);
+    if (replayMessageId && this.messageMap.has(replayMessageId)) {
+      referencedRef = this.messageMap.get(replayMessageId);
+      referencedMessageId = referencedRef?.msgId;
     }
     if (!referencedRef && sourceMsgId && this.messageMap.has(sourceMsgId)) {
       referencedRef = this.messageMap.get(sourceMsgId);
-      if (referencedRef && !referencedMessageId) referencedMessageId = referencedRef.msgId;
+      if (referencedRef) referencedMessageId = referencedRef.msgId;
     }
     if (!referencedRef && reply.replayMsgSeq) {
       for (const [, msg] of this.messageMap.entries()) {
         if (msg.msgSeq === reply.replayMsgSeq) {
           referencedRef = msg;
-          if (!referencedMessageId) referencedMessageId = msg.msgId;
+          referencedMessageId = msg.msgId;
           break;
         }
       }
@@ -1478,7 +1480,7 @@ export class MessageParser {
       for (const [, msg] of this.messageMap.entries()) {
         if (msg.clientSeq === reply.replyMsgClientSeq) {
           referencedRef = msg;
-          if (!referencedMessageId) referencedMessageId = msg.msgId;
+          referencedMessageId = msg.msgId;
           break;
         }
       }

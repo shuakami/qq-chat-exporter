@@ -156,23 +156,55 @@
             });
             
             // 回复消息跳转功能
-            window.scrollToMessage = function(msgId) {
+            var replyBackTimer = null;
+
+            function hideReplyBackButton() {
+                var button = document.getElementById('replyBackButton');
+                if (button) button.remove();
+                if (replyBackTimer) {
+                    clearTimeout(replyBackTimer);
+                    replyBackTimer = null;
+                }
+            }
+
+            function showReplyBackButton(msgId) {
+                hideReplyBackButton();
+                var button = document.createElement('button');
+                button.id = 'replyBackButton';
+                button.type = 'button';
+                button.className = 'reply-back-button';
+                button.setAttribute('aria-label', '回到消息');
+                button.innerHTML =
+                    '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+                    '<polyline points="9 17 4 12 9 7"></polyline>' +
+                    '<path d="M4 12h11a4 4 0 0 1 4 4v1"></path>' +
+                    '</svg><span>回到消息</span>';
+                button.addEventListener('click', function() {
+                    hideReplyBackButton();
+                    window.scrollToMessage(msgId);
+                });
+                document.body.appendChild(button);
+                replyBackTimer = setTimeout(hideReplyBackButton, 20000);
+            }
+
+            window.scrollToMessage = function(msgId, returnMsgId) {
                 var targetMsg = document.getElementById(msgId);
                 if (targetMsg) {
                     var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
                     targetMsg.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
-                    
-                    // 高亮动画
-                    targetMsg.style.transition = 'background 0.3s';
-                    var originalBg = window.getComputedStyle(targetMsg).backgroundColor;
-                    targetMsg.style.background = 'rgba(0, 122, 255, 0.1)';
-                    
-                    setTimeout(function() {
-                        targetMsg.style.background = originalBg;
+                    if (returnMsgId && returnMsgId !== msgId) {
+                        showReplyBackButton(returnMsgId);
+                    }
+
+                    var bubble = targetMsg.querySelector('.message-bubble');
+                    if (bubble) {
+                        bubble.classList.remove('reply-jump-highlight');
+                        void bubble.offsetWidth;
+                        bubble.classList.add('reply-jump-highlight');
                         setTimeout(function() {
-                            targetMsg.style.transition = '';
-                        }, 300);
-                    }, 1000);
+                            bubble.classList.remove('reply-jump-highlight');
+                        }, 700);
+                    }
                 } else {
                     console.warn('[Reply Jump] 未找到目标消息:', msgId);
                 }
@@ -184,7 +216,8 @@
                 if (!reply) return false;
                 var msgId = reply.getAttribute('data-reply-to');
                 if (!msgId) return false;
-                window.scrollToMessage(msgId);
+                var source = reply.closest('.message[id]');
+                window.scrollToMessage(msgId, source ? source.id : null);
                 return true;
             }
 
@@ -628,6 +661,10 @@
                     
                     // 恢复原始内容
                     contentClone.innerHTML = originalContent;
+
+                    contentClone.querySelectorAll('.sticker-wrap').forEach(function(sticker) {
+                        sticker.remove();
+                    });
                     
                     var contentText = contentClone.textContent.toLowerCase();
                     var searchLower = searchTerm.toLowerCase();
