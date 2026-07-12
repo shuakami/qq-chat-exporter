@@ -92,6 +92,8 @@ jobs:
       - name: "Build Rust server"
         run: cargo build --release
         working-directory: qq-chat-export-server
+        env:
+          QCE_VERSION: ${{ github.ref_name }}
 
       - name: "Upload Rust server artifact"
         uses: actions/upload-artifact@v4
