@@ -70,6 +70,17 @@ pub struct AppState {
 /// 共享状态句柄。
 pub type SharedState = Arc<AppState>;
 
+fn is_high_frequency_ws_message(msg_type: &str) -> bool {
+    matches!(
+        msg_type,
+        "export_progress"
+            | "album_export_progress"
+            | "group_files_export_progress"
+            | "merge-progress"
+            | "search_progress"
+    )
+}
+
 impl AppState {
     /// 服务器已运行秒数。
     pub fn uptime_secs(&self) -> f64 {
@@ -86,12 +97,36 @@ impl AppState {
         let msg_type = payload.get("type").and_then(Value::as_str).unwrap_or("?");
         let receivers = self.ws_tx.receiver_count();
         match self.ws_tx.send(payload.to_string()) {
-            Ok(n) => tracing::info!(
-                "[WS] 广播 {msg_type} → {n}/{receivers} 个客户端收到"
-            ),
-            Err(_) => tracing::debug!(
-                "[WS] 广播 {msg_type} 无订阅者 (receivers={receivers})"
-            ),
+            Ok(n) if is_high_frequency_ws_message(msg_type) => {
+                tracing::debug!("[WS] 广播 {msg_type} → {n}/{receivers} 个客户端收到");
+            }
+            Ok(n) => tracing::info!("[WS] 广播 {msg_type} → {n}/{receivers} 个客户端收到"),
+            Err(_) => tracing::debug!("[WS] 广播 {msg_type} 无订阅者 (receivers={receivers})"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_high_frequency_ws_message;
+
+    #[test]
+    fn progress_messages_are_logged_at_debug_level() {
+        for msg_type in [
+            "export_progress",
+            "album_export_progress",
+            "group_files_export_progress",
+            "merge-progress",
+            "search_progress",
+        ] {
+            assert!(is_high_frequency_ws_message(msg_type));
+        }
+    }
+
+    #[test]
+    fn completion_and_error_messages_remain_visible() {
+        for msg_type in ["export_complete", "export_error", "task_cancelled"] {
+            assert!(!is_high_frequency_ws_message(msg_type));
         }
     }
 }
