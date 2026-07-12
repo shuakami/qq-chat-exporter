@@ -10,6 +10,19 @@ const BRIDGE_HOST = '127.0.0.1';
 const BRIDGE_PORT = Number(process.env.QCE_BRIDGE_PORT || 40654);
 const API_PORT = Number(process.env.QCE_SERVER_PORT || 40653);
 
+export function bridgeJsonReplacer(_key, value) {
+  if (value instanceof Map) {
+    return Object.fromEntries(value);
+  }
+  if (value instanceof Set) {
+    return Array.from(value);
+  }
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  return value;
+}
+
 function runtimeDir() {
   return path.dirname(fileURLToPath(import.meta.url));
 }
@@ -92,6 +105,19 @@ export async function createNapCatBridge(core, port = BRIDGE_PORT) {
           result = await core.context.session
             .getMsgService()
             .getMsgsBySeqRange(...args);
+        } else if (
+          String(method).startsWith('MsgService.') ||
+          String(method).startsWith('GroupService.')
+        ) {
+          const [serviceName, functionName] = String(method).split('.', 2);
+          const service = serviceName === 'MsgService'
+            ? core.context.session.getMsgService()
+            : core.context.session.getGroupService();
+          const fn = service?.[functionName];
+          if (typeof fn !== 'function') {
+            throw new Error(`NapCatCore method not found: ${method}`);
+          }
+          result = await fn.apply(service, args);
         } else if (method === 'PacketApi.getGroupFileUrl') {
           result = await core.apis.PacketApi.pkt.operation.GetGroupFileUrl(
             String(args[0]),
@@ -113,7 +139,7 @@ export async function createNapCatBridge(core, port = BRIDGE_PORT) {
         }
         response
           .writeHead(200, { 'content-type': 'application/json' })
-          .end(JSON.stringify({ id, ok: true, result }));
+          .end(JSON.stringify({ id, ok: true, result }, bridgeJsonReplacer));
       } catch (error) {
         response
           .writeHead(200, { 'content-type': 'application/json' })

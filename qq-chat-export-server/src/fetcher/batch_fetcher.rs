@@ -162,12 +162,8 @@ pub trait MessageFetchApi: Send + Sync {
     ) -> Result<Value, String>;
 
     /// 从指定消息向前获取历史消息（对应 `MsgApi.getMsgHistory`，reverse=true）。
-    async fn get_msg_history(
-        &self,
-        peer: &Peer,
-        msg_id: &str,
-        count: i64,
-    ) -> Result<Value, String>;
+    async fn get_msg_history(&self, peer: &Peer, msg_id: &str, count: i64)
+        -> Result<Value, String>;
 
     /// 按序列号范围获取消息（对应 `getMsgService().getMsgsBySeqRange`）。
     async fn get_msgs_by_seq_range(
@@ -345,7 +341,12 @@ impl BatchMessageFetcher {
             (prev.next_message_id.clone(), prev.next_seq.clone())
         });
         let result = self
-            .fetch_messages(peer, filter, next_message_id.as_deref(), next_seq.as_deref())
+            .fetch_messages(
+                peer,
+                filter,
+                next_message_id.as_deref(),
+                next_seq.as_deref(),
+            )
             .await?;
 
         // 防御性提前停止：客户端筛选后为空且批次最早时间早于开始时间，无需继续回溯。
@@ -634,7 +635,11 @@ fn process_api_result(
     filter: Option<&MessageFilter>,
     current_message_id: Option<&str>,
 ) -> BatchFetchResult {
-    let messages: Vec<Value> = api_result
+    let payload = api_result
+        .get("result")
+        .filter(|result| result.get("msgList").is_some())
+        .unwrap_or(api_result);
+    let messages: Vec<Value> = payload
         .get("msgList")
         .and_then(Value::as_array)
         .cloned()
@@ -795,4 +800,31 @@ fn to_millis(raw_time: i64) -> i64 {
 /// 当前毫秒时间戳。
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn processes_result_wrapped_message_lists() {
+        let batch = process_api_result(
+            &json!({
+                "result": {
+                    "msgList": [{
+                        "msgId": "message-1",
+                        "msgSeq": "10",
+                        "msgTime": "1783866274"
+                    }]
+                }
+            }),
+            None,
+            None,
+        );
+
+        assert_eq!(batch.actual_count, 1);
+        assert_eq!(batch.next_message_id.as_deref(), Some("message-1"));
+    }
 }

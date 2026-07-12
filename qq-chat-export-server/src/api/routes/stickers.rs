@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
 
@@ -60,6 +59,21 @@ fn str_of(value: &Value, key: &str) -> String {
     }
 }
 
+fn list_values(value: Option<&Value>) -> Vec<Value> {
+    match value {
+        Some(Value::Array(list)) => list.clone(),
+        Some(Value::Object(map)) => map.values().cloned().collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn object_result(value: &Value) -> &Value {
+    value
+        .get("result")
+        .filter(|result| result.is_object())
+        .unwrap_or(value)
+}
+
 fn sanitize(name: &str) -> String {
     name.chars()
         .map(|c| {
@@ -74,12 +88,23 @@ fn sanitize(name: &str) -> String {
 
 /// 收藏表情 → 表情包。
 async fn favorite_pack(state: &SharedState) -> Option<Value> {
-    let result = state
+    let result = match state
         .napcat
-        .call("MsgApi.fetchFavEmojiList", json!([1000]))
+        .call(
+            "MsgService.fetchFavEmojiList",
+            json!(["", 1000, true, true]),
+        )
         .await
-        .ok()?;
-    let list = result.get("emojiInfoList").and_then(Value::as_array)?;
+    {
+        Ok(result) => result,
+        Err(_) => state
+            .napcat
+            .call("MsgApi.fetchFavEmojiList", json!([1000]))
+            .await
+            .ok()?,
+    };
+    let result = object_result(&result);
+    let list = list_values(result.get("emojiInfoList"));
     if list.is_empty() {
         return None;
     }
@@ -88,7 +113,11 @@ async fn favorite_pack(state: &SharedState) -> Option<Value> {
         .map(|emoji| {
             let sticker_id = {
                 let eid = str_of(emoji, "eId");
-                if eid.is_empty() { str_of(emoji, "emoId") } else { eid }
+                if eid.is_empty() {
+                    str_of(emoji, "emoId")
+                } else {
+                    eid
+                }
             };
             let name = {
                 let desc = str_of(emoji, "desc");
@@ -103,7 +132,11 @@ async fn favorite_pack(state: &SharedState) -> Option<Value> {
             };
             let path = {
                 let p = str_of(emoji, "emoPath");
-                if p.is_empty() { str_of(emoji, "emoOriginalPath") } else { p }
+                if p.is_empty() {
+                    str_of(emoji, "emoOriginalPath")
+                } else {
+                    p
+                }
             };
             json!({
                 "stickerId": sticker_id,
@@ -127,7 +160,7 @@ async fn favorite_pack(state: &SharedState) -> Option<Value> {
 
 /// 市场表情包 tab 列表提取。
 fn market_tab_list(result: &Value) -> Vec<Value> {
-    let Some(tab) = result
+    let Some(tab) = object_result(result)
         .get("marketEmoticonInfo")
         .and_then(|i| i.get("roamEmojiTab"))
     else {
@@ -150,19 +183,21 @@ fn market_tab_list(result: &Value) -> Vec<Value> {
 
 /// 从市场表情包 JSON 文件解析表情列表。
 fn parse_market_json(pack_data: &Value) -> Vec<Value> {
-    let empty: Vec<Value> = Vec::new();
-    let imgs = pack_data.get("imgs").and_then(Value::as_array).unwrap_or(&empty);
-    imgs.iter()
+    list_values(pack_data.get("imgs"))
+        .iter()
         .map(|emoji| {
             let md5 = str_of(emoji, "id");
             let name = {
                 let n = str_of(emoji, "name");
-                if n.is_empty() { format!("表情_{md5}") } else { n }
+                if n.is_empty() {
+                    format!("表情_{md5}")
+                } else {
+                    n
+                }
             };
             let prefix: String = md5.chars().take(2).collect();
-            let url = format!(
-                "https://gxh.vip.qq.com/club/item/parcel/item/{prefix}/{md5}/raw300.gif"
-            );
+            let url =
+                format!("https://gxh.vip.qq.com/club/item/parcel/item/{prefix}/{md5}/raw300.gif");
             json!({
                 "stickerId": md5,
                 "name": name,
@@ -175,27 +210,104 @@ fn parse_market_json(pack_data: &Value) -> Vec<Value> {
         .collect()
 }
 
-/// 市场表情包列表。
-async fn market_packs(state: &SharedState) -> Vec<Value> {
-    let mut packs = Vec::new();
-    let Ok(result) = state
+fn parse_market_pack_info(pack_info: &Value) -> Vec<Value> {
+    let pack_info = object_result(pack_info);
+    let list = if pack_info.get("emojiInfoList").is_some() {
+        list_values(pack_info.get("emojiInfoList"))
+    } else {
+        list_values(
+            pack_info
+                .get("marketEmoticonInfo")
+                .and_then(|info| info.get("emojiList")),
+        )
+    };
+    list.iter()
+        .map(|emoji| {
+            let sticker_id = ["eId", "emoId", "id"]
+                .iter()
+                .map(|key| str_of(emoji, key))
+                .find(|value| !value.is_empty())
+                .unwrap_or_default();
+            let name = ["name", "desc", "emojiName"]
+                .iter()
+                .map(|key| str_of(emoji, key))
+                .find(|value| !value.is_empty())
+                .unwrap_or_else(|| format!("表情_{sticker_id}"));
+            let path = ["path", "emoPath"]
+                .iter()
+                .map(|key| str_of(emoji, key))
+                .find(|value| !value.is_empty())
+                .unwrap_or_default();
+            json!({
+                "stickerId": sticker_id,
+                "name": name,
+                "path": path,
+                "downloaded": emoji.get("isExist").and_then(Value::as_bool).unwrap_or(false),
+                "md5": str_of(emoji, "md5"),
+                "fileSize": emoji.get("size").and_then(Value::as_u64).unwrap_or(0),
+            })
+        })
+        .collect()
+}
+
+async fn fetch_market_tabs(state: &SharedState) -> Option<Value> {
+    let mut fallback = None;
+    for params in [json!(["", 0]), json!([0, 0])] {
+        if let Ok(result) = state
+            .napcat
+            .call("MsgService.fetchMarketEmoticonList", params)
+            .await
+        {
+            if !market_tab_list(&result).is_empty() {
+                return Some(result);
+            }
+            fallback.get_or_insert(result);
+        }
+    }
+    if let Ok(result) = state
         .napcat
         .call("MsgApi.fetchMarketEmoticonList", json!([]))
         .await
-    else {
+    {
+        if !market_tab_list(&result).is_empty() {
+            return Some(result);
+        }
+        fallback.get_or_insert(result);
+    }
+    fallback
+}
+
+async fn fetch_market_pack_detail(state: &SharedState, method: &str, ep_id: &str) -> Option<Value> {
+    let raw_method = format!("MsgService.{method}");
+    match state.napcat.call(&raw_method, json!([ep_id])).await {
+        Ok(result) => Some(result),
+        Err(_) => {
+            let api_method = format!("MsgApi.{method}");
+            state.napcat.call(&api_method, json!([ep_id])).await.ok()
+        }
+    }
+}
+
+/// 市场表情包列表。
+async fn market_packs(state: &SharedState) -> Vec<Value> {
+    let mut packs = Vec::new();
+    let Some(result) = fetch_market_tabs(state).await else {
         return packs;
     };
     for tab in market_tab_list(&result) {
         let ep_id = str_of(&tab, "epId");
         let pack_name = {
             let name = str_of(&tab, "tabName");
-            if name.is_empty() { format!("表情包 #{ep_id}") } else { name }
+            if name.is_empty() {
+                format!("表情包 #{ep_id}")
+            } else {
+                name
+            }
         };
         let mut stickers: Vec<Value> = Vec::new();
-        if let Ok(json_result) = state
-            .napcat
-            .call("MsgApi.fetchMarketEmotionJsonFile", json!([ep_id]))
-            .await
+        let mut description = String::new();
+        if let Some(json_result) =
+            fetch_market_pack_detail(state, "fetchMarketEmotionJsonFile", &ep_id).await
         {
             let ok = json_result.get("result").and_then(Value::as_i64) == Some(0);
             let json_path = str_of(&json_result, "errMsg");
@@ -203,15 +315,40 @@ async fn market_packs(state: &SharedState) -> Vec<Value> {
                 if let Ok(content) = tokio::fs::read_to_string(&json_path).await {
                     if let Ok(pack_data) = serde_json::from_str::<Value>(&content) {
                         stickers = parse_market_json(&pack_data);
+                        description = ["mark", "description"]
+                            .iter()
+                            .map(|key| str_of(&pack_data, key))
+                            .find(|value| !value.is_empty())
+                            .unwrap_or_default();
                     }
                 }
             }
         }
-        let description = if stickers.is_empty() {
-            "待加载详情".to_string()
-        } else {
-            format!("包含 {} 个表情", stickers.len())
-        };
+        for method in [
+            "fetchMarketEmoticonFaceImages",
+            "fetchMarketEmoticonAioImage",
+        ] {
+            if !stickers.is_empty() {
+                break;
+            }
+            if let Some(detail) = fetch_market_pack_detail(state, method, &ep_id).await {
+                if detail.get("result").and_then(Value::as_i64) == Some(0) {
+                    stickers = parse_market_pack_info(&detail);
+                    description = ["mark", "description"]
+                        .iter()
+                        .map(|key| str_of(&detail, key))
+                        .find(|value| !value.is_empty())
+                        .unwrap_or_default();
+                }
+            }
+        }
+        if description.is_empty() {
+            description = if stickers.is_empty() {
+                "待加载详情".to_string()
+            } else {
+                format!("包含 {} 个表情", stickers.len())
+            };
+        }
         packs.push(json!({
             "packId": format!("market_{ep_id}"),
             "packName": pack_name,
@@ -230,12 +367,19 @@ fn system_packs() -> Vec<Value> {
         return Vec::new();
     };
     let empty: Vec<Value> = Vec::new();
-    let sysface = config.get("sysface").and_then(Value::as_array).unwrap_or(&empty);
+    let sysface = config
+        .get("sysface")
+        .and_then(Value::as_array)
+        .unwrap_or(&empty);
     let mut pack_map: Vec<(String, Vec<&Value>)> = Vec::new();
     for face in sysface {
         let pack_name = {
             let name = str_of(face, "AniStickerPackName");
-            if name.is_empty() { "系统表情".to_string() } else { name }
+            if name.is_empty() {
+                "系统表情".to_string()
+            } else {
+                name
+            }
         };
         match pack_map.iter_mut().find(|(name, _)| *name == pack_name) {
             Some((_, faces)) => faces.push(face),
@@ -250,7 +394,11 @@ fn system_packs() -> Vec<Value> {
                 .map(|face| {
                     let sticker_id = {
                         let sid = str_of(face, "QSid");
-                        if sid.is_empty() { str_of(face, "AniStickerId") } else { sid }
+                        if sid.is_empty() {
+                            str_of(face, "AniStickerId")
+                        } else {
+                            sid
+                        }
                     };
                     let name = {
                         let desc = str_of(face, "QDes");
@@ -339,9 +487,10 @@ async fn normalize_sticker_extension(path: &FsPath) -> PathBuf {
     }
     let target = path.with_extension(&detected[1..]);
     if (tokio::fs::remove_file(&target).await.is_ok() || !target.exists())
-        && tokio::fs::rename(path, &target).await.is_ok() {
-            return target;
-        }
+        && tokio::fs::rename(path, &target).await.is_ok()
+    {
+        return target;
+    }
     path.to_path_buf()
 }
 
@@ -352,8 +501,10 @@ fn guess_initial_extension(source: &str) -> String {
     } else {
         source
     };
-    FsPath::new(path_part)
-        .extension().map_or_else(|| ".gif".to_string(), |e| format!(".{}", e.to_string_lossy()))
+    FsPath::new(path_part).extension().map_or_else(
+        || ".gif".to_string(),
+        |e| format!(".{}", e.to_string_lossy()),
+    )
 }
 
 /// 下载或复制单个表情文件。
@@ -393,12 +544,17 @@ async fn export_pack_to_dir(_state: &SharedState, pack: &Value, pack_dir: &FsPat
     let stickers_dir = pack_dir.join("stickers");
     let _ = tokio::fs::create_dir_all(&stickers_dir).await;
     let empty: Vec<Value> = Vec::new();
-    let stickers = pack.get("stickers").and_then(Value::as_array).unwrap_or(&empty);
+    let stickers = pack
+        .get("stickers")
+        .and_then(Value::as_array)
+        .unwrap_or(&empty);
     let mut success = 0usize;
     // 分批并发下载（并发度 10）。
     for batch in stickers.chunks(10) {
         let results = futures_util::future::join_all(
-            batch.iter().map(|sticker| save_sticker(sticker, &stickers_dir)),
+            batch
+                .iter()
+                .map(|sticker| save_sticker(sticker, &stickers_dir)),
         )
         .await;
         success += results.into_iter().filter(|ok| *ok).count();
@@ -552,6 +708,85 @@ pub async fn export_all_sticker_packs(
         let _ = tokio::fs::write(export_dir.join("summary.json"), data).await;
     }
 
+    let favorite_packs: Vec<&Value> = packs
+        .iter()
+        .filter(|pack| str_of(pack, "packType") == "favorite_emoji")
+        .collect();
+    if !favorite_packs.is_empty() {
+        let favorite_stickers: Vec<Value> = favorite_packs
+            .iter()
+            .flat_map(|pack| {
+                let pack_id = str_of(pack, "packId");
+                let pack_name = str_of(pack, "packName");
+                list_values(pack.get("stickers"))
+                    .into_iter()
+                    .map(move |sticker| {
+                        json!({
+                            "id": sticker.get("stickerId"),
+                            "name": sticker.get("name"),
+                            "url": sticker.get("path"),
+                            "md5": sticker.get("md5"),
+                            "packId": pack_id.clone(),
+                            "packName": pack_name.clone(),
+                        })
+                    })
+            })
+            .collect();
+        let favorite_data = json!({
+            "exportTime": now_iso(),
+            "totalStickers": favorite_stickers.len(),
+            "stickers": favorite_stickers,
+        });
+        if let Ok(data) = serde_json::to_string_pretty(&favorite_data) {
+            let _ = tokio::fs::write(export_dir.join("favorite_emojis.json"), data).await;
+        }
+    }
+
+    let other_packs: Vec<Value> = packs
+        .iter()
+        .filter(|pack| str_of(pack, "packType") != "favorite_emoji")
+        .map(|pack| {
+            let stickers: Vec<Value> = list_values(pack.get("stickers"))
+                .iter()
+                .map(|sticker| {
+                    json!({
+                        "id": sticker.get("stickerId"),
+                        "name": sticker.get("name"),
+                        "url": sticker.get("path"),
+                        "md5": sticker.get("md5"),
+                    })
+                })
+                .collect();
+            json!({
+                "packId": pack.get("packId"),
+                "packName": pack.get("packName"),
+                "packType": pack.get("packType"),
+                "description": pack.get("description"),
+                "stickerCount": pack.get("stickerCount"),
+                "stickers": stickers,
+            })
+        })
+        .collect();
+    if !other_packs.is_empty() {
+        let total_stickers = other_packs
+            .iter()
+            .map(|pack| {
+                pack.get("stickerCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+            })
+            .sum::<u64>();
+        let all_packs_data = json!({
+            "exportTime": now_iso(),
+            "totalPacks": other_packs.len(),
+            "totalStickers": total_stickers,
+            "packs": other_packs,
+        });
+        if let Ok(data) = serde_json::to_string_pretty(&all_packs_data) {
+            let _ = tokio::fs::write(export_dir.join("all_sticker_packs.json"), data).await;
+        }
+    }
+
     let id = export_id();
     add_record(
         &state,
@@ -600,4 +835,65 @@ pub async fn sticker_export_records(
         }),
         &request_id,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{market_tab_list, parse_market_json, parse_market_pack_info, system_packs};
+    use serde_json::json;
+
+    #[test]
+    fn reads_market_tabs_from_wrapped_or_direct_results() {
+        let direct = json!({
+            "marketEmoticonInfo": {
+                "roamEmojiTab": {
+                    "ordinaryTabinfoList": [{ "epId": "1" }]
+                }
+            }
+        });
+        let wrapped = json!({ "result": direct.clone() });
+        assert_eq!(market_tab_list(&direct), vec![json!({ "epId": "1" })]);
+        assert_eq!(market_tab_list(&wrapped), vec![json!({ "epId": "1" })]);
+    }
+
+    #[test]
+    fn parses_market_json_and_api_fallback_shapes() {
+        let json_stickers = parse_market_json(&json!({
+            "imgs": {
+                "first": { "id": "abcdef", "name": "猫猫" }
+            }
+        }));
+        assert_eq!(json_stickers.len(), 1);
+        assert_eq!(
+            json_stickers[0]["path"],
+            "https://gxh.vip.qq.com/club/item/parcel/item/ab/abcdef/raw300.gif"
+        );
+
+        let api_stickers = parse_market_pack_info(&json!({
+            "result": {
+                "emojiInfoList": [{
+                    "eId": "emoji_1",
+                    "desc": "测试表情",
+                    "emoPath": "C:/emoji.gif",
+                    "isExist": true
+                }]
+            }
+        }));
+        assert_eq!(api_stickers.len(), 1);
+        assert_eq!(api_stickers[0]["stickerId"], "emoji_1");
+        assert_eq!(api_stickers[0]["path"], "C:/emoji.gif");
+    }
+
+    #[test]
+    fn includes_embedded_system_sticker_packs() {
+        let packs = system_packs();
+        assert_eq!(packs.len(), 6);
+        assert_eq!(
+            packs
+                .iter()
+                .map(|pack| pack["stickerCount"].as_u64().unwrap_or(0))
+                .sum::<u64>(),
+            296
+        );
+    }
 }
