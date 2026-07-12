@@ -6,6 +6,8 @@ import {
   ChevronLeft,
   ChevronDown,
   ExternalLink,
+  RefreshCw,
+  TriangleAlert,
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -207,6 +209,9 @@ export default function App() {
   const loginTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [exiting, setExiting] = useState(false);
   const [webuiUrl, setWebuiUrl] = useState<string>('');
+  const [runtimeStopped, setRuntimeStopped] = useState(false);
+  const [runtimeError, setRuntimeError] = useState('');
+  const [repairing, setRepairing] = useState(false);
   const [setupHint, setSetupHint] = useState('请稍候，我们正在为您初始化导出组件...');
 
   const [options, setOptions] = useState({ shortcut: true, autoStart: false });
@@ -500,6 +505,8 @@ export default function App() {
   }, []);
 
   const enterRunning = useCallback(async () => {
+    setRuntimeStopped(false);
+    setRuntimeError('');
     setSetupStep('running');
     try {
       const url = webuiUrl || (await api.getWebuiUrl()) || '';
@@ -508,6 +515,58 @@ export default function App() {
       /* ignore */
     }
   }, [webuiUrl]);
+
+  useEffect(() => {
+    if (step !== 'setup' || setupStep !== 'running' || repairing) return;
+    let cancelled = false;
+    let missedChecks = 0;
+    const check = async () => {
+      try {
+        const info = await api.isQceRunning();
+        if (cancelled) return;
+        if (info.running) {
+          missedChecks = 0;
+          setRuntimeStopped(false);
+          setRuntimeError('');
+          if (info.webuiUrl) setWebuiUrl(info.webuiUrl);
+          return;
+        }
+      } catch {
+        if (cancelled) return;
+      }
+      missedChecks += 1;
+      if (missedChecks >= 2) setRuntimeStopped(true);
+    };
+    const poll = setInterval(check, 2500);
+    void check();
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+    };
+  }, [step, setupStep, repairing]);
+
+  const handleRepairService = useCallback(async () => {
+    setRepairing(true);
+    setRuntimeError('');
+    try {
+      await api.restartService();
+      for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const info = await api.isQceRunning();
+        if (info.running) {
+          if (info.webuiUrl) setWebuiUrl(info.webuiUrl);
+          setRuntimeStopped(false);
+          return;
+        }
+      }
+      throw new Error('服务启动超时，请查看运行日志');
+    } catch (err) {
+      setRuntimeStopped(true);
+      setRuntimeError(String(err).replace(/^Error:\s*/, ''));
+    } finally {
+      setRepairing(false);
+    }
+  }, []);
 
   const handleExit = useCallback(async () => {
     try {
@@ -938,34 +997,70 @@ export default function App() {
             )}
 
             {setupStep === 'running' && (
-              <div className="flex-1 flex flex-col items-center justify-center text-center w-full max-w-sm mx-auto animate-fade-in">
-                <h2 className="text-[16px] font-bold text-[var(--color-text)] mb-1">服务运行中</h2>
-                <p className="text-[var(--color-text-secondary)] text-[12px] mb-8">QQ Chat Exporter 正在后台运行</p>
+              runtimeStopped ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center w-full max-w-sm mx-auto animate-fade-in">
+                  <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-[#E54D2E]/10 text-[#D94829]">
+                    <TriangleAlert size={25} strokeWidth={1.8} />
+                  </div>
+                  <h2 className="text-[17px] font-bold text-[var(--color-text)] mb-1.5">
+                    {repairing ? '正在修复服务' : '服务已停止'}
+                  </h2>
+                  <p className="text-[var(--color-text-secondary)] text-[12px] leading-relaxed mb-6 max-w-[280px]">
+                    {repairing
+                      ? '正在清理异常进程并重新启动 QQ Chat Exporter，请稍候。'
+                      : 'QQ Chat Exporter 意外退出，WebUI 暂时无法访问。您可以尝试自动修复并重新启动。'}
+                  </p>
 
-                <div className="w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg p-3 mb-8">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[13px] font-medium text-[var(--color-text-secondary)]">WebUI 链接</span>
-                    <button
-                      onClick={() => webuiUrl && api.openUrl(webuiUrl)}
-                      className="text-[13px] font-medium text-[#1E7AD4] hover:text-[#1665b0] hover:underline flex items-center gap-1 max-w-[220px] truncate"
-                    >
-                      {webuiUrl || 'http://127.0.0.1:40653'} <ExternalLink size={12} />
+                  {runtimeError && (
+                    <div className="w-full max-w-[300px] rounded-lg border border-[#E54D2E]/20 bg-[#E54D2E]/5 px-3 py-2.5 text-left text-[11px] leading-relaxed text-[#B9381F] mb-5">
+                      {runtimeError}
+                    </div>
+                  )}
+
+                  <div className="w-full max-w-[220px] flex flex-col items-center space-y-3">
+                    <Button fullWidth size="lg" onClick={handleRepairService} disabled={repairing} className="h-9 font-medium">
+                      {repairing
+                        ? <><Loader size={14} className="mr-1.5" /> 修复中...</>
+                        : <><RefreshCw size={14} className="mr-1.5" /> 修复并重新启动</>}
+                    </Button>
+                    <Button fullWidth size="lg" variant="secondary" onClick={() => api.openLogFile()} className="h-9 font-medium">
+                      查看运行日志
+                    </Button>
+                    <button onClick={() => setShowExitConfirm(true)} disabled={repairing} className="text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors py-1 disabled:opacity-50">
+                      退出并关闭
                     </button>
                   </div>
                 </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-center w-full max-w-sm mx-auto animate-fade-in">
+                  <h2 className="text-[16px] font-bold text-[var(--color-text)] mb-1">服务运行中</h2>
+                  <p className="text-[var(--color-text-secondary)] text-[12px] mb-8">QQ Chat Exporter 正在后台运行</p>
 
-                <div className="w-full max-w-[200px] flex flex-col items-center space-y-3">
-                  <Button fullWidth size="lg" onClick={() => webuiUrl && api.openUrl(webuiUrl)} className="h-9 font-medium">
-                    打开 WebUI
-                  </Button>
-                  <Button fullWidth size="lg" variant="secondary" onClick={() => api.openLogFile()} className="h-9 font-medium">
-                    查看运行日志
-                  </Button>
-                  <button onClick={() => setShowExitConfirm(true)} className="text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors py-1">
-                    退出服务并关闭
-                  </button>
+                  <div className="w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg p-3 mb-8">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[13px] font-medium text-[var(--color-text-secondary)]">WebUI 链接</span>
+                      <button
+                        onClick={() => webuiUrl && api.openUrl(webuiUrl)}
+                        className="text-[13px] font-medium text-[#1E7AD4] hover:text-[#1665b0] hover:underline flex items-center gap-1 max-w-[220px] truncate"
+                      >
+                        {webuiUrl || 'http://127.0.0.1:40653'} <ExternalLink size={12} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="w-full max-w-[200px] flex flex-col items-center space-y-3">
+                    <Button fullWidth size="lg" onClick={() => webuiUrl && api.openUrl(webuiUrl)} className="h-9 font-medium">
+                      打开 WebUI
+                    </Button>
+                    <Button fullWidth size="lg" variant="secondary" onClick={() => api.openLogFile()} className="h-9 font-medium">
+                      查看运行日志
+                    </Button>
+                    <button onClick={() => setShowExitConfirm(true)} className="text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors py-1">
+                      退出服务并关闭
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )
             )}
           </div>
         )}

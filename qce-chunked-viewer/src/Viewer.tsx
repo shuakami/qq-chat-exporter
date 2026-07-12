@@ -12,6 +12,7 @@ import {
   MoonIcon,
   MoveRightIcon,
   PanelLeftIcon,
+  PanelsTopLeftIcon,
   ReplyIcon,
   SearchIcon,
   SettingsIcon,
@@ -54,6 +55,7 @@ const KIND_OPTIONS: ReadonlyArray<readonly [string, string, IconComponent]> = [
   ['file', '文件', FileIcon],
   ['reply', '回复', ReplyIcon],
   ['forward', '转发', Share2Icon],
+  ['card', '卡片', PanelsTopLeftIcon],
   ['location', '位置', MapPinIcon],
 ];
 
@@ -137,11 +139,32 @@ function rowHtml(i: number, inner: string): string {
   return `<div class="hs-item" data-i="${i}">${inner}</div>`;
 }
 
-const SEEK_MEDIA_TAG = /<(?:img|video|audio|source)\b[^>]*>/gi;
+const SEEK_AVATAR = /<div class="avatar">[\s\S]*?<\/div>/gi;
+const SEEK_IMAGE = /<div class="image-content">\s*<img\b[^>]*>\s*<\/div>/gi;
+const SEEK_STICKER = /<span class="sticker-wrap">\s*<img\b[^>]*>\s*<\/span>/gi;
+const SEEK_REMAINING_IMAGE = /<img\b[^>]*>/gi;
+const SEEK_MEDIA_TAG = /<(?:video|audio|source)\b[^>]*>/gi;
 const SEEK_MEDIA_SOURCE = /\s(?:src|srcset|poster)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
 
 function withoutSeekMediaSources(html: string): string {
-  return html.replace(SEEK_MEDIA_TAG, (tag) => tag.replace(SEEK_MEDIA_SOURCE, ''));
+  return html
+    .replace(
+      SEEK_AVATAR,
+      '<div class="avatar"><span class="seek-media-placeholder seek-avatar-placeholder" aria-hidden="true"></span></div>',
+    )
+    .replace(
+      SEEK_IMAGE,
+      '<div class="image-content"><span class="seek-media-placeholder seek-image-placeholder" aria-hidden="true"></span></div>',
+    )
+    .replace(
+      SEEK_STICKER,
+      '<span class="sticker-wrap"><span class="seek-media-placeholder seek-sticker-placeholder" aria-hidden="true"></span></span>',
+    )
+    .replace(
+      SEEK_REMAINING_IMAGE,
+      '<span class="seek-media-placeholder seek-inline-placeholder" aria-hidden="true"></span>',
+    )
+    .replace(SEEK_MEDIA_TAG, (tag) => tag.replace(SEEK_MEDIA_SOURCE, ''));
 }
 
 /**
@@ -302,6 +325,22 @@ export default function Viewer(): React.ReactElement {
   // video preview, and voice download. Delegated from the viewport container.
   function onViewportClick(e: React.MouseEvent): void {
     const target = e.target as HTMLElement;
+
+    const forwardToggle = target.closest('.forward-card-toggle');
+    if (forwardToggle instanceof HTMLButtonElement) {
+      const card = forwardToggle.closest('.forward-card');
+      if (!(card instanceof HTMLElement)) return;
+      const expanded = card.classList.toggle('is-expanded');
+      forwardToggle.setAttribute('aria-expanded', String(expanded));
+      const label = forwardToggle.querySelector('.forward-card-toggle-label');
+      if (label) {
+        const count = forwardToggle.dataset.count ?? card.querySelectorAll(
+          ':scope > .forward-card-content > .forward-card-line',
+        ).length;
+        label.textContent = expanded ? '收起' : `展开全部 ${count} 条`;
+      }
+      return;
+    }
 
     const reply = target.closest('.reply-content[data-reply-to]');
     if (reply instanceof HTMLElement && !target.closest('a, button')) {
@@ -677,32 +716,32 @@ export default function Viewer(): React.ReactElement {
 
         {manifest && stats ? (
           <>
-            <dl className="mt-5 space-y-2 text-xs">
-              <div className="flex justify-between gap-2">
+            <dl className="mt-5 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
+              <div className="contents">
                 <dt className="text-muted-foreground">消息数</dt>
-                <dd className="font-medium tabular-nums">{stats.totalMessages.toLocaleString()}</dd>
+                <dd className="text-right font-medium tabular-nums">{stats.totalMessages.toLocaleString()}</dd>
               </div>
-              <div className="flex items-center justify-between gap-3">
-                <dt className="shrink-0 text-muted-foreground">时间范围</dt>
-                <dd className="flex shrink-0 items-center gap-1.5 whitespace-nowrap font-medium tabular-nums">
+              <div className="contents">
+                <dt className="text-muted-foreground">时间范围</dt>
+                <dd className="flex items-center justify-end gap-1.5 whitespace-nowrap text-right font-medium tabular-nums">
                   {fmtDate(stats.minDateKey)}
                   <MoveRightIcon className="size-3 shrink-0 text-muted-foreground" />
                   {fmtDate(stats.maxDateKey)}
                 </dd>
               </div>
-              <div className="flex justify-between gap-2">
+              <div className="contents">
                 <dt className="text-muted-foreground">分块</dt>
-                <dd className="font-medium tabular-nums">
+                <dd className="text-right font-medium tabular-nums">
                   {manifest.chunks.length} × {manifest.chunking.maxMessagesPerChunk.toLocaleString()}
                 </dd>
               </div>
-              <div className="flex justify-between gap-2">
+              <div className="contents">
                 <dt className="text-muted-foreground">已加载分块</dt>
-                <dd className="font-medium tabular-nums">{loadedChunks}</dd>
+                <dd className="text-right font-medium tabular-nums">{loadedChunks}</dd>
               </div>
-              <div className="flex justify-between gap-2">
+              <div className="contents">
                 <dt className="text-muted-foreground">导出时间</dt>
-                <dd className="font-medium">{new Date(manifest.exportTime).toLocaleDateString('zh-CN')}</dd>
+                <dd className="text-right font-medium">{new Date(manifest.exportTime).toLocaleDateString('zh-CN')}</dd>
               </div>
             </dl>
 
@@ -882,7 +921,7 @@ export default function Viewer(): React.ReactElement {
           {manifest?.exporter?.version ? (
             <span className="flex items-center gap-1.5">
               <RustMark className="size-3.5" />
-              exporter {manifest.exporter.version}
+              exporter v{manifest.exporter.version.replace(/^v/, '')}
             </span>
           ) : null}
           <a

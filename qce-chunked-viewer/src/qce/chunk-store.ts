@@ -29,6 +29,7 @@ export function kindOf(html: string): string {
   if (html.includes('class="reply-content"')) return 'reply';
   if (html.includes('class="forward-card')) return 'forward';
   if (html.includes('class="location-')) return 'location';
+  if (html.includes('class="json-card"')) return 'card';
   return 'text';
 }
 

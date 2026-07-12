@@ -317,6 +317,9 @@ export class SimpleMessageParser {
 
   // 全局消息映射，用于查找被引用的消息
   private messageMap: Map<string, RawMessage> = new Map();
+  private messageSeqMap: Map<string, RawMessage> = new Map();
+  private messageClientSeqMap: Map<string, RawMessage> = new Map();
+  private messageTimeMap: Map<string, RawMessage[]> = new Map();
 
   // 发件人显示信息缓存：senderUid / senderUin → { groupCard, remark, nickname }
   // 用于在某条消息缺失全部昵称字段时，回退到同一发件人在其他消息上出现过的可读名字。
@@ -343,24 +346,7 @@ export class SimpleMessageParser {
     const total = messages.length;
     let processed = 0;
 
-    // 先建立全局消息映射
-    this.messageMap.clear();
-    this.senderInfoCache.clear();
-    for (const msg of messages) {
-      if (msg && msg.msgId) {
-        this.messageMap.set(msg.msgId, msg);
-        this.cacheSenderInfo(msg);
-        // 同时将 records 数组中的消息也添加到映射中
-        if (msg.records && msg.records.length > 0) {
-          for (const record of msg.records) {
-            if (record && record.msgId) {
-              this.messageMap.set(record.msgId, record);
-              this.cacheSenderInfo(record);
-            }
-          }
-        }
-      }
-    }
+    this.prepareMessageIndexes(messages);
 
     const results = await mapLimit(messages, this.concurrency, async (message, idx) => {
       try {
@@ -384,11 +370,56 @@ export class SimpleMessageParser {
       }
     });
     
-    // 清理映射
-    this.messageMap.clear();
-    this.senderInfoCache.clear();
+    this.clearMessageIndexes();
 
     return results;
+  }
+
+  private prepareMessageIndexes(messages: RawMessage[]): void {
+    this.clearMessageIndexes();
+    for (const message of messages) {
+      if (!message) continue;
+      this.indexMessage(message);
+      for (const record of message.records ?? []) {
+        if (record) this.indexMessage(record);
+      }
+    }
+  }
+
+  private indexMessage(message: RawMessage): void {
+    const id = this.getTrimmedText(message.msgId);
+    if (id) this.messageMap.set(id, message);
+
+    const seq = this.getTrimmedText(message.msgSeq);
+    if (seq && !this.messageSeqMap.has(seq)) this.messageSeqMap.set(seq, message);
+
+    const clientSeq = this.getTrimmedText(message.clientSeq);
+    if (clientSeq && !this.messageClientSeqMap.has(clientSeq)) {
+      this.messageClientSeqMap.set(clientSeq, message);
+    }
+
+    const timestamp = this.getTrimmedText(message.msgTime);
+    if (timestamp) {
+      const matches = this.messageTimeMap.get(timestamp);
+      if (!matches) {
+        this.messageTimeMap.set(timestamp, [message]);
+      } else if (!matches.some((candidate) => {
+        if (candidate === message) return true;
+        return Boolean(id && this.getTrimmedText(candidate.msgId) === id);
+      })) {
+        matches.push(message);
+      }
+    }
+
+    this.cacheSenderInfo(message);
+  }
+
+  private clearMessageIndexes(): void {
+    this.messageMap.clear();
+    this.messageSeqMap.clear();
+    this.messageClientSeqMap.clear();
+    this.messageTimeMap.clear();
+    this.senderInfoCache.clear();
   }
 
   /**
@@ -453,37 +484,42 @@ export class SimpleMessageParser {
     const total = messages.length;
     let processed = 0;
 
-    for (let i = 0; i < messages.length; i++) {
-      const message = messages[i];
-      if (!message) continue; // 跳过undefined元素
-      
-      try {
-        const cleanMessage = await this.parseMessage(message);
-        
-        // 如果提供了resourceMap，立即更新这条消息的资源路径
-        if (resourceMap && resourceMap.has(message.msgId)) {
-          const resources = resourceMap.get(message.msgId);
-          if (resources && cleanMessage.content.elements) {
-            this.updateSingleMessageResourcePaths(cleanMessage, resources);
+    this.prepareMessageIndexes(messages);
+    try {
+      for (let i = 0; i < messages.length; i++) {
+        const message = messages[i];
+        if (!message) continue; // 跳过undefined元素
+
+        try {
+          const cleanMessage = await this.parseMessage(message);
+
+          // 如果提供了resourceMap，立即更新这条消息的资源路径
+          if (resourceMap && resourceMap.has(message.msgId)) {
+            const resources = resourceMap.get(message.msgId);
+            if (resources && cleanMessage.content.elements) {
+              this.updateSingleMessageResourcePaths(cleanMessage, resources);
+            }
           }
-        }
 
-        processed++;
-        if (this.onProgress) {
-          this.onProgress(processed, total);
-        } else if (processed % this.options.progressEvery === 0) {
-          console.log(`[SimpleMessageParser] 已解析 ${processed}/${total}`);
-        }
+          processed++;
+          if (this.onProgress) {
+            this.onProgress(processed, total);
+          } else if (processed % this.options.progressEvery === 0) {
+            console.log(`[SimpleMessageParser] 已解析 ${processed}/${total}`);
+          }
 
-        if (this.options.yieldEvery > 0 && (i + 1) % this.options.yieldEvery === 0) {
-          await yieldToEventLoop();
-        }
+          if (this.options.yieldEvery > 0 && (i + 1) % this.options.yieldEvery === 0) {
+            await yieldToEventLoop();
+          }
 
-        yield cleanMessage;
-      } catch (error) {
-        console.error('解析消息失败:', error, message.msgId);
-        yield this.createErrorMessage(message, error);
+          yield cleanMessage;
+        } catch (error) {
+          console.error('解析消息失败:', error, message.msgId);
+          yield this.createErrorMessage(message, error);
+        }
       }
+    } finally {
+      this.clearMessageIndexes();
     }
   }
 
@@ -1719,12 +1755,10 @@ export class SimpleMessageParser {
     // sourceMsgIdInRecords 用于内部查找（在 records 数组中）
     const sourceMsgId = replyElement.sourceMsgIdInRecords;
     let referencedMessage: RawMessage | undefined;
-    let source: 'messageMap' | 'records' | 'sourceMsgText' | 'sourceMsgTextElems' | 'referencedMsg' | 'seq' | 'none' = 'none';
     
     // 1. 尝试用 replayMsgId 从全局消息映射中查找（replayMsgId才是真实被引用消息ID）
     if (referencedMessageId && this.messageMap.has(referencedMessageId)) {
       referencedMessage = this.messageMap.get(referencedMessageId);
-      source = 'messageMap';
     }
     
     // 2. 如果全局映射中找不到，再从当前消息的 records 数组中查找
@@ -1732,31 +1766,61 @@ export class SimpleMessageParser {
       referencedMessage = message.records.find((record: RawMessage) => record.msgId === sourceMsgId);
       if (referencedMessage) {
         referencedMessageId = referencedMessage.msgId;
-        source = 'records';
       }
     }
     
     // 3. 如果还是找不到，尝试用 replayMsgSeq 匹配 msgSeq
     if (!referencedMessage && replyElement.replayMsgSeq) {
-      for (const [msgId, msg] of this.messageMap.entries()) {
-        if (msg.msgSeq === replyElement.replayMsgSeq) {
-          referencedMessage = msg;
-          referencedMessageId = msg.msgId;
-          source = 'seq';
-          break;
-        }
+      const match = this.messageSeqMap.get(String(replyElement.replayMsgSeq));
+      if (match) {
+        referencedMessage = match;
+        referencedMessageId = match.msgId;
       }
     }
     
     // 4. 如果还找不到，尝试用 replyMsgClientSeq 匹配
     if (!referencedMessage && replyElement.replyMsgClientSeq) {
-      for (const [msgId, msg] of this.messageMap.entries()) {
-        if (msg.clientSeq === replyElement.replyMsgClientSeq) {
-          referencedMessage = msg;
-          referencedMessageId = msg.msgId;
-          source = 'seq';
-          break;
-        }
+      const match = this.messageClientSeqMap.get(String(replyElement.replyMsgClientSeq));
+      if (match) {
+        referencedMessage = match;
+        referencedMessageId = match.msgId;
+      }
+    }
+
+    const replyTimestamp = replyElement.replayMsgTime ?? replyElement.replyMsgTime;
+    if (!referencedMessage && replyTimestamp) {
+      const candidates = this.messageTimeMap.get(String(replyTimestamp)) ?? [];
+      const senderUin = this.getTrimmedText(replyElement.senderUin);
+      const senderUid = this.getTrimmedText(replyElement.senderUidStr);
+      const matchingSender = candidates.filter((candidate) => {
+        if (senderUin && this.getTrimmedText(candidate.senderUin) === senderUin) return true;
+        return Boolean(senderUid && this.getTrimmedText(candidate.senderUid) === senderUid);
+      });
+      const candidatePool = matchingSender.length > 0 ? matchingSender : candidates;
+      const sourceText = this.getTrimmedText(replyElement.sourceMsgText)
+        ?? this.getTrimmedText(replyElement.sourceMsgTextElems
+          ?.map((element: RawElement) => element.textElement?.content
+            ?? (element as RawElement & { textElemContent?: string }).textElemContent
+            ?? '')
+          .join(''));
+      const matchingText = sourceText
+        ? candidatePool.filter((candidate) => {
+          const text = candidate.elements
+            ?.map((element: RawElement) => element.textElement?.content ?? '')
+            .join('');
+          return this.getTrimmedText(text) === sourceText;
+        })
+        : [];
+      const match = matchingText.length === 1
+        ? matchingText[0]
+        : matchingSender.length === 1
+          ? matchingSender[0]
+          : candidates.length === 1
+            ? candidates[0]
+            : undefined;
+      if (match) {
+        referencedMessage = match;
+        referencedMessageId = match.msgId;
       }
     }
 
@@ -1865,24 +1929,24 @@ export class SimpleMessageParser {
       // 如果没有找到被引用的消息，尝试从 replyElement 中提取内容（备用方案）
     if (replyElement.sourceMsgText) {
       result.content = replyElement.sourceMsgText;
-        source = 'sourceMsgText';
     } else if (replyElement.sourceMsgTextElems && replyElement.sourceMsgTextElems.length > 0) {
       const parts = [];
       for (let i = 0; i < replyElement.sourceMsgTextElems.length; i++) {
         const e = replyElement.sourceMsgTextElems[i];
-        if (e?.textElement?.content) parts.push(e.textElement.content);
+        const text = e?.textElement?.content ?? e?.textElemContent;
+        if (text) parts.push(text);
       }
         if (parts.length > 0) {
           result.content = parts.join('');
-          source = 'sourceMsgTextElems';
         }
     } else if (replyElement.referencedMsg && replyElement.referencedMsg.msgBody) {
       result.content = replyElement.referencedMsg.msgBody;
-        source = 'referencedMsg';
       }
     }
 
-    if (replyElement.replayMsgTime) result.timestamp = replyElement.replayMsgTime;
+    if (!referencedMessage && replyTimestamp) {
+      result.timestamp = parseInt(String(replyTimestamp), 10) || 0;
+    }
 
     return result;
   }

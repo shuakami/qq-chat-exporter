@@ -223,6 +223,39 @@ test('reply element resolves referenced content via global map', async () => {
     assert.equal(replyEl!.data.senderName, 'Bob');
 });
 
+test('reply resolves the exported target by timestamp when QQ provides a stale message id', async () => {
+    const { SimpleMessageParser } = await loadParser();
+    const parser = new SimpleMessageParser({ html: 'none' });
+    const original = msg()
+        .sender({ uid: 'u_bob', uin: '22222', nick: 'Bob' })
+        .text('the question')
+        .at_time(T)
+        .build();
+    const sameSecondMessage = msg()
+        .sender({ uid: 'u_bob', uin: '22222', nick: 'Bob' })
+        .text('another message')
+        .at_time(T)
+        .build();
+    const reply = msg()
+        .sender({ uid: 'u_alice', uin: '11111', nick: 'Alice' })
+        .reply({
+            sourceMsgId: '7550351837487264154',
+            senderUin: '22222',
+            senderUidStr: 'u_bob',
+            msgSeq: '999999',
+            msgTime: Number(original.msgTime),
+            content: 'the question'
+        })
+        .text('the answer')
+        .at_time(T + 60)
+        .build();
+    const parsed = await parser.parseMessages([original, sameSecondMessage, reply]);
+    const replyEl = parsed[2].content.elements.find((e) => e.type === 'reply');
+    assert.ok(replyEl, 'expected a reply element');
+    assert.equal(replyEl!.data.referencedMessageId, original.msgId);
+    assert.equal(replyEl!.data.content, 'the question');
+});
+
 test('reply falls back to senderUin (QQ number) when referenced message is outside the batch (#289)', async () => {
     const { SimpleMessageParser } = await loadParser();
     const parser = new SimpleMessageParser({ html: 'none' });

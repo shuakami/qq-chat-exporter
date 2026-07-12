@@ -68,6 +68,7 @@ export function TaskWizard({
   const [timeRangeMode, setTimeRangeMode] = useState<'all' | 'recent' | 'custom'>('all')
   const [selectedTarget, setSelectedTarget] = useState<Group | Friend | null>(null)
   const [showTargetSelector, setShowTargetSelector] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   
   // 手动输入 QQ 号 / 群号模式（Issue #226）：friend | group | null
@@ -203,6 +204,7 @@ export function TaskWizard({
       setSelectedTarget(null)
       setSearchTerm("")
       setShowTargetSelector(true)
+      setFiltersOpen(false)
       setManualInputMode(null)
       setManualQQNumber("")
       setManualGroupCode("")
@@ -852,6 +854,12 @@ export function TaskWizard({
   }
 
   const renderConfigPanel = () => {
+    const configuredFilterCount = [
+      form.keywords,
+      form.excludeUserUins,
+      form.includeUserUins,
+    ].filter((value) => value?.trim()).length
+
     return (
       <div className="space-y-10">
         {/* 基础配置 */}
@@ -955,87 +963,117 @@ export function TaskWizard({
         </section>
 
         {/* 过滤条件 */}
-        <section className="space-y-5">
-          <h2 className={SECTION_TITLE + " !mb-0"}>过滤条件</h2>
-          <div className="space-y-2">
-            <label className="text-[13px] font-medium text-foreground/80">关键词过滤</label>
-            <Textarea
-              id="keywords"
-              placeholder="用逗号分隔多个关键词，如：重要,会议,通知"
-              value={form.keywords}
-              onChange={(e) => setForm((p) => ({ ...p, keywords: e.target.value }))}
-              rows={3}
-              className={PILL_TEXTAREA}
-            />
-          </div>
-
-          {/* 屏蔽用户 */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-[13px] font-medium text-foreground/80">屏蔽用户</label>
-              {selectedTarget && "groupCode" in selectedTarget && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleOpenMemberSelector('exclude')}
-                  className="text-xs h-7 text-blue-600 hover:text-blue-700"
-                >
-                  {memberSelectorMode === 'exclude' ? "收起" : "从群成员选择"}
-                </Button>
-              )}
-            </div>
-
-            {renderMemberSelectorPanel('exclude')}
-
-            <Textarea
-              id="excludeUserUins"
-              placeholder="用逗号分隔多个QQ号，如：123456789,987654321&#10;这些用户的消息将被过滤掉（适合过滤机器人）"
-              value={form.excludeUserUins || ""}
-              onChange={(e) => setForm((p) => ({ ...p, excludeUserUins: e.target.value }))}
-              rows={2}
-              className={PILL_TEXTAREA}
-            />
-            {form.excludeUserUins && (
-              <p className="text-xs text-muted-foreground">
-                已选择 {form.excludeUserUins.split(',').filter(s => s.trim()).length} 个用户
+        <section className="overflow-hidden rounded-2xl border border-black/[0.06] bg-black/[0.02] dark:border-white/[0.08] dark:bg-white/[0.03]">
+          <button
+            type="button"
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((open) => !open)}
+            className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left transition-colors hover:bg-black/[0.025] dark:hover:bg-white/[0.035]"
+          >
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[14px] font-medium text-foreground">过滤条件</span>
+                {configuredFilterCount > 0 && (
+                  <span className="rounded-full bg-[#317CFF]/10 px-2 py-0.5 text-[10px] font-medium text-[#317CFF]">
+                    已配置 {configuredFilterCount} 项
+                  </span>
+                )}
+              </div>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                按关键词或发送者筛选导出内容
               </p>
-            )}
-          </div>
-
-          {/* Issue #369：仅导出指定 QQ 号的消息（与排除互不冲突；同一 QQ 同时出现时，排除优先生效） */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-[13px] font-medium text-foreground/80">仅保留用户</label>
-              {selectedTarget && "groupCode" in selectedTarget && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleOpenMemberSelector('include')}
-                  className="text-xs h-7 text-emerald-600 hover:text-emerald-700"
-                >
-                  {memberSelectorMode === 'include' ? "收起" : "从群成员选择"}
-                </Button>
-              )}
             </div>
-
-            {renderMemberSelectorPanel('include')}
-
-            <Textarea
-              id="includeUserUins"
-              placeholder="用逗号分隔多个QQ号，如：123456789,987654321&#10;留空表示不限制；填写后只会导出这些用户的消息"
-              value={form.includeUserUins || ""}
-              onChange={(e) => setForm((p) => ({ ...p, includeUserUins: e.target.value }))}
-              rows={2}
-              className={PILL_TEXTAREA}
+            <ChevronDown
+              className={[
+                "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                filtersOpen ? "rotate-180" : "",
+              ].join(" ")}
             />
-            {form.includeUserUins && (
-              <p className="text-xs text-muted-foreground">
-                已选择 {form.includeUserUins.split(',').filter(s => s.trim()).length} 个用户
-              </p>
-            )}
-          </div>
+          </button>
+
+          {filtersOpen && (
+            <div className="space-y-5 border-t border-black/[0.06] px-4 pb-4 pt-5 dark:border-white/[0.08]">
+              <div className="space-y-2">
+                <label className="text-[13px] font-medium text-foreground/80">关键词过滤</label>
+                <Textarea
+                  id="keywords"
+                  placeholder="用逗号分隔多个关键词，如：重要,会议,通知"
+                  value={form.keywords}
+                  onChange={(e) => setForm((p) => ({ ...p, keywords: e.target.value }))}
+                  rows={3}
+                  className={PILL_TEXTAREA}
+                />
+              </div>
+
+              {/* 屏蔽用户 */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[13px] font-medium text-foreground/80">屏蔽用户</label>
+                  {selectedTarget && "groupCode" in selectedTarget && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleOpenMemberSelector('exclude')}
+                      className="text-xs h-7 text-blue-600 hover:text-blue-700"
+                    >
+                      {memberSelectorMode === 'exclude' ? "收起" : "从群成员选择"}
+                    </Button>
+                  )}
+                </div>
+
+                {renderMemberSelectorPanel('exclude')}
+
+                <Textarea
+                  id="excludeUserUins"
+                  placeholder="用逗号分隔多个QQ号，如：123456789,987654321&#10;这些用户的消息将被过滤掉（适合过滤机器人）"
+                  value={form.excludeUserUins || ""}
+                  onChange={(e) => setForm((p) => ({ ...p, excludeUserUins: e.target.value }))}
+                  rows={2}
+                  className={PILL_TEXTAREA}
+                />
+                {form.excludeUserUins && (
+                  <p className="text-xs text-muted-foreground">
+                    已选择 {form.excludeUserUins.split(',').filter(s => s.trim()).length} 个用户
+                  </p>
+                )}
+              </div>
+
+              {/* Issue #369：仅导出指定 QQ 号的消息（与排除互不冲突；同一 QQ 同时出现时，排除优先生效） */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[13px] font-medium text-foreground/80">仅保留用户</label>
+                  {selectedTarget && "groupCode" in selectedTarget && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleOpenMemberSelector('include')}
+                      className="text-xs h-7 text-emerald-600 hover:text-emerald-700"
+                    >
+                      {memberSelectorMode === 'include' ? "收起" : "从群成员选择"}
+                    </Button>
+                  )}
+                </div>
+
+                {renderMemberSelectorPanel('include')}
+
+                <Textarea
+                  id="includeUserUins"
+                  placeholder="用逗号分隔多个QQ号，如：123456789,987654321&#10;留空表示不限制；填写后只会导出这些用户的消息"
+                  value={form.includeUserUins || ""}
+                  onChange={(e) => setForm((p) => ({ ...p, includeUserUins: e.target.value }))}
+                  rows={2}
+                  className={PILL_TEXTAREA}
+                />
+                {form.includeUserUins && (
+                  <p className="text-xs text-muted-foreground">
+                    已选择 {form.includeUserUins.split(',').filter(s => s.trim()).length} 个用户
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </section>
 
         <hr className="border-black/[0.06] dark:border-white/[0.08]" />

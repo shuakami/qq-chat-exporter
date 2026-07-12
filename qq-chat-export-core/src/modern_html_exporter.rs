@@ -1509,9 +1509,14 @@ impl ModernHtmlExporter {
         let interaction_attrs = jump_target
             .as_deref()
             .map(|t| {
+                let target_id = if t.starts_with("msg-") {
+                    t.to_owned()
+                } else {
+                    format!("msg-{t}")
+                };
                 format!(
-                    "data-reply-to=\"msg-{}\" role=\"button\" tabindex=\"0\" aria-label=\"跳转到原消息\"",
-                    escape_html(t)
+                    "data-reply-to=\"{}\" role=\"button\" tabindex=\"0\" aria-label=\"跳转到原消息\"",
+                    escape_html(&target_id)
                 )
             })
             .unwrap_or_default();
@@ -2318,10 +2323,13 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
     let message_count = data
         .get("messageCount")
         .and_then(Value::as_u64)
-        .map_or(inner_messages.len(), |n| usize::try_from(n).unwrap_or(usize::MAX));
+        .map_or(inner_messages.len(), |n| {
+            usize::try_from(n).unwrap_or(usize::MAX)
+        });
     // issue #434：子消息本身可能又是一条合并转发（嵌套[聊天记录]），递归展开成
     // 内层卡片。解析器侧 MAX_FORWARD_DEPTH=3，这里用同样的上限兜底异常数据。
     const MAX_RENDER_DEPTH: usize = 3;
+    const INITIAL_FORWARD_LINES: usize = 4;
 
     let mut preview_html = String::new();
     if inner_messages.is_empty() {
@@ -2348,7 +2356,7 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
             );
         }
     } else {
-        for m in inner_messages.iter().take(5) {
+        for (index, m) in inner_messages.iter().enumerate() {
             let sender = m.get("sender");
             let name_raw = sender
                 .and_then(|s| s.get("name"))
@@ -2412,8 +2420,13 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
                     escape_html(&body_text)
                 )
             };
+            let line_class = if index >= INITIAL_FORWARD_LINES {
+                "forward-card-line forward-card-extra"
+            } else {
+                "forward-card-line"
+            };
             preview_html.push_str(&format!(
-                "<div class=\"forward-card-line\"><span class=\"forward-card-sender\">{name}:</span> {body_html}{nested_html}</div>"
+                "<div class=\"{line_class}\"><span class=\"forward-card-sender\">{name}:</span> {body_html}{nested_html}</div>"
             ));
         }
     }
@@ -2423,11 +2436,27 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
     } else {
         "转发消息".to_owned()
     };
-    let nested_class = if depth > 0 { " forward-card-nested" } else { "" };
+    let nested_class = if depth > 0 {
+        " forward-card-nested"
+    } else {
+        ""
+    };
     let content_html = if preview_html.is_empty() {
-        "点击查看转发的聊天记录"
+        "暂无可展示的转发内容"
     } else {
         preview_html.as_str()
+    };
+    let toggle_html = if inner_messages.len() > INITIAL_FORWARD_LINES {
+        format!(
+            r#"<button type="button" class="forward-card-toggle" aria-expanded="false" data-count="{message_count}">
+                <span class="forward-card-toggle-label">展开全部 {message_count} 条</span>
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
+                    <path d="m6 8 4 4 4-4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>"#
+        )
+    } else {
+        String::new()
     };
 
     format!(
@@ -2441,7 +2470,10 @@ fn render_forward_element(data: &Value, depth: usize) -> String {
             <div class="forward-card-content">
                 {content_html}
             </div>
-            <div class="forward-card-footer">{}</div>
+            <div class="forward-card-footer">
+                <span>{}</span>
+                {toggle_html}
+            </div>
         </div>"#,
         escape_html(&title),
         escape_html(&footer_label)

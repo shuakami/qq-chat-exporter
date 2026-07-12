@@ -83,8 +83,8 @@ pub async fn qce_status(state: State<'_, AppState>) -> Result<RunningInfo, Strin
                 }
             }
         }
-        if let Some(ref u) = url {
-            log(&state, &format!("webui url: {u}"));
+        if url.is_some() {
+            log(&state, "webui url ready");
         }
         url
     } else {
