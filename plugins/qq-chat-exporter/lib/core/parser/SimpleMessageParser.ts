@@ -853,6 +853,43 @@ export class SimpleMessageParser {
     // JSON 卡片
     if (element.arkElement) {
       const jsonContent = element.arkElement.bytesData || '{}';
+      try {
+        const ark = fastJsonParse(jsonContent);
+        const detail = ark?.meta?.detail;
+        const resId = typeof detail?.resid === 'string' ? detail.resid : '';
+        const summary = typeof detail?.summary === 'string'
+          ? detail.summary
+          : '查看转发消息';
+        const isMultiMsg =
+          ark?.app === 'com.tencent.multimsg' ||
+          (ark?.view === 'contact' && summary.includes('转发消息'));
+        if (resId && isMultiMsg) {
+          const innerMessages =
+            forwardDepth >= SimpleMessageParser.MAX_FORWARD_DEPTH
+              ? []
+              : await this.fetchForwardInnerMessages(message, resId, forwardDepth + 1);
+          const preview = Array.isArray(detail?.news)
+            ? detail.news
+                .map((item: any) => typeof item?.text === 'string' ? item.text.trim() : '')
+                .filter(Boolean)
+            : [];
+          const fallbackCount = Number(summary.match(/(\d+)/)?.[1] || 0);
+
+          return {
+            type: 'forward',
+            data: {
+              title: typeof detail?.source === 'string' ? detail.source : '聊天记录',
+              resId,
+              summary,
+              preview,
+              messageCount: innerMessages.length || fallbackCount,
+              messages: innerMessages
+            }
+          };
+        }
+      } catch {
+        // 普通 JSON 卡片继续走原有解析。
+      }
       const parsedJson = this.parseJsonContent(jsonContent);
       return {
         type: 'json',
@@ -1750,15 +1787,17 @@ export class SimpleMessageParser {
   private extractReplyContent(replyElement: any, message: RawMessage): any {
     // 使用 replayMsgId 作为被引用消息的真实ID（但要排除 "0" 的情况）
     const replayMsgId = replyElement.replayMsgId;
-    let referencedMessageId: string | undefined = (replayMsgId && replayMsgId !== '0') ? replayMsgId : undefined;
+    const replayMessageId = (replayMsgId && replayMsgId !== '0') ? String(replayMsgId) : undefined;
+    let referencedMessageId: string | undefined;
     
     // sourceMsgIdInRecords 用于内部查找（在 records 数组中）
     const sourceMsgId = replyElement.sourceMsgIdInRecords;
     let referencedMessage: RawMessage | undefined;
     
     // 1. 尝试用 replayMsgId 从全局消息映射中查找（replayMsgId才是真实被引用消息ID）
-    if (referencedMessageId && this.messageMap.has(referencedMessageId)) {
-      referencedMessage = this.messageMap.get(referencedMessageId);
+    if (replayMessageId && this.messageMap.has(replayMessageId)) {
+      referencedMessage = this.messageMap.get(replayMessageId);
+      referencedMessageId = referencedMessage?.msgId;
     }
     
     // 2. 如果全局映射中找不到，再从当前消息的 records 数组中查找

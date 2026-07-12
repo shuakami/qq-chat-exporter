@@ -258,6 +258,7 @@ export default function Viewer(): React.ReactElement {
   const filterSourceRef = useRef<FilteredDataSource | null>(null);
   const searchRef = useRef<SearchState | null>(null);
   const filterRunRef = useRef(0);
+  const replyReturnTimerRef = useRef<number | null>(null);
   const voiceAudioRef = useRef<HTMLAudioElement>(
     typeof Audio !== 'undefined' ? new Audio() : ({} as HTMLAudioElement),
   );
@@ -280,6 +281,7 @@ export default function Viewer(): React.ReactElement {
   const [searching, setSearching] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<QceSettings>(loadSettings);
+  const [replyReturnId, setReplyReturnId] = useState<string | null>(null);
   const settingsRef = useRef(settings);
   const [dark, setDark] = useState(
     () =>
@@ -300,6 +302,12 @@ export default function Viewer(): React.ReactElement {
     settingsRef.current = settings;
     localStorage.setItem('qce-settings', JSON.stringify(settings));
   }, [settings]);
+
+  useEffect(() => () => {
+    if (replyReturnTimerRef.current !== null) {
+      window.clearTimeout(replyReturnTimerRef.current);
+    }
+  }, []);
 
   // Exported message HTML calls these globals (image onclick / reply jump).
   useEffect(() => {
@@ -345,7 +353,8 @@ export default function Viewer(): React.ReactElement {
     const reply = target.closest('.reply-content[data-reply-to]');
     if (reply instanceof HTMLElement && !target.closest('a, button')) {
       const msgId = reply.getAttribute('data-reply-to');
-      if (msgId) void jumpToMessageId(msgId);
+      const sourceId = reply.closest('.message[id]')?.id;
+      if (msgId) void jumpToMessageId(msgId, sourceId);
       return;
     }
 
@@ -377,7 +386,8 @@ export default function Viewer(): React.ReactElement {
     const msgId = reply.getAttribute('data-reply-to');
     if (!msgId) return;
     e.preventDefault();
-    void jumpToMessageId(msgId);
+    const sourceId = reply.closest('.message[id]')?.id;
+    void jumpToMessageId(msgId, sourceId);
   }
 
   function toggleVoice(el: HTMLElement, src: string): void {
@@ -407,7 +417,26 @@ export default function Viewer(): React.ReactElement {
     });
   }
 
-  async function jumpToMessageId(msgId: string): Promise<void> {
+  function clearReplyReturn(): void {
+    if (replyReturnTimerRef.current !== null) {
+      window.clearTimeout(replyReturnTimerRef.current);
+      replyReturnTimerRef.current = null;
+    }
+    setReplyReturnId(null);
+  }
+
+  function showReplyReturn(msgId: string): void {
+    if (replyReturnTimerRef.current !== null) {
+      window.clearTimeout(replyReturnTimerRef.current);
+    }
+    setReplyReturnId(msgId);
+    replyReturnTimerRef.current = window.setTimeout(() => {
+      replyReturnTimerRef.current = null;
+      setReplyReturnId(null);
+    }, 20_000);
+  }
+
+  async function jumpToMessageId(msgId: string, returnMsgId?: string): Promise<void> {
     const store = storeRef.current;
     const engine = engineRef.current;
     if (!store || !engine) return;
@@ -429,17 +458,20 @@ export default function Viewer(): React.ReactElement {
     } else {
       engine.scrollToIndex(globalIdx, -80);
     }
+    if (returnMsgId && returnMsgId !== msgId) {
+      showReplyReturn(returnMsgId);
+    }
     window.setTimeout(() => {
       const el = document.getElementById(msgId);
       if (!el) return;
-      el.style.transition = 'background 0.3s';
-      el.style.background = 'rgba(0, 122, 255, 0.1)';
+      const bubble = el.querySelector('.message-bubble');
+      if (!(bubble instanceof HTMLElement)) return;
+      bubble.classList.remove('reply-jump-highlight');
+      void bubble.offsetWidth;
+      bubble.classList.add('reply-jump-highlight');
       window.setTimeout(() => {
-        el.style.background = '';
-        window.setTimeout(() => {
-          el.style.transition = '';
-        }, 300);
-      }, 1000);
+        bubble.classList.remove('reply-jump-highlight');
+      }, 700);
     }, 350);
   }
 
@@ -965,6 +997,20 @@ export default function Viewer(): React.ReactElement {
             onClick={onViewportClick}
             onKeyDown={onViewportKeyDown}
           />
+          {replyReturnId ? (
+            <button
+              type="button"
+              className="absolute bottom-6 left-1/2 z-20 inline-flex -translate-x-1/2 items-center gap-1 border-0 bg-transparent p-1 text-muted-foreground text-xs shadow-none hover:text-foreground"
+              onClick={() => {
+                const msgId = replyReturnId;
+                clearReplyReturn();
+                void jumpToMessageId(msgId);
+              }}
+            >
+              <ReplyIcon className="size-3.5" />
+              <span>回到消息</span>
+            </button>
+          ) : null}
         </div>
       </div>
 
