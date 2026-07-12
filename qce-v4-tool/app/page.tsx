@@ -10,6 +10,10 @@ import { toast } from "@/components/ui/toast"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { BatchExportItem, BatchExportConfig } from "@/components/ui/batch-export-dialog"
 import { SessionList } from "@/components/ui/session-list"
+import {
+  sessionTaskStatsKey,
+  type SessionTaskStats,
+} from "@/lib/session-sort"
 
 const TaskWizard = lazy(() => import("@/components/ui/task-wizard").then(m => ({ default: m.TaskWizard })))
 const ScheduledExportWizard = lazy(() => import("@/components/ui/scheduled-export-wizard").then(m => ({ default: m.ScheduledExportWizard })))
@@ -1156,15 +1160,64 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   // 对于大列表（超过50项），禁用 stagger 动画以提升性能
   const hasLargeList = groups.length > 50 || friends.length > 50
 
-  // Issue #344: 把已完成 / 进行中 / 失败任务的 `messageCount` 按 peerUid 累加，
-  // 给会话列表「按已导出消息数」排序提供数据。每次 tasks 变化都会重新算。
-  const taskCountMap = useMemo<Record<string, number>>(() => {
-    const map: Record<string, number> = {}
+  const taskStatsCacheRef = useRef<{
+    size: number
+    value: Record<string, SessionTaskStats>
+  }>({ size: 0, value: {} })
+  const taskStatsMap = useMemo<Record<string, SessionTaskStats>>(() => {
+    const map: Record<string, SessionTaskStats> = {}
+    let size = 0
     for (const t of tasks) {
       const uid = t.peer?.peerUid
-      if (!uid || typeof t.messageCount !== 'number') continue
-      map[uid] = (map[uid] ?? 0) + t.messageCount
+      if (!uid || t.status !== 'completed') continue
+      const type = t.peer.chatType === 2 ? 'group' : 'friend'
+      const key = sessionTaskStatsKey(type, uid)
+      let stats = map[key]
+      if (!stats) {
+        stats = {
+          exportedMessageCount: 0,
+          successfulExportCount: 0,
+        }
+        map[key] = stats
+        size += 1
+      }
+
+      if (typeof t.messageCount === 'number') {
+        stats.exportedMessageCount += t.messageCount
+      }
+
+      stats.successfulExportCount += 1
+      const completedAt = Date.parse(t.completedAt ?? t.createdAt)
+      if (
+        Number.isFinite(completedAt) &&
+        (stats.lastSuccessfulExportAt === undefined ||
+          completedAt > stats.lastSuccessfulExportAt)
+      ) {
+        stats.lastSuccessfulExportAt = completedAt
+      }
     }
+
+    const previous = taskStatsCacheRef.current
+    if (previous.size === size) {
+      let unchanged = true
+      for (const key in map) {
+        const stats = map[key]
+        const old = previous.value[key]
+        if (!(
+          old?.exportedMessageCount === stats.exportedMessageCount &&
+          old.successfulExportCount === stats.successfulExportCount &&
+          old.lastSuccessfulExportAt === stats.lastSuccessfulExportAt
+        )) {
+          unchanged = false
+          break
+        }
+      }
+      if (unchanged) {
+        return previous.value
+      }
+    }
+
+    taskStatsCacheRef.current = { size, value: map }
     return map
   }, [tasks])
   const STAG = useMemo(() => makeStagger(reduceMotion || hasLargeList ? 0 : 0.06, reduceMotion || hasLargeList), [reduceMotion, hasLargeList])
@@ -1798,7 +1851,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                       selectedItems={selectedItems}
                       avatarExportLoading={avatarExportLoading}
                       recentActivityMap={recentActivityMap}
-                      taskCountMap={taskCountMap}
+                      taskStatsMap={taskStatsMap}
                       onRefresh={loadChatData}
                       onToggleBatchMode={handleToggleBatchMode}
                       onSelectAll={handleSelectAll}

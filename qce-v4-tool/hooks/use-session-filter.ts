@@ -1,6 +1,12 @@
 import { useState, useMemo, useCallback, useEffect } from "react"
 import type { Group, Friend } from "@/types/api"
-import { compareSessionItems, type SortField, type SortOrder } from "@/lib/session-sort"
+import {
+  compareSessionItems,
+  sessionTaskStatsKey,
+  type SessionTaskStats,
+  type SortField,
+  type SortOrder,
+} from "@/lib/session-sort"
 
 export type SessionType = 'all' | 'group' | 'friend'
 export type { SortField, SortOrder }
@@ -32,6 +38,8 @@ export interface SessionItem {
    * 里 completed task 的 `messageCount` 求和）。未导出过时 `0`。
    */
   exportedMessageCount?: number
+  successfulExportCount?: number
+  lastSuccessfulExportAt?: number
   raw: Group | Friend
 }
 
@@ -42,10 +50,7 @@ export interface UseSessionFilterOptions {
    * `friend.uid` 和 `group.groupCode` 两种。
    */
   recentActivityMap?: Record<string, string | undefined>
-  /**
-   * Issue #344: peerUid → 已导出消息总数。
-   */
-  taskCountMap?: Record<string, number | undefined>
+  taskStatsMap?: Record<string, SessionTaskStats | undefined>
 }
 
 export interface UseSessionFilterReturn {
@@ -89,45 +94,55 @@ export function useSessionFilter(
   const {
     defaultPageSize = 50,
     recentActivityMap,
-    taskCountMap,
+    taskStatsMap,
   } = options
 
   // Filter state
   const [search, setSearch] = useState("")
   const [type, setType] = useState<SessionType>('all')
-  const [sortField, setSortField] = useState<SortField>('name')
-  const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
+  const [sortField, setSortField] = useState<SortField>('frequentExport')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(defaultPageSize)
 
   // Convert groups and friends to unified SessionItem format
   const allItems = useMemo<SessionItem[]>(() => {
-    const groupItems: SessionItem[] = groups.map(g => ({
-      id: g.groupCode,
-      type: 'group' as const,
-      name: g.groupName,
-      subName: g.remark,
-      avatarUrl: g.avatarUrl || `https://p.qlogo.cn/gh/${g.groupCode}/${g.groupCode}/640/`,
-      memberCount: g.memberCount,
-      lastMessageTime: recentActivityMap?.[g.groupCode],
-      exportedMessageCount: taskCountMap?.[g.groupCode] ?? 0,
-      raw: g,
-    }))
+    const groupItems: SessionItem[] = groups.map(g => {
+      const stats = taskStatsMap?.[sessionTaskStatsKey('group', g.groupCode)]
+      return {
+        id: g.groupCode,
+        type: 'group' as const,
+        name: g.groupName,
+        subName: g.remark,
+        avatarUrl: g.avatarUrl || `https://p.qlogo.cn/gh/${g.groupCode}/${g.groupCode}/640/`,
+        memberCount: g.memberCount,
+        lastMessageTime: recentActivityMap?.[g.groupCode],
+        exportedMessageCount: stats?.exportedMessageCount ?? 0,
+        successfulExportCount: stats?.successfulExportCount ?? 0,
+        lastSuccessfulExportAt: stats?.lastSuccessfulExportAt,
+        raw: g,
+      }
+    })
 
-    const friendItems: SessionItem[] = friends.map(f => ({
-      id: f.uid,
-      type: 'friend' as const,
-      name: f.remark || f.nick,
-      subName: f.remark && f.nick !== f.remark ? f.nick : undefined,
-      avatarUrl: f.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${f.uin}&s=640`,
-      isOnline: f.isOnline,
-      lastMessageTime: recentActivityMap?.[f.uid],
-      exportedMessageCount: taskCountMap?.[f.uid] ?? 0,
-      raw: f,
-    }))
+    const friendItems: SessionItem[] = friends.map(f => {
+      const stats = taskStatsMap?.[sessionTaskStatsKey('friend', f.uid)]
+      return {
+        id: f.uid,
+        type: 'friend' as const,
+        name: f.remark || f.nick,
+        subName: f.remark && f.nick !== f.remark ? f.nick : undefined,
+        avatarUrl: f.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${f.uin}&s=640`,
+        isOnline: f.isOnline,
+        lastMessageTime: recentActivityMap?.[f.uid],
+        exportedMessageCount: stats?.exportedMessageCount ?? 0,
+        successfulExportCount: stats?.successfulExportCount ?? 0,
+        lastSuccessfulExportAt: stats?.lastSuccessfulExportAt,
+        raw: f,
+      }
+    })
 
     return [...groupItems, ...friendItems]
-  }, [groups, friends, recentActivityMap, taskCountMap])
+  }, [groups, friends, recentActivityMap, taskStatsMap])
 
   // Filtered items (search + type filter)
   const filteredItems = useMemo<SessionItem[]>(() => {
@@ -225,8 +240,8 @@ export function useSessionFilter(
   const resetFilters = useCallback(() => {
     setSearch("")
     setType('all')
-    setSortField('name')
-    setSortOrder('asc')
+    setSortField('frequentExport')
+    setSortOrder('desc')
     setPage(1)
     setPageSize(defaultPageSize)
   }, [defaultPageSize])
