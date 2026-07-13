@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde::Serialize;
@@ -10,6 +10,7 @@ use serde_json::Value;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 
+use crate::export_debug::ExportDebugTrace;
 use crate::resource::circuit_breaker::CircuitBreaker;
 use crate::resource::health::{ResourceHealthChecker, RESOURCE_HEALTH_CACHE_MS};
 use crate::storage::{DatabaseManager, ResourceInfo};
@@ -284,6 +285,17 @@ impl ResourceHandler {
         messages: &[Value],
         cancel_flag: Arc<AtomicBool>,
     ) -> HashMap<String, Vec<ResourceInfo>> {
+        self.process_message_resources_with_cancel_and_trace(messages, cancel_flag, None)
+            .await
+    }
+
+    /// 批量处理消息资源，并把资源排队、调用耗时及重试结果写入可选调试轨迹。
+    pub async fn process_message_resources_with_cancel_and_trace(
+        self: &Arc<Self>,
+        messages: &[Value],
+        cancel_flag: Arc<AtomicBool>,
+        debug_trace: Option<ExportDebugTrace>,
+    ) -> HashMap<String, Vec<ResourceInfo>> {
         {
             let mut progress = self.progress.lock().await;
             *progress = ProgressCounters::default();
@@ -357,7 +369,7 @@ impl ResourceHandler {
         }
         if !tasks.is_empty() {
             self.emit_progress(None).await;
-            self.run_downloads(tasks, cancel_flag).await;
+            self.run_downloads(tasks, cancel_flag, debug_trace).await;
         }
 
         // 计算本批次摘要（issue #363）
@@ -516,6 +528,7 @@ impl ResourceHandler {
         self: &Arc<Self>,
         mut tasks: Vec<DownloadTask>,
         cancel_flag: Arc<AtomicBool>,
+        debug_trace: Option<ExportDebugTrace>,
     ) {
         tasks.sort_by_key(|task| std::cmp::Reverse(task.priority));
         self.is_downloading
@@ -527,9 +540,14 @@ impl ResourceHandler {
         for task in tasks {
             let handler = Arc::clone(self);
             let task_cancel_flag = Arc::clone(&cancel_flag);
+            let task_debug_trace = debug_trace.clone();
             join_set.spawn(async move {
                 handler
-                    .execute_download_with_retries(&task, task_cancel_flag.as_ref())
+                    .execute_download_with_retries(
+                        &task,
+                        task_cancel_flag.as_ref(),
+                        task_debug_trace.as_ref(),
+                    )
                     .await;
                 handler.pending_downloads.fetch_sub(1, Ordering::SeqCst);
             });
@@ -553,12 +571,18 @@ impl ResourceHandler {
     }
 
     /// 带重试的下载执行（对应 TS `executeDownload` + 队列重投逻辑）。
-    async fn execute_download_with_retries(&self, task: &DownloadTask, cancel_flag: &AtomicBool) {
+    async fn execute_download_with_retries(
+        &self,
+        task: &DownloadTask,
+        cancel_flag: &AtomicBool,
+        debug_trace: Option<&ExportDebugTrace>,
+    ) {
         let mut retries: u32 = 0;
         loop {
             if cancel_flag.load(Ordering::SeqCst) {
                 return;
             }
+            let queued_at = Instant::now();
             let permit = tokio::select! {
                 result = self.download_semaphore.acquire() => result.ok(),
                 () = wait_for_cancellation(cancel_flag) => None,
@@ -566,6 +590,29 @@ impl ResourceHandler {
             let Some(permit) = permit else {
                 return;
             };
+            let attempt = retries + 1;
+            let (resource_type, file_name) = {
+                let resource = task.resource.lock().await;
+                (
+                    resource.resource_type.clone(),
+                    resource.file_name.clone().unwrap_or_default(),
+                )
+            };
+            if let Some(trace) = debug_trace {
+                trace
+                    .record(serde_json::json!({
+                        "type": "resource_attempt_started",
+                        "messageId": task.msg_id,
+                        "elementId": task.element_id,
+                        "resourceType": resource_type,
+                        "fileName": file_name,
+                        "attempt": attempt,
+                        "queueWaitMs": queued_at.elapsed().as_millis(),
+                        "timeoutMs": self.config.download_timeout_ms,
+                    }))
+                    .await;
+            }
+            let started_at = Instant::now();
             let result = tokio::select! {
                 result = self.execute_download_once(task) => result,
                 () = wait_for_cancellation(cancel_flag) => return,
@@ -573,6 +620,20 @@ impl ResourceHandler {
             drop(permit);
             match result {
                 Ok(()) => {
+                    if let Some(trace) = debug_trace {
+                        trace
+                            .record(serde_json::json!({
+                                "type": "resource_attempt_finished",
+                                "messageId": task.msg_id,
+                                "elementId": task.element_id,
+                                "resourceType": resource_type,
+                                "fileName": file_name,
+                                "attempt": attempt,
+                                "durationMs": started_at.elapsed().as_millis(),
+                                "outcome": "downloaded",
+                            }))
+                            .await;
+                    }
                     let file_name = { task.resource.lock().await.file_name.clone() };
                     {
                         let mut progress = self.progress.lock().await;
@@ -597,6 +658,21 @@ impl ResourceHandler {
                             (is_retriable_error(&error_message), false)
                         }
                     };
+                    if let Some(trace) = debug_trace {
+                        trace
+                            .record(serde_json::json!({
+                                "type": "resource_attempt_finished",
+                                "messageId": task.msg_id,
+                                "elementId": task.element_id,
+                                "resourceType": resource_type,
+                                "fileName": file_name,
+                                "attempt": attempt,
+                                "durationMs": started_at.elapsed().as_millis(),
+                                "outcome": if retriable { "retry" } else if skipped { "skipped" } else { "failed" },
+                                "error": error_message,
+                            }))
+                            .await;
+                    }
                     {
                         let resource = task.resource.lock().await.clone();
                         if let Err(error) = self.db.save_resource_info(&resource).await {
@@ -1392,6 +1468,7 @@ mod tests {
                     .execute_download_with_retries(
                         &download_task("retry", "retry.jpg"),
                         cancel_flag.as_ref(),
+                        None,
                     )
                     .await;
             })
@@ -1406,6 +1483,7 @@ mod tests {
                     .execute_download_with_retries(
                         &download_task("next", "next.jpg"),
                         cancel_flag.as_ref(),
+                        None,
                     )
                     .await;
             })
