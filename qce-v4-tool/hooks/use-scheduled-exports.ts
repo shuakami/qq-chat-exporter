@@ -28,6 +28,7 @@ export interface ScheduledExportConfig {
         filterPureImageMessages?: boolean;
         prettyFormat?: boolean;
         preferGroupMemberName?: boolean;
+        debugExport?: boolean;
     };
     enabled: boolean;
     createdAt?: string;
@@ -107,6 +108,7 @@ export function useScheduledExports() {
                     filterPureImageMessages: formData.filterPureImageMessages ?? false,
                     prettyFormat: true,
                     preferGroupMemberName: formData.preferGroupMemberName ?? true,
+                    debugExport: formData.debugExport ?? false,
                     ...(Array.isArray(formData.skipDownloadResourceTypes) && formData.skipDownloadResourceTypes.length > 0 && {
                         skipDownloadResourceTypes: formData.skipDownloadResourceTypes,
                     }),

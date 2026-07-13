@@ -24,6 +24,7 @@ use crate::api::helpers::{
 };
 use crate::api::response::{self, ApiError, RequestId};
 use crate::api::state::{MessageCacheEntry, SharedState, CACHE_EXPIRE_TIME_MS};
+use crate::export_debug::ExportDebugSession;
 use crate::fetcher::{
     chat_type_prefix, classify_chat_type_binary, BatchFetchConfig, BatchMessageFetcher,
     MessageFilter, Peer, GROUP_CHAT_TYPE,
@@ -942,7 +943,7 @@ pub async fn export_streaming_jsonl(
 }
 
 /// 导出模式。
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExportMode {
     /// 普通导出（TXT / JSON / HTML / EXCEL）。
     Standard,
@@ -1294,6 +1295,21 @@ async fn process_export_task(
     )
     .await;
     broadcast_progress(state, task_id, 0, "开始获取消息...", 0);
+    let debug_session = if req.options.get("debugExport").and_then(Value::as_bool) == Some(true) {
+        let session = ExportDebugSession::start(&req.output_dir, file_name).await?;
+        session
+            .trace()
+            .record(json!({
+                "type": "export_started",
+                "taskId": task_id,
+                "format": format,
+                "mode": format!("{mode:?}"),
+            }))
+            .await;
+        Some(session)
+    } else {
+        None
+    };
 
     // ============ 阶段 1：抓取消息（0 → 50） ============
     let batch_size = loose_i64(req.options.get("batchSize")).unwrap_or(5000);
@@ -1384,6 +1400,11 @@ async fn process_export_task(
     );
 
     filtered_messages.sort_by_key(msg_time_ms);
+    if let Some(debug) = &debug_session {
+        debug
+            .write_jsonl("01-raw-messages.jsonl", &filtered_messages)
+            .await?;
+    }
 
     let sender_title_resolver = title_map.map(|map| {
         let map = Arc::new(map);
@@ -1403,6 +1424,11 @@ async fn process_export_task(
         forward_fetcher: Some(Arc::new(state.napcat.clone()) as Arc<dyn ForwardFetcher>),
     });
     let mut clean_messages: Vec<CleanMessage> = parser.parse_messages(&filtered_messages).await;
+    if let Some(debug) = &debug_session {
+        debug
+            .write_jsonl("02-parsed-messages.jsonl", &clean_messages)
+            .await?;
+    }
     let mut resource_messages = filtered_messages.clone();
     resource_messages.extend(parser.take_forward_raw_messages());
     let mut resource_message_ids = HashSet::new();
@@ -1491,7 +1517,11 @@ async fn process_export_task(
 
         resource_map = state
             .resource_handler
-            .process_message_resources_with_cancel(&resource_messages, Arc::clone(cancel_flag))
+            .process_message_resources_with_cancel_and_trace(
+                &resource_messages,
+                Arc::clone(cancel_flag),
+                debug_session.as_ref().map(ExportDebugSession::trace),
+            )
             .await;
         let summary = state.resource_handler.last_batch_summary().await;
         state.resource_handler.set_progress_callback(None).await;
@@ -1539,6 +1569,11 @@ async fn process_export_task(
         SimpleMessageParser::update_message_resource_paths_recursive(message, &value_resource_map);
     }
     SimpleMessageParser::backfill_reply_preview_local_paths(&mut clean_messages);
+    if let Some(debug) = &debug_session {
+        debug
+            .write_jsonl("03-final-messages.jsonl", &clean_messages)
+            .await?;
+    }
 
     let message_count = clean_messages.len();
     let self_info = state.napcat.self_info().await.unwrap_or(Value::Null);
@@ -1791,6 +1826,25 @@ async fn process_export_task(
     let summary_message = build_resource_summary_message(resource_summary.as_ref());
     let completion_message =
         summary_message.map_or_else(|| "导出完成".to_string(), |s| format!("导出完成 · {s}"));
+    let debug_path = if let Some(debug) = debug_session {
+        debug
+            .write_json(
+                "summary.json",
+                &json!({
+                    "taskId": task_id,
+                    "format": format,
+                    "mode": format!("{mode:?}"),
+                    "messageCount": message_count,
+                    "resourceSummary": resource_summary,
+                    "finalFileName": final_file_name,
+                    "finalFileSize": file_size,
+                }),
+            )
+            .await?;
+        Some(debug.finish().await?)
+    } else {
+        None
+    };
 
     update_task(
         state,
@@ -1809,6 +1863,9 @@ async fn process_export_task(
                 .as_ref()
                 .map_or(Value::Null, |p| Value::String(p.to_string_lossy().to_string())),
             "resourceSummary": resource_summary_value.clone().unwrap_or(Value::Null),
+            "debugPath": debug_path
+                .as_ref()
+                .map_or(Value::Null, |path| Value::String(path.to_string_lossy().to_string())),
         }),
     )
     .await;
@@ -1841,6 +1898,9 @@ async fn process_export_task(
                 .as_ref()
                 .map_or(Value::Null, |p| Value::String(p.to_string_lossy().to_string())),
             "resourceSummary": resource_summary_value.unwrap_or(Value::Null),
+            "debugPath": debug_path
+                .as_ref()
+                .map_or(Value::Null, |path| Value::String(path.to_string_lossy().to_string())),
         },
     }));
 

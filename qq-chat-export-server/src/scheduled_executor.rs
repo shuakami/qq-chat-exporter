@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use async_trait::async_trait;
@@ -12,6 +13,7 @@ use qce_exporter::types::MessageResource;
 use qce_exporter::{ChatInfo, CleanMessage, ExportOptions};
 
 use qce_server::api::helpers::{chat_avatar_url, resolve_peer_uin};
+use qce_server::export_debug::ExportDebugSession;
 use qce_server::fetcher::{
     classify_chat_type_binary, BatchFetchConfig, BatchMessageFetcher, MessageFilter, Peer,
 };
@@ -84,6 +86,30 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             .unwrap_or("HTML")
             .to_uppercase();
         let options = task.get("options").cloned().unwrap_or(Value::Null);
+        let output_dir = task
+            .get("outputDir")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map_or_else(|| self.path_manager.scheduled_exports_dir(), PathBuf::from);
+        let debug_session = if options.get("debugExport").and_then(Value::as_bool) == Some(true) {
+            let export_name = format!(
+                "scheduled-{}-{}",
+                sanitize_task_name(&task_name, 40),
+                chrono::Local::now().format("%Y%m%d_%H%M%S%3f")
+            );
+            let session = ExportDebugSession::start(&output_dir, &export_name).await?;
+            session
+                .trace()
+                .record(serde_json::json!({
+                    "type": "scheduled_export_started",
+                    "format": format,
+                }))
+                .await;
+            Some(session)
+        } else {
+            None
+        };
 
         // ============ 阶段 1：抓取消息 ============
         let fetcher = BatchMessageFetcher::new(
@@ -131,6 +157,11 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
 
         // 按时间升序排序（抓取返回的是倒序）。
         all_messages.sort_by_key(msg_time_ms);
+        if let Some(debug) = &debug_session {
+            debug
+                .write_jsonl("01-raw-messages.jsonl", &all_messages)
+                .await?;
+        }
 
         // ============ 阶段 2：资源下载（issue #341 跳过类型） ============
         let requested_skip_types: Vec<String> = options
@@ -165,7 +196,11 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
 
         let resource_map = self
             .resource_handler
-            .process_message_resources(&all_messages)
+            .process_message_resources_with_cancel_and_trace(
+                &all_messages,
+                Arc::new(AtomicBool::new(false)),
+                debug_session.as_ref().map(ExportDebugSession::trace),
+            )
             .await;
         // issue #363：资源下载摘要。
         let resource_summary =
@@ -174,12 +209,6 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         self.resource_handler.set_skip_download_types(None).await;
 
         // ============ 阶段 3：文件名 / 输出目录 ============
-        let output_dir = task
-            .get("outputDir")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map_or_else(|| self.path_manager.scheduled_exports_dir(), PathBuf::from);
         tokio::fs::create_dir_all(&output_dir)
             .await
             .map_err(|e| format!("创建输出目录失败: {e}"))?;
@@ -211,6 +240,11 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             forward_fetcher: Some(Arc::new(self.napcat.clone()) as Arc<dyn ForwardFetcher>),
         });
         let mut clean_messages: Vec<CleanMessage> = parser.parse_messages(&all_messages).await;
+        if let Some(debug) = &debug_session {
+            debug
+                .write_jsonl("02-parsed-messages.jsonl", &clean_messages)
+                .await?;
+        }
 
         // issue #277：把已下载资源的本地路径写回消息。
         let value_resource_map = to_value_resource_map(&resource_map);
@@ -220,6 +254,11 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             }
         }
         SimpleMessageParser::backfill_reply_preview_local_paths(&mut clean_messages);
+        if let Some(debug) = &debug_session {
+            debug
+                .write_jsonl("03-final-messages.jsonl", &clean_messages)
+                .await?;
+        }
 
         let message_count = clean_messages.len() as i64;
         let self_info = self.napcat.self_info().await.unwrap_or(Value::Null);
@@ -331,6 +370,21 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             .await
             .ok()
             .and_then(|meta| i64::try_from(meta.len()).ok());
+        if let Some(debug) = debug_session {
+            debug
+                .write_json(
+                    "summary.json",
+                    &serde_json::json!({
+                        "format": format,
+                        "messageCount": message_count,
+                        "resourceSummary": resource_summary,
+                        "finalFileName": file_name,
+                        "finalFileSize": file_size,
+                    }),
+                )
+                .await?;
+            debug.finish().await?;
+        }
 
         Ok(ExecutionOutcome {
             message_count,
