@@ -234,6 +234,8 @@ export interface CreateTaskForm {
   useFriendlyFileName?: boolean
   /** 群聊导出时优先使用群成员名称（Issue #358） */
   preferGroupMemberName?: boolean
+  /** 保存原始消息、解析结果、最终消息和资源调用事件。 */
+  debugExport?: boolean
   /**
    * 仅保留元数据、跳过下载的资源类型（Issue #341）。
    * 'image' | 'video' | 'audio' | 'file'
@@ -275,6 +277,7 @@ export interface CreateTaskRequest {
     useFriendlyFileName?: boolean
     /** 群聊导出时优先使用群成员名称（Issue #358） */
     preferGroupMemberName?: boolean
+    debugExport?: boolean
     /** 仅保留元数据、跳过下载的资源类型（Issue #341） */
     skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
   }
@@ -385,6 +388,7 @@ export interface ScheduledExport {
     filterPureImageMessages?: boolean
     prettyFormat?: boolean
     preferGroupMemberName?: boolean
+    debugExport?: boolean
     /** Issue #341: 仅保留元数据、跳过下载的资源类型 */
     skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
     /** Issue #311: 自包含 HTML（资源 base64 内联）。 */
@@ -432,6 +436,7 @@ export interface CreateScheduledExportForm {
   includeSystemMessages?: boolean
   filterPureImageMessages?: boolean
   preferGroupMemberName?: boolean
+  debugExport?: boolean
   /** Issue #341: 仅保留元数据、跳过下载的资源类型 */
   skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
 }
