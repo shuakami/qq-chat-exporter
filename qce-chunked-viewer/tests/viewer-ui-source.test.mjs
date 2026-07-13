@@ -7,6 +7,14 @@ const css = readFileSync(
   new URL('../../qq-chat-export-core/assets/modern_css.css', import.meta.url),
   'utf8',
 );
+const mediaFallback = readFileSync(
+  new URL('../src/qce/media-fallback.ts', import.meta.url),
+  'utf8',
+);
+const singleScripts = readFileSync(
+  new URL('../../qq-chat-export-core/assets/modern_single_scripts.html', import.meta.url),
+  'utf8',
+);
 
 test('settings dialog exposes the group title toggle as its third experimental option', () => {
   const experimental = viewer.slice(
@@ -24,4 +32,19 @@ test('reply jump retries until the virtualized bubble exists and visibly darkens
   assert.match(viewer, /bubble\.classList\.add\('reply-jump-highlight'\)/);
   assert.match(css, /\.message-bubble\.reply-jump-highlight/);
   assert.match(css, /rgba\(0, 0, 0, 0\.14\)/);
+});
+
+test('failed exported media uses the supplied empty-state fallback UI', () => {
+  assert.match(viewer, /installMediaFallback\(viewport\)/);
+  assert.match(viewer, /replaceMediaWithFallback\(el, 'audio'\)/);
+  assert.match(mediaFallback, /\.image-content img/);
+  assert.match(mediaFallback, /\.video-bubble video\.img/);
+  assert.match(mediaFallback, /\.sticker-wrap img\.sticker/);
+  assert.match(mediaFallback, /img\.reply-content-thumb/);
+  assert.match(mediaFallback, /图片不可用/);
+  assert.match(mediaFallback, /视频不可用/);
+  assert.match(mediaFallback, /语音不可用/);
+  assert.match(singleScripts, /document\.addEventListener\('error'/);
+  assert.match(css, /\.media-fallback/);
+  assert.match(css, /\.mf-icon/);
 });
