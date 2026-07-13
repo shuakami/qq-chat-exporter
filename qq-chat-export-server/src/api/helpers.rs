@@ -223,10 +223,15 @@ pub fn chat_avatar_url(chat_type: &str, peer_uid: &str, peer_uin: Option<&str>) 
     peer_uin.map(|uin| format!("https://q1.qlogo.cn/g?b=qq&nk={uin}&s=640"))
 }
 
-/// 私聊导出时把数字 QQ 号解析为真正的 NTQQ uid（对应 TS `resolvePeerUid`，
-/// issue #353）。任何缺失 / 异常 / 空返回都安全降级到原始 peerUid。
-pub async fn resolve_peer_uid(chat_type: i64, peer_uid: &str, napcat: &NapCatBridgeClient) -> String {
-    if chat_type != 1 || peer_uid.is_empty() || !peer_uid.chars().all(|c| c.is_ascii_digit()) {
+/// 单聊型会话导出时把数字 QQ 号解析为真正的 NTQQ uid（对应 TS
+/// `resolvePeerUid`，issue #353）。任何缺失 / 异常 / 空返回都安全降级到原始
+/// peerUid。
+pub async fn resolve_peer_uid(
+    chat_type: i64,
+    peer_uid: &str,
+    napcat: &NapCatBridgeClient,
+) -> String {
+    if !should_resolve_peer_uid(chat_type, peer_uid) {
         return peer_uid.to_string();
     }
     match napcat.get_uid_by_uin_v2(peer_uid).await {
@@ -238,6 +243,12 @@ pub async fn resolve_peer_uid(chat_type: i64, peer_uid: &str, napcat: &NapCatBri
             .map_or_else(|| peer_uid.to_string(), ToString::to_string),
         Err(_) => peer_uid.to_string(),
     }
+}
+
+fn should_resolve_peer_uid(chat_type: i64, peer_uid: &str) -> bool {
+    is_private_like_chat_type(Some(chat_type))
+        && !peer_uid.is_empty()
+        && peer_uid.chars().all(|c| c.is_ascii_digit())
 }
 
 /// 会话名解析（对应 TS `resolveSessionName`，issue #365）。
@@ -346,5 +357,22 @@ mod tests {
             Some("https://q1.qlogo.cn/g?b=qq&nk=1687657986&s=640".to_string())
         );
         assert_eq!(chat_avatar_url("private", "u_peer", None), None);
+    }
+
+    #[test]
+    fn resolves_numeric_uin_for_every_private_like_chat_type() {
+        for chat_type in [1, 9, 16, 100, 118, 201] {
+            assert!(
+                should_resolve_peer_uid(chat_type, "123456"),
+                "chatType={chat_type} should resolve numeric peerUid"
+            );
+        }
+    }
+
+    #[test]
+    fn never_resolves_group_codes_or_existing_uids() {
+        assert!(!should_resolve_peer_uid(2, "987654321"));
+        assert!(!should_resolve_peer_uid(100, "u_existing"));
+        assert!(!should_resolve_peer_uid(118, ""));
     }
 }
