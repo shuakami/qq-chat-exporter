@@ -351,9 +351,10 @@ async fn modern_html_handles_group_updates_faces_mentions_and_video_files() {
     let (content_html, _) = render_modern_html(&temp, "content", content_message, |_| {}).await;
     assert!(content_html.contains("class=\"at-mention\">@全体成员</span>"));
     assert!(!content_html.contains("<span class=\"text-content\"> </span>"));
-    assert!(content_html.contains("https://koishi.js.org/QFace/assets/qq_emoji/359/apng/359.png"));
-    assert!(content_html.contains("class=\"native-face-wrap native-face-large\""));
-    assert!(content_html.contains("class=\"native-face-result\">剪刀</span>"));
+    assert!(content_html.contains("https://koishi.js.org/QFace/assets/qq_emoji/359/png/359.png"));
+    assert!(content_html.contains("class=\"face-emoji native-game-face\""));
+    assert!(content_html.contains("class=\"native-rps-result native-rps-result-2\""));
+    assert!(content_html.contains("aria-label=\"包剪锤：剪刀\""));
     assert!(content_html.contains("class=\"video-bubble\""));
     assert!(content_html.contains("data-src=\"./resources/files/hash_clip.mp4\""));
     assert!(content_html.contains(
@@ -942,9 +943,11 @@ fn reply_preview_renderer_uses_data_uris_and_safe_fallbacks() {
 #[test]
 fn modern_html_styles_titles_as_badges_and_replies_with_hover_metadata() {
     let css = include_str!("../assets/modern_css.css");
+    let scripts = include_str!("../assets/modern_single_scripts.html");
     assert!(css.contains(
         ".sender-title {\n            display: inline-flex;\n            align-items: center;"
     ));
+    assert!(css.contains(".qce-hide-group-member-titles .sender-title"));
     assert!(css.contains(
         "background: var(--bg-secondary);\n            border: 0;\n            padding: 1px 5px;\n            border-radius: 6px;\n            margin-right: 0;"
     ));
@@ -960,7 +963,10 @@ fn modern_html_styles_titles_as_badges_and_replies_with_hover_metadata() {
     assert!(css.contains(
         ".reply-content:hover .reply-content-time,\n        .reply-content:focus-visible .reply-content-time {\n            opacity: 1;"
     ));
-    assert!(css.contains("35% { filter: brightness(.82); }"));
+    assert!(css.contains("40% { box-shadow: inset 0 0 0 999px rgba(0, 0, 0, 0.14); }"));
+    assert!(scripts.contains("window.addEventListener('scrollend'"));
+    assert!(scripts.contains("setTimeout(highlightBubble, 450)"));
+    assert!(scripts.contains("targetMsg.querySelector('.message-bubble')"));
     assert!(!css.contains("border-top: 1px solid color-mix"));
 }
 
