@@ -9,13 +9,15 @@
 描述问题的时候，尽量说清楚这些信息：
 
 - 你使用的 QCE 版本号（界面右下角或控制台能看到）
-- 运行模式是 Shell 还是 Framework
+- 安装方式：一键安装包、Shell 模式还是 Framework 模式
 - 操作系统是什么
 - 具体做了什么操作，然后发生了什么
 - 如果有报错信息，贴上来会很有帮助
 - 还有控制台的完整日志
 
-然后在[这里](https://github.com/shuakami/qq-chat-exporter/issues/new?template=bug_report.yml)提交
+> **注意隐私**：贴日志前先检查一遍，删掉里面的访问令牌（`[QCE] Token:` 那一行）、QQ 号和聊天内容等敏感信息。
+
+然后在[这里](https://github.com/shuakami/qq-chat-exporter/issues/new?template=bug_report.yml)提交。
 
 ## 功能建议
 
