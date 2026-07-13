@@ -50,7 +50,7 @@ jobs:
       - name: "Build frontend"
         run: |
           pnpm install --no-frozen-lockfile
-          pnpm run build
+          QCE_VERSION="${GITHUB_REF_NAME#v}" pnpm run build
         working-directory: qce-v4-tool
 
       - name: "Upload frontend artifact"
