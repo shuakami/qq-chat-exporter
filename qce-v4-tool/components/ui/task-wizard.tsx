@@ -43,7 +43,6 @@ interface AdvancedPreferences {
   filterPureImageMessages: boolean
   skipDownloadResourceTypes?: SkipDownloadResourceType[]
   preferGroupMemberName: boolean
-  showGroupMemberTitles: boolean
   exportAsZip: boolean
   useNameInFileName: boolean
   useFriendlyFileName: boolean
@@ -75,7 +74,6 @@ const createDefaultForm = (): CreateTaskForm => ({
   useNameInFileName: false,
   useFriendlyFileName: false,
   preferGroupMemberName: true,
-  showGroupMemberTitles: true,
 })
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -94,7 +92,6 @@ const readAdvancedPreferences = (): Partial<AdvancedPreferences> => {
       "includeSystemMessages",
       "filterPureImageMessages",
       "preferGroupMemberName",
-      "showGroupMemberTitles",
       "exportAsZip",
       "useNameInFileName",
       "useFriendlyFileName",
@@ -121,7 +118,6 @@ const selectAdvancedPreferences = (form: CreateTaskForm): AdvancedPreferences =>
   filterPureImageMessages: form.filterPureImageMessages,
   skipDownloadResourceTypes: form.skipDownloadResourceTypes,
   preferGroupMemberName: form.preferGroupMemberName ?? true,
-  showGroupMemberTitles: form.showGroupMemberTitles ?? true,
   exportAsZip: form.exportAsZip ?? false,
   useNameInFileName: form.useNameInFileName ?? false,
   useFriendlyFileName: form.useFriendlyFileName ?? false,
@@ -177,8 +173,6 @@ const mergePrefilledForm = (
       prefilledData.useFriendlyFileName ?? base.useFriendlyFileName,
     preferGroupMemberName:
       prefilledData.preferGroupMemberName ?? base.preferGroupMemberName,
-    showGroupMemberTitles:
-      prefilledData.showGroupMemberTitles ?? base.showGroupMemberTitles,
   }
 }
 
@@ -274,7 +268,6 @@ export function TaskWizard({
     form.filterPureImageMessages,
     form.skipDownloadResourceTypes,
     form.preferGroupMemberName,
-    form.showGroupMemberTitles,
     form.exportAsZip,
     form.useNameInFileName,
     form.useFriendlyFileName,
@@ -1310,15 +1303,6 @@ export function TaskWizard({
                 desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。",
                 tip: EXPORT_OPTION_TOOLTIPS.preferGroupMemberName,
                 visible: form.chatType === 2,
-                group: "导出内容"
-              },
-              {
-                id: "showGroupMemberTitles",
-                checked: form.showGroupMemberTitles ?? true,
-                set: (v: boolean) => setForm((p) => ({ ...p, showGroupMemberTitles: v })),
-                title: "显示群成员头衔",
-                desc: "显示群成员的专属头衔徽章。关闭后仍保留群名片、昵称和发送者名称。",
-                visible: form.chatType === 2 && form.format === "HTML",
                 group: "导出内容"
               },
               {

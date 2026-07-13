@@ -63,9 +63,14 @@ const KIND_OPTIONS: ReadonlyArray<readonly [string, string, IconComponent]> = [
 interface QceSettings {
   rememberScroll: boolean;
   prefetchChunks: boolean;
+  showGroupMemberTitles: boolean;
 }
 
-const DEFAULT_SETTINGS: QceSettings = { rememberScroll: false, prefetchChunks: false };
+const DEFAULT_SETTINGS: QceSettings = {
+  rememberScroll: false,
+  prefetchChunks: false,
+  showGroupMemberTitles: true,
+};
 
 function loadSettings(): QceSettings {
   try {
@@ -317,6 +322,13 @@ export default function Viewer(): React.ReactElement {
     localStorage.setItem('qce-settings', JSON.stringify(settings));
   }, [settings]);
 
+  useEffect(() => {
+    document.documentElement.classList.toggle(
+      'qce-hide-group-member-titles',
+      !settings.showGroupMemberTitles,
+    );
+  }, [settings.showGroupMemberTitles]);
+
   useEffect(() => () => {
     if (replyReturnTimerRef.current !== null) {
       window.clearTimeout(replyReturnTimerRef.current);
@@ -475,9 +487,13 @@ export default function Viewer(): React.ReactElement {
     if (returnMsgId && returnMsgId !== msgId) {
       showReplyReturn(returnMsgId);
     }
-    window.setTimeout(() => {
+    let attempts = 0;
+    const highlight = (): void => {
       const el = document.getElementById(msgId);
-      if (!el) return;
+      if (!el) {
+        if (attempts++ < 60) requestAnimationFrame(highlight);
+        return;
+      }
       const bubble = el.querySelector('.message-bubble');
       if (!(bubble instanceof HTMLElement)) return;
       bubble.classList.remove('reply-jump-highlight');
@@ -486,7 +502,8 @@ export default function Viewer(): React.ReactElement {
       window.setTimeout(() => {
         bubble.classList.remove('reply-jump-highlight');
       }, 700);
-    }, 350);
+    };
+    requestAnimationFrame(highlight);
   }
 
   const manifestRef = useRef<QceManifest | null>(null);
@@ -1164,6 +1181,12 @@ function SettingsDialog({
             hint="阅读时在后台提前加载附近的消息分块"
             checked={settings.prefetchChunks}
             onChange={(v) => onChange({ ...settings, prefetchChunks: v })}
+          />
+          <SettingsToggle
+            label="显示群成员头衔"
+            hint="显示消息发送者的群专属头衔徽章"
+            checked={settings.showGroupMemberTitles}
+            onChange={(v) => onChange({ ...settings, showGroupMemberTitles: v })}
           />
         </div>
       </div>

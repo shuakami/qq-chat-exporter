@@ -501,7 +501,6 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           // Issue #311: 自包含 HTML（资源 base64 内联）。
           embedResourcesAsDataUri: form.embedResourcesAsDataUri,
           preferGroupMemberName: form.preferGroupMemberName ?? true,
-          showGroupMemberTitles: form.showGroupMemberTitles ?? true,
           ...(form.outputDir?.trim() && { outputDir: form.outputDir.trim() }),
           ...(form.useNameInFileName && { useNameInFileName: true }),
           // Issue #134: 友好文件名格式 `<名称>(<QQ号>).<扩展名>`

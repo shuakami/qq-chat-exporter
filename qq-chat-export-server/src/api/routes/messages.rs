@@ -1363,14 +1363,7 @@ async fn process_export_task(
     let mut title_map: Option<HashMap<String, String>> = None;
     if req.chat_type == GROUP_CHAT_TYPE && !all_messages.is_empty() {
         fill_group_member_names(state, &req.peer_uid, &mut all_messages).await;
-        let show_group_member_titles = req
-            .options
-            .get("showGroupMemberTitles")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
-        if show_group_member_titles {
-            title_map = fetch_group_member_title_map(state, &req.peer_uid, req.chat_type).await;
-        }
+        title_map = fetch_group_member_title_map(state, &req.peer_uid, req.chat_type).await;
     }
 
     // 按 includeUserUins / excludeUserUins 过滤（issue #369）。
