@@ -188,15 +188,33 @@ a{color:inherit;text-decoration:none}
 @media(max-width:1160px){ .toc{display:none} }
 @media(max-width:860px){
   .topbar{padding:0 20px}
-  .sidebar{
-    position:fixed; left:0; top:60px; z-index:40; background:#fff;
-    transform:translateX(-100%); transition:transform .2s ease;
-    box-shadow:0 24px 48px -12px rgba(24,24,27,0.14); padding-left:24px;
-  }
-  body.nav-open .sidebar{transform:none}
+  .sidebar{display:none}
+  .topbar .right{display:none}
   .menu-btn{display:block}
   .content{padding:36px 20px 96px}
+  .content table{display:block; overflow-x:auto}
 }
+ 
+/* mobile fullscreen nav */
+.mnav{
+  position:fixed; inset:0; z-index:100; background:#fff;
+  display:none; flex-direction:column;
+  transform:translateX(-100%);
+  transition:transform .5s cubic-bezier(0.32,0.72,0,1);
+}
+@media(max-width:860px){ .mnav{display:flex} }
+body.nav-open .mnav{transform:none}
+body.nav-open{overflow:hidden}
+.mnav-head{display:flex; align-items:center; justify-content:space-between; padding:16px 32px; flex:none}
+.mnav-head .brand{font-weight:600; font-size:14px; letter-spacing:-0.01em}
+.mnav-head .brand .doc{color:var(--muted); font-weight:400; margin-left:8px}
+.mnav-close{display:flex; align-items:center; justify-content:center; width:32px; height:32px; border:0; background:none; padding:0; cursor:pointer; color:rgba(0,0,0,0.4); transition:color .2s}
+.mnav-close:hover{color:#000}
+.mnav-body{flex:1; overflow-y:auto; padding:8px 32px 48px; display:flex; flex-direction:column}
+.mnav-body a{display:block; padding:4px 0; font-size:32px; font-weight:500; letter-spacing:-0.025em; color:rgba(0,0,0,0.5); transition:color .2s}
+.mnav-body a.active{color:#000; font-weight:600}
+.mnav-body .ext{margin-top:28px; font-size:16px; color:rgba(0,0,0,0.5)}
+.mnav-body .ext+.ext{margin-top:8px}
 '''
  
 TEMPLATE = '''<!doctype html>
@@ -233,10 +251,23 @@ TEMPLATE = '''<!doctype html>
     <a href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
     <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
   </span>
-  <button class="menu-btn" aria-label="菜单" onclick="document.body.classList.toggle('nav-open')">
+  <button class="menu-btn" aria-label="菜单" onclick="document.body.classList.add('nav-open')">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
   </button>
 </header>
+<div class="mnav" aria-hidden="true">
+  <div class="mnav-head">
+    <a class="brand" href="../index.html">QQ Chat Exporter<span class="doc">文档</span></a>
+    <button class="mnav-close" aria-label="关闭" onclick="document.body.classList.remove('nav-open')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <nav class="mnav-body">
+    {mnav}
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </nav>
+</div>
 <div class="shell">
   <nav class="sidebar">{sidebar}</nav>
   <div class="main"><article class="content">
@@ -310,6 +341,14 @@ def sidebar_html(active):
     return '\n'.join(out)
  
  
+def mnav_html(active):
+    out = []
+    for md, out_name, nav, _, sec in PAGES:
+        cls = ' class="active"' if out_name == active else ''
+        out.append(f'<a href="{out_name}"{cls}>{nav}</a>')
+    return '\n'.join(out)
+
+
 def build():
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / 'docs.css').write_text(CSS)
@@ -351,7 +390,8 @@ def build():
         pagenav = f'<div class="pagenav">{"".join(nav_parts)}</div>' if nav_parts else ''
  
         html = TEMPLATE.format(title=title, h1=title, body=body, out_name=out_name,
-                               sidebar=sidebar_html(out_name), toc=toc, pagenav=pagenav)
+                               sidebar=sidebar_html(out_name), mnav=mnav_html(out_name),
+                               toc=toc, pagenav=pagenav)
         (OUT / out_name).write_text(html)
         print('wrote', out_name)
  

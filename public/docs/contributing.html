@@ -32,10 +32,28 @@
     <a href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
     <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
   </span>
-  <button class="menu-btn" aria-label="菜单" onclick="document.body.classList.toggle('nav-open')">
+  <button class="menu-btn" aria-label="菜单" onclick="document.body.classList.add('nav-open')">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
   </button>
 </header>
+<div class="mnav" aria-hidden="true">
+  <div class="mnav-head">
+    <a class="brand" href="../index.html">QQ Chat Exporter<span class="doc">文档</span></a>
+    <button class="mnav-close" aria-label="关闭" onclick="document.body.classList.remove('nav-open')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <nav class="mnav-body">
+    <a href="index.html">介绍</a>
+<a href="guide.html">使用手册</a>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="docker-napcat-deployment.html">Docker NapCat 部署</a>
+<a href="feedback.html">如何反馈问题</a>
+<a href="contributing.html" class="active">如何贡献</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </nav>
+</div>
 <div class="shell">
   <nav class="sidebar"><div class="sec">指南</div>
 <a href="index.html">介绍</a>
