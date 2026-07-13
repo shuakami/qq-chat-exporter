@@ -207,7 +207,7 @@ impl NapCatBridgeClient {
     ) -> Result<Value, BridgeError> {
         self.call(
             "FileApi.downloadMedia",
-            json!([
+            download_media_params(
                 msg_id,
                 chat_type,
                 peer_uid,
@@ -215,8 +215,8 @@ impl NapCatBridgeClient {
                 this_path,
                 source_path,
                 timeout_ms,
-                force
-            ]),
+                force,
+            ),
         )
         .await
     }
@@ -334,7 +334,7 @@ impl crate::resource::MediaDownloader for NapCatBridgeClient {
         timeout_ms: u64,
     ) -> Result<String, String> {
         let result = NapCatBridgeClient::download_media(
-            self, msg_id, chat_type, peer_uid, element_id, dest_path, "", timeout_ms, true,
+            self, msg_id, chat_type, peer_uid, element_id, "", dest_path, timeout_ms, true,
         )
         .await
         .map_err(|error| error.to_string())?;
@@ -413,9 +413,32 @@ fn peer_to_value(peer: &Peer) -> Value {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn download_media_params(
+    msg_id: &str,
+    chat_type: i64,
+    peer_uid: &str,
+    element_id: &str,
+    thumb_path: &str,
+    source_path: &str,
+    timeout_ms: u64,
+    force: bool,
+) -> Value {
+    json!([
+        msg_id,
+        chat_type,
+        peer_uid,
+        element_id,
+        thumb_path,
+        source_path,
+        timeout_ms,
+        force
+    ])
+}
+
 #[cfg(test)]
 mod tests {
-    use super::extract_forward_messages;
+    use super::{download_media_params, extract_forward_messages};
     use serde_json::json;
 
     #[test]
@@ -434,5 +457,22 @@ mod tests {
             Some(1)
         );
         assert_eq!(extract_forward_messages(&json!({"data": {}})), None);
+    }
+
+    #[test]
+    fn media_download_uses_source_path_as_destination() {
+        let params = download_media_params(
+            "msg",
+            2,
+            "peer",
+            "element",
+            "",
+            "C:/exports/image.jpg",
+            30_000,
+            true,
+        );
+        let params = params.as_array().expect("download parameters");
+        assert_eq!(params[4], "");
+        assert_eq!(params[5], "C:/exports/image.jpg");
     }
 }
