@@ -70,10 +70,8 @@ export function useThemeMode() {
     }
 
     // Safari 老版本 fallback
-    // @ts-expect-error - legacy API
     mql.addListener(handler)
     return () => {
-      // @ts-expect-error - legacy API
       mql.removeListener(handler)
     }
   }, [])

@@ -184,7 +184,7 @@ export function useResourceIndex() {
         videoCount: 0,
         audioCount: 0,
         fileCount: 0,
-        exportCount: index?.exports?.length || 0
+        exportCount: 0
       };
     }
 
