@@ -1376,9 +1376,10 @@ impl ModernHtmlExporter {
     fn render_image_element(&self, data: &Value) -> String {
         let filename = str_field(data, "filename").unwrap_or_else(|| "图片".to_owned());
         let src = self.pick_resource_src(data, "images");
+        let sticker = str_field(data, "subType").as_deref() == Some("sticker");
         if !src.is_empty() {
             // issue #510: 自定义表情包（picSubType=1）渲染成裸贴纸，与商城表情一致。
-            if str_field(data, "subType").as_deref() == Some("sticker") {
+            if sticker {
                 return format!(
                     "<span class=\"sticker-wrap\"><img src=\"{src}\" alt=\"{n}\" class=\"sticker sticker-img\" title=\"{n}\" loading=\"lazy\" onclick=\"showImageModal(this.src)\"></span>",
                     n = escape_html(&filename)
@@ -1387,15 +1388,20 @@ impl ModernHtmlExporter {
             // Issue #311: 当 src 为 data URI 时直接传入会让 HTML 体积翻倍，
             // 并可能造成 onclick 字符串字面量超长引发解析问题。改为从 this.src
             // 读取，对外链与 data URI 行为一致。
+            let dimensions = media_dimension_attributes(data);
             return format!(
-                "<div class=\"image-content\"><img src=\"{src}\" alt=\"{}\" loading=\"lazy\" onclick=\"showImageModal(this.src)\"></div>",
+                "<div class=\"image-content\"><img src=\"{src}\" alt=\"{}\"{dimensions} loading=\"lazy\" onclick=\"showImageModal(this.src)\"></div>",
                 escape_html(&filename)
             );
         }
-        format!(
-            "<span class=\"text-content\">📷 {}</span>",
-            escape_html(&filename)
-        )
+        if sticker {
+            format!(
+                "<span class=\"sticker-wrap\">{}</span>",
+                render_media_fallback("sticker", "表情不可用", &filename)
+            )
+        } else {
+            render_media_fallback("image", "图片不可用", &filename)
+        }
     }
 
     fn render_audio_element(&self, data: &Value) -> String {
@@ -1427,7 +1433,7 @@ impl ModernHtmlExporter {
                 fname = escape_html(&filename)
             );
         }
-        format!("<span class=\"text-content\">🎤 [语音:{duration}秒]</span>")
+        render_media_fallback("audio", "语音不可用", &filename)
     }
 
     fn render_video_element(&self, data: &Value) -> String {
@@ -1436,10 +1442,7 @@ impl ModernHtmlExporter {
         if !src.is_empty() {
             return render_video_bubble(&src, &filename);
         }
-        format!(
-            "<span class=\"text-content\">🎬 {}</span>",
-            escape_html(&filename)
-        )
+        render_media_fallback("video", "视频不可用", &filename)
     }
 
     fn render_file_element(&self, data: &Value) -> String {
@@ -2499,6 +2502,39 @@ fn render_video_bubble(src: &str, filename: &str) -> String {
     )
 }
 
+fn media_dimension_attributes(data: &Value) -> String {
+    let dimension = |key: &str| {
+        str_field(data, key)
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|value| *value > 0 && *value <= 20_000)
+    };
+    match (dimension("width"), dimension("height")) {
+        (Some(width), Some(height)) => format!(" width=\"{width}\" height=\"{height}\""),
+        _ => String::new(),
+    }
+}
+
+fn render_media_fallback(kind: &str, label: &str, filename: &str) -> String {
+    const IMAGE_OFF: &str = "<line x1=\"2\" y1=\"2\" x2=\"22\" y2=\"22\"/><path d=\"M10.41 10.41a2 2 0 1 1-2.83-2.83\"/><line x1=\"13.5\" y1=\"13.5\" x2=\"6\" y2=\"21\"/><line x1=\"18\" y1=\"12\" x2=\"21\" y2=\"15\"/><path d=\"M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.052-.22 1.41-.59\"/><path d=\"M21 15V5a2 2 0 0 0-2-2H9\"/>";
+    const VIDEO_OFF: &str = "<path d=\"M10.66 6H14a2 2 0 0 1 2 2v2.5l5.248-3.062A.5.5 0 0 1 22 7.87v8.196\"/><path d=\"M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2\"/><line x1=\"2\" y1=\"2\" x2=\"22\" y2=\"22\"/>";
+    const AUDIO_OFF: &str = "<path d=\"M12 2a3 3 0 0 0-3 3v3\"/><path d=\"M15 9V5a3 3 0 0 0-.12-.84\"/><path d=\"M5 10v1a7 7 0 0 0 11.5 5.36\"/><path d=\"M19 10v1c0 .94-.18 1.84-.52 2.66\"/><path d=\"M12 18v4\"/><path d=\"M8 22h8\"/><line x1=\"2\" y1=\"2\" x2=\"22\" y2=\"22\"/>";
+    let icon = match kind {
+        "video" => VIDEO_OFF,
+        "audio" => AUDIO_OFF,
+        _ => IMAGE_OFF,
+    };
+    let text = if kind == "sticker" {
+        String::new()
+    } else {
+        format!("<span class=\"mf-text\">{}</span>", escape_html(label))
+    };
+    format!(
+        "<span class=\"media-fallback mf-{kind}\" role=\"img\" aria-label=\"{}\" title=\"{}\"><span class=\"mf-icon\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">{icon}</svg></span>{text}</span>",
+        escape_html(label),
+        escape_html(filename)
+    )
+}
+
 fn render_market_face_element(data: &Value) -> String {
     let name = str_field(data, "name").unwrap_or_else(|| "商城表情".to_owned());
     let url = str_field(data, "url").unwrap_or_default();
@@ -2509,8 +2545,8 @@ fn render_market_face_element(data: &Value) -> String {
         );
     }
     format!(
-        "<span class=\"sticker-wrap\"><span class=\"text-content\">[{}]</span></span>",
-        escape_html(&name)
+        "<span class=\"sticker-wrap\">{}</span>",
+        render_media_fallback("sticker", "表情不可用", &name)
     )
 }
 
@@ -3289,8 +3325,9 @@ fn generate_avatar_html(uin: Option<&str>, name: Option<&str>) -> String {
                 },
                 first_char_upper,
             );
+            let fallback_color = avatar_fallback_color(uin);
             format!(
-                "<img src=\"{avatar_url}\" alt=\"{}\" onerror=\"this.style.display='none'; this.nextSibling.style.display='inline-flex';\" />\n                    <span style=\"display:none; width:40px; height:40px; border-radius:50%; background:#007AFF; color:white; align-items:center; justify-content:center; font-size:14px; font-weight:500;\">{}</span>",
+                "<img src=\"{avatar_url}\" alt=\"{}\" onerror=\"this.style.display='none'; this.nextSibling.style.display='inline-flex';\" />\n                    <span class=\"avatar-fallback\" style=\"display:none; background:{fallback_color};\">{}</span>",
                 escape_html(name.filter(|n| !n.is_empty()).unwrap_or(uin)),
                 escape_html(&fallback_text)
             )
@@ -3299,12 +3336,20 @@ fn generate_avatar_html(uin: Option<&str>, name: Option<&str>) -> String {
             let fallback_text = name
                 .filter(|n| !n.is_empty())
                 .map_or_else(|| "U".to_owned(), first_char_upper);
+            let fallback_color = avatar_fallback_color(name.unwrap_or("U"));
             format!(
-                "<span style=\"display:inline-flex; width:40px; height:40px; border-radius:50%; background:#007AFF; color:white; align-items:center; justify-content:center; font-size:14px; font-weight:500;\">{}</span>",
+                "<span class=\"avatar-fallback\" style=\"background:{fallback_color};\">{}</span>",
                 escape_html(&fallback_text)
             )
         }
     }
+}
+
+fn avatar_fallback_color(seed: &str) -> String {
+    let hash = seed.bytes().fold(2_166_136_261_u32, |value, byte| {
+        value.wrapping_mul(16_777_619) ^ u32::from(byte)
+    });
+    format!("hsl({} 58% 48%)", hash % 360)
 }
 
 /// 取首字符并大写（对应 TS `name.charAt(0).toUpperCase()`）。
@@ -3589,7 +3634,10 @@ pub fn get_face_name_by_id(id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_plain_text, render_face_element, render_native_card_element};
+    use super::{
+        extract_plain_text, generate_avatar_html, media_dimension_attributes, render_face_element,
+        render_media_fallback, render_native_card_element,
+    };
     use crate::types::CleanMessage;
     use serde_json::json;
 
@@ -3630,6 +3678,30 @@ mod tests {
             "[一箱猫猫]",
         );
         assert!(extract_plain_text(&sticker_only).is_empty());
+    }
+
+    #[test]
+    fn media_failures_render_accessible_stable_placeholders() {
+        let image = render_media_fallback("image", "图片不可用", "missing.jpg");
+        assert!(image.contains("class=\"media-fallback mf-image\""));
+        assert!(image.contains("aria-label=\"图片不可用\""));
+        assert!(image.contains("class=\"mf-icon\""));
+        assert!(image.contains("class=\"mf-text\">图片不可用"));
+        assert!(image.contains("title=\"missing.jpg\""));
+
+        let sticker = render_media_fallback("sticker", "表情不可用", "missing.gif");
+        assert!(sticker.contains("class=\"media-fallback mf-sticker\""));
+        assert!(!sticker.contains("class=\"mf-text\""));
+
+        assert_eq!(
+            media_dimension_attributes(&json!({ "width": 640, "height": 480 })),
+            " width=\"640\" height=\"480\""
+        );
+        assert!(media_dimension_attributes(&json!({ "width": 0, "height": 480 })).is_empty());
+
+        let avatar = generate_avatar_html(Some("10001"), Some("测试用户"));
+        assert!(avatar.contains("class=\"avatar-fallback\""));
+        assert!(avatar.contains("background:hsl("));
     }
 
     #[test]
