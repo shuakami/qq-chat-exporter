@@ -167,6 +167,17 @@ impl NapCatBridgeClient {
             .await
     }
 
+    /// 获取 NTQQ 本地保存的全量会话列表。
+    pub async fn get_recent_contact_list_sync(&self) -> Result<Value, BridgeError> {
+        self.call("UserApi.getRecentContactListSync", json!([]))
+            .await
+    }
+
+    /// 获取 NTQQ 本地保存的全量会话列表（部分版本使用异步方法名）。
+    pub async fn get_recent_contact_list(&self) -> Result<Value, BridgeError> {
+        self.call("UserApi.getRecentContactList", json!([])).await
+    }
+
     /// 获取合并转发消息内容。
     pub async fn get_multi_msg(
         &self,
