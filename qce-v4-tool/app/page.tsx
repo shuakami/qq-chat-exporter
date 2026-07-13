@@ -964,6 +964,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
           // Issue #311: 自包含 HTML
           embedResourcesAsDataUri: config.embedResourcesAsDataUri,
           preferGroupMemberName: config.preferGroupMemberName,
+          debugExport: config.debugExport,
           outputDir: config.outputDir,
           keywords: config.keywords,
           excludeUserUins: config.excludeUserUins,
@@ -2662,7 +2663,25 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                 )}
 
                 {/* Sticker Packs List */}
-                {stickerPacks.length === 0 ? (
+                {stickerPacksLoading ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <Loader size={24} />
+                    <p className="mt-3 text-[12px] text-muted-foreground/60">正在加载表情包...</p>
+                  </div>
+                ) : stickerPacksError ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <p className="text-[13px] font-medium text-foreground">表情包加载失败</p>
+                    <p className="mt-1 max-w-md text-[12px] text-muted-foreground/60">{stickerPacksError}</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-4 rounded-full"
+                      onClick={() => void Promise.all([loadStickerPacks(), loadStickerExportRecords()])}
+                    >
+                      重试
+                    </Button>
+                  </div>
+                ) : stickerPacks.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-center">
                     <Smile className="w-8 h-8 text-muted-foreground/20 mb-3" />
                     <p className="text-[13px] text-foreground font-medium">暂无表情包</p>

@@ -76,6 +76,7 @@ export function ScheduledExportWizard({
     includeSystemMessages: true,
     filterPureImageMessages: false,
     preferGroupMemberName: true,
+    debugExport: false,
     // Issue #344：定时导出也支持按资源类型逐项跳过下载。
     skipDownloadResourceTypes: undefined as SkipDownloadResourceType[] | undefined,
   })
@@ -133,6 +134,7 @@ export function ScheduledExportWizard({
           ? prefilledData.filterPureImageMessages 
           : defaultFilter,
         preferGroupMemberName: prefilledData.preferGroupMemberName !== undefined ? prefilledData.preferGroupMemberName : true,
+        debugExport: prefilledData.debugExport ?? false,
         skipDownloadResourceTypes: Array.isArray(prefilledData.skipDownloadResourceTypes) && prefilledData.skipDownloadResourceTypes.length > 0
           ? (prefilledData.skipDownloadResourceTypes as SkipDownloadResourceType[])
           : undefined,
@@ -171,6 +173,7 @@ export function ScheduledExportWizard({
         includeSystemMessages: true,
         filterPureImageMessages: false,
         preferGroupMemberName: true,
+        debugExport: false,
         skipDownloadResourceTypes: undefined,
       })
       setSelectedTargets([])
@@ -228,6 +231,7 @@ export function ScheduledExportWizard({
         includeSystemMessages: baseForm.includeSystemMessages,
         filterPureImageMessages: baseForm.filterPureImageMessages,
         preferGroupMemberName: baseForm.preferGroupMemberName,
+        debugExport: baseForm.debugExport,
         ...(!baseForm.filterPureImageMessages && baseForm.skipDownloadResourceTypes && baseForm.skipDownloadResourceTypes.length > 0 && {
           skipDownloadResourceTypes: baseForm.skipDownloadResourceTypes,
         }),
@@ -891,6 +895,14 @@ export function ScheduledExportWizard({
                       set: (v: boolean) => setBaseForm(p => ({ ...p, preferGroupMemberName: v })),
                       title: "优先使用群成员名称",
                       desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。这个选项仅对群聊生效。",
+                      visible: true,
+                    },
+                    {
+                      id: "debugExport",
+                      checked: baseForm.debugExport,
+                      set: (v: boolean) => setBaseForm(p => ({ ...p, debugExport: v })),
+                      title: "调试导出",
+                      desc: "额外保存原始消息、解析结果、最终消息及逐资源调用耗时与错误；默认关闭，排查导出问题时再开启。",
                       visible: true,
                     }
                   ].filter((opt) => (opt as any).visible !== false).map((opt) => (

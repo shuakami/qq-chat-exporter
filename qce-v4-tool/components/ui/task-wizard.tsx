@@ -43,6 +43,7 @@ interface AdvancedPreferences {
   filterPureImageMessages: boolean
   skipDownloadResourceTypes?: SkipDownloadResourceType[]
   preferGroupMemberName: boolean
+  debugExport: boolean
   exportAsZip: boolean
   useNameInFileName: boolean
   useFriendlyFileName: boolean
@@ -74,6 +75,7 @@ const createDefaultForm = (): CreateTaskForm => ({
   useNameInFileName: false,
   useFriendlyFileName: false,
   preferGroupMemberName: true,
+  debugExport: false,
 })
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -92,6 +94,7 @@ const readAdvancedPreferences = (): Partial<AdvancedPreferences> => {
       "includeSystemMessages",
       "filterPureImageMessages",
       "preferGroupMemberName",
+      "debugExport",
       "exportAsZip",
       "useNameInFileName",
       "useFriendlyFileName",
@@ -118,6 +121,7 @@ const selectAdvancedPreferences = (form: CreateTaskForm): AdvancedPreferences =>
   filterPureImageMessages: form.filterPureImageMessages,
   skipDownloadResourceTypes: form.skipDownloadResourceTypes,
   preferGroupMemberName: form.preferGroupMemberName ?? true,
+  debugExport: form.debugExport ?? false,
   exportAsZip: form.exportAsZip ?? false,
   useNameInFileName: form.useNameInFileName ?? false,
   useFriendlyFileName: form.useFriendlyFileName ?? false,
@@ -173,6 +177,7 @@ const mergePrefilledForm = (
       prefilledData.useFriendlyFileName ?? base.useFriendlyFileName,
     preferGroupMemberName:
       prefilledData.preferGroupMemberName ?? base.preferGroupMemberName,
+    debugExport: prefilledData.debugExport ?? base.debugExport,
   }
 }
 
@@ -1120,7 +1125,10 @@ export function TaskWizard({
             type="button"
             aria-expanded={filtersOpen}
             onClick={() => setFiltersOpen((open) => !open)}
-            className="mb-5 inline-flex items-center gap-2 text-left"
+            className={[
+              "inline-flex items-center gap-2 text-left",
+              filtersOpen ? "mb-5" : "",
+            ].join(" ")}
           >
             <div className="flex min-w-0 items-center gap-2">
               <span className="text-[14px] font-medium text-foreground">过滤条件</span>
@@ -1230,6 +1238,15 @@ export function TaskWizard({
                 tip: EXPORT_OPTION_TOOLTIPS.includeSystemMessages,
                 visible: true,
                 group: "导出内容"
+              },
+              {
+                id: "debugExport",
+                checked: form.debugExport || false,
+                set: (v: boolean) => setForm((p) => ({ ...p, debugExport: v })),
+                title: "调试导出",
+                desc: "额外保存原始消息、解析结果、最终消息及逐资源调用耗时与错误；默认关闭，排查导出问题时再开启。",
+                visible: true,
+                group: "性能与处理"
               },
               {
                 id: "filterPureImageMessages",
