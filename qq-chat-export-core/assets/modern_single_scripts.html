@@ -220,14 +220,29 @@
                         showReplyBackButton(returnMsgId);
                     }
 
-                    var bubble = targetMsg.querySelector('.message-bubble');
-                    if (bubble) {
+                    var highlighted = false;
+                    var highlightBubble = function() {
+                        if (highlighted) return;
+                        highlighted = true;
+                        var bubble = targetMsg.querySelector('.message-bubble');
+                        if (!bubble) return;
                         bubble.classList.remove('reply-jump-highlight');
                         void bubble.offsetWidth;
                         bubble.classList.add('reply-jump-highlight');
                         setTimeout(function() {
                             bubble.classList.remove('reply-jump-highlight');
                         }, 700);
+                    };
+                    if (reducedMotion) {
+                        highlightBubble();
+                    } else if ('onscrollend' in window) {
+                        var fallbackTimer = setTimeout(highlightBubble, 700);
+                        window.addEventListener('scrollend', function() {
+                            clearTimeout(fallbackTimer);
+                            highlightBubble();
+                        }, { once: true });
+                    } else {
+                        setTimeout(highlightBubble, 450);
                     }
                 } else {
                     console.warn('[Reply Jump] 未找到目标消息:', msgId);
