@@ -41,6 +41,10 @@ import { Loader } from '@/components/ui/loader';
 import { MediaPreview, downloadUrl, type MediaItem } from '@/components/ui/media-preview';
 import { createTextBloomProbe, createTokenBloomProbe } from './qce/bloom';
 import { ChunkStore, loadManifest, type QceManifest } from './qce/chunk-store';
+import {
+  installMediaFallback,
+  replaceMediaWithFallback,
+} from './qce/media-fallback';
 
 const QCE_REPO = 'https://github.com/shuakami/qq-chat-exporter';
 const HS_REPO = 'https://github.com/shuakami/hyperscroll';
@@ -335,6 +339,11 @@ export default function Viewer(): React.ReactElement {
     }
   }, []);
 
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    return viewport ? installMediaFallback(viewport) : undefined;
+  }, []);
+
   // Exported message HTML calls these globals (image onclick / reply jump).
   useEffect(() => {
     window.showImageModal = (src: string) => {
@@ -440,6 +449,7 @@ export default function Viewer(): React.ReactElement {
       playingVoiceRef.current = el;
     }).catch(() => {
       el.classList.remove('playing');
+      replaceMediaWithFallback(el, 'audio');
     });
   }
 

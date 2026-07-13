@@ -32,6 +32,66 @@
         function hideImageModal() {
             document.getElementById('imageModal').style.display = 'none';
         }
+        var mediaFallbackIcons = {
+            image: '<line x1="2" y1="2" x2="22" y2="22"/><path d="M10.41 10.41a2 2 0 1 1-2.83-2.83"/><line x1="13.5" y1="13.5" x2="6" y2="21"/><line x1="18" y1="12" x2="21" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.052-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/>',
+            video: '<path d="M10.66 6H14a2 2 0 0 1 2 2v2.5l5.248-3.062A.5.5 0 0 1 22 7.87v8.196"/><path d="M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2"/><line x1="2" y1="2" x2="22" y2="22"/>'
+        };
+        var mediaFallbackLabels = {
+            image: '图片不可用',
+            video: '视频不可用',
+            sticker: '',
+            compact: ''
+        };
+        function buildMediaFallback(kind, source) {
+            var fallback = document.createElement('span');
+            fallback.className = 'media-fallback mf-' + kind;
+            fallback.setAttribute('role', 'img');
+            fallback.setAttribute('aria-label', mediaFallbackLabels[kind] || '表情不可用');
+            if (kind === 'compact') {
+                fallback.style.width = '52px';
+                fallback.style.height = '52px';
+            } else if (kind !== 'sticker') {
+                var rect = source.getBoundingClientRect();
+                var width = parseFloat(source.getAttribute('width') || source.dataset.mediaWidth || '');
+                var height = parseFloat(source.getAttribute('height') || source.dataset.mediaHeight || '');
+                var resolvedWidth = rect.width > 24 ? Math.min(rect.width, 320) :
+                    (isFinite(width) && width > 24 ? Math.min(width, 320) : 240);
+                var ratio = width > 0 && height > 0 ? height / width : .66;
+                fallback.style.width = resolvedWidth + 'px';
+                fallback.style.height = Math.max(64, Math.min(resolvedWidth * ratio, 240)) + 'px';
+            }
+            var icon = document.createElement('span');
+            icon.className = 'mf-icon';
+            icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+                (mediaFallbackIcons[kind] || mediaFallbackIcons.image) + '</svg>';
+            fallback.appendChild(icon);
+            if (mediaFallbackLabels[kind]) {
+                var label = document.createElement('span');
+                label.className = 'mf-text';
+                label.textContent = mediaFallbackLabels[kind];
+                fallback.appendChild(label);
+            }
+            return fallback;
+        }
+        function replaceBrokenMedia(target) {
+            if (target instanceof HTMLVideoElement && target.matches('.video-bubble video.img')) {
+                var videoBubble = target.closest('.video-bubble');
+                if (videoBubble) videoBubble.classList.add('media-broken');
+                target.replaceWith(buildMediaFallback('video', target));
+                return;
+            }
+            if (!(target instanceof HTMLImageElement)) return;
+            if (target.matches('.sticker-wrap img.sticker')) {
+                target.replaceWith(buildMediaFallback('sticker', target));
+            } else if (target.matches('.image-content img')) {
+                target.replaceWith(buildMediaFallback('image', target));
+            } else if (target.matches('img.reply-content-thumb')) {
+                target.replaceWith(buildMediaFallback('compact', target));
+            }
+        }
+        document.addEventListener('error', function(e) {
+            replaceBrokenMedia(e.target);
+        }, true);
         // ========== 虚拟滚动管理器 ==========
         class VirtualScroller {
             constructor(container, items, options = {}) {
@@ -173,6 +233,12 @@
         }
         
         document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.image-content img, .sticker-wrap img.sticker, img.reply-content-thumb').forEach(function(img) {
+                if (img.complete && img.naturalWidth === 0) replaceBrokenMedia(img);
+            });
+            document.querySelectorAll('.video-bubble video.img').forEach(function(video) {
+                if (video.error) replaceBrokenMedia(video);
+            });
             var modal = document.getElementById('imageModal');
             if (modal) modal.addEventListener('click', hideImageModal);
             document.addEventListener('keydown', function(e) {
