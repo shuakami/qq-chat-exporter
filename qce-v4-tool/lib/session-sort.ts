@@ -165,6 +165,39 @@ export function sortSessionItems<T extends SortableSessionItem>(
   return [...items].sort((a, b) => compareSessionItems(a, b, field, order))
 }
 
+export function sortSessionTargets<T>(
+  items: readonly T[],
+  type: 'group' | 'friend',
+  taskStatsMap: Record<string, SessionTaskStats | undefined> | undefined,
+  getId: (item: T) => string,
+  getName: (item: T) => string,
+): T[] {
+  return [...items].sort((a, b) => {
+    const aId = getId(a)
+    const bId = getId(b)
+    const aStats = taskStatsMap?.[sessionTaskStatsKey(type, aId)]
+    const bStats = taskStatsMap?.[sessionTaskStatsKey(type, bId)]
+    return compareSessionItems(
+      {
+        id: aId,
+        type,
+        name: getName(a),
+        successfulExportCount: aStats?.successfulExportCount,
+        lastSuccessfulExportAt: aStats?.lastSuccessfulExportAt,
+      },
+      {
+        id: bId,
+        type,
+        name: getName(b),
+        successfulExportCount: bStats?.successfulExportCount,
+        lastSuccessfulExportAt: bStats?.lastSuccessfulExportAt,
+      },
+      'frequentExport',
+      'desc',
+    )
+  })
+}
+
 /**
  * 把 ISO 时间格式化成「相对当前时间」的中文字符串。
  *

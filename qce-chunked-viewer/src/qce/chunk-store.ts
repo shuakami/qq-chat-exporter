@@ -4,6 +4,7 @@
  * script-injection loads, and Bloom accessors for search prefiltering.
  */
 import { BloomFilter, type BloomHashPair } from './bloom.js';
+import { kindOf } from './message-kind.mjs';
 
 export interface QceRecord {
   id: string;
@@ -19,19 +20,7 @@ export interface QceRecord {
   html: string;
 }
 
-/** Derives a coarse message kind from the exporter's message HTML. */
-export function kindOf(html: string): string {
-  if (html.includes('class="image-content"')) return 'img';
-  if (html.includes('class="market-face"') || html.includes('class="face-emoji"')) return 'sticker';
-  if (html.includes('class="audio-wrapper"') || html.includes('class="message-audio"')) return 'voice';
-  if (html.includes('class="message-video"')) return 'video';
-  if (html.includes('class="message-file"')) return 'file';
-  if (html.includes('class="reply-content"')) return 'reply';
-  if (html.includes('class="forward-card')) return 'forward';
-  if (html.includes('class="location-')) return 'location';
-  if (html.includes('class="json-card"')) return 'card';
-  return 'text';
-}
+export { kindOf };
 
 export interface QceChunkMeta {
   id: string;

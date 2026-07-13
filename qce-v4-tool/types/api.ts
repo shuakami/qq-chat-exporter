@@ -153,7 +153,7 @@ export interface ExportTask {
     guildId: string
   }
   sessionName: string
-  status: "pending" | "running" | "completed" | "failed"
+  status: "pending" | "running" | "completed" | "failed" | "cancelled"
   progress: number
   format: string
   startTime?: number
@@ -234,6 +234,8 @@ export interface CreateTaskForm {
   useFriendlyFileName?: boolean
   /** 群聊导出时优先使用群成员名称（Issue #358） */
   preferGroupMemberName?: boolean
+  /** HTML 群聊导出时显示群成员专属头衔徽章。 */
+  showGroupMemberTitles?: boolean
   /**
    * 仅保留元数据、跳过下载的资源类型（Issue #341）。
    * 'image' | 'video' | 'audio' | 'file'
@@ -275,6 +277,8 @@ export interface CreateTaskRequest {
     useFriendlyFileName?: boolean
     /** 群聊导出时优先使用群成员名称（Issue #358） */
     preferGroupMemberName?: boolean
+    /** HTML 群聊导出时显示群成员专属头衔徽章。 */
+    showGroupMemberTitles?: boolean
     /** 仅保留元数据、跳过下载的资源类型（Issue #341） */
     skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
   }
@@ -321,11 +325,11 @@ export interface CreateTaskResponse {
 
 // WebSocket Progress Message Types  
 export interface WebSocketProgressMessage {
-  type: "export_progress" | "export_complete" | "export_error"
+  type: "export_progress" | "export_complete" | "export_error" | "task_cancelled"
   data: {
     taskId: string
     progress: number
-    status: "running" | "completed" | "failed"
+    status: "running" | "completed" | "failed" | "cancelled"
     error?: string
     fileName?: string
     filePath?: string

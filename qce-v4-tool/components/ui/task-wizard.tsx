@@ -9,17 +9,26 @@ import { Label } from "./label"
 import { Badge } from "./badge"
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar"
 import {
-  Users, User, Search, SearchX, ChevronDown, RefreshCw, Settings, Eye, CheckCircle, X, UserMinus, UserPlus, Check, HelpCircle
+  Users, User, Search, ChevronDown, RefreshCw, Settings, Eye, CheckCircle, X, UserMinus, UserPlus, HelpCircle
 } from "lucide-react"
 import { Tooltip, TooltipTrigger, TooltipContent } from "./tooltip"
 import { Loader } from "@/components/ui/loader"
 import { useSearch } from "@/hooks/use-search"
 import { useApi } from "@/hooks/use-api"
 import type { CreateTaskForm, Group, Friend, GroupMember } from "@/types/api"
-import { Checkbox } from "./checkbox"
 import { Switch } from "./switch"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "./dropdown-menu"
 import { toggleSkipResourceType } from "@/lib/skip-resource-types"
 import { EXPORT_OPTION_TOOLTIPS } from "@/lib/export-option-tooltips"
+import {
+  sortSessionTargets,
+  type SessionTaskStats,
+} from "@/lib/session-sort"
 
 // 统一的药丸输入样式（与新版模态框 UI 对齐：无边框、浅底、聚焦加深）
 const PILL_INPUT =
@@ -34,6 +43,7 @@ interface AdvancedPreferences {
   filterPureImageMessages: boolean
   skipDownloadResourceTypes?: SkipDownloadResourceType[]
   preferGroupMemberName: boolean
+  showGroupMemberTitles: boolean
   exportAsZip: boolean
   useNameInFileName: boolean
   useFriendlyFileName: boolean
@@ -65,6 +75,7 @@ const createDefaultForm = (): CreateTaskForm => ({
   useNameInFileName: false,
   useFriendlyFileName: false,
   preferGroupMemberName: true,
+  showGroupMemberTitles: true,
 })
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -83,6 +94,7 @@ const readAdvancedPreferences = (): Partial<AdvancedPreferences> => {
       "includeSystemMessages",
       "filterPureImageMessages",
       "preferGroupMemberName",
+      "showGroupMemberTitles",
       "exportAsZip",
       "useNameInFileName",
       "useFriendlyFileName",
@@ -109,6 +121,7 @@ const selectAdvancedPreferences = (form: CreateTaskForm): AdvancedPreferences =>
   filterPureImageMessages: form.filterPureImageMessages,
   skipDownloadResourceTypes: form.skipDownloadResourceTypes,
   preferGroupMemberName: form.preferGroupMemberName ?? true,
+  showGroupMemberTitles: form.showGroupMemberTitles ?? true,
   exportAsZip: form.exportAsZip ?? false,
   useNameInFileName: form.useNameInFileName ?? false,
   useFriendlyFileName: form.useFriendlyFileName ?? false,
@@ -164,6 +177,8 @@ const mergePrefilledForm = (
       prefilledData.useFriendlyFileName ?? base.useFriendlyFileName,
     preferGroupMemberName:
       prefilledData.preferGroupMemberName ?? base.preferGroupMemberName,
+    showGroupMemberTitles:
+      prefilledData.showGroupMemberTitles ?? base.showGroupMemberTitles,
   }
 }
 
@@ -186,6 +201,7 @@ interface TaskWizardProps {
   avatarExportLoading?: string | null
   /** Issue #340：独立模式下群相关 API 不可用，隐藏手动输入群号 */
   isStandalone?: boolean
+  taskStatsMap?: Record<string, SessionTaskStats | undefined>
 }
 
 export function TaskWizard({
@@ -201,6 +217,7 @@ export function TaskWizard({
   onExportAvatars,
   avatarExportLoading,
   isStandalone = false,
+  taskStatsMap,
 }: TaskWizardProps) {
   const { apiCall } = useApi()
   const [searchTerm, setSearchTerm] = useState("")
@@ -257,6 +274,7 @@ export function TaskWizard({
     form.filterPureImageMessages,
     form.skipDownloadResourceTypes,
     form.preferGroupMemberName,
+    form.showGroupMemberTitles,
     form.exportAsZip,
     form.useNameInFileName,
     form.useFriendlyFileName,
@@ -291,7 +309,7 @@ export function TaskWizard({
   // init search data
   const groupSearchRef = useRef(groupSearch)
   const friendSearchRef = useRef(friendSearch)
-  const searchTimerRef = useRef<NodeJS.Timeout>()
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null)
   const currentChatTypeRef = useRef(form.chatType)
 
   useEffect(() => {
@@ -420,15 +438,35 @@ export function TaskWizard({
     return (
       member.nick.toLowerCase().includes(term) ||
       (member.cardName && member.cardName.toLowerCase().includes(term)) ||
-      (member.uin && member.uin.includes(term))
+      (member.uin && member.uin.includes(term)) ||
+      member.uid.toLowerCase().includes(term) ||
+      String(member.role).toLowerCase().includes(term)
     )
   })
 
-  // 渲染折叠式群成员选择器面板。include 与 exclude 共用同一份 UI，由 mode 控制可见性，
-  // 只有 mode 与外层匹配时才展开，确认按钮的写入逻辑见 confirmMemberSelection。
-  const renderMemberSelectorPanel = (mode: 'exclude' | 'include') => (
-    <div className={`overflow-hidden transition-all duration-300 ease-in-out ${memberSelectorMode === mode ? "max-h-[350px] opacity-100" : "max-h-0 opacity-0"}`}>
-      <div className="rounded-xl p-3 space-y-2 bg-muted/50">
+  const renderMemberSelectorDropdown = (mode: 'exclude' | 'include') => (
+    <DropdownMenu
+      open={memberSelectorMode === mode}
+      onOpenChange={(open) => {
+        if (open) {
+          handleOpenMemberSelector(mode)
+        } else if (memberSelectorMode === mode) {
+          setMemberSelectorMode(null)
+        }
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-xs h-7 text-[#317CFF] hover:text-[#2867d6]"
+        >
+          从群成员选择
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-[360px] p-2">
+        <div className="space-y-2" onKeyDown={(event) => event.stopPropagation()}>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/60" />
           <Input
@@ -451,7 +489,7 @@ export function TaskWizard({
             </Button>
           )}
         </div>
-        <div className="max-h-[180px] overflow-y-auto rounded-lg bg-card">
+        <div className="max-h-[240px] overflow-y-auto">
           {membersLoading ? (
             <div className="flex items-center justify-center h-20">
               <Loader size={20} className="text-muted-foreground/60" />
@@ -461,23 +499,23 @@ export function TaskWizard({
               {memberSearchTerm ? "没有找到匹配的成员" : "暂无群成员数据"}
             </div>
           ) : (
-            <div className="divide-y divide-black/[0.06] dark:divide-white/[0.06]">
+            <div className="space-y-0.5">
               {filteredMembers.slice(0, 50).map((member) => {
                 const uin = member.uin || member.uid
                 const isSelected = selectedMemberUins.has(uin)
                 const displayName = member.cardName || member.nick
-                const roleNum = typeof member.role === 'number' ? member.role : 0
-                const isOwner = roleNum === 4 || member.role === 'owner'
-                const isAdmin = roleNum === 3 || member.role === 'admin'
+                const role = member.role as GroupMember["role"] | number
+                const roleNum = typeof role === 'number' ? role : 0
+                const isOwner = roleNum === 4 || role === 'owner'
+                const isAdmin = roleNum === 3 || role === 'admin'
                 return (
-                  <div
+                  <DropdownMenuCheckboxItem
                     key={uin}
-                    onClick={() => toggleMemberSelection(uin)}
-                    className={`flex items-center gap-2 p-2 cursor-pointer hover:bg-muted transition-colors ${
-                      isSelected ? "bg-blue-50 dark:bg-blue-950/50" : ""
-                    }`}
+                    checked={isSelected}
+                    onCheckedChange={() => toggleMemberSelection(uin)}
+                    onSelect={(event) => event.preventDefault()}
+                    className="pl-[30px]"
                   >
-                    <Checkbox checked={isSelected} className="w-4 h-4" />
                     <Avatar className="w-6 h-6 rounded-full">
                       <AvatarImage src={member.avatarUrl || `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=100`} />
                       <AvatarFallback className="text-xs">{displayName[0]}</AvatarFallback>
@@ -492,8 +530,7 @@ export function TaskWizard({
                         {uin}
                       </p>
                     </div>
-                    {isSelected && <Check className="w-3 h-3 text-blue-600 flex-shrink-0" />}
-                  </div>
+                  </DropdownMenuCheckboxItem>
                 )
               })}
               {filteredMembers.length > 50 && (
@@ -505,6 +542,7 @@ export function TaskWizard({
           )}
         </div>
         <Button
+          type="button"
           onClick={confirmMemberSelection}
           size="sm"
           className="w-full h-7 text-xs rounded-full bg-[#317CFF] hover:bg-[#2867d6]"
@@ -512,7 +550,8 @@ export function TaskWizard({
           确认选择 ({selectedMemberUins.size})
         </Button>
       </div>
-    </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 
   const handleSearchInput = useCallback((value: string) => {
@@ -524,14 +563,16 @@ export function TaskWizard({
     }, 300)
   }, [])
 
-  useEffect(() => () => searchTimerRef.current && clearTimeout(searchTimerRef.current), [])
+  useEffect(() => () => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+  }, [])
 
   const getDisplayTargets = () => {
     const s = form.chatType === 2 ? groupSearch : friendSearch
     const defaultData = form.chatType === 2 ? groups : friends
+    let targets: Array<Group | Friend>
     if (searchTerm.trim()) {
-      if (s.allData.length > 0) return s.results
-      return defaultData.filter((item) => {
+      targets = (s.allData.length > 0 ? s.results : defaultData.filter((item) => {
         if (form.chatType === 2) {
           const g = item as Group
           return g.groupName.toLowerCase().includes(searchTerm.toLowerCase()) || g.groupCode.includes(searchTerm)
@@ -543,10 +584,27 @@ export function TaskWizard({
             f.uid.includes(searchTerm)
           )
         }
-      })
+      })) as Array<Group | Friend>
+    } else {
+      targets = (s.allData.length > 0 ? s.allData : defaultData) as Array<Group | Friend>
     }
-    if (s.allData.length > 0) return s.allData
-    return defaultData
+
+    if (form.chatType === 2) {
+      return sortSessionTargets(
+        targets as Group[],
+        'group',
+        taskStatsMap,
+        (group) => group.groupCode,
+        (group) => group.groupName,
+      )
+    }
+    return sortSessionTargets(
+      targets as Friend[],
+      'friend',
+      taskStatsMap,
+      (friend) => friend.uid,
+      (friend) => friend.remark || friend.nick,
+    )
   }
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
@@ -621,7 +679,7 @@ export function TaskWizard({
       uid: qqNumber,
       uin: Number(qqNumber),
       nick: manualSessionName.trim() || `好友 ${qqNumber}`,
-      remark: manualSessionName.trim() || null,
+      remark: manualSessionName.trim() || undefined,
       avatarUrl: `https://q1.qlogo.cn/g?b=qq&nk=${qqNumber}&s=640`,
       isOnline: false,
       status: 0,
@@ -847,11 +905,6 @@ export function TaskWizard({
 
           {!s.loading && !s.error && displayTargets.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
-              <div className="mb-3 flex justify-center">
-                <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-black/[0.03] dark:bg-white/[0.05]">
-                  <SearchX className="w-5 h-5 text-muted-foreground/50" strokeWidth={1.75} />
-                </div>
-              </div>
               <p className="text-sm">
                 {searchTerm.trim()
                   ? `没有找到匹配 "${searchTerm}" 的${form.chatType === 1 ? "好友" : "群组"}`
@@ -1110,19 +1163,9 @@ export function TaskWizard({
                 <div className="flex items-center justify-between">
                   <label className="text-[13px] font-medium text-foreground/80">屏蔽用户</label>
                   {selectedTarget && "groupCode" in selectedTarget && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleOpenMemberSelector('exclude')}
-                      className="text-xs h-7 text-[#317CFF] hover:text-[#2867d6]"
-                    >
-                      {memberSelectorMode === 'exclude' ? "收起" : "从群成员选择"}
-                    </Button>
+                    renderMemberSelectorDropdown('exclude')
                   )}
                 </div>
-
-                {renderMemberSelectorPanel('exclude')}
 
                 <Input
                   id="excludeUserUins"
@@ -1143,19 +1186,9 @@ export function TaskWizard({
                 <div className="flex items-center justify-between">
                   <label className="text-[13px] font-medium text-foreground/80">仅保留用户</label>
                   {selectedTarget && "groupCode" in selectedTarget && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleOpenMemberSelector('include')}
-                      className="text-xs h-7 text-[#317CFF] hover:text-[#2867d6]"
-                    >
-                      {memberSelectorMode === 'include' ? "收起" : "从群成员选择"}
-                    </Button>
+                    renderMemberSelectorDropdown('include')
                   )}
                 </div>
-
-                {renderMemberSelectorPanel('include')}
 
                 <Input
                   id="includeUserUins"
@@ -1277,6 +1310,15 @@ export function TaskWizard({
                 desc: "群聊导出时优先使用群名片或群内名称。关闭后会改用 QQ 昵称或 QQ 号。",
                 tip: EXPORT_OPTION_TOOLTIPS.preferGroupMemberName,
                 visible: form.chatType === 2,
+                group: "导出内容"
+              },
+              {
+                id: "showGroupMemberTitles",
+                checked: form.showGroupMemberTitles ?? true,
+                set: (v: boolean) => setForm((p) => ({ ...p, showGroupMemberTitles: v })),
+                title: "显示群成员头衔",
+                desc: "显示群成员的专属头衔徽章。关闭后仍保留群名片、昵称和发送者名称。",
+                visible: form.chatType === 2 && form.format === "HTML",
                 group: "导出内容"
               },
               {
