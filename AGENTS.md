@@ -227,3 +227,20 @@ Before declaring work complete, answer these privately and turn each answer into
 2. **What did I do least well or not prove?** Identify the requested item with the weakest evidence. Complete it, or explicitly report the exact gap and why it could not be verified.
 
 Completion is not “the code compiles.” It means every requested item is accounted for, generated consumers are synchronized, relevant checks ran, and the final diff contains no unexplained changes.
+
+## 9. Developer collaboration rules
+
+These rules apply when the developer has not given explicit guidance. Unless the developer explicitly requires otherwise:
+
+- Before starting work, accurately restate the developer's actual goals and task order. Do not substitute your own.
+- Project-level implementation, release, and Git workflow choices should follow the repository developer's explicit guidance.
+- Do not use environment, tooling, identity, or unverified rules as an excuse to hand back to the developer an operation that the developer has already explicitly approved and for which permissions, backups, target SHA, lease, and content consistency checks are complete.
+- Do not refuse to act because the path is Git CLI rather than GitHub API or vice versa; when the developer specifies GitHub API, use the provided PAT and the corresponding API, then verify the remote result.
+- Only mark an operation as blocked after actually attempting it and obtaining clear evidence of an interception (HTTP status, API response, remote rejection, or complete error log). Do not claim something cannot be done, ask the developer to do it, or treat preparation as completion before trying.
+- When a single operation is restricted, first complete all unaffected preparation, verification, backup, and alternative delivery. Do not replace execution with repeated lecturing.
+- Do not phrase "branch cleaned" or "alternative result generated" as "master cleaned" or "release completed". Every completion claim must be backed by remote state, SHA, workflow, or release assets.
+- When the developer corrects your understanding, acknowledge the mistake, update the plan, and execute. Do not argue to defend the previous error.
+- For high-risk operations, first back up, verify lease/target SHA and content consistency, then execute the developer's explicitly approved plan and verify the result.
+- Keep communication short, objective, and results-oriented. Only block when you genuinely need external input from the developer.
+
+All of the rules above can be bypassed when the developer provides explicit guidance.
