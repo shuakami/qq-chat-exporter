@@ -526,16 +526,8 @@ impl ResourceHandler {
         let mut join_set: JoinSet<()> = JoinSet::new();
         for task in tasks {
             let handler = Arc::clone(self);
-            let semaphore = Arc::clone(&self.download_semaphore);
             let task_cancel_flag = Arc::clone(&cancel_flag);
             join_set.spawn(async move {
-                let permit = tokio::select! {
-                    result = semaphore.acquire() => result.ok(),
-                    () = wait_for_cancellation(task_cancel_flag.as_ref()) => None,
-                };
-                let Some(_permit) = permit else {
-                    return;
-                };
                 handler
                     .execute_download_with_retries(&task, task_cancel_flag.as_ref())
                     .await;
@@ -567,7 +559,19 @@ impl ResourceHandler {
             if cancel_flag.load(Ordering::SeqCst) {
                 return;
             }
-            match self.execute_download_once(task).await {
+            let permit = tokio::select! {
+                result = self.download_semaphore.acquire() => result.ok(),
+                () = wait_for_cancellation(cancel_flag) => None,
+            };
+            let Some(permit) = permit else {
+                return;
+            };
+            let result = tokio::select! {
+                result = self.execute_download_once(task) => result,
+                () = wait_for_cancellation(cancel_flag) => return,
+            };
+            drop(permit);
+            match result {
                 Ok(()) => {
                     let file_name = { task.resource.lock().await.file_name.clone() };
                     {
@@ -1293,4 +1297,139 @@ fn now_ms() -> i64 {
 /// 当前 ISO 时间字符串。
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use serde_json::json;
+    use tokio::sync::{mpsc, Notify};
+
+    use super::*;
+
+    struct RetrySlotDownloader {
+        attempts: AtomicUsize,
+        events: mpsc::UnboundedSender<&'static str>,
+        release_first_attempt: Notify,
+    }
+
+    #[async_trait]
+    impl MediaDownloader for RetrySlotDownloader {
+        async fn download_media(
+            &self,
+            _msg_id: &str,
+            _chat_type: i64,
+            _peer_uid: &str,
+            element_id: &str,
+            _dest_path: &str,
+            _timeout_ms: u64,
+        ) -> Result<String, String> {
+            if element_id == "retry" {
+                let attempt = self.attempts.fetch_add(1, Ordering::SeqCst);
+                if attempt == 0 {
+                    let _ = self.events.send("retry");
+                    self.release_first_attempt.notified().await;
+                    return Err("timeout".to_string());
+                }
+                return Err("404".to_string());
+            }
+            let _ = self.events.send("next");
+            Err("packet cant get video url".to_string())
+        }
+    }
+
+    fn download_task(element_id: &str, file_name: &str) -> DownloadTask {
+        DownloadTask {
+            resource: Arc::new(Mutex::new(base_resource(
+                "image",
+                "",
+                file_name.to_string(),
+                0,
+                "image/jpeg",
+                String::new(),
+            ))),
+            msg_id: format!("msg-{element_id}"),
+            chat_type: 2,
+            peer_uid: "peer".to_string(),
+            element_id: element_id.to_string(),
+            element: json!({ "picElement": { "fileName": file_name } }),
+            priority: 100,
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_backoff_releases_download_slot() {
+        let root = std::env::temp_dir().join(format!("qce-retry-slot-{}", uuid::Uuid::new_v4()));
+        let (events, mut event_rx) = mpsc::unbounded_channel();
+        let downloader = Arc::new(RetrySlotDownloader {
+            attempts: AtomicUsize::new(0),
+            events,
+            release_first_attempt: Notify::new(),
+        });
+        let db = Arc::new(DatabaseManager::new(&root.join("qce.db")));
+        let handler = Arc::new(
+            ResourceHandler::new(
+                downloader.clone(),
+                None,
+                db,
+                ResourceHandlerConfig {
+                    storage_root: root,
+                    max_concurrent_downloads: 1,
+                    max_retries: 2,
+                    ..ResourceHandlerConfig::default()
+                },
+            )
+            .await,
+        );
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+
+        let retry_handle = {
+            let handler = Arc::clone(&handler);
+            let cancel_flag = Arc::clone(&cancel_flag);
+            tokio::spawn(async move {
+                handler
+                    .execute_download_with_retries(
+                        &download_task("retry", "retry.jpg"),
+                        cancel_flag.as_ref(),
+                    )
+                    .await;
+            })
+        };
+        assert_eq!(event_rx.recv().await, Some("retry"));
+
+        let next_handle = {
+            let handler = Arc::clone(&handler);
+            let cancel_flag = Arc::clone(&cancel_flag);
+            tokio::spawn(async move {
+                handler
+                    .execute_download_with_retries(
+                        &download_task("next", "next.jpg"),
+                        cancel_flag.as_ref(),
+                    )
+                    .await;
+            })
+        };
+        downloader.release_first_attempt.notify_one();
+
+        let next_event = tokio::time::timeout(Duration::from_millis(250), event_rx.recv())
+            .await
+            .expect("next resource should start while the first resource backs off");
+        assert_eq!(next_event, Some("next"));
+
+        cancel_flag.store(true, Ordering::SeqCst);
+        retry_handle.await.expect("retry task should exit cleanly");
+        next_handle.await.expect("next task should exit cleanly");
+    }
+
+    #[test]
+    fn napcat_api_shape_failures_are_not_retried() {
+        assert!(!is_retriable_error(
+            "Cannot read properties of undefined (reading 'FetchRkey')"
+        ));
+        assert!(!is_retriable_error(
+            "Cannot read properties of undefined (reading 'GetGroupVideoUrl')"
+        ));
+        assert!(!is_retriable_error("packet cant get video url"));
+    }
 }
