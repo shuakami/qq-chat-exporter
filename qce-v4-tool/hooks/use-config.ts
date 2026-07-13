@@ -9,6 +9,10 @@ export interface ConfigData {
   currentScheduledExportsDir: string
 }
 
+interface ConfigResponse extends ConfigData {
+  message?: string
+}
+
 export function useConfig() {
   const [config, setConfig] = useState<ConfigData | null>(null)
   const [loading, setLoading] = useState(false)
@@ -17,7 +21,7 @@ export function useConfig() {
   const loadConfig = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await apiCall('/api/config')
+      const response = await apiCall<ConfigData>('/api/config')
       
       if (response.success && response.data) {
         setConfig(response.data)
@@ -35,7 +39,7 @@ export function useConfig() {
   }) => {
     try {
       setLoading(true)
-      const response = await apiCall('/api/config', {
+      const response = await apiCall<ConfigResponse>('/api/config', {
         method: 'PUT',
         body: JSON.stringify(updates)
       })
