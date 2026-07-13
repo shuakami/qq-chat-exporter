@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import {
     compareSessionItems,
     sortSessionItems,
+    sortSessionTargets,
     formatRelativeFromNow,
     formatCompactCount,
+    sessionTaskStatsKey,
     type SortableSessionItem,
 } from '../../../../qce-v4-tool/lib/session-sort.js';
 
@@ -96,6 +98,45 @@ test('sortSessionItems: lastActivity desc 把缺失项沉到最后', () => {
         sorted.map((it) => it.id),
         ['mar', 'feb', 'jan', 'no-data'],
     );
+});
+
+test('sortSessionTargets: 选择页沿用常用导出优先级且不修改原数组', () => {
+    const targets = [
+        { id: 'never', name: '未导出' },
+        { id: 'recent', name: '最近导出' },
+        { id: 'frequent', name: '常用导出' },
+    ];
+    const stats = {
+        [sessionTaskStatsKey('group', 'recent')]: {
+            exportedMessageCount: 1,
+            successfulExportCount: 1,
+            lastSuccessfulExportAt: 200,
+        },
+        [sessionTaskStatsKey('group', 'frequent')]: {
+            exportedMessageCount: 1,
+            successfulExportCount: 3,
+            lastSuccessfulExportAt: 100,
+        },
+    };
+
+    const sorted = sortSessionTargets(
+        targets,
+        'group',
+        stats,
+        (target) => target.id,
+        (target) => target.name,
+    );
+
+    assert.deepEqual(sorted.map((target) => target.id), [
+        'frequent',
+        'recent',
+        'never',
+    ]);
+    assert.deepEqual(targets.map((target) => target.id), [
+        'never',
+        'recent',
+        'frequent',
+    ]);
 });
 
 test('formatRelativeFromNow: 各档位边界', () => {

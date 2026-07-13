@@ -512,6 +512,19 @@ impl HtmlExporter {
             margin: 8px 0;
         }}
 
+        .message-audio-fallback {{
+            display: inline-flex;
+            flex-direction: column;
+            align-items: flex-start;
+            width: 100%;
+        }}
+
+        .message-audio-download {{
+            color: {text_color};
+            font-size: 0.85em;
+            margin-bottom: 8px;
+        }}
+
         .message-file {{
             display: inline-flex;
             align-items: center;
@@ -843,6 +856,12 @@ impl HtmlExporter {
                     "audio" => {
                         if include_links {
                             if let Some(url) = resource_url {
+                                if is_silk_source(url) {
+                                    return format!(
+                                        "<span class=\"message-audio-fallback\"><span>[语音无法转码]</span><a href=\"{url}\" class=\"message-audio-download\" download=\"{}\">下载原始 SILK 语音</a></span>",
+                                        file_name.unwrap_or("audio.silk")
+                                    );
+                                }
                                 return format!(
                                     "<audio src=\"{url}\" controls class=\"message-audio\" preload=\"metadata\">[语音: {}]</audio>",
                                     file_name.unwrap_or("audio")
@@ -1075,6 +1094,13 @@ fn linkify_urls(text: &str) -> String {
     out
 }
 
+fn is_silk_source(source: &str) -> bool {
+    source
+        .split(['?', '#'])
+        .next()
+        .is_some_and(|path| path.to_ascii_lowercase().ends_with(".silk"))
+}
+
 /// 头像占位符：名字首字符大写（对应 TS `generateAvatarPlaceholder`）。
 fn avatar_placeholder(name: &str) -> String {
     name.chars()
@@ -1113,4 +1139,17 @@ fn find_reply_data(message: &CleanMessage) -> Option<&Value> {
         .find(|e| e.element_type == "reply")
         .map(|e| &e.data)
         .filter(|d| d.is_object())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_silk_source;
+
+    #[test]
+    fn detects_silk_sources_with_query_or_fragment() {
+        assert!(is_silk_source("resources/audios/voice.SILK"));
+        assert!(is_silk_source("https://example.test/voice.silk?token=x"));
+        assert!(is_silk_source("voice.silk#download"));
+        assert!(!is_silk_source("resources/audios/voice.wav"));
+    }
 }

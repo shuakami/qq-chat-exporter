@@ -5,6 +5,7 @@ import type {
   NotificationMessage,
   WebSocketProgressMessage,
   WebSocketTaskResyncMessage,
+  ExportTask,
 } from "@/types/api"
 
 interface UseWebSocketProps {
@@ -18,6 +19,7 @@ interface UseWebSocketProps {
    * 等下一条 export_progress 才有反应。
    */
   onTaskResync?: (data: WebSocketTaskResyncMessage['data']) => void
+  onTaskCancelled?: (data: ExportTask) => void
   onError?: (error: string | null) => void
 }
 
@@ -27,6 +29,7 @@ export function useWebSocket({
   onProgressUpdate,
   onNotification,
   onTaskResync,
+  onTaskCancelled,
   onError,
 }: UseWebSocketProps = {}) {
   const [ws, setWs] = useState<WebSocket | null>(null)
@@ -39,6 +42,7 @@ export function useWebSocket({
     onProgressUpdate,
     onNotification,
     onTaskResync,
+    onTaskCancelled,
     onError,
   })
   
@@ -50,9 +54,10 @@ export function useWebSocket({
       onProgressUpdate,
       onNotification,
       onTaskResync,
+      onTaskCancelled,
       onError,
     }
-  }, [onMessage, onExportProgress, onProgressUpdate, onNotification, onTaskResync, onError])
+  }, [onMessage, onExportProgress, onProgressUpdate, onNotification, onTaskResync, onTaskCancelled, onError])
 
   const connect = useCallback(() => {
     // Don't create new connection if one already exists
@@ -91,6 +96,8 @@ export function useWebSocket({
         } else if (data.type === "task_resync") {
           // Issue #144: 服务端 WebSocket 连上后下发的任务状态全量同步
           callbacksRef.current.onTaskResync?.(data.data)
+        } else if (data.type === "task_cancelled") {
+          callbacksRef.current.onTaskCancelled?.(data.data)
         } else if (data.type === "notification") {
           callbacksRef.current.onNotification?.(data.data)
         }

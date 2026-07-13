@@ -181,6 +181,105 @@ mod gray_tip_tests {
 }
 
 #[cfg(test)]
+mod native_face_tests {
+    use super::{SimpleMessageParser, SimpleParserOptions};
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn preserves_native_face_shape_and_random_result() {
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let parsed = parser
+            .parse_messages(&[json!({
+                "msgId": "face-message",
+                "msgSeq": "1",
+                "msgTime": "1757930244",
+                "msgType": 2,
+                "chatType": 2,
+                "peerUid": "group-1",
+                "senderUid": "u_sender",
+                "senderUin": "10001",
+                "sendNickName": "测试用户",
+                "elements": [{
+                    "elementType": 6,
+                    "faceElement": {
+                        "faceIndex": 358,
+                        "faceType": 3,
+                        "faceText": "/骰子",
+                        "packId": "1",
+                        "stickerId": "33",
+                        "sourceType": 1,
+                        "stickerType": 2,
+                        "resultId": "6",
+                        "randomType": 1
+                    }
+                }]
+            })])
+            .await;
+
+        let element = &parsed[0].content.elements[0];
+        assert_eq!(element.element_type, "face");
+        assert_eq!(element.data["id"], "358");
+        assert_eq!(element.data["name"], "/骰子");
+        assert_eq!(element.data["faceType"], 3);
+        assert_eq!(element.data["packId"], "1");
+        assert_eq!(element.data["stickerId"], "33");
+        assert_eq!(element.data["resultId"], "6");
+        assert_eq!(element.data["randomType"], 1);
+        assert_eq!(parsed[0].content.text, "/骰子（点数 6）");
+    }
+
+    #[tokio::test]
+    async fn preserves_wallet_gift_and_unknown_native_element_identity() {
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let parsed = parser
+            .parse_messages(&[json!({
+                "msgId": "native-message",
+                "msgSeq": "1",
+                "msgTime": "1757930244",
+                "msgType": 2,
+                "chatType": 2,
+                "peerUid": "group-1",
+                "senderUid": "u_sender",
+                "senderUin": "10001",
+                "sendNickName": "测试用户",
+                "elements": [
+                    {
+                        "elementType": 0,
+                        "walletElement": {
+                            "title": "恭喜发财",
+                            "channel": 1
+                        }
+                    },
+                    {
+                        "elementType": 19,
+                        "liveGiftElement": {
+                            "giftName": "小心心",
+                            "giftId": 12
+                        }
+                    },
+                    {
+                        "elementType": 999,
+                        "futureElement": {
+                            "value": "preserved upstream"
+                        }
+                    }
+                ]
+            })])
+            .await;
+
+        assert_eq!(parsed[0].content.elements[0].element_type, "wallet");
+        assert_eq!(parsed[0].content.elements[0].data["payload"]["channel"], 1);
+        assert_eq!(parsed[0].content.elements[1].element_type, "live_gift");
+        assert_eq!(parsed[0].content.elements[1].data["payload"]["giftId"], 12);
+        assert_eq!(parsed[0].content.elements[2].element_type, "system");
+        assert_eq!(
+            parsed[0].content.elements[2].data["nativeType"],
+            "futureElement"
+        );
+    }
+}
+
+#[cfg(test)]
 mod reply_target_tests {
     use super::{SimpleMessageParser, SimpleParserOptions};
     use serde_json::{json, Value};
@@ -991,9 +1090,26 @@ impl SimpleMessageParser {
                 .map(str::to_string)
                 .or_else(|| self.face_map.get(&face_id).cloned())
                 .unwrap_or_else(|| format!("表情{face_id}"));
+            let mut data = json!({
+                "id": face_id,
+                "name": face_name,
+                "faceType": v_get(fe, "faceType").cloned().unwrap_or(Value::Null),
+                "packId": v_str(fe, "packId").unwrap_or(""),
+                "stickerId": v_str(fe, "stickerId").unwrap_or(""),
+                "sourceType": v_get(fe, "sourceType").cloned().unwrap_or(Value::Null),
+                "stickerType": v_get(fe, "stickerType").cloned().unwrap_or(Value::Null),
+                "resultId": v_str(fe, "resultId").unwrap_or(""),
+                "surpriseId": v_str(fe, "surpriseId").unwrap_or(""),
+                "randomType": v_get(fe, "randomType").cloned().unwrap_or(Value::Null),
+                "chainCount": v_get(fe, "chainCount").cloned().unwrap_or(Value::Null),
+                "pokeType": v_get(fe, "pokeType").cloned().unwrap_or(Value::Null)
+            });
+            if let Some(object) = data.as_object_mut() {
+                object.retain(|_, value| !value.is_null() && value.as_str() != Some(""));
+            }
             return Some(MessageElement {
                 element_type: "face".to_string(),
-                data: json!({ "id": face_id, "name": face_name }),
+                data,
             });
         }
 
@@ -1171,6 +1287,36 @@ impl SimpleMessageParser {
             return Some(self.parse_gray_tip_element(gt));
         }
 
+        if let Some(wallet) = v_get(element, "walletElement").filter(|v| !v.is_null()) {
+            let summary = ["summary", "title", "name", "wording"]
+                .iter()
+                .find_map(|key| v_str(wallet, key))
+                .filter(|value| !value.is_empty())
+                .unwrap_or("红包/钱包消息");
+            return Some(MessageElement {
+                element_type: "wallet".to_string(),
+                data: json!({
+                    "summary": summary,
+                    "payload": wallet
+                }),
+            });
+        }
+
+        if let Some(gift) = v_get(element, "liveGiftElement").filter(|v| !v.is_null()) {
+            let summary = ["summary", "giftName", "name", "text"]
+                .iter()
+                .find_map(|key| v_str(gift, key))
+                .filter(|value| !value.is_empty())
+                .unwrap_or("群礼物");
+            return Some(MessageElement {
+                element_type: "live_gift".to_string(),
+                data: json!({
+                    "summary": summary,
+                    "payload": gift
+                }),
+            });
+        }
+
         // 长消息
         if let Some(sl) = v_get(element, "structLongMsgElement").filter(|v| !v.is_null()) {
             return Some(MessageElement {
@@ -1178,7 +1324,8 @@ impl SimpleMessageParser {
                 data: json!({
                     "summary": "长消息",
                     "resId": v_str(sl, "resId").unwrap_or(""),
-                    "xmlContent": v_str(sl, "xmlContent").unwrap_or("")
+                    "xmlContent": v_str(sl, "xmlContent").unwrap_or(""),
+                    "payload": sl
                 }),
             });
         }
@@ -1202,7 +1349,8 @@ impl SimpleMessageParser {
                     "time": v_str(av, "time").filter(|s| !s.is_empty()).unwrap_or("0"),
                     "text": status_text,
                     "mainType": v_get(av, "mainType").cloned().unwrap_or(Value::Null),
-                    "extraType": v_get(av, "extraType").cloned().unwrap_or(Value::Null)
+                    "extraType": v_get(av, "extraType").cloned().unwrap_or(Value::Null),
+                    "payload": av
                 }),
             });
         }
@@ -1213,7 +1361,8 @@ impl SimpleMessageParser {
                 element_type: "markdown".to_string(),
                 data: json!({
                     "content": v_str(md, "content").unwrap_or(""),
-                    "summary": "Markdown消息"
+                    "summary": "Markdown消息",
+                    "payload": md
                 }),
             });
         }
@@ -1227,7 +1376,8 @@ impl SimpleMessageParser {
                     "width": v_get(ge, "width").cloned().unwrap_or(json!(0)),
                     "height": v_get(ge, "height").cloned().unwrap_or(json!(0)),
                     "isClip": v_get(ge, "isClip").cloned().unwrap_or(json!(false)),
-                    "summary": "Giphy动图"
+                    "summary": "Giphy动图",
+                    "payload": ge
                 }),
             });
         }
@@ -1239,7 +1389,8 @@ impl SimpleMessageParser {
                 data: json!({
                     "botAppid": v_str(ik, "botAppid").unwrap_or(""),
                     "rows": v_get(ik, "rows").cloned().unwrap_or(json!([])),
-                    "summary": "内联键盘"
+                    "summary": "内联键盘",
+                    "payload": ik
                 }),
             });
         }
@@ -1252,7 +1403,9 @@ impl SimpleMessageParser {
                     "summary": v_str(cal, "summary").filter(|s| !s.is_empty()).unwrap_or("日历"),
                     "msg": v_str(cal, "msg").unwrap_or(""),
                     "expireTimeMs": v_str(cal, "expireTimeMs").filter(|s| !s.is_empty()).unwrap_or("0"),
-                    "schemaType": v_get(cal, "schemaType").cloned().unwrap_or(json!(0))
+                    "schemaType": v_get(cal, "schemaType").cloned().unwrap_or(json!(0)),
+                    "schema": v_str(cal, "schema").unwrap_or(""),
+                    "payload": cal
                 }),
             });
         }
@@ -1263,7 +1416,8 @@ impl SimpleMessageParser {
                 element_type: "yolo_game_result".to_string(),
                 data: json!({
                     "userInfo": v_get(yolo, "UserInfo").cloned().unwrap_or(json!([])),
-                    "summary": "YOLO游戏结果"
+                    "summary": "YOLO游戏结果",
+                    "payload": yolo
                 }),
             });
         }
@@ -1276,7 +1430,8 @@ impl SimpleMessageParser {
                 data: json!({
                     "faceCount": v_get(fb, "faceCount").cloned().unwrap_or(json!(0)),
                     "faceSummary": face_summary,
-                    "summary": if face_summary.is_empty() { "表情气泡" } else { face_summary }
+                    "summary": if face_summary.is_empty() { "表情气泡" } else { face_summary },
+                    "payload": fb
                 }),
             });
         }
@@ -1289,7 +1444,8 @@ impl SimpleMessageParser {
                 data: json!({
                     "type": v_get(tofu, "type").cloned().unwrap_or(json!(0)),
                     "descriptionContent": desc,
-                    "summary": if desc.is_empty() { "豆腐记录" } else { desc }
+                    "summary": if desc.is_empty() { "豆腐记录" } else { desc },
+                    "payload": tofu
                 }),
             });
         }
@@ -1303,7 +1459,8 @@ impl SimpleMessageParser {
                     "msgTitle": title,
                     "msgSummary": v_str(task, "msgSummary").unwrap_or(""),
                     "iconUrl": v_str(task, "iconUrl").unwrap_or(""),
-                    "summary": if title.is_empty() { "置顶消息" } else { title }
+                    "summary": if title.is_empty() { "置顶消息" } else { title },
+                    "payload": task
                 }),
             });
         }
@@ -1314,7 +1471,9 @@ impl SimpleMessageParser {
                 element_type: "recommended_msg".to_string(),
                 data: json!({
                     "botAppid": v_str(rec, "botAppid").unwrap_or(""),
-                    "summary": "推荐消息"
+                    "rows": v_get(rec, "rows").cloned().unwrap_or(json!([])),
+                    "summary": "推荐消息",
+                    "payload": rec
                 }),
             });
         }
@@ -1326,7 +1485,8 @@ impl SimpleMessageParser {
                 data: json!({
                     "botAppid": v_str(ab, "botAppid").unwrap_or(""),
                     "rows": v_get(ab, "rows").cloned().unwrap_or(json!([])),
-                    "summary": "操作栏"
+                    "summary": "操作栏",
+                    "payload": ab
                 }),
             });
         }
@@ -1336,10 +1496,20 @@ impl SimpleMessageParser {
             .cloned()
             .unwrap_or(Value::Null);
         let summary = Self::get_system_message_summary(&element_type);
+        let native_type = element
+            .as_object()
+            .and_then(|object| {
+                object
+                    .iter()
+                    .find(|(key, value)| key.ends_with("Element") && !value.is_null())
+                    .map(|(key, _)| key.clone())
+            })
+            .unwrap_or_else(|| "unknownElement".to_string());
         Some(MessageElement {
             element_type: "system".to_string(),
             data: json!({
                 "elementType": element_type,
+                "nativeType": native_type,
                 "summary": summary,
                 "text": summary
             }),
@@ -1384,13 +1554,23 @@ impl SimpleMessageParser {
                 (t, html)
             }
             "face" => {
-                let t = format!(
-                    "[表情{}]",
-                    v_get(d, "id").map_or(String::new(), |v| match v {
-                        Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    })
-                );
+                let id = v_get(d, "id").map_or(String::new(), |v| match v {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                });
+                let mut t = v_str(d, "name")
+                    .filter(|name| !name.is_empty())
+                    .map_or_else(|| format!("[表情{id}]"), str::to_string);
+                if let Some(result) = v_str(d, "resultId").filter(|result| !result.is_empty()) {
+                    let result_text = match (id.as_str(), result) {
+                        ("358", result) => format!("点数 {result}"),
+                        ("359", "1") => "石头".to_string(),
+                        ("359", "2") => "剪刀".to_string(),
+                        ("359", "3") => "布".to_string(),
+                        _ => result.to_string(),
+                    };
+                    t.push_str(&format!("（{result_text}）"));
+                }
                 let html = if html_enabled {
                     t.clone()
                 } else {

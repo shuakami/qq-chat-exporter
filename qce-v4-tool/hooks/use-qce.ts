@@ -17,7 +17,7 @@ export function useQCE(props?: { onNotification?: UseExportTasksProps['onNotific
   const websocket = useWebSocket({
     onExportProgress: (data) => {
       // Legacy progress message support
-      const status = data.status as "running" | "completed" | "failed"
+      const status = data.status as "running" | "completed" | "failed" | "cancelled"
       exportTasks.updateTaskProgress(data.taskId, data.progress, status)
     },
     onProgressUpdate: (data) => {
@@ -32,6 +32,9 @@ export function useQCE(props?: { onNotification?: UseExportTasksProps['onNotific
       exportTasks.loadTasks().catch((error) => {
         console.error("[QCE] task_resync 触发的 loadTasks 失败:", error)
       })
+    },
+    onTaskCancelled: (data) => {
+      exportTasks.handleTaskCancelled(data)
     },
     onError: (error) => {
       if (error) {
