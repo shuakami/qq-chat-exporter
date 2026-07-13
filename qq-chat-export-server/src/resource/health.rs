@@ -39,10 +39,12 @@ impl ResourceHealthChecker {
         cache_duration_ms: u64,
     ) -> bool {
         let cache_duration = Duration::from_millis(cache_duration_ms);
-        {
+        let cache_key = health_cache_key(resource);
+        if let Some(cache_key) = cache_key.as_ref() {
             let cache = self.cache.lock().await;
-            if let Some(entry) = cache.get(&resource.md5) {
-                if entry.checked_at.elapsed() < cache_duration && (!verify_md5 || entry.md5_verified)
+            if let Some(entry) = cache.get(cache_key) {
+                if entry.checked_at.elapsed() < cache_duration
+                    && (!verify_md5 || entry.md5_verified)
                 {
                     return entry.healthy;
                 }
@@ -64,15 +66,17 @@ impl ResourceHealthChecker {
             }
         }
 
-        let mut cache = self.cache.lock().await;
-        cache.insert(
-            resource.md5.clone(),
-            HealthCacheEntry {
-                healthy,
-                checked_at: Instant::now(),
-                md5_verified: verify_md5,
-            },
-        );
+        if let Some(cache_key) = cache_key {
+            let mut cache = self.cache.lock().await;
+            cache.insert(
+                cache_key,
+                HealthCacheEntry {
+                    healthy,
+                    checked_at: Instant::now(),
+                    md5_verified: verify_md5,
+                },
+            );
+        }
         healthy
     }
 
@@ -80,6 +84,17 @@ impl ResourceHealthChecker {
     pub async fn cleanup(&self) {
         self.cache.lock().await.clear();
     }
+}
+
+fn health_cache_key(resource: &ResourceInfo) -> Option<String> {
+    if !resource.md5.is_empty() {
+        return Some(format!("md5:{}", resource.md5));
+    }
+    resource
+        .local_path
+        .as_deref()
+        .filter(|path| !path.is_empty())
+        .map(|path| format!("path:{path}"))
 }
 
 /// 流式计算文件 MD5（64KB 缓冲，不整读进内存）。
@@ -96,4 +111,66 @@ pub async fn calculate_file_md5(path: &Path) -> std::io::Result<String> {
         hasher.update(&buffer[..read]);
     }
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Map, Value};
+
+    use super::*;
+
+    fn resource(local_path: String) -> ResourceInfo {
+        ResourceInfo {
+            md5: String::new(),
+            resource_type: "image".to_string(),
+            original_url: String::new(),
+            local_path: Some(local_path),
+            file_name: None,
+            file_size: None,
+            mime_type: None,
+            accessible: false,
+            status: "pending".to_string(),
+            checked_at: Value::Null,
+            download_attempts: None,
+            last_error: None,
+            extra: Map::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_md5_resources_do_not_share_health_cache_entries() {
+        let root = std::env::temp_dir().join(format!("qce-health-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&root)
+            .await
+            .expect("create temp dir");
+        let existing = root.join("existing.bin");
+        tokio::fs::write(&existing, b"ok")
+            .await
+            .expect("write fixture");
+        let missing = root.join("missing.bin");
+
+        let checker = ResourceHealthChecker::new();
+        assert!(
+            checker
+                .check_health(
+                    &resource(existing.to_string_lossy().into_owned()),
+                    false,
+                    RESOURCE_HEALTH_CACHE_MS,
+                )
+                .await
+        );
+        assert!(
+            !checker
+                .check_health(
+                    &resource(missing.to_string_lossy().into_owned()),
+                    false,
+                    RESOURCE_HEALTH_CACHE_MS,
+                )
+                .await
+        );
+
+        tokio::fs::remove_dir_all(root)
+            .await
+            .expect("remove temp dir");
+    }
 }

@@ -8,8 +8,9 @@ use crate::api::state::SharedState;
 /// 取任务 createdAt（毫秒），用于排序。
 fn created_at_ms(task: &Value) -> i64 {
     match task.get("createdAt") {
-        Some(Value::String(s)) => chrono::DateTime::parse_from_rfc3339(s)
-            .map_or(0, |dt| dt.timestamp_millis()),
+        Some(Value::String(s)) => {
+            chrono::DateTime::parse_from_rfc3339(s).map_or(0, |dt| dt.timestamp_millis())
+        }
         Some(Value::Number(n)) => n.as_i64().unwrap_or(0),
         _ => 0,
     }
@@ -125,12 +126,20 @@ pub async fn cancel_task(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(task_id): Path<String>,
 ) -> Response {
-    let exists = {
+    let status = {
         let tasks = state.export_tasks.lock().await;
-        tasks.contains_key(&task_id)
+        tasks
+            .get(&task_id)
+            .and_then(|task| task.get("status"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
     };
-    if !exists {
+    let Some(status) = status else {
         let err = ApiError::not_found("任务不存在", "TASK_NOT_FOUND");
+        return response::error(&err, &request_id);
+    };
+    if matches!(status.as_str(), "completed" | "failed") {
+        let err = ApiError::validation("任务已结束", "TASK_ALREADY_FINISHED");
         return response::error(&err, &request_id);
     }
 
@@ -151,11 +160,14 @@ pub async fn cancel_task(
             if let Some(obj) = task.as_object_mut() {
                 obj.insert("status".to_string(), Value::String("cancelled".to_string()));
                 obj.insert(
-                    "endTime".to_string(),
+                    "completedAt".to_string(),
                     Value::String(
-                        chrono::Utc::now()
-                            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                     ),
+                );
+                obj.insert(
+                    "message".to_string(),
+                    Value::String("任务已停止".to_string()),
                 );
             }
             Some(task.clone())
@@ -165,6 +177,9 @@ pub async fn cancel_task(
     };
 
     if let Some(task) = &updated_task {
+        if let Err(error) = state.db.save_task(task, task, true).await {
+            tracing::warn!("[ApiServer] 保存取消任务状态失败: {error}");
+        }
         state.broadcast_ws(&json!({
             "type": "task_cancelled",
             "data": task,

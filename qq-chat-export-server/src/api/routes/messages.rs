@@ -366,6 +366,9 @@ async fn update_task(state: &SharedState, task_id: &str, patch: Value) {
         let Some(task) = tasks.get_mut(task_id) else {
             return;
         };
+        if !should_apply_task_patch(task, &patch) {
+            return;
+        }
         if let (Some(target), Some(source)) = (task.as_object_mut(), patch.as_object()) {
             for (key, value) in source {
                 if value.is_null() {
@@ -380,6 +383,11 @@ async fn update_task(state: &SharedState, task_id: &str, patch: Value) {
     if let Err(error) = state.db.save_task(&updated, &updated, false).await {
         tracing::warn!("[ApiServer] 保存任务到数据库失败: {error}");
     }
+}
+
+fn should_apply_task_patch(task: &Value, patch: &Value) -> bool {
+    task.get("status").and_then(Value::as_str) != Some("cancelled")
+        || patch.get("status").and_then(Value::as_str) == Some("cancelled")
 }
 
 /// 广播导出进度。
@@ -954,22 +962,30 @@ async fn run_export_task(
     mode: ExportMode,
 ) {
     // issue #446：注册取消 flag，使「停止任务」接口能打断本任务。
-    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let cancelled_before_registration = {
+        let cancelled = state.cancelled_task_ids.lock().await;
+        cancelled.contains(&task_id)
+    };
+    let cancel_flag = Arc::new(AtomicBool::new(cancelled_before_registration));
     {
         let mut flags = state.running_export_cancel_flags.lock().await;
         flags.insert(task_id.clone(), Arc::clone(&cancel_flag));
     }
 
-    let result = process_export_task(
-        &state,
-        &task_id,
-        &req,
-        &format,
-        &file_name,
-        mode,
-        &cancel_flag,
-    )
-    .await;
+    let result = if cancelled_before_registration {
+        Err("任务已被用户停止".to_string())
+    } else {
+        process_export_task(
+            &state,
+            &task_id,
+            &req,
+            &format,
+            &file_name,
+            mode,
+            &cancel_flag,
+        )
+        .await
+    };
     release_export_path(&req.output_dir.join(&file_name));
 
     if let Err(error) = result {
@@ -1030,6 +1046,12 @@ async fn is_cancelled(state: &SharedState, task_id: &str, cancel_flag: &AtomicBo
     }
     let cancelled = state.cancelled_task_ids.lock().await;
     cancelled.contains(task_id)
+}
+
+async fn wait_for_atomic_cancellation(cancel_flag: &AtomicBool) {
+    while !cancel_flag.load(Ordering::SeqCst) {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 }
 
 /// issue #331：拉取群成员「群头衔」，构造 (uid|uin) → title 映射。
@@ -1262,6 +1284,9 @@ async fn process_export_task(
     mode: ExportMode,
     cancel_flag: &Arc<AtomicBool>,
 ) -> Result<(), String> {
+    if is_cancelled(state, task_id, cancel_flag).await {
+        return Err("任务已被用户停止".to_string());
+    }
     update_task(
         state,
         task_id,
@@ -1302,10 +1327,15 @@ async fn process_export_task(
             fetcher.cancel();
             return Err("任务已被用户停止".to_string());
         }
-        let mut batch = match fetcher
-            .fetch_next_batch(&peer, &fetch_filter, previous.as_ref())
-            .await
-        {
+        let fetch_result = tokio::select! {
+            result = fetcher.fetch_next_batch(&peer, &fetch_filter, previous.as_ref()) => Some(result),
+            () = wait_for_atomic_cancellation(cancel_flag) => None,
+        };
+        let Some(fetch_result) = fetch_result else {
+            fetcher.cancel();
+            return Err("任务已被用户停止".to_string());
+        };
+        let mut batch = match fetch_result {
             Ok(Some(batch)) => batch,
             Ok(None) => break,
             Err(error) => return Err(format!("获取消息失败: {error}")),
@@ -1333,7 +1363,14 @@ async fn process_export_task(
     let mut title_map: Option<HashMap<String, String>> = None;
     if req.chat_type == GROUP_CHAT_TYPE && !all_messages.is_empty() {
         fill_group_member_names(state, &req.peer_uid, &mut all_messages).await;
-        title_map = fetch_group_member_title_map(state, &req.peer_uid, req.chat_type).await;
+        let show_group_member_titles = req
+            .options
+            .get("showGroupMemberTitles")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        if show_group_member_titles {
+            title_map = fetch_group_member_title_map(state, &req.peer_uid, req.chat_type).await;
+        }
     }
 
     // 按 includeUserUins / excludeUserUins 过滤（issue #369）。
@@ -1461,7 +1498,7 @@ async fn process_export_task(
 
         resource_map = state
             .resource_handler
-            .process_message_resources(&resource_messages)
+            .process_message_resources_with_cancel(&resource_messages, Arc::clone(cancel_flag))
             .await;
         let summary = state.resource_handler.last_batch_summary().await;
         state.resource_handler.set_progress_callback(None).await;
@@ -1751,6 +1788,9 @@ async fn process_export_task(
     }
 
     // ============ 完成（100） ============
+    if is_cancelled(state, task_id, cancel_flag).await {
+        return Err("任务已被用户停止".to_string());
+    }
     let file_size = dir_or_file_size(&final_file_path).await;
     let resource_summary_value = resource_summary
         .as_ref()
@@ -1849,8 +1889,26 @@ async fn dir_or_file_size(path: &FsPath) -> u64 {
 mod file_name_tests {
     use super::{
         build_export_dir_name, build_export_file_name, release_export_path,
-        reserve_export_file_name, sanitize_chat_name,
+        reserve_export_file_name, sanitize_chat_name, should_apply_task_patch,
     };
+    use serde_json::json;
+
+    #[test]
+    fn cancelled_task_rejects_late_non_cancelled_updates() {
+        let task = json!({ "status": "cancelled", "progress": 42 });
+        assert!(!should_apply_task_patch(
+            &task,
+            &json!({ "status": "running", "progress": 60 })
+        ));
+        assert!(!should_apply_task_patch(
+            &task,
+            &json!({ "status": "completed", "progress": 100 })
+        ));
+        assert!(should_apply_task_patch(
+            &task,
+            &json!({ "status": "cancelled", "message": "任务已停止" })
+        ));
+    }
 
     #[test]
     fn sanitizes_windows_unsafe_and_reserved_components() {

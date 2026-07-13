@@ -1249,6 +1249,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "silk-decoder-rs",
  "sysinfo",
  "thiserror 2.0.18",
  "tokio",
@@ -1706,6 +1707,15 @@ checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
 dependencies = [
  "errno",
  "libc",
+]
+
+[[package]]
+name = "silk-decoder-rs"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ada3c2a5f8bf1e59062d7146b638adf8b0fb4d83a8eaff21733d3986fe66a8a4"
+dependencies = [
+ "thiserror 2.0.18",
 ]
 
 [[package]]

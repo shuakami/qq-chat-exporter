@@ -1231,6 +1231,21 @@ impl ModernHtmlExporter {
             Some(message.sender.name.as_str()).filter(|s| !s.is_empty()),
         );
         let content = self.parse_message_content(message);
+        let has_image = message
+            .content
+            .elements
+            .iter()
+            .any(|element| element.element_type == "image");
+        let has_non_image = message
+            .content
+            .elements
+            .iter()
+            .any(|element| element.element_type != "image");
+        let content_class = if has_image && has_non_image {
+            "content mixed-media"
+        } else {
+            "content"
+        };
 
         // 获取发送者 UID 用于筛选（支持同一用户不同群名片整合）
         let sender_uid = if message.sender.uid.is_empty() {
@@ -1258,7 +1273,7 @@ impl ModernHtmlExporter {
                         <span class="time">{}</span>
                     </div>
                     <div class="message-bubble">
-                        <div class="content">{content}</div>
+                        <div class="{content_class}">{content}</div>
                     </div>
                 </div>
             </div>
@@ -1299,6 +1314,11 @@ impl ModernHtmlExporter {
                 "forward" => result.push_str(&render_forward_element(self, data, 0)),
                 "system" => result.push_str(&render_system_element(data)),
                 "location" => result.push_str(&render_location_element(data)),
+                "wallet" | "live_gift" | "long_message" | "av_record" | "markdown" | "giphy"
+                | "inline_keyboard" | "calendar" | "yolo_game_result" | "face_bubble"
+                | "tofu_record" | "task_top_msg" | "recommended_msg" | "action_bar" => {
+                    result.push_str(&render_native_card_element(&element.element_type, data));
+                }
                 _ => {
                     let raw_text = str_field(data, "text")
                         .or_else(|| str_field(data, "summary"))
@@ -2271,12 +2291,166 @@ fn render_face_element(data: &Value) -> String {
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| get_face_name_by_id(&id));
     if !id.is_empty() && id.chars().all(|character| character.is_ascii_digit()) {
+        let face_type = data
+            .get("faceType")
+            .and_then(Value::as_i64)
+            .unwrap_or_default();
+        let is_large = matches!(face_type, 3 | 4)
+            || str_field(data, "packId").is_some_and(|value| !value.is_empty())
+            || is_known_large_native_face(&id);
+        let result = str_field(data, "resultId").unwrap_or_default();
+        let result_label = native_face_result_label(&id, &result);
+        let size_class = if is_large { " native-face-large" } else { "" };
         return format!(
-            "<img class=\"face-emoji face-emoji-image\" src=\"https://res.qlogo.cn/qqface/{id}/100\" alt=\"{name}\" title=\"{name}\" loading=\"lazy\" referrerpolicy=\"no-referrer\" onerror=\"this.replaceWith(document.createTextNode(this.alt))\">",
-            name = escape_html(&name)
+            "<span class=\"native-face-wrap{size_class}\"><img class=\"face-emoji face-emoji-image\" src=\"https://koishi.js.org/QFace/assets/qq_emoji/{id}/apng/{id}.png\" alt=\"{name}\" title=\"{name}\" loading=\"lazy\" referrerpolicy=\"no-referrer\" onerror=\"if(!this.dataset.fallback){{this.dataset.fallback='1';this.src='https://koishi.js.org/QFace/assets/qq_emoji/{id}/png/{id}.png'}}else{{this.replaceWith(document.createTextNode(this.alt))}}\">{result_html}</span>",
+            name = escape_html(&name),
+            result_html = result_label
+                .map(|label| format!(
+                    "<span class=\"native-face-result\">{}</span>",
+                    escape_html(&label)
+                ))
+                .unwrap_or_default()
         );
     }
     format!("<span class=\"face-emoji\">{}</span>", escape_html(&name))
+}
+
+fn is_known_large_native_face(face_id: &str) -> bool {
+    face_id.parse::<u16>().is_ok_and(|id| {
+        matches!(
+            id,
+            5 | 53
+                | 74..=75
+                | 114
+                | 137
+                | 181
+                | 311..=312
+                | 314
+                | 317..=320
+                | 324..=326
+                | 333
+                | 337..=339
+                | 341..=346
+                | 349..=351
+                | 358..=413
+                | 415..=417
+        )
+    })
+}
+
+fn native_face_result_label(face_id: &str, result_id: &str) -> Option<String> {
+    if result_id.is_empty() {
+        return None;
+    }
+    match face_id {
+        "358" => Some(format!("点数 {result_id}")),
+        "359" => Some(
+            match result_id {
+                "1" => "石头",
+                "2" => "剪刀",
+                "3" => "布",
+                _ => result_id,
+            }
+            .to_string(),
+        ),
+        _ => None,
+    }
+}
+
+fn render_native_card_element(element_type: &str, data: &Value) -> String {
+    let (label, class_name) = match element_type {
+        "wallet" => ("红包/钱包", "wallet"),
+        "live_gift" => ("群礼物", "gift"),
+        "long_message" => ("长消息", "long-message"),
+        "av_record" => ("通话记录", "av-record"),
+        "markdown" => ("Markdown", "markdown"),
+        "giphy" => ("Giphy 动图", "giphy"),
+        "inline_keyboard" => ("内联键盘", "inline-keyboard"),
+        "calendar" => ("日历", "calendar"),
+        "yolo_game_result" => ("游戏结果", "game-result"),
+        "face_bubble" => ("表情气泡", "face-bubble"),
+        "tofu_record" => ("互动消息", "tofu-record"),
+        "task_top_msg" => ("置顶消息", "task-top"),
+        "recommended_msg" => ("推荐消息", "recommended"),
+        "action_bar" => ("操作栏", "action-bar"),
+        _ => ("QQ 原生消息", "unknown"),
+    };
+    let summary = str_field(data, "summary")
+        .or_else(|| str_field(data, "msgTitle"))
+        .or_else(|| str_field(data, "faceSummary"))
+        .or_else(|| str_field(data, "descriptionContent"))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| label.to_owned());
+    let detail = if element_type == "markdown" {
+        str_field(data, "content")
+    } else {
+        str_field(data, "msgSummary")
+            .or_else(|| str_field(data, "msg"))
+            .or_else(|| str_field(data, "text"))
+            .filter(|value| !value.is_empty() && value != &summary)
+    };
+    let mut actions = Vec::new();
+    if matches!(element_type, "inline_keyboard" | "action_bar") {
+        if let Some(rows) = data.get("rows") {
+            collect_native_action_labels(rows, &mut actions);
+        }
+    }
+    let detail_html = detail
+        .map(|value| {
+            let detail_class = if element_type == "markdown" {
+                " native-card-detail-markdown"
+            } else {
+                ""
+            };
+            format!(
+                "<div class=\"native-card-detail{detail_class}\">{}</div>",
+                escape_html(&value)
+            )
+        })
+        .unwrap_or_default();
+    let actions_html = if actions.is_empty() {
+        String::new()
+    } else {
+        let mut html = String::from("<div class=\"native-card-actions\">");
+        for action in actions.into_iter().take(12) {
+            let _ = write!(
+                html,
+                "<span class=\"native-card-action\">{}</span>",
+                escape_html(&action)
+            );
+        }
+        html.push_str("</div>");
+        html
+    };
+    format!(
+        "<div class=\"native-card native-card-{class_name}\" data-native-type=\"{}\"><div class=\"native-card-label\">{label}</div><div class=\"native-card-summary\">{}</div>{detail_html}{actions_html}</div>",
+        escape_html(element_type),
+        escape_html(&summary)
+    )
+}
+
+fn collect_native_action_labels(value: &Value, labels: &mut Vec<String>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_native_action_labels(item, labels);
+            }
+        }
+        Value::Object(object) => {
+            let label = ["label", "text", "name", "content"]
+                .iter()
+                .find_map(|key| object.get(*key).and_then(Value::as_str))
+                .filter(|value| !value.is_empty());
+            if let Some(label) = label {
+                labels.push(label.to_owned());
+            } else {
+                for child in object.values() {
+                    collect_native_action_labels(child, labels);
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 fn render_at_element(data: &Value) -> String {
@@ -3398,7 +3572,7 @@ pub fn get_face_name_by_id(id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_plain_text;
+    use super::{extract_plain_text, render_face_element, render_native_card_element};
     use crate::types::CleanMessage;
     use serde_json::json;
 
@@ -3439,5 +3613,55 @@ mod tests {
             "[一箱猫猫]",
         );
         assert!(extract_plain_text(&sticker_only).is_empty());
+    }
+
+    #[test]
+    fn native_face_rendering_preserves_name_size_and_random_result() {
+        let html = render_face_element(&json!({
+            "id": "358",
+            "name": "/骰子",
+            "faceType": 3,
+            "resultId": "6"
+        }));
+
+        assert!(html.contains("native-face-large"));
+        assert!(html.contains("class=\"face-emoji face-emoji-image\""));
+        assert!(html.contains("alt=\"/骰子\""));
+        assert!(html.contains("点数 6"));
+
+        let super_like = render_face_element(&json!({
+            "id": "364",
+            "name": "/超级赞",
+            "faceType": 2
+        }));
+        assert!(super_like.contains("native-face-large"));
+
+        let like = render_face_element(&json!({
+            "id": "76",
+            "name": "/赞",
+            "faceType": 2
+        }));
+        assert!(!like.contains("native-face-large"));
+        assert!(like.contains("/76/apng/76.png"));
+    }
+
+    #[test]
+    fn native_cards_preserve_summary_markdown_and_keyboard_labels() {
+        let wallet =
+            render_native_card_element("wallet", &json!({ "summary": "恭喜发财，大吉大利" }));
+        assert!(wallet.contains("native-card-wallet"));
+        assert!(wallet.contains("恭喜发财，大吉大利"));
+
+        let markdown =
+            render_native_card_element("markdown", &json!({ "content": "**原始内容**" }));
+        assert!(markdown.contains("native-card-detail-markdown"));
+        assert!(markdown.contains("**原始内容**"));
+
+        let keyboard = render_native_card_element(
+            "inline_keyboard",
+            &json!({ "rows": [{ "buttons": [{ "renderData": { "label": "确认" } }] }] }),
+        );
+        assert!(keyboard.contains("native-card-inline-keyboard"));
+        assert!(keyboard.contains("native-card-action\">确认"));
     }
 }

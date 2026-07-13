@@ -8,26 +8,18 @@ import type {
   TasksResponse,
 } from "@/types/api"
 import { toast, type ToastAction } from "@/components/ui/toast"
+import {
+  mergeExportTaskUpdate,
+  mergeRemoteExportTasks,
+  type ExportTaskUpdate,
+} from "@/lib/export-task-state"
 import { useApi } from "./use-api"
 
 const GITHUB_URL = "https://github.com/shuakami/qq-chat-exporter"
 
-type TaskStatus = "running" | "completed" | "failed"
+type TaskStatus = "running" | "completed" | "failed" | "cancelled"
 
-type ProgressPayload = {
-  taskId: string
-  progress: number
-  status: TaskStatus
-  message?: string
-  messageCount?: number
-  error?: string
-  fileName?: string
-  downloadUrl?: string
-  completedAt?: string
-  isZipExport?: boolean
-  originalFilePath?: string
-  filePath?: string
-}
+type ProgressPayload = ExportTaskUpdate
 
 export interface UseExportTasksProps {
   onNotification?: (notification: {
@@ -120,23 +112,6 @@ function createFallbackTask(data: ProgressPayload): ExportTask {
     completedAt: data.completedAt,
     isZipExport: data.isZipExport,
     originalFilePath: data.originalFilePath,
-  }
-}
-
-function mergeTask(task: ExportTask, data: ProgressPayload): ExportTask {
-  return {
-    ...task,
-    progress: data.progress,
-    status: data.status,
-    ...(data.messageCount !== undefined && { messageCount: data.messageCount }),
-    ...(data.message !== undefined && { progressMessage: data.message }),
-    ...(data.error !== undefined && { error: data.error }),
-    ...(data.fileName !== undefined && { fileName: data.fileName }),
-    ...(data.filePath !== undefined && { filePath: data.filePath }),
-    ...(data.downloadUrl !== undefined && { downloadUrl: data.downloadUrl }),
-    ...(data.completedAt !== undefined && { completedAt: data.completedAt }),
-    ...(data.isZipExport !== undefined && { isZipExport: data.isZipExport }),
-    ...(data.originalFilePath !== undefined && { originalFilePath: data.originalFilePath }),
   }
 }
 
@@ -288,6 +263,19 @@ export function useExportTasks(_props?: UseExportTasksProps) {
 
     const isCompleted = task.status === "completed" || data?.status === "completed"
     const isFailed = task.status === "failed" || data?.status === "failed"
+    const isCancelled = task.status === "cancelled" || data?.status === "cancelled"
+
+    if (isCancelled) {
+      completedToastIdsRef.current.add(task.id)
+      toast.update(toastId, {
+        type: "info",
+        title: "导出已停止",
+        description: "任务已取消",
+        actions: undefined,
+        duration: 5000,
+      })
+      return
+    }
 
     if (isCompleted) {
       completedToastIdsRef.current.add(task.id)
@@ -347,7 +335,11 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       const response = await apiCall("/api/tasks") as APIResponse<TasksResponse>
 
       if (response.success && response.data) {
-        setTasks(response.data.tasks)
+        setTasks((prev) => {
+          const next = mergeRemoteExportTasks(prev, response.data!.tasks)
+          tasksRef.current = next
+          return next
+        })
         setLastLoadTime(Date.now())
         return true
       }
@@ -371,7 +363,11 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       const response = await apiCall("/api/tasks") as APIResponse<TasksResponse>
 
       if (response.success && response.data) {
-        setTasks(response.data.tasks)
+        setTasks((prev) => {
+          const next = mergeRemoteExportTasks(prev, response.data!.tasks)
+          tasksRef.current = next
+          return next
+        })
         setLastLoadTime(Date.now())
         return true
       }
@@ -416,9 +412,29 @@ export function useExportTasks(_props?: UseExportTasksProps) {
 
       const response = await apiCall(`/api/tasks/${taskId}/cancel`, {
         method: "POST",
-      })
+      }) as APIResponse<ExportTask>
 
       if (response.success) {
+        const remoteTask = response.data
+        const payload: ProgressPayload = {
+          taskId,
+          progress: remoteTask?.progress ?? tasksRef.current.find((task) => task.id === taskId)?.progress ?? 0,
+          status: "cancelled",
+          message: remoteTask?.progressMessage || "任务已停止",
+          completedAt: remoteTask?.completedAt,
+        }
+        let cancelledTask: ExportTask | undefined
+        setTasks((prev) => {
+          const next = prev.map((task) => {
+            if (task.id !== taskId) return task
+            cancelledTask = remoteTask ? { ...task, ...remoteTask, status: "cancelled" } : mergeExportTaskUpdate(task, payload)
+            return cancelledTask
+          })
+          tasksRef.current = next
+          return next
+        })
+        const resolvedTask = cancelledTask || tasksRef.current.find((task) => task.id === taskId)
+        if (resolvedTask) syncTaskToast(resolvedTask, payload)
         return true
       }
 
@@ -430,7 +446,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       console.error("[QCE] Cancel task error:", err)
       return false
     }
-  }, [apiCall])
+  }, [apiCall, syncTaskToast])
 
   const createTask = useCallback(async (form: CreateTaskForm): Promise<boolean> => {
     if (!form.peerUid || !form.sessionName) {
@@ -485,6 +501,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           // Issue #311: 自包含 HTML（资源 base64 内联）。
           embedResourcesAsDataUri: form.embedResourcesAsDataUri,
           preferGroupMemberName: form.preferGroupMemberName ?? true,
+          showGroupMemberTitles: form.showGroupMemberTitles ?? true,
           ...(form.outputDir?.trim() && { outputDir: form.outputDir.trim() }),
           ...(form.useNameInFileName && { useNameInFileName: true }),
           // Issue #134: 友好文件名格式 `<名称>(<QQ号>).<扩展名>`
@@ -595,7 +612,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     }
 
     setTasks((prev) => {
-      const next = prev.map((task) => task.id === taskId ? mergeTask(task, payload) : task)
+      const next = prev.map((task) => task.id === taskId ? mergeExportTaskUpdate(task, payload) : task)
       tasksRef.current = next
       return next
     })
@@ -615,7 +632,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     setTasks((prev) => {
       const next = prev.map((task) => {
         if (task.id !== data.taskId) return task
-        const nextTask = mergeTask(task, data)
+        const nextTask = mergeExportTaskUpdate(task, data)
         updatedTask = nextTask
         return nextTask
       })
@@ -628,6 +645,30 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       || createFallbackTask(data)
 
     syncTaskToast(resolvedTask, data)
+  }, [syncTaskToast])
+
+  const handleTaskCancelled = useCallback((task: ExportTask) => {
+    const taskId = task.id
+    if (!taskId) return
+    const payload: ProgressPayload = {
+      taskId,
+      progress: task.progress ?? 0,
+      status: "cancelled",
+      message: task.progressMessage || "任务已停止",
+      completedAt: task.completedAt,
+    }
+    let cancelledTask: ExportTask | undefined
+    setTasks((prev) => {
+      const next = prev.map((current) => {
+        if (current.id !== taskId) return current
+        cancelledTask = { ...current, ...task, status: "cancelled" }
+        return cancelledTask
+      })
+      tasksRef.current = next
+      return next
+    })
+    const resolvedTask = cancelledTask || tasksRef.current.find((current) => current.id === taskId)
+    if (resolvedTask) syncTaskToast(resolvedTask, payload)
   }, [syncTaskToast])
 
   /**
@@ -659,7 +700,11 @@ export function useExportTasks(_props?: UseExportTasksProps) {
         const remote = indexById.get(task.id)
         if (!remote) return task
 
-        const nextStatus = (remote.status as ExportTask['status']) ?? task.status
+        const remoteStatus = (remote.status as ExportTask['status']) ?? task.status
+        const nextStatus =
+          task.status === "cancelled" && remoteStatus !== "cancelled"
+            ? "cancelled"
+            : remoteStatus
         const nextProgress =
           typeof remote.progress === 'number' && Number.isFinite(remote.progress)
             ? remote.progress
@@ -749,7 +794,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       else if (task.status === "completed") completed += 1
       else if (task.status === "failed") failed += 1
     }
-    return { total: tasks.length, running, completed, failed }
+    return { total: running + completed + failed, running, completed, failed }
   }, [tasks])
   const getTaskStats = useCallback(() => taskStats, [taskStats])
 
@@ -791,6 +836,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     createTask,
     updateTaskProgress,
     handleWebSocketProgress,
+    handleTaskCancelled,
     applyTaskResync,
     downloadTask,
     deleteOriginalFiles,

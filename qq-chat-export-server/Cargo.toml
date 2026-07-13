@@ -45,6 +45,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 walkdir = "2"
 sysinfo = "0.32"
 local-ip-address = "0.6"
+silk-decoder-rs = "0.1.0"
 
 [lints.rust]
 unsafe_code = "forbid"

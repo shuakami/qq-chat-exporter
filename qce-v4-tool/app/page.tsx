@@ -1155,6 +1155,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
       case "running": return "进行中"
       case "completed": return "已完成"
       case "failed": return "失败"
+      case "cancelled": return "已停止"
       default: return "等待中"
     }
   }
@@ -1746,6 +1747,8 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                                   ? "text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/40"
                                   : task.status === "failed"
                                   ? "text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/40"
+                                  : task.status === "cancelled"
+                                  ? "text-zinc-700 bg-zinc-100 dark:text-zinc-300 dark:bg-zinc-800"
                                   : ""
                               }`}
                             >
@@ -1899,6 +1902,8 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                                 ? "text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/40"
                                 : task.status === "failed"
                                 ? "text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/40"
+                                : task.status === "cancelled"
+                                ? "text-zinc-700 bg-zinc-100 dark:text-zinc-300 dark:bg-zinc-800"
                                 : ""
                             }`}
                           >
@@ -2014,7 +2019,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                             </Button>
                           </>
                         )}
-                        {(task.status === "completed" || task.status === "failed") && (
+                        {(task.status === "completed" || task.status === "failed" || task.status === "cancelled") && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -2829,6 +2834,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
         friends={friends}
         onLoadData={loadChatData}
         isStandalone={isStandalone}
+        taskStatsMap={taskStatsMap}
         onPreview={(chat) => {
           setPreviewingChat(chat)
           setIsPreviewModalOpen(true)
@@ -2849,6 +2855,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
         groups={groups}
         friends={friends}
         onLoadData={loadChatData}
+        taskStatsMap={taskStatsMap}
       />
 
       {selectedHistoryTask && (
