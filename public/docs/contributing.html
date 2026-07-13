@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>如何贡献 · QQ Chat Exporter</title>
+<meta name="description" content="QQ Chat Exporter (QCE) 文档：如何贡献。免费开源的 QQ 聊天记录导出工具，导出 HTML、JSON、TXT、Excel，支持定时备份、批量导出。">
+<meta name="keywords" content="QQ聊天记录导出,QQ Chat Exporter,QCE,QQ备份,QQNT,NapCat,如何贡献">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="../favicon.ico">
+<link rel="canonical" href="https://shuakami.github.io/qq-chat-exporter/docs/contributing.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="QQ Chat Exporter">
+<meta property="og:title" content="如何贡献 · QQ Chat Exporter">
+<meta property="og:description" content="QQ Chat Exporter (QCE) 文档：如何贡献">
+<meta property="og:url" content="https://shuakami.github.io/qq-chat-exporter/docs/contributing.html">
+<meta property="og:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="如何贡献 · QQ Chat Exporter">
+<meta name="twitter:description" content="QQ Chat Exporter (QCE) 文档：如何贡献">
+<meta name="twitter:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<link rel="preconnect" href="https://fonts.loli.net">
+<link rel="preconnect" href="https://gstatic.loli.net" crossorigin>
+<link href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../index.html">QQ Chat Exporter<span class="doc">文档</span></a>
+  <span class="right">
+    <a href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </span>
+  <button class="menu-btn" aria-label="菜单" onclick="document.body.classList.toggle('nav-open')">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+</header>
+<div class="shell">
+  <nav class="sidebar"><div class="sec">指南</div>
+<a href="index.html">介绍</a>
+<a href="guide.html">使用手册</a>
+<div class="sec">部署</div>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="docker-napcat-deployment.html">Docker NapCat 部署</a>
+<div class="sec">参与</div>
+<a href="feedback.html">如何反馈问题</a>
+<a href="contributing.html" class="active">如何贡献</a></nav>
+  <div class="main"><article class="content">
+    <h1>如何贡献</h1>
+    <p>特别感谢你有想法对 QCE 做出贡献！我们对贡献很重视，所以提供了一些可能有帮助的内容让你了解如何贡献。</p>
+<h2 id="准备开发环境"><a class="h-a" href="#准备开发环境">准备开发环境</a></h2>
+<p>在开始之前，你的开发机需要配置好以下基础环境与工具链：</p>
+<ul>
+<li><strong>Node.js</strong>：<code>v20</code> 或更高版本。</li>
+<li><strong>pnpm</strong>：<code>v9</code> 或更新版本（主要用于主前端项目的依赖管理与构建）。</li>
+<li><strong>Rust</strong>：稳定版（Stable）工具链（用于服务端核心 <code>qce-server</code> 和数据导出解析引擎的开发）。</li>
+<li><strong>Git</strong>：用于版本控制。</li>
+</ul>
+<p>完成基础环境配置后，将项目克隆到本地开发目录中：</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/shuakami/qq-chat-exporter.git
+<span class="nb">cd</span><span class="w"> </span>qq-chat-exporter
+</code></pre></div>
+<hr />
+<h2 id="简单来说"><a class="h-a" href="#简单来说">简单来说</a></h2>
+<p>QCE 是一个结合了多运行时的混合架构项目。为了保证高性能和低内存占用，核心的数据解析、文件导出、定时调度以及 API 行为均运行在 Rust 侧；Node.js/JavaScript 侧主要充当轻量级的宿主桥接层。</p>
+<p>项目的具体目录分工如下：</p>
+<table>
+<thead>
+<tr>
+<th>目录路径</th>
+<th>核心职责说明</th>
+<th>主要技术栈</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>plugins/qq-chat-exporter/</code></td>
+<td>NapCat 插件桥接层，负责在 NapCat 生态内拉起并监控底层的 Rust 服务。</td>
+<td>ESM JavaScript / Node.js</td>
+</tr>
+<tr>
+<td><code>qq-chat-export-server/</code></td>
+<td>HTTP/WebSocket API 服务端。负责处理前端请求、实现 NapCat RPC 客户端、数据持久化及定时任务调度。</td>
+<td>Rust (Tokio / Axum)</td>
+</tr>
+<tr>
+<td><code>qq-chat-export-core/</code></td>
+<td>核心导出引擎。负责将原始聊天数据高效解析并生成 TXT、JSON、JSONL、HTML、XLSX 等格式。</td>
+<td>Rust</td>
+</tr>
+<tr>
+<td><code>qce-v4-tool/</code></td>
+<td>主 Web 控制台界面。采用静态导出架构，生产环境最终会被部署在服务路径的 <code>/qce</code> 下。</td>
+<td>Next.js + Tailwind CSS</td>
+</tr>
+<tr>
+<td><code>qce-chunked-viewer/</code></td>
+<td>超大群流式（分块）导出时，内嵌在 ZIP 包中的特制动态高性能网页查看器。</td>
+<td>React + HyperScroll</td>
+</tr>
+<tr>
+<td><code>installer/</code> / <code>uninstaller/</code></td>
+<td>Windows 一键安装包与卸载程序的源码。</td>
+<td>Tauri</td>
+</tr>
+<tr>
+<td><code>scripts/</code>、<code>.github/workflows/</code>、<code>docker/</code></td>
+<td>包含自动化打包、CI/CD 持续集成流水线、发布脚本以及 Docker 镜像构建配置。</td>
+<td>Python / GitHub Actions / Dockerfile</td>
+</tr>
+</tbody>
+</table>
+<p><strong>生产环境启动链条</strong>：
+当程序启动时，执行流依次为：<code>index.mjs</code> → <code>runtime/ApiLauncher.mjs</code> → <code>runtime/rustBridge.mjs</code> → 拉起 <code>qce-server</code> 二进制程序。
+可以看出，插件目录本身只是一层极薄的转发桥，几乎所有的核心业务逻辑都在 Rust 服务端内部消化。</p>
+<blockquote>
+<p>如果你需要深入研究整体架构、API 接口定义或代码工程规范，请务必仔细阅读官方的 <a href="https://deepwiki.com/shuakami/qq-chat-exporter">DeepWiki 文档</a>，并严格遵循仓库根目录下的 <code>AGENTS.md</code> 规范文件。</p>
+</blockquote>
+<hr />
+<h2 id="本地开发与调试流程"><a class="h-a" href="#本地开发与调试流程">本地开发与调试流程</a></h2>
+<p>项目各模块独立性较强，你可以根据自己负责的功能进入对应的目录进行单端调试：</p>
+<h3 id="1-主前端-web-界面-qce-v4-tool"><a class="h-a" href="#1-主前端-web-界面-qce-v4-tool">1. 主前端 Web 界面 (<code>qce-v4-tool</code>)</a></h3>
+<p>在调整控制台 UI 或前端交互逻辑时，执行以下命令开启热更新开发服务器：</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>qce-v4-tool
+pnpm<span class="w"> </span>install<span class="w"> </span>--frozen-lockfile
+pnpm<span class="w"> </span>dev
+</code></pre></div>
+<p><em>注意：在修改完前端代码并准备提交前，请务必在本地手动执行一次静态构建，确保没有引入类型错误或编译阻断：</em></p>
+<div class="highlight"><pre><span></span><code>pnpm<span class="w"> </span>build
+</code></pre></div>
+<h3 id="2-rust-服务端与导出核心-qq-chat-export-server-qq-chat-export-core"><a class="h-a" href="#2-rust-服务端与导出核心-qq-chat-export-server-qq-chat-export-core">2. Rust 服务端与导出核心 (<code>qq-chat-export-server</code> / <code>qq-chat-export-core</code>)</a></h3>
+<p>在修改导出逻辑、文件解析器或服务端 API 时，请确保代码通过单元测试与静态语法检查：</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># 进入对应的 Rust 项目目录</span>
+<span class="nb">cd</span><span class="w"> </span>qq-chat-export-server<span class="w">   </span><span class="c1"># 或 cd qq-chat-export-core</span>
+
+<span class="c1"># 运行自动化单元测试</span>
+cargo<span class="w"> </span><span class="nb">test</span>
+
+<span class="c1"># 执行严格的代码静态检查（不允许任何未处理的警告）</span>
+cargo<span class="w"> </span>clippy<span class="w"> </span>--all-targets<span class="w"> </span>--<span class="w"> </span>-D<span class="w"> </span>warnings
+
+<span class="c1"># 验证编译产物</span>
+cargo<span class="w"> </span>build
+</code></pre></div>
+<h3 id="3-插件桥接层-pluginsqq-chat-exporter"><a class="h-a" href="#3-插件桥接层-pluginsqq-chat-exporter">3. 插件桥接层 (<code>plugins/qq-chat-exporter</code>)</a></h3>
+<p>在调整与 NapCat 框架的对接协议时使用。本地调试该模块无需启动真实的 QQ 客户端，测试脚本已内嵌 Mock 机制（MockNapCatCore）：</p>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>plugins/qq-chat-exporter
+npm<span class="w"> </span>ci
+npm<span class="w"> </span>run<span class="w"> </span>gen:overlay
+npm<span class="w"> </span>run<span class="w"> </span>typecheck
+npm<span class="w"> </span><span class="nb">test</span>
+</code></pre></div>
+<hr />
+<h2 id="代码提交规范"><a class="h-a" href="#代码提交规范">代码提交规范</a></h2>
+<p>我们非常欢迎社区提交 Pull Request 来共同完善项目！以下是一些教程：</p>
+<ol>
+<li>将本仓库 Fork 到你个人的 GitHub 账号下。</li>
+<li>从你的 Fork 仓库中基于 <code>main</code> 分支切出一个语义明确的新特性或修复分支（例如 <code>feat/stream-export</code> 或 <code>fix/token-refresh</code>）。</li>
+<li>进行代码编写与本地完整验证。</li>
+<li>提交 Commit 时，请严格遵循 Angular 规范，使用标准的约定式提交格式（Conventional Commits）：<ul>
+<li><code>feat: 添加了某项新功能</code></li>
+<li><code>fix: 修复了某个已知 Bug</code></li>
+<li><code>docs: 更新或补充了某篇文档</code></li>
+<li><code>test: 增加了单元测试或集成测试</code></li>
+<li><code>perf: 优化了某段代码的执行性能或内存占用</code></li>
+<li><code>chore: 调整了构建流程、依赖库依赖或常规维护</code></li>
+</ul>
+</li>
+</ol>
+<h3 id="一些需要注意的东西"><a class="h-a" href="#一些需要注意的东西">一些需要注意的东西</a></h3>
+<ul>
+<li>在运行测试或本地打包时，请仔细核对暂存区，切勿将个人的 Access Token、Cookie 凭证、<code>cache/</code> 中的二维码会话、登录缓存以及真实的私人聊天记录导出文件提交上屏噢！</li>
+<li>请勿手动去修改诸如 <code>qce-v4-tool/out/</code> 下的静态产物，或是 <code>qce-chunked-viewer/assets/modern_chunked_app.js</code> 等由编译器自动生成的流水线文件。这类文件必须通过标准的 CI/CD 或打包脚本自动更新，手工修改会导致构建哈希冲突。</li>
+</ul>
+<hr />
+<p>参与开源社区并不局限于编写核心代码，这些也同样可以起到帮助：</p>
+<ul>
+<li>如果你在阅读或使用过程中发现了文档中描述模糊、存在错别字或语病的地方，欢迎直接提交 PR 进行修正。</li>
+<li>如果在日常使用中碰到了程序报错或异常闪退，可以在 <a href="https://github.com/shuakami/qq-chat-exporter/issues">GitHub Issues</a> 页面向我们反馈。反馈时如果能附带上详细的系统环境、复现步骤以及控制台的日志，将极大帮助我们定位问题。</li>
+<li>在每个大版本正式发布前，去测试 <a href="https://github.com/shuakami/qq-chat-exporter/releases">Release 页面</a>下载 Pre-release 预览版进行尝鲜，帮我们提前抓出潜在的 Bug。</li>
+<li>如果你觉得 QCE 确实帮到了你，可以在仓库右上角为项目点个 <strong>Star</strong>，或者将其推荐给其他有 QQ 聊天记录本地备份需求的朋友。你的认可就是对我们持续维护的最大动力，感谢QAQ！</li>
+</ul>
+    <div class="pagenav"><a class="prev" href="feedback.html"><span class="dir">上一篇</span><span class="lbl">如何反馈问题</span></a></div>
+  </article></div>
+  <nav class="toc"><div class="t">本页目录</div><a class="" href="#准备开发环境">准备开发环境</a>
+<a class="" href="#简单来说">简单来说</a>
+<a class="" href="#本地开发与调试流程">本地开发与调试流程</a>
+<a class="d3" href="#1-主前端-web-界面-qce-v4-tool">1. 主前端 Web 界面 (qce-v4-tool)</a>
+<a class="d3" href="#2-rust-服务端与导出核心-qq-chat-export-server-qq-chat-export-core">2. Rust 服务端与导出核心 (qq-chat-export-server / qq-chat-export-core)</a>
+<a class="d3" href="#3-插件桥接层-pluginsqq-chat-exporter">3. 插件桥接层 (plugins/qq-chat-exporter)</a>
+<a class="" href="#代码提交规范">代码提交规范</a>
+<a class="d3" href="#一些需要注意的东西">一些需要注意的东西</a></nav>
+</div>
+<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('.toc a'));
+  if(!links.length)return;
+  var hs=links.map(function(a){return document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1)))});
+  function on(){
+    var i=0;
+    for(var j=0;j<hs.length;j++){if(hs[j]&&hs[j].getBoundingClientRect().top<90)i=j;}
+    links.forEach(function(a,j){a.classList.toggle('active',j===i)});
+  }
+  addEventListener('scroll',on,{passive:true});on();
+})();
+(function(){
+  var box=document.createElement('div');box.className='lightbox';
+  var big=document.createElement('img');box.appendChild(big);
+  var x=document.createElement('button');x.className='lb-close';x.innerHTML='✕';x.setAttribute('aria-label','关闭');box.appendChild(x);
+  document.body.appendChild(box);
+  function close(){box.classList.remove('open');setTimeout(function(){if(!box.classList.contains('open'))big.src='';},240);}
+  box.addEventListener('click',close);x.addEventListener('click',close);
+  big.addEventListener('click',function(e){e.stopPropagation();});
+  addEventListener('keydown',function(e){if(e.key==='Escape')close();});
+  [].forEach.call(document.querySelectorAll('.content img'),function(img){
+    img.addEventListener('click',function(){big.src=img.src;box.classList.add('open');});
+  });
+})();
+(function(){
+  var COPY='<svg class="ic ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+  var CHECK='<svg class="ic ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  [].forEach.call(document.querySelectorAll('.content pre'),function(pre){
+    var btn=document.createElement('button');
+    btn.className='copy-btn';btn.type='button';btn.setAttribute('aria-label','复制代码');
+    btn.innerHTML=COPY+CHECK;
+    btn.addEventListener('click',function(){
+      var code=pre.querySelector('code');
+      var text=(code?code.textContent:pre.textContent).replace(/\n$/,'');
+      (navigator.clipboard?navigator.clipboard.writeText(text):Promise.reject()).catch(function(){
+        var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);
+        ta.select();document.execCommand('copy');document.body.removeChild(ta);
+      }).then(function(){
+        btn.classList.add('copied');
+        clearTimeout(btn._t);
+        btn._t=setTimeout(function(){btn.classList.remove('copied');},1600);
+      });
+    });
+    pre.appendChild(btn);
+  });
+})();
+</script>
+</body>
+</html>
