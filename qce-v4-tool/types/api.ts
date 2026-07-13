@@ -234,8 +234,6 @@ export interface CreateTaskForm {
   useFriendlyFileName?: boolean
   /** 群聊导出时优先使用群成员名称（Issue #358） */
   preferGroupMemberName?: boolean
-  /** HTML 群聊导出时显示群成员专属头衔徽章。 */
-  showGroupMemberTitles?: boolean
   /**
    * 仅保留元数据、跳过下载的资源类型（Issue #341）。
    * 'image' | 'video' | 'audio' | 'file'
@@ -277,8 +275,6 @@ export interface CreateTaskRequest {
     useFriendlyFileName?: boolean
     /** 群聊导出时优先使用群成员名称（Issue #358） */
     preferGroupMemberName?: boolean
-    /** HTML 群聊导出时显示群成员专属头衔徽章。 */
-    showGroupMemberTitles?: boolean
     /** 仅保留元数据、跳过下载的资源类型（Issue #341） */
     skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
   }

@@ -2291,6 +2291,16 @@ fn render_face_element(data: &Value) -> String {
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| get_face_name_by_id(&id));
     if !id.is_empty() && id.chars().all(|character| character.is_ascii_digit()) {
+        let result = str_field(data, "resultId").unwrap_or_default();
+        if id == "358" {
+            if let Some(die) = render_dice_result(&result) {
+                return die;
+            }
+        } else if id == "359" {
+            if let Some(hand) = render_rps_result(&result) {
+                return hand;
+            }
+        }
         let face_type = data
             .get("faceType")
             .and_then(Value::as_i64)
@@ -2298,21 +2308,47 @@ fn render_face_element(data: &Value) -> String {
         let is_large = matches!(face_type, 3 | 4)
             || str_field(data, "packId").is_some_and(|value| !value.is_empty())
             || is_known_large_native_face(&id);
-        let result = str_field(data, "resultId").unwrap_or_default();
-        let result_label = native_face_result_label(&id, &result);
         let size_class = if is_large { " native-face-large" } else { "" };
         return format!(
-            "<span class=\"native-face-wrap{size_class}\"><img class=\"face-emoji face-emoji-image\" src=\"https://koishi.js.org/QFace/assets/qq_emoji/{id}/apng/{id}.png\" alt=\"{name}\" title=\"{name}\" loading=\"lazy\" referrerpolicy=\"no-referrer\" onerror=\"if(!this.dataset.fallback){{this.dataset.fallback='1';this.src='https://koishi.js.org/QFace/assets/qq_emoji/{id}/png/{id}.png'}}else{{this.replaceWith(document.createTextNode(this.alt))}}\">{result_html}</span>",
+            "<span class=\"native-face-wrap{size_class}\"><img class=\"face-emoji face-emoji-image\" src=\"https://koishi.js.org/QFace/assets/qq_emoji/{id}/apng/{id}.png\" alt=\"{name}\" title=\"{name}\" loading=\"lazy\" referrerpolicy=\"no-referrer\" onerror=\"if(!this.dataset.fallback){{this.dataset.fallback='1';this.src='https://koishi.js.org/QFace/assets/qq_emoji/{id}/png/{id}.png'}}else{{this.replaceWith(document.createTextNode(this.alt))}}\"></span>",
             name = escape_html(&name),
-            result_html = result_label
-                .map(|label| format!(
-                    "<span class=\"native-face-result\">{}</span>",
-                    escape_html(&label)
-                ))
-                .unwrap_or_default()
         );
     }
     format!("<span class=\"face-emoji\">{}</span>", escape_html(&name))
+}
+
+fn render_dice_result(result_id: &str) -> Option<String> {
+    let positions: &[u8] = match result_id {
+        "1" => &[5],
+        "2" => &[1, 9],
+        "3" => &[1, 5, 9],
+        "4" => &[1, 3, 7, 9],
+        "5" => &[1, 3, 5, 7, 9],
+        "6" => &[1, 3, 4, 6, 7, 9],
+        _ => return None,
+    };
+    let mut pips = String::new();
+    for position in positions {
+        let _ = write!(
+            pips,
+            "<i class=\"native-die-pip native-die-pip-{position}\"></i>"
+        );
+    }
+    Some(format!(
+        "<span class=\"face-emoji native-game-face\" role=\"img\" aria-label=\"骰子：{result_id} 点\" title=\"骰子：{result_id} 点\"><span class=\"native-die\">{pips}</span></span>"
+    ))
+}
+
+fn render_rps_result(result_id: &str) -> Option<String> {
+    let label = match result_id {
+        "1" => "石头",
+        "2" => "剪刀",
+        "3" => "布",
+        _ => return None,
+    };
+    Some(format!(
+        "<span class=\"face-emoji native-game-face\" role=\"img\" aria-label=\"包剪锤：{label}\" title=\"包剪锤：{label}\"><span class=\"native-rps-result native-rps-result-{result_id}\"><img src=\"https://koishi.js.org/QFace/assets/qq_emoji/359/png/359.png\" alt=\"{label}\" loading=\"lazy\" referrerpolicy=\"no-referrer\" onerror=\"this.parentElement.textContent=this.alt\"></span></span>"
+    ))
 }
 
 fn is_known_large_native_face(face_id: &str) -> bool {
@@ -2336,25 +2372,6 @@ fn is_known_large_native_face(face_id: &str) -> bool {
                 | 415..=417
         )
     })
-}
-
-fn native_face_result_label(face_id: &str, result_id: &str) -> Option<String> {
-    if result_id.is_empty() {
-        return None;
-    }
-    match face_id {
-        "358" => Some(format!("点数 {result_id}")),
-        "359" => Some(
-            match result_id {
-                "1" => "石头",
-                "2" => "剪刀",
-                "3" => "布",
-                _ => result_id,
-            }
-            .to_string(),
-        ),
-        _ => None,
-    }
 }
 
 fn render_native_card_element(element_type: &str, data: &Value) -> String {
@@ -3624,10 +3641,25 @@ mod tests {
             "resultId": "6"
         }));
 
-        assert!(html.contains("native-face-large"));
-        assert!(html.contains("class=\"face-emoji face-emoji-image\""));
-        assert!(html.contains("alt=\"/骰子\""));
-        assert!(html.contains("点数 6"));
+        assert!(html.contains("class=\"face-emoji native-game-face\""));
+        assert!(html.contains("aria-label=\"骰子：6 点\""));
+        assert!(html.contains("native-die-pip-1"));
+        assert!(html.contains("native-die-pip-3"));
+        assert!(html.contains("native-die-pip-4"));
+        assert!(html.contains("native-die-pip-6"));
+        assert!(html.contains("native-die-pip-7"));
+        assert!(html.contains("native-die-pip-9"));
+        assert!(!html.contains("/358/apng/358.png"));
+
+        let scissors = render_face_element(&json!({
+            "id": "359",
+            "name": "/包剪锤",
+            "resultId": "2"
+        }));
+        assert!(scissors.contains("aria-label=\"包剪锤：剪刀\""));
+        assert!(scissors.contains("native-rps-result-2"));
+        assert!(scissors.contains("alt=\"剪刀\""));
+        assert!(!scissors.contains("/359/apng/359.png"));
 
         let super_like = render_face_element(&json!({
             "id": "364",
