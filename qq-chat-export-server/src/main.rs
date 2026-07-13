@@ -23,7 +23,7 @@ use qce_server::api::ws;
 use qce_server::napcat::NapCatBridgeClient;
 use qce_server::paths::PathManager;
 use qce_server::progress::ProgressTracker;
-use qce_server::resource::{ResourceHandler, ResourceHandlerConfig};
+use qce_server::resource::{NativeSilkTranscoder, ResourceHandler, ResourceHandlerConfig};
 use qce_server::scheduler::ScheduledExportManager;
 use qce_server::security::SecurityManager;
 use qce_server::storage::DatabaseManager;
@@ -40,8 +40,8 @@ async fn main() {
         .join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
 
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "info".into());
+    let env_filter =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
 
     let file_appender = tracing_appender::rolling::daily(&log_dir, "qce-server.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
@@ -100,7 +100,9 @@ async fn run() -> Result<(), String> {
         .await
         .map_err(|e| format!("创建数据库目录失败: {e}"))?;
     let db = Arc::new(DatabaseManager::new(&db_path));
-    db.initialize().await.map_err(|e| format!("数据库初始化失败: {e}"))?;
+    db.initialize()
+        .await
+        .map_err(|e| format!("数据库初始化失败: {e}"))?;
 
     // ============ NapCat bridge 客户端 ============
     let napcat = NapCatBridgeClient::new(&bridge_endpoint, 120_000)
@@ -111,7 +113,7 @@ async fn run() -> Result<(), String> {
     let resource_handler = Arc::new(
         ResourceHandler::new(
             Arc::new(napcat.clone()),
-            None,
+            Some(Arc::new(NativeSilkTranscoder)),
             Arc::clone(&db),
             ResourceHandlerConfig {
                 storage_root: path_manager.resources_dir(),
@@ -124,9 +126,8 @@ async fn run() -> Result<(), String> {
 
     // ============ 进度跟踪 / 安全管理 ============
     let progress_tracker = Arc::new(ProgressTracker::new(Arc::clone(&db)));
-    let security_manager = Arc::new(
-        SecurityManager::new().map_err(|e| format!("创建安全管理器失败: {e}"))?,
-    );
+    let security_manager =
+        Arc::new(SecurityManager::new().map_err(|e| format!("创建安全管理器失败: {e}"))?);
     security_manager.initialize();
     let _watcher = security_manager.spawn_config_watcher();
 
@@ -136,8 +137,7 @@ async fn run() -> Result<(), String> {
         Arc::clone(&resource_handler),
         Arc::clone(&path_manager),
     ));
-    let scheduled_export_manager =
-        Arc::new(ScheduledExportManager::new(Arc::clone(&db), executor));
+    let scheduled_export_manager = Arc::new(ScheduledExportManager::new(Arc::clone(&db), executor));
     scheduled_export_manager.initialize().await;
 
     // ============ 孤儿任务归一化（issue #144） + 任务表加载 ============
@@ -188,7 +188,11 @@ async fn run() -> Result<(), String> {
 }
 
 /// 装配全部路由与中间件（对应 TS `ApiServer.setupRoutes`）。
-fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &std::path::Path) -> Router {
+fn build_router(
+    state: &SharedState,
+    path_manager: &PathManager,
+    static_dir: &std::path::Path,
+) -> Router {
     let api = Router::new()
         // 基础信息。
         .route("/", get(root_or_ws))
@@ -215,7 +219,10 @@ fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &st
         // 系统信息 / 配置。
         .route("/api/system/info", get(system::system_info))
         .route("/api/system/status", get(system::system_status))
-        .route("/api/config", get(system::get_config).put(system::put_config))
+        .route(
+            "/api/config",
+            get(system::get_config).put(system::put_config),
+        )
         // 群组。
         .route("/api/groups", get(groups::list_groups))
         .route("/api/groups/:groupCode", get(groups::group_detail))
@@ -287,7 +294,10 @@ fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &st
         )
         // 表情包。
         .route("/api/sticker-packs", get(stickers::list_sticker_packs))
-        .route("/api/sticker-packs/export", post(stickers::export_sticker_pack))
+        .route(
+            "/api/sticker-packs/export",
+            post(stickers::export_sticker_pack),
+        )
         .route(
             "/api/sticker-packs/export-all",
             post(stickers::export_all_sticker_packs),
@@ -297,7 +307,10 @@ fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &st
             get(stickers::sticker_export_records),
         )
         // 群相册。
-        .route("/api/groups/:groupCode/albums", get(albums::list_group_albums))
+        .route(
+            "/api/groups/:groupCode/albums",
+            get(albums::list_group_albums),
+        )
         .route(
             "/api/groups/:groupCode/albums/:albumId/media",
             get(albums::list_album_media),
@@ -355,9 +368,15 @@ fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &st
             "/api/resources/export/:fileName",
             get(resources::export_file_resources),
         )
-        .route("/api/resources/files", get(resources::global_resource_files))
+        .route(
+            "/api/resources/files",
+            get(resources::global_resource_files),
+        )
         .route("/api/download-file", get(resources::download_file))
-        .route("/api/open-file-location", post(resources::open_file_location))
+        .route(
+            "/api/open-file-location",
+            post(resources::open_file_location),
+        )
         .route(
             "/api/open-export-directory",
             post(resources::open_export_directory),
@@ -369,13 +388,9 @@ fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &st
         .route("/api/merge-resources", post(resources::merge_resources));
 
     // 静态托管（对应 TS express.static + FrontendBuilder.setupStaticRoutes）。
-    let frontend = ServeDir::new(static_dir)
-        .append_index_html_on_directories(true);
+    let frontend = ServeDir::new(static_dir).append_index_html_on_directories(true);
     let router = api
-        .nest_service(
-            "/downloads",
-            ServeDir::new(path_manager.exports_dir()),
-        )
+        .nest_service("/downloads", ServeDir::new(path_manager.exports_dir()))
         .nest_service(
             "/scheduled-downloads",
             ServeDir::new(path_manager.scheduled_exports_dir()),
@@ -415,10 +430,7 @@ fn build_router(state: &SharedState, path_manager: &PathManager, static_dir: &st
 /// `GET /qce[/*]` — 前端应用入口 / SPA 回退。
 /// 优先返回子路由的 index.html（如 /qce/sessions → sessions/index.html），
 /// 找不到时回退到根 index.html（SPA 兜底）。
-async fn frontend_index(
-    State(state): State<SharedState>,
-    uri: axum::http::Uri,
-) -> Response {
+async fn frontend_index(State(state): State<SharedState>, uri: axum::http::Uri) -> Response {
     let path = uri.path().trim_start_matches("/qce").trim_matches('/');
     if !path.is_empty() && !path.contains('.') {
         let sub = state.static_dir.join(path).join("index.html");
@@ -426,7 +438,11 @@ async fn frontend_index(
             return serve_static_file(&sub, "text/html; charset=utf-8").await;
         }
     }
-    serve_static_file(&state.static_dir.join("index.html"), "text/html; charset=utf-8").await
+    serve_static_file(
+        &state.static_dir.join("index.html"),
+        "text/html; charset=utf-8",
+    )
+    .await
 }
 
 /// `GET /qce/auth`、`GET /auth[/]` — Next.js 构建的认证页面。
@@ -435,15 +451,16 @@ async fn frontend_auth(State(state): State<SharedState>) -> Response {
     if auth_page.is_file() {
         serve_static_file(&auth_page, "text/html; charset=utf-8").await
     } else {
-        serve_static_file(&state.static_dir.join("index.html"), "text/html; charset=utf-8").await
+        serve_static_file(
+            &state.static_dir.join("index.html"),
+            "text/html; charset=utf-8",
+        )
+        .await
     }
 }
 
 /// 前端根级静态资源（logo / placeholder 图片）。
-async fn frontend_root_asset(
-    State(state): State<SharedState>,
-    uri: axum::http::Uri,
-) -> Response {
+async fn frontend_root_asset(State(state): State<SharedState>, uri: axum::http::Uri) -> Response {
     let name = uri.path().trim_start_matches('/');
     let content_type = match name.rsplit('.').next() {
         Some("png") => "image/png",
@@ -466,10 +483,7 @@ async fn vercel_stub() -> Response {
 async fn serve_static_file(path: &std::path::Path, content_type: &str) -> Response {
     match tokio::fs::read(path).await {
         Ok(bytes) => (
-            [(
-                axum::http::header::CONTENT_TYPE,
-                content_type.to_string(),
-            )],
+            [(axum::http::header::CONTENT_TYPE, content_type.to_string())],
             bytes,
         )
             .into_response(),
@@ -487,7 +501,7 @@ async fn root_or_ws(
     State(state): State<SharedState>,
     Extension(request_id): Extension<qce_server::api::RequestId>,
     ws: Option<WebSocketUpgrade>,
-    ) -> Response {
+) -> Response {
     match ws {
         Some(upgrade) => ws::ws_handler(State(state), upgrade).await,
         None => system::root(State(state), Extension(request_id)).await,
@@ -612,8 +626,14 @@ fn normalize_legacy_task(merged: &mut Map<String, Value>) {
     }
 
     if !merged.contains_key("progress") {
-        let processed = merged.get("processedMessages").and_then(Value::as_f64).unwrap_or(0.0);
-        let total = merged.get("totalMessages").and_then(Value::as_f64).unwrap_or(0.0);
+        let processed = merged
+            .get("processedMessages")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let total = merged
+            .get("totalMessages")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
         let progress = if total > 0.0 {
             (processed / total * 100.0).round() as i64
         } else {
@@ -630,7 +650,10 @@ fn normalize_legacy_task(merged: &mut Map<String, Value>) {
     }
 
     // 顶层 startTime/endTime 一律以 filter 的消息时间范围为准，没有就移除。
-    let filter_start = merged.get("filter").and_then(|f| f.get("startTime")).cloned();
+    let filter_start = merged
+        .get("filter")
+        .and_then(|f| f.get("startTime"))
+        .cloned();
     let filter_end = merged.get("filter").and_then(|f| f.get("endTime")).cloned();
     match filter_start {
         Some(v) if !v.is_null() => {
@@ -655,7 +678,10 @@ fn normalize_legacy_task(merged: &mut Map<String, Value>) {
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
         {
-            merged.insert("downloadUrl".to_string(), json!(format!("/downloads/{file_name}")));
+            merged.insert(
+                "downloadUrl".to_string(),
+                json!(format!("/downloads/{file_name}")),
+            );
         }
     }
 }

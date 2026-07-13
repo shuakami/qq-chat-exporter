@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -39,8 +40,8 @@ pub struct ResourceHandlerConfig {
     pub enable_local_cache: bool,
     /// 缓存清理阈值（天）。
     pub cache_cleanup_threshold_days: i64,
-    /// 是否把 SILK 语音转码成 MP3（issue #306）。
-    pub transcode_silk_to_mp3: bool,
+    /// 是否把 SILK 语音转码成浏览器原生支持的音频（issue #306）。
+    pub transcode_silk_to_browser_audio: bool,
 }
 
 impl Default for ResourceHandlerConfig {
@@ -58,7 +59,7 @@ impl Default for ResourceHandlerConfig {
             health_check_interval_ms: 600_000,
             enable_local_cache: true,
             cache_cleanup_threshold_days: 30,
-            transcode_silk_to_mp3: true,
+            transcode_silk_to_browser_audio: true,
         }
     }
 }
@@ -81,11 +82,15 @@ pub trait MediaDownloader: Send + Sync {
     ) -> Result<String, String>;
 }
 
-/// SILK → MP3 转码抽象（对应 TS `transcodeSilkFileToMp3`，issue #306）。
+/// SILK → 浏览器原生音频转码抽象（issue #306）。
 #[async_trait]
 pub trait SilkTranscoder: Send + Sync {
+    /// 输出扩展名，不含前导点。
+    fn target_extension(&self) -> &'static str;
+    /// 输出 MIME 类型。
+    fn target_mime_type(&self) -> &'static str;
     /// 转码；成功返回 true。失败返回 false 时调用方保留原始 SILK 文件。
-    async fn transcode_to_mp3(&self, silk_path: &Path, mp3_path: &Path) -> bool;
+    async fn transcode(&self, silk_path: &Path, output_path: &Path) -> bool;
 }
 
 /// 资源下载进度。
@@ -269,6 +274,16 @@ impl ResourceHandler {
         self: &Arc<Self>,
         messages: &[Value],
     ) -> HashMap<String, Vec<ResourceInfo>> {
+        self.process_message_resources_with_cancel(messages, Arc::new(AtomicBool::new(false)))
+            .await
+    }
+
+    /// 批量处理消息资源，并在取消信号触发后停止排队及在途下载。
+    pub async fn process_message_resources_with_cancel(
+        self: &Arc<Self>,
+        messages: &[Value],
+        cancel_flag: Arc<AtomicBool>,
+    ) -> HashMap<String, Vec<ResourceInfo>> {
         {
             let mut progress = self.progress.lock().await;
             *progress = ProgressCounters::default();
@@ -283,15 +298,23 @@ impl ResourceHandler {
         let mut tasks: Vec<DownloadTask> = Vec::new();
 
         for message in messages {
+            if cancel_flag.load(Ordering::SeqCst) {
+                break;
+            }
             let msg_id = str_field(message, "msgId").unwrap_or_default().to_string();
             let chat_type = message.get("chatType").and_then(Value::as_i64).unwrap_or(0);
-            let peer_uid = str_field(message, "peerUid").unwrap_or_default().to_string();
+            let peer_uid = str_field(message, "peerUid")
+                .unwrap_or_default()
+                .to_string();
             let Some(elements) = message.get("elements").and_then(Value::as_array) else {
                 continue;
             };
             let mut resources_for_message: Vec<Arc<Mutex<ResourceInfo>>> = Vec::new();
 
             for element in elements {
+                if cancel_flag.load(Ordering::SeqCst) {
+                    break;
+                }
                 if !is_media_element(element) {
                     continue;
                 }
@@ -334,7 +357,7 @@ impl ResourceHandler {
         }
         if !tasks.is_empty() {
             self.emit_progress(None).await;
-            self.run_downloads(tasks).await;
+            self.run_downloads(tasks, cancel_flag).await;
         }
 
         // 计算本批次摘要（issue #363）
@@ -489,7 +512,11 @@ impl ResourceHandler {
     }
 
     /// 并发执行下载任务（Semaphore 限流 + 优先级排序 + 指数退避重试）。
-    async fn run_downloads(self: &Arc<Self>, mut tasks: Vec<DownloadTask>) {
+    async fn run_downloads(
+        self: &Arc<Self>,
+        mut tasks: Vec<DownloadTask>,
+        cancel_flag: Arc<AtomicBool>,
+    ) {
         tasks.sort_by_key(|task| std::cmp::Reverse(task.priority));
         self.is_downloading
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -500,25 +527,46 @@ impl ResourceHandler {
         for task in tasks {
             let handler = Arc::clone(self);
             let semaphore = Arc::clone(&self.download_semaphore);
+            let task_cancel_flag = Arc::clone(&cancel_flag);
             join_set.spawn(async move {
-                let Ok(_permit) = semaphore.acquire().await else {
+                let permit = tokio::select! {
+                    result = semaphore.acquire() => result.ok(),
+                    () = wait_for_cancellation(task_cancel_flag.as_ref()) => None,
+                };
+                let Some(_permit) = permit else {
                     return;
                 };
-                handler.execute_download_with_retries(&task).await;
                 handler
-                    .pending_downloads
-                    .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    .execute_download_with_retries(&task, task_cancel_flag.as_ref())
+                    .await;
+                handler.pending_downloads.fetch_sub(1, Ordering::SeqCst);
             });
         }
-        while join_set.join_next().await.is_some() {}
-        self.is_downloading
-            .store(false, std::sync::atomic::Ordering::SeqCst);
+        loop {
+            tokio::select! {
+                result = join_set.join_next() => {
+                    if result.is_none() {
+                        break;
+                    }
+                }
+                () = wait_for_cancellation(cancel_flag.as_ref()) => {
+                    join_set.abort_all();
+                    while join_set.join_next().await.is_some() {}
+                    break;
+                }
+            }
+        }
+        self.pending_downloads.store(0, Ordering::SeqCst);
+        self.is_downloading.store(false, Ordering::SeqCst);
     }
 
     /// 带重试的下载执行（对应 TS `executeDownload` + 队列重投逻辑）。
-    async fn execute_download_with_retries(&self, task: &DownloadTask) {
+    async fn execute_download_with_retries(&self, task: &DownloadTask, cancel_flag: &AtomicBool) {
         let mut retries: u32 = 0;
         loop {
+            if cancel_flag.load(Ordering::SeqCst) {
+                return;
+            }
             match self.execute_download_once(task).await {
                 Ok(()) => {
                     let file_name = { task.resource.lock().await.file_name.clone() };
@@ -553,9 +601,11 @@ impl ResourceHandler {
                     }
                     if retriable && retries < self.config.max_retries {
                         // 指数退避：1s, 2s, 4s, ... 上限 10s
-                        let delay_ms =
-                            (1000u64 << (retries.saturating_sub(1)).min(10)).min(10000);
-                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                        let delay_ms = (1000u64 << (retries.saturating_sub(1)).min(10)).min(10000);
+                        tokio::select! {
+                            () = tokio::time::sleep(Duration::from_millis(delay_ms)) => {}
+                            () = wait_for_cancellation(cancel_flag) => return,
+                        }
                         continue;
                     }
                     let mut progress = self.progress.lock().await;
@@ -585,14 +635,17 @@ impl ResourceHandler {
                     // issue #285：按 magic bytes 规范化音频扩展名
                     let mut resource = task.resource.lock().await;
                     file_path = normalize_audio_file_extension(&file_path, &mut resource).await;
-                    // issue #306：SILK → MP3 转码，让浏览器可直接播放
-                    if self.config.transcode_silk_to_mp3
+                    // issue #306：SILK 转成浏览器原生音频，让 HTML 可直接播放
+                    if self.config.transcode_silk_to_browser_audio
                         && file_path.to_lowercase().ends_with(".silk")
                     {
                         if let Some(transcoder) = &self.silk_transcoder {
-                            file_path =
-                                maybe_transcode_silk_to_mp3(transcoder.as_ref(), &file_path, &mut resource)
-                                    .await;
+                            file_path = maybe_transcode_silk_for_browser(
+                                transcoder.as_ref(),
+                                &file_path,
+                                &mut resource,
+                            )
+                            .await;
                         }
                     }
                 }
@@ -618,14 +671,18 @@ impl ResourceHandler {
 
     /// 下载资源（含空路径回退与文件校验，对应 TS `downloadResource`）。
     async fn download_resource(&self, task: &DownloadTask) -> Result<String, String> {
-        let (local_path, resource_type) = {
+        let (local_path, resource_type, expected_size) = {
             let resource = task.resource.lock().await;
             let local_path = resource
                 .local_path
                 .clone()
                 .filter(|p| !p.is_empty())
                 .unwrap_or_else(|| self.generate_local_path(&resource));
-            (local_path, resource.resource_type.clone())
+            (
+                local_path,
+                resource.resource_type.clone(),
+                resource.file_size.unwrap_or(0),
+            )
         };
 
         if let Some(parent) = Path::new(&local_path).parent() {
@@ -634,18 +691,43 @@ impl ResourceHandler {
             }
         }
 
-        let downloaded_path = self
-            .downloader
-            .download_media(
-                &task.msg_id,
-                task.chat_type,
-                &task.peer_uid,
-                &task.element_id,
-                &local_path,
-                self.config.download_timeout_ms,
+        if file_matches_expected_size(&local_path, expected_size).await {
+            return Ok(local_path);
+        }
+        if let Some(source_path) = element_source_path(&task.element) {
+            if file_matches_expected_size(&source_path, expected_size).await {
+                if source_path == local_path {
+                    return Ok(local_path);
+                }
+                if tokio::fs::copy(&source_path, &local_path).await.is_ok()
+                    && file_matches_expected_size(&local_path, expected_size).await
+                {
+                    return Ok(local_path);
+                }
+                return Ok(source_path);
+            }
+        }
+
+        let download = self.downloader.download_media(
+            &task.msg_id,
+            task.chat_type,
+            &task.peer_uid,
+            &task.element_id,
+            &local_path,
+            self.config.download_timeout_ms,
+        );
+        let downloaded_path = tokio::time::timeout(
+            Duration::from_millis(self.config.download_timeout_ms),
+            download,
+        )
+        .await
+        .map_err(|_| {
+            enhance_download_error(
+                &resource_type,
+                &format!("timeout after {}ms", self.config.download_timeout_ms),
             )
-            .await
-            .map_err(|error| enhance_download_error(&resource_type, &error))?;
+        })?
+        .map_err(|error| enhance_download_error(&resource_type, &error))?;
 
         if downloaded_path.trim().is_empty() {
             // 尝试检查本地路径是否已有文件
@@ -695,8 +777,13 @@ impl ResourceHandler {
 
     /// 执行定期健康检查（对应 TS `performScheduledHealthCheck`）。
     async fn perform_scheduled_health_check(&self) {
-        if self.is_downloading.load(std::sync::atomic::Ordering::SeqCst)
-            || self.pending_downloads.load(std::sync::atomic::Ordering::SeqCst) > 0
+        if self
+            .is_downloading
+            .load(std::sync::atomic::Ordering::SeqCst)
+            || self
+                .pending_downloads
+                .load(std::sync::atomic::Ordering::SeqCst)
+                > 0
         {
             return;
         }
@@ -1123,8 +1210,8 @@ fn detect_audio_format(buf: &[u8]) -> Option<(&'static str, &'static str)> {
     None
 }
 
-/// issue #306：把 SILK 文件转码成 MP3 并切换资源记录。失败时返回原路径。
-async fn maybe_transcode_silk_to_mp3(
+/// issue #306：把 SILK 文件转码成浏览器原生音频并切换资源记录。
+async fn maybe_transcode_silk_for_browser(
     transcoder: &dyn SilkTranscoder,
     silk_path: &str,
     resource: &mut ResourceInfo,
@@ -1138,16 +1225,19 @@ async fn maybe_transcode_silk_to_mp3(
     } else {
         silk_path[..silk_path.len() - ext.len()].to_string()
     };
-    let mp3_path = format!("{base_no_ext}.mp3");
+    let target_extension = transcoder.target_extension();
+    let output_path = format!("{base_no_ext}.{target_extension}");
 
-    // 已存在同名 MP3（之前转过）：直接复用，不重复编码。
-    if tokio::fs::metadata(&mp3_path).await.is_err() {
+    if !file_size_positive(&output_path).await {
         let ok = transcoder
-            .transcode_to_mp3(Path::new(silk_path), Path::new(&mp3_path))
+            .transcode(Path::new(silk_path), Path::new(&output_path))
             .await;
         if !ok {
             return silk_path.to_string();
         }
+    }
+    if !file_size_positive(&output_path).await {
+        return silk_path.to_string();
     }
 
     if let Some(file_name) = resource.file_name.clone().filter(|s| !s.is_empty()) {
@@ -1160,17 +1250,17 @@ async fn maybe_transcode_silk_to_mp3(
         } else {
             file_name[..file_name.len() - fn_ext.len()].to_string()
         };
-        resource.file_name = Some(format!("{fn_base}.mp3"));
+        resource.file_name = Some(format!("{fn_base}.{target_extension}"));
     } else {
-        resource.file_name = Path::new(&mp3_path)
+        resource.file_name = Path::new(&output_path)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned());
     }
-    resource.mime_type = Some("audio/mpeg".to_string());
-    if let Ok(metadata) = tokio::fs::metadata(&mp3_path).await {
+    resource.mime_type = Some(transcoder.target_mime_type().to_string());
+    if let Ok(metadata) = tokio::fs::metadata(&output_path).await {
         resource.file_size = Some(i64::try_from(metadata.len()).unwrap_or(i64::MAX));
     }
-    mp3_path
+    output_path
 }
 
 /// 检查文件存在且大小大于 0。
@@ -1180,6 +1270,21 @@ async fn file_size_positive(path: &str) -> bool {
         .is_ok_and(|metadata| metadata.len() > 0)
 }
 
+/// 检查本地文件是否存在、非空，并在有预期大小时验证大小一致。
+async fn file_matches_expected_size(path: &str, expected_size: i64) -> bool {
+    tokio::fs::metadata(path).await.is_ok_and(|metadata| {
+        let actual_size = i64::try_from(metadata.len()).unwrap_or(i64::MAX);
+        actual_size > 0 && (expected_size <= 0 || actual_size == expected_size)
+    })
+}
+
+/// 等待原子取消标记，供 `tokio::select!` 中止排队、重试和在途 RPC。
+async fn wait_for_cancellation(cancel_flag: &AtomicBool) {
+    while !cancel_flag.load(Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// 当前毫秒时间戳。
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -1187,6 +1292,5 @@ fn now_ms() -> i64 {
 
 /// 当前 ISO 时间字符串。
 fn now_iso() -> String {
-    chrono::Utc::now()
-        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }

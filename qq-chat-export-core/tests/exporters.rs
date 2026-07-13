@@ -324,7 +324,12 @@ async fn modern_html_handles_group_updates_faces_mentions_and_video_files() {
             text_element(" "),
             MessageElement {
                 element_type: "face".to_owned(),
-                data: json!({ "id": "359", "name": "[包剪锤]" }),
+                data: json!({
+                    "id": "359",
+                    "name": "/包剪锤",
+                    "faceType": 3,
+                    "resultId": "2"
+                }),
             },
             MessageElement {
                 element_type: "file".to_owned(),
@@ -346,7 +351,9 @@ async fn modern_html_handles_group_updates_faces_mentions_and_video_files() {
     let (content_html, _) = render_modern_html(&temp, "content", content_message, |_| {}).await;
     assert!(content_html.contains("class=\"at-mention\">@全体成员</span>"));
     assert!(!content_html.contains("<span class=\"text-content\"> </span>"));
-    assert!(content_html.contains("https://res.qlogo.cn/qqface/359/100"));
+    assert!(content_html.contains("https://koishi.js.org/QFace/assets/qq_emoji/359/apng/359.png"));
+    assert!(content_html.contains("class=\"native-face-wrap native-face-large\""));
+    assert!(content_html.contains("class=\"native-face-result\">剪刀</span>"));
     assert!(content_html.contains("class=\"video-bubble\""));
     assert!(content_html.contains("data-src=\"./resources/files/hash_clip.mp4\""));
     assert!(content_html.contains(
@@ -948,8 +955,13 @@ fn modern_html_styles_titles_as_badges_and_replies_with_hover_metadata() {
         css.contains(".reply-content-icon {\n            width: 15px;\n            height: 15px;")
     );
     assert!(css.contains(
-        ".reply-content:hover .reply-content-time,\n        .reply-content:focus-visible .reply-content-time {\n            max-width: 90px;\n            opacity: 1;"
+        ".reply-content-time {\n            display: inline-block;\n            width: 90px;\n            opacity: 0;"
     ));
+    assert!(css.contains(
+        ".reply-content:hover .reply-content-time,\n        .reply-content:focus-visible .reply-content-time {\n            opacity: 1;"
+    ));
+    assert!(css.contains("35% { filter: brightness(.82); }"));
+    assert!(!css.contains("border-top: 1px solid color-mix"));
 }
 
 fn hex_bytes(input: &str) -> Vec<u8> {

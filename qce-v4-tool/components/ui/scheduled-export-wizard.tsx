@@ -18,6 +18,10 @@ import { Loader } from "@/components/ui/loader"
 import type { CreateScheduledExportForm, Group, Friend } from "@/types/api"
 import { useSearch } from "@/hooks/use-search"
 import { toggleSkipResourceType, type SkipDownloadResourceType } from "@/lib/skip-resource-types"
+import {
+  sortSessionTargets,
+  type SessionTaskStats,
+} from "@/lib/session-sort"
 
 // 统一的药丸输入样式（与新版模态框 UI 对齐）
 const PILL_INPUT =
@@ -33,6 +37,7 @@ interface ScheduledExportWizardProps {
   groups?: Group[]
   friends?: Friend[]
   onLoadData?: () => void
+  taskStatsMap?: Record<string, SessionTaskStats | undefined>
 }
 
 interface SelectedTarget {
@@ -54,6 +59,7 @@ export function ScheduledExportWizard({
   groups = [],
   friends = [],
   onLoadData,
+  taskStatsMap,
 }: ScheduledExportWizardProps) {
   // 基础配置表单
   const [baseForm, setBaseForm] = useState({
@@ -63,7 +69,7 @@ export function ScheduledExportWizard({
     timeRangeType: "yesterday" as "yesterday" | "last-week" | "last-month" | "last-7-days" | "last-30-days" | "custom",
     cronExpression: "",
     customTimeRange: undefined as { startTime: number; endTime: number } | undefined,
-    format: "HTML" as "HTML" | "JSON" | "TXT",
+    format: "HTML" as "HTML" | "JSON" | "TXT" | "EXCEL",
     enabled: true,
     outputDir: "",
     includeResourceLinks: true,
@@ -83,7 +89,7 @@ export function ScheduledExportWizard({
   // 搜索相关
   const { groupSearch, friendSearch } = useSearch()
   const listRef = useRef<HTMLDivElement>(null)
-  const searchTimerRef = useRef<NodeJS.Timeout>()
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null)
   const groupSearchRef = useRef(groupSearch)
   const friendSearchRef = useRef(friendSearch)
   const currentChatTypeRef = useRef(currentChatType)
@@ -195,7 +201,9 @@ export function ScheduledExportWizard({
   }, [isOpen, groups.length, friends.length])
 
   // 清理定时器
-  useEffect(() => () => searchTimerRef.current && clearTimeout(searchTimerRef.current), [])
+  useEffect(() => () => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+  }, [])
 
   // 批量提交处理
   const handleSubmit = async () => {
@@ -254,9 +262,9 @@ export function ScheduledExportWizard({
   const getDisplayTargets = () => {
     const s = currentChatType === 2 ? groupSearch : friendSearch
     const defaultData = currentChatType === 2 ? groups : friends
+    let targets: Array<Group | Friend>
     if (searchTerm.trim()) {
-      if (s.allData.length > 0) return s.results
-      return defaultData.filter((item) => {
+      targets = (s.allData.length > 0 ? s.results : defaultData.filter((item) => {
         if (currentChatType === 2) {
           const g = item as Group
           return g.groupName.toLowerCase().includes(searchTerm.toLowerCase()) || g.groupCode.includes(searchTerm)
@@ -268,10 +276,27 @@ export function ScheduledExportWizard({
             f.uid.includes(searchTerm)
           )
         }
-      })
+      })) as Array<Group | Friend>
+    } else {
+      targets = (s.allData.length > 0 ? s.allData : defaultData) as Array<Group | Friend>
     }
-    if (s.allData.length > 0) return s.allData
-    return defaultData
+
+    if (currentChatType === 2) {
+      return sortSessionTargets(
+        targets as Group[],
+        'group',
+        taskStatsMap,
+        (group) => group.groupCode,
+        (group) => group.groupName,
+      )
+    }
+    return sortSessionTargets(
+      targets as Friend[],
+      'friend',
+      taskStatsMap,
+      (friend) => friend.uid,
+      (friend) => friend.remark || friend.nick,
+    )
   }
 
   // 滚动加载更多

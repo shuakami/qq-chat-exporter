@@ -109,7 +109,9 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         let mut all_messages: Vec<Value> = Vec::new();
         let mut previous = None;
         loop {
-            let batch = match fetcher.fetch_next_batch(&peer, &fetch_filter, previous.as_ref()).await
+            let batch = match fetcher
+                .fetch_next_batch(&peer, &fetch_filter, previous.as_ref())
+                .await
             {
                 Ok(Some(batch)) => batch,
                 Ok(None) => break,
@@ -195,8 +197,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             &timestamp.to_string(),
             &format.to_lowercase(),
         );
-        let (file_name, _reservation) =
-            reserve_scheduled_file_name(&output_dir, &base_file_name);
+        let (file_name, _reservation) = reserve_scheduled_file_name(&output_dir, &base_file_name);
         let file_path = output_dir.join(&file_name);
 
         // ============ 阶段 4：解析 + 导出 ============
@@ -222,13 +223,19 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
 
         let message_count = clean_messages.len() as i64;
         let self_info = self.napcat.self_info().await.unwrap_or(Value::Null);
-        let self_uid = self_info.get("uid").and_then(Value::as_str).map(str::to_string);
-        let self_uin = self_info.get("uin").and_then(Value::as_str).map(str::to_string);
+        let self_uid = self_info
+            .get("uid")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let self_uin = self_info
+            .get("uin")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         let peer_uin = (chat_type != 2)
             .then(|| {
-                peer_uin.clone().or_else(|| {
-                    resolve_peer_uin(&peer_uid, self_uin.as_deref(), &clean_messages)
-                })
+                peer_uin
+                    .clone()
+                    .or_else(|| resolve_peer_uin(&peer_uid, self_uin.as_deref(), &clean_messages))
             })
             .flatten();
         let normalized_chat_type = classify_chat_type_binary(Some(chat_type)).to_string();
@@ -239,7 +246,10 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             participant_count: None,
             self_uid,
             self_uin,
-            self_name: self_info.get("nick").and_then(Value::as_str).map(str::to_string),
+            self_name: self_info
+                .get("nick")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             peer_uid: Some(peer_uid.clone()),
             peer_uin,
         };
@@ -359,14 +369,18 @@ fn sanitize_task_name(name: &str, max_length: usize) -> String {
     if safe.is_empty() {
         safe = "unknown".to_string();
     }
-    let device_name = safe.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    let device_name = safe
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
     if matches!(device_name.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || device_name
-            .strip_prefix("COM")
-            .is_some_and(|value| matches!(value, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
-        || device_name
-            .strip_prefix("LPT")
-            .is_some_and(|value| matches!(value, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
+        || device_name.strip_prefix("COM").is_some_and(|value| {
+            matches!(value, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+        })
+        || device_name.strip_prefix("LPT").is_some_and(|value| {
+            matches!(value, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+        })
     {
         safe.insert(0, '_');
     }

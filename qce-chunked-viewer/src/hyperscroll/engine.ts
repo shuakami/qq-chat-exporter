@@ -69,8 +69,10 @@ export class HyperScroll {
   private touchY: number | null = null;
   private touchVel = 0;
   private touchLastT = 0;
+  private pinnedJump: { index: number; top: number } | null = null;
   private destroyed = false;
   private readonly resizeObserver: ResizeObserver | null;
+  private readonly listResizeObserver: ResizeObserver | null;
   private readonly abort = new AbortController();
  
   constructor(container: HTMLElement, options: HyperScrollOptions) {
@@ -120,6 +122,12 @@ export class HyperScroll {
       ? null
       : new ResizeObserver(() => this.rebuild());
     this.resizeObserver?.observe(container);
+    this.listResizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(() => {
+        if (this.pinnedJump) this.positionPinnedJump();
+      });
+    this.listResizeObserver?.observe(this.list);
  
     this.rebuild();
   }
@@ -132,13 +140,16 @@ export class HyperScroll {
     // jump drags the viewport away from the target.
     this.smoothRemainder = 0;
     this.smoothVel = 0;
-    this.anchor = { index: Math.min(Math.max(index, 0), Math.max(count - 1, 0)), offset };
+    const targetIndex = Math.min(Math.max(index, 0), Math.max(count - 1, 0));
+    this.anchor = { index: targetIndex, offset: 0 };
+    this.pinnedJump = { index: targetIndex, top: -offset };
     this.rebuild();
   }
  
   /** Scroll by a pixel delta along the precise (anchor) path. */
   scrollBy(px: number): void {
     this.cancelNativeSeek();
+    this.releasePinnedJump();
     this.anchor = { ...this.anchor, offset: this.anchor.offset + px };
     this.scheduleFrame();
   }
@@ -160,6 +171,7 @@ export class HyperScroll {
     this.cancelNativeSeek();
     this.opts.dataSource = source;
     this.anchor = { index: 0, offset: 0 };
+    this.pinnedJump = null;
     this.smoothRemainder = 0;
     this.smoothVel = 0;
     this.rebuild();
@@ -183,6 +195,7 @@ export class HyperScroll {
       clearTimeout(this.scrollSyncReleaseTimer);
     }
     this.resizeObserver?.disconnect();
+    this.listResizeObserver?.disconnect();
     this.layer.remove();
     this.spacer.remove();
     this.viewport.classList.remove('hs-viewport');
@@ -194,6 +207,7 @@ export class HyperScroll {
   private readonly onWheel = (e: WheelEvent): void => {
     e.preventDefault();
     this.cancelNativeSeek();
+    this.releasePinnedJump();
     const px = e.deltaMode === 1 ? e.deltaY * 24 : e.deltaY;
     if (this.opts.smoothWheel) {
       this.smoothTau = 110;
@@ -251,6 +265,7 @@ export class HyperScroll {
       this.scrollSyncReleaseTimer = null;
     }
     this.ignoreScroll = false;
+    this.releasePinnedJump();
     this.pointerActive = true;
   };
 
@@ -289,6 +304,7 @@ export class HyperScroll {
  
   private readonly onTouchStart = (e: TouchEvent): void => {
     this.cancelNativeSeek();
+    this.releasePinnedJump();
     this.touchY = e.touches[0]?.clientY ?? null;
     this.touchVel = 0;
     this.touchLastT = e.timeStamp;
@@ -386,6 +402,17 @@ export class HyperScroll {
       clearTimeout(this.seekSettleTimer);
       this.seekSettleTimer = null;
     }
+  }
+
+  private releasePinnedJump(): void {
+    const pinned = this.pinnedJump;
+    if (!pinned) return;
+    this.pinnedJump = null;
+    this.anchor = normalizeAnchor(
+      { index: pinned.index, offset: -pinned.top },
+      this.opts.dataSource.count,
+      this.heightAt,
+    );
   }
 
   private estimatedHeightAt(index: number): number {
@@ -497,7 +524,11 @@ export class HyperScroll {
  
     this.lastRebuildMs = performance.now() - t0;
     this.opts.onRangeChange?.({ ...this.range }, this.lastRebuildMs);
-    this.position();
+    if (this.pinnedJump) {
+      this.positionPinnedJump();
+    } else {
+      this.position();
+    }
   }
  
   /** Append a batch below and prune far-above items — no full rebuild. */
@@ -609,6 +640,23 @@ export class HyperScroll {
       }
     }
     // integer device pixels: fractional translate makes text blurry
+    this.list.style.transform = `translateY(${-Math.round(translate)}px)`;
+    this.syncScrollbar();
+    this.opts.onAnchorChange?.({ ...this.anchor });
+  }
+
+  private positionPinnedJump(): void {
+    const pinned = this.pinnedJump;
+    if (!pinned || this.destroyed) return;
+    if (pinned.index < this.range.start || pinned.index >= this.range.end) {
+      this.anchor = { index: pinned.index, offset: 0 };
+      this.rebuild();
+      return;
+    }
+    const target = this.list.children[pinned.index - this.range.start] as HTMLElement | undefined;
+    if (!target) return;
+    const translate = target.offsetTop - pinned.top;
+    this.anchor = { index: pinned.index, offset: 0 };
     this.list.style.transform = `translateY(${-Math.round(translate)}px)`;
     this.syncScrollbar();
     this.opts.onAnchorChange?.({ ...this.anchor });
