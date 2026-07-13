@@ -5,8 +5,9 @@ on:
     branches:
       - master
     paths:
+      - 'public/**'
       - 'docs/**'
-      - 'mkdocs.yml'
+      - 'scripts/build-docs-site.py'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -21,5 +22,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      - run: pip install mkdocs-material
-      - run: mkdocs gh-deploy --force
+      - run: pip install markdown pymdown-extensions
+      - run: python scripts/build-docs-site.py
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          force_orphan: true

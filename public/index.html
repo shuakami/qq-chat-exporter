@@ -4,179 +4,227 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QCE - QQ Chat Exporter</title>
+    <link rel="icon" href="favicon.ico">
+    <meta name="description" content="QCE（QQ Chat Exporter）是免费开源的 QQ 聊天记录导出工具，可将 QQ / QQNT 聊天记录导出为 HTML、JSON、TXT、Excel 格式，支持定时备份、批量导出、表情包导出，全部在本地完成，不上传任何数据。">
+    <meta name="keywords" content="QQ聊天记录导出,QQ Chat Exporter,QCE,QQ备份,QQNT,聊天记录备份,NapCat,导出HTML,开源工具">
+    <link rel="canonical" href="https://shuakami.github.io/qq-chat-exporter/">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="QQ Chat Exporter">
+    <meta property="og:title" content="QCE - QQ Chat Exporter | QQ 聊天记录导出工具">
+    <meta property="og:description" content="免费开源的 QQ 聊天记录导出工具，导出 HTML、JSON、TXT、Excel，支持定时备份、批量导出、表情包导出，全部在本地完成。">
+    <meta property="og:url" content="https://shuakami.github.io/qq-chat-exporter/">
+    <meta property="og:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+    <meta property="og:locale" content="zh_CN">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="QCE - QQ Chat Exporter | QQ 聊天记录导出工具">
+    <meta name="twitter:description" content="免费开源的 QQ 聊天记录导出工具，导出 HTML、JSON、TXT、Excel，支持定时备份、批量导出、表情包导出。">
+    <meta name="twitter:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+    <meta name="robots" content="index,follow">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "QQ Chat Exporter",
+      "alternateName": "QCE",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "Windows, Linux, Docker",
+      "description": "免费开源的 QQ 聊天记录导出工具，可将 QQ / QQNT 聊天记录导出为 HTML、JSON、TXT、Excel 格式，支持定时备份、批量导出、表情包导出，全部在本地完成。",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" },
+      "url": "https://shuakami.github.io/qq-chat-exporter/",
+      "downloadUrl": "https://github.com/shuakami/qq-chat-exporter/releases",
+      "softwareHelp": "https://shuakami.github.io/qq-chat-exporter/docs/index.html",
+      "sameAs": ["https://github.com/shuakami/qq-chat-exporter"]
+    }
+    </script>
     <script src="https://stats.axtn.net/api/script.js" data-site-id="3ffbbfd9a5ac" defer></script>
+    <link rel="modulepreload" href="assets/vendor/paper-shaders-0.0.77.js">
+    <link rel="preconnect" href="https://fonts.loli.net">
+    <link rel="preconnect" href="https://gstatic.loli.net" crossorigin>
+    <link href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        *{margin:0;padding:0;box-sizing:border-box}
-        :root{--c:#111;--c2:#666;--bg:#fafafa;--line:#e5e5e5}
-        @media(prefers-color-scheme:dark){:root{--c:#f5f5f5;--c2:#888;--bg:#0a0a0a;--line:#262626}}
-        html{font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--c)}
-        a{color:inherit;text-decoration:none}
-        
-        .container{
-            max-width:680px;
-            margin:0 auto;
-            padding:80px 24px 48px;
+        * { margin:0; padding:0; box-sizing:border-box; }
+        html { background:#fff; }
+        body {
+            font-family: Inter, "Noto Sans SC", system-ui, sans-serif;
+            color:#18181b; -webkit-font-smoothing:antialiased;
         }
-        
-
-        
-        .hero{margin-bottom:48px}
-
-        .hero h1{
-            font-size:clamp(28px,5vw,42px);
-            font-weight:700;
-            letter-spacing:-0.03em;
-            line-height:1.2;
-            margin-bottom:20px;
+        a { color:inherit; text-decoration:none; }
+        .mono { font-family:"JetBrains Mono", monospace; }
+        @media (prefers-reduced-motion: no-preference) {
+            .cards { opacity:0; animation:fadein .8s ease-out forwards; }
+            @keyframes fadein { to { opacity:1; } }
         }
 
-        .hero p{
-            font-size:17px;
-            color:var(--c2);
-            line-height:1.7;
-            margin-bottom:32px;
+        main { padding:0; }
+
+        /* ---------- hero ---------- */
+        .hero {
+            position:relative; margin:0 auto;
+            height:100dvh; min-height:640px;
+                        overflow:hidden; background:#fff;
         }
-        
-        .actions{
-            display:flex;
-            gap:12px;
-            align-items:center;
-            flex-wrap:wrap;
+        #shader { position:absolute; inset:0; opacity:0; transition:opacity .8s ease; }
+        #shader.ready { opacity:1; }
+        .wordmark {
+            position:absolute; left:0; right:0; bottom:44%; z-index:1;
+            text-align:center; font-weight:700; letter-spacing:-0.04em; line-height:1;
+            white-space:nowrap; font-size:clamp(64px,9.5vw,148px);
+            user-select:none; pointer-events:none;
+            background:linear-gradient(to bottom, rgba(49,124,254,0.13), rgba(49,124,254,0.02));
+            -webkit-background-clip:text; background-clip:text; color:transparent;
         }
-        .btn{
-            display:inline-flex;
-            align-items:center;
-            justify-content:center;
-            gap:6px;
-            height:40px;
-            padding:0 20px;
-            font-size:14px;
-            font-weight:500;
-            border-radius:8px;
-            transition:all .2s;
-            outline:none;
-            cursor:pointer;
+        .hero-inner {
+            position:absolute; inset:0; z-index:2;
+            display:flex; flex-direction:column; padding:28px 0 0;
+            max-width:1400px; margin:0 auto; width:100%;
         }
-        .btn-brand{
-            background:#3b82f6;
-            color:#fff;
-            border:1px solid rgba(59,130,246,0.75);
+        .hero-inner nav, .hero-copy { padding:0 40px; }
+        nav { display:flex; align-items:center; gap:16px; font-size:14px; }
+        nav .brand { font-weight:600; letter-spacing:-0.01em; }
+        nav .brand .pkg { font-weight:400; color:#71717a; }
+        nav .links { margin-left:auto; display:flex; align-items:center; gap:20px; color:#71717a; line-height:1; }
+        nav .links a { display:inline-flex; align-items:center; height:20px; }
+        nav .links a:hover { color:#18181b; }
+
+        .hero-copy { margin-top:clamp(32px,7vh,84px); }
+        h1 {
+            margin:0 0 16px; font-size:clamp(30px,4vw,46px);
+            line-height:1.18; letter-spacing:-0.03em; font-weight:600;
         }
-        .btn-brand:hover{
-            background:#2563eb;
+        .sub { max-width:460px; color:#71717a; font-size:15px; line-height:1.75; }
+        .actions { display:flex; gap:28px; margin-top:28px; flex-wrap:wrap; font-size:14px; }
+        .actions a {
+            display:inline-flex; align-items:center; gap:5px;
+            font-weight:500; letter-spacing:-0.01em; color:#18181b;
+            border-bottom:1px solid rgba(24,24,27,0.25);
+            padding-bottom:2px; transition:border-color .2s;
         }
-        .btn-secondary{
-            background:var(--bg);
-            color:var(--c);
-            border:1px solid rgba(0,0,0,0.1);
-            box-shadow:0 1px 2px rgba(0,0,0,0.04);
+        .actions a:hover { border-color:#18181b; }
+        .actions a svg { width:13px; height:13px; stroke:currentColor; }
+
+        /* ---------- stacked cards (the banner, live) ---------- */
+        .cards { position:relative; flex:1; min-height:0; }
+        .card {
+            position:absolute; overflow:hidden; background:#fff;
+            border:1px solid rgba(24,24,27,0.08); border-bottom:none;
+            border-radius:16px 16px 0 0;
+            box-shadow:
+                0 1px 1px rgba(24,24,27,0.03),
+                0 4px 8px -2px rgba(24,24,27,0.04),
+                0 16px 32px -8px rgba(24,24,27,0.06),
+                0 48px 96px -24px rgba(24,24,27,0.10);
         }
-        .btn-secondary:hover{
-            background:rgba(0,0,0,0.02);
+        .card-app {
+            left:50%; transform:translateX(-50%); bottom:-1px;
+            width:min(1080px,92%); height:100%; max-height:430px;
         }
-        @media(prefers-color-scheme:dark){
-            .btn-secondary{
-                border-color:rgba(255,255,255,0.1);
-                box-shadow:0 1px 2px rgba(0,0,0,0.2);
-            }
-            .btn-secondary:hover{
-                background:rgba(255,255,255,0.05);
-            }
+        .card-chat {
+            left:calc(50% + 250px); bottom:-1px; width:360px; height:354px; z-index:2;
+            border-radius:14px 14px 0 0;
+            box-shadow:
+                0 1px 1px rgba(24,24,27,0.04),
+                0 8px 16px -4px rgba(24,24,27,0.06),
+                0 32px 64px -16px rgba(24,24,27,0.14);
         }
-        
-        .screenshot{
-            margin:48px 0;
-            border-radius:12px;
-            overflow:hidden;
-            border:1px solid var(--line);
-            box-shadow:0 4px 24px rgba(0,0,0,0.08);
+        .card iframe {
+            border:0; display:block; transform-origin:0 0;
+            pointer-events:none; background:#fff;
         }
-        .screenshot img{
-            width:100%;
-            display:block;
+        .card-app iframe { width:1633px; height:952px; }
+        .card-chat iframe { width:600px; height:700px; }
+
+        @media(max-width:900px){
+            .card-chat { display:none; }
         }
-        
-        .features{
-            display:grid;
-            grid-template-columns:1fr 1fr;
-            gap:24px;
-            margin:48px 0;
-        }
-        .feature h3{font-size:14px;font-weight:500;margin-bottom:4px}
-        .feature p{font-size:13px;color:var(--c2)}
-        
-        footer{
-            margin-top:64px;
-            padding-top:24px;
-            border-top:1px solid var(--line);
-            font-size:12px;
-            color:var(--c2);
-            display:flex;
-            justify-content:space-between;
-        }
-        footer a{transition:color .2s}
-        footer a:hover{color:var(--c)}
-        .footer-links{display:flex;gap:16px}
-        
-        @media(max-width:480px){
-            .features{grid-template-columns:1fr}
-            footer{flex-direction:column;gap:12px;text-align:center}
-            .footer-links{justify-content:center}
+        @media(max-width:600px){
+            .card-app { max-height:300px; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <section class="hero">
-            <h1>备份你的<br>QQ 聊天记录</h1>
-            <p>支持 HTML、JSON、ZIP 多种格式导出，定时自动备份，批量操作，表情包导出。</p>
-            <div class="actions">
-                <a href="https://github.com/shuakami/qq-chat-exporter/releases" class="btn btn-brand" target="_blank">下载</a>
-                <a href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C" class="btn btn-secondary" target="_blank">使用帮助</a>
-                <a href="https://github.com/shuakami/qq-chat-exporter" class="btn btn-secondary" target="_blank">GitHub <span id="stars"></span></a>
+<main>
+    <section class="hero">
+        <div id="shader"></div>
+        <div class="wordmark">QQ Chat Exporter</div>
+        <div class="hero-inner">
+            <nav>
+                <span class="brand">QQ Chat Exporter <span class="pkg">QCE</span></span>
+                <span class="links">
+                    <a href="docs/index.html" target="_blank">文档</a>
+                    <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+                </span>
+            </nav>
+            <div class="hero-copy">
+                <h1>最好的嘎嘎超级聊天记录导出工具！</h1>
+                <p class="sub">QCE能导出聊天记录为 HTML、JSON、TXT。且支持定时备份、批量导出、表情包导出。</p>
+                <div class="actions">
+                    <a href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
+                    <a href="docs/index.html" target="_blank">使用文档<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M7 17 17 7M7 7h10v10"/></svg></a>
+                </div>
             </div>
-        </section>
-        
-        <div class="screenshot">
-            <img src="https://github.com/shuakami/qq-chat-exporter/blob/9959f84b/image.png?raw=true" alt="QCE Screenshot">
-        </div>
-        
-        <div class="features">
-            <div class="feature">
-                <h3>多种格式</h3>
-                <p>HTML / JSON / ZIP，按需选择</p>
-            </div>
-            <div class="feature">
-                <h3>定时备份</h3>
-                <p>设置计划任务，自动备份</p>
-            </div>
-            <div class="feature">
-                <h3>批量导出</h3>
-                <p>一次导出多个会话</p>
-            </div>
-            <div class="feature">
-                <h3>表情包</h3>
-                <p>导出收藏的表情包</p>
+            <div class="cards">
+                <div class="card card-app"><iframe src="assets/home/app/index.html" title="QCE 会话界面" loading="lazy" tabindex="-1" aria-hidden="true"></iframe></div>
+                <div class="card card-chat"><iframe src="assets/home/chat/demo.html" title="导出的聊天记录" loading="lazy" tabindex="-1" aria-hidden="true"></iframe></div>
             </div>
         </div>
-        
-        <footer>
-            <span>© 2025 shuakami</span>
-            <div class="footer-links">
-                <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
-                <a href="https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C" target="_blank">Docs</a>
-                <a href="https://github.com/shuakami/qq-chat-exporter/issues" target="_blank">Feedback</a>
-            </div>
-            <span>Not affiliated with Tencent</span>
-        </footer>
-    </div>
-    <script>
-        fetch('https://api.github.com/repos/shuakami/qq-chat-exporter').then(r=>r.json()).then(d=>{
-            if(d.stargazers_count){
-                const s=d.stargazers_count>=1000?(d.stargazers_count/1000).toFixed(1)+'k':d.stargazers_count;
-                document.getElementById('stars').textContent='('+s+' stars)';
-            }
-        }).catch(()=>{});
-    </script>
+    </section>
+
+</main>
+
+<script>
+    (function(){
+        function fit(){
+            document.querySelectorAll('.card').forEach(function(card){
+                var f = card.querySelector('iframe');
+                if(!f) return;
+                var w = card.classList.contains('card-app') ? 1633 : 600;
+                var s = card.clientWidth / w;
+                f.style.width = w + 'px';
+                f.style.height = (card.clientHeight / s) + 'px';
+                f.style.transform = 'scale(' + s + ')';
+            });
+        }
+        window.addEventListener('resize', fit);
+        window.addEventListener('load', fit);
+        fit();
+    })();
+
+</script>
+<script type="module">
+    var CDNS = [
+        'assets/vendor/paper-shaders-0.0.77.js',
+        'https://cdn.jsdelivr.net/npm/@paper-design/shaders@0.0.77/+esm',
+        'https://fastly.jsdelivr.net/npm/@paper-design/shaders@0.0.77/+esm'
+    ];
+    async function loadShaders(){
+        for (var url of CDNS) {
+            try { return await import(url); } catch(e) {}
+        }
+        return null;
+    }
+    var m = await loadShaders();
+    if (m) {
+        var s = m.defaultObjectSizing;
+        var host = document.getElementById('shader');
+        host.style.position = 'absolute'; host.style.inset = '0';
+        var tex = m.getShaderNoiseTexture();
+        if (tex && !(tex.complete && tex.naturalWidth)) {
+            await new Promise(function(r){ tex.onload = r; tex.onerror = r; });
+        }
+        new m.ShaderMount(host, m.grainGradientFragmentShader, {
+            u_colorBack: m.getShaderColorFromString('#00000000'),
+            u_colors: ['#f0f5ff', '#d9e6ff', '#317cfe10'].map(m.getShaderColorFromString),
+            u_colorsCount: 3,
+            u_softness: 1, u_intensity: 0.38, u_noise: 0.1,
+            u_shape: m.GrainGradientShapes.corners,
+            u_noiseTexture: tex,
+            u_fit: m.ShaderFitOptions[s.fit], u_scale: s.scale, u_rotation: s.rotation,
+            u_offsetX: s.offsetX, u_offsetY: s.offsetY,
+            u_originX: s.originX, u_originY: s.originY,
+            u_worldWidth: s.worldWidth, u_worldHeight: s.worldHeight
+        }, undefined, 0.4, 0, 1, 1920 * 1080);
+        requestAnimationFrame(function(){ requestAnimationFrame(function(){ host.classList.add('ready'); }); });
+    }
+</script>
 </body>
 </html>
