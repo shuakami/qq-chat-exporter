@@ -125,7 +125,7 @@ jobs:
 
       - name: "附加到 GitHub Release"
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           files: installer/dist-installer/*.exe
           draft: false
