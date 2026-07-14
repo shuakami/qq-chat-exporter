@@ -58,6 +58,7 @@ export function useStickerPacks() {
   })
   const [exportRecords, setExportRecords] = useState<ExportRecord[]>([])
   const [loading, setLoading] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // 加载表情包列表
@@ -93,7 +94,7 @@ export function useStickerPacks() {
 
   // 导出指定表情包
   const exportStickerPack = useCallback(async (packId: string): Promise<ExportResult | null> => {
-    setLoading(true)
+    setExporting(true)
     setError(null)
     
     try {
@@ -113,13 +114,13 @@ export function useStickerPacks() {
       console.error('[useStickerPacks] 导出失败:', err)
       return null
     } finally {
-      setLoading(false)
+      setExporting(false)
     }
   }, [api])
 
   // 导出所有表情包
   const exportAllStickerPacks = useCallback(async (): Promise<ExportResult | null> => {
-    setLoading(true)
+    setExporting(true)
     setError(null)
     
     try {
@@ -139,13 +140,12 @@ export function useStickerPacks() {
       console.error('[useStickerPacks] 导出所有失败:', err)
       return null
     } finally {
-      setLoading(false)
+      setExporting(false)
     }
   }, [api])
 
   // 加载导出记录
   const loadExportRecords = useCallback(async (limit: number = 50) => {
-    setLoading(true)
     setError(null)
 
     try {
@@ -165,8 +165,6 @@ export function useStickerPacks() {
       const errorMessage = err instanceof Error ? err.message : '加载导出记录失败'
       setError(errorMessage)
       console.error('[useStickerPacks] 加载导出记录失败:', err)
-    } finally {
-      setLoading(false)
     }
   }, [api])
 
@@ -184,6 +182,7 @@ export function useStickerPacks() {
     stats,
     exportRecords,
     loading,
+    exporting,
     error,
     loadStickerPacks,
     loadExportRecords,
@@ -193,4 +192,3 @@ export function useStickerPacks() {
     setError
   }
 }
-

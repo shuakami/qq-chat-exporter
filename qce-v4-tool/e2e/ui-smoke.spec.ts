@@ -15,6 +15,7 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { isNewerVersion } from '../lib/version';
 
 const TOKEN = process.env.QCE_MOCK_TOKEN ?? 'qce_mock_token_for_tests';
 const FRONTEND_BASE = process.env.E2E_FRONTEND_URL ?? 'http://localhost:40653';
@@ -136,6 +137,55 @@ test.describe('Auth flow', () => {
         // The URL the browser would record in history (after replaceState)
         // must no longer contain the token.
         expect(page.url()).not.toContain('token=');
+    });
+});
+
+test.describe('Version updates', () => {
+    test('compares prerelease and stable versions in release order', () => {
+        expect(isNewerVersion('v6.0.0-beta.65', '6.0.0-beta.64')).toBe(true);
+        expect(isNewerVersion('v6.0.0', '6.0.0-rc.2')).toBe(true);
+        expect(isNewerVersion('v6.0.0-beta.66', '6.0.0')).toBe(false);
+        expect(isNewerVersion('v6.0.1-beta.1', '6.0.0')).toBe(true);
+        expect(isNewerVersion('latest', '6.0.0')).toBe(false);
+    });
+
+    test('shows a red help indicator and update entry for a newer release', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+        await page.route(
+            'https://api.github.com/repos/shuakami/qq-chat-exporter/releases?**',
+            async (route) => {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify([{
+                        tag_name: 'v6.0.0',
+                        html_url: 'https://github.com/shuakami/qq-chat-exporter/releases/tag/v6.0.0',
+                    }]),
+                });
+            }
+        );
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}${SHELL_PATH}`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        const helpButton = page.getByRole('button', { name: '帮助，有新版本 v6.0.0' });
+        await expect(helpButton).toBeVisible({ timeout: 15_000 });
+        const skipBtn = page.getByRole('button', { name: '跳过' }).first();
+        if (await skipBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await skipBtn.click();
+        }
+        await helpButton.click();
+        await expect(page.getByText('发现新版本', { exact: true })).toBeVisible();
+        await expect(page.getByText('v6.0.0', { exact: true })).toBeVisible();
+        await expect(page.getByText('查看更新内容', { exact: true })).toBeVisible();
     });
 });
 
@@ -304,6 +354,111 @@ test.describe('Session list — QQ lookup (issue #204)', () => {
 
         // mock 的 getUidByUinV2 对未登记 uin 返 undefined，落到 found=false。
         await expect(page.getByText(/未在本机 NTQQ 数据中找到/)).toBeVisible({ timeout: 10_000 });
+    });
+});
+
+test.describe('Sticker exports', () => {
+    test('exporting keeps the loaded sticker list visible', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+
+        let releaseExport!: () => void;
+        const exportGate = new Promise<void>((resolve) => {
+            releaseExport = resolve;
+        });
+        let markExportStarted!: () => void;
+        const exportStarted = new Promise<void>((resolve) => {
+            markExportStarted = resolve;
+        });
+
+        await page.route('**/api/sticker-packs**', async (route, request) => {
+            const url = new URL(request.url());
+            if (request.method() === 'GET' && url.pathname.endsWith('/export-records')) {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        success: true,
+                        data: { records: [], totalCount: 0 },
+                    }),
+                });
+                return;
+            }
+            if (request.method() === 'GET') {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        success: true,
+                        data: {
+                            packs: [{
+                                packId: 'regression-pack',
+                                packName: '回归测试表情包',
+                                packType: 'favorite_emoji',
+                                stickerCount: 1,
+                                stickers: [],
+                            }],
+                            stats: {
+                                favorite_emoji: 1,
+                                market_pack: 0,
+                                system_pack: 0,
+                            },
+                            totalCount: 1,
+                            totalStickers: 1,
+                        },
+                    }),
+                });
+                return;
+            }
+            if (request.method() === 'POST' && url.pathname.endsWith('/export')) {
+                markExportStarted();
+                await exportGate;
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        success: true,
+                        data: {
+                            success: true,
+                            packCount: 1,
+                            stickerCount: 1,
+                            exportPath: '/tmp/sticker-export',
+                        },
+                    }),
+                });
+                return;
+            }
+            await route.continue();
+        });
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}/qce/stickers`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        const packName = page.getByText('回归测试表情包', { exact: true });
+        await expect(packName).toBeVisible({ timeout: 15_000 });
+        const skipBtn = page.getByRole('button', { name: '跳过' }).first();
+        if (await skipBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await skipBtn.click();
+        }
+        const packRow = packName.locator('xpath=ancestor::div[contains(@class,"group")]');
+        await packRow.hover();
+        await packRow.getByRole('button', { name: '导出', exact: true }).click();
+        await exportStarted;
+
+        await expect(packName).toBeVisible();
+        await expect(page.getByText('正在加载表情包...')).toBeHidden();
+
+        releaseExport();
+        await expect(page.getByText('表情包“回归测试表情包”已导出')).toBeVisible({
+            timeout: 15_000,
+        });
     });
 });
 

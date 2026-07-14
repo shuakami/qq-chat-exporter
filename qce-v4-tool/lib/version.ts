@@ -19,6 +19,43 @@ export function getVersionDisplay(apiVersion?: string): string {
     return BUILD_VERSION;
 }
 
+function parseVersion(version: string): number[] | null {
+    const match = version
+        .trim()
+        .replace(/^v/i, '')
+        .match(/^(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.(\d+))?$/i);
+    if (!match) {
+        return null;
+    }
+
+    const channel = match[4]?.toLowerCase();
+    const channelRank = channel
+        ? { alpha: 0, beta: 1, rc: 2 }[channel as 'alpha' | 'beta' | 'rc']
+        : 3;
+    return [
+        Number(match[1]),
+        Number(match[2]),
+        Number(match[3]),
+        channelRank,
+        match[5] ? Number(match[5]) : 0,
+    ];
+}
+
+export function isNewerVersion(latest: string, current: string): boolean {
+    const latestParts = parseVersion(latest);
+    const currentParts = parseVersion(current);
+    if (!latestParts || !currentParts) {
+        return false;
+    }
+
+    for (let index = 0; index < latestParts.length; index += 1) {
+        if (latestParts[index] !== currentParts[index]) {
+            return latestParts[index] > currentParts[index];
+        }
+    }
+    return false;
+}
+
 /** 检查版本是否匹配 */
 export function checkVersionMatch(apiVersion?: string): {
     match: boolean;
