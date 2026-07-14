@@ -62,13 +62,20 @@ docker logs -f napcat-qce
 
 ## 相关项目
 
-| 项目 | 说明 |
-| --- | --- |
-| [ChatLab](https://chatlab.fun/cn) | 深入分析聊天内容 |
-| [QCE2ChatLab](https://github.com/Ruoan-486/QCE2Chatlab) | QCE 导出自动导入 ChatLab，支持定时同步 |
-| [QQChatAnalyzer](https://github.com/CutrelyAlex/QQChatAnalyzer) | 个人 / 群聊分析、社交网络可视化和 AI 摘要 |
-| [QQ-Chat-AI-Analyzer](https://github.com/JUSTMONIKA2022/QQ-Chat-AI-Analyzer) | 基于 AI 的群聊消息总结分析，可生成年度报告 |
-| [napcat-qce-python](https://github.com/streetartist/napcat-qce-python) | Python API 封装 |
+[![ChatLab](docs/images/bento-chatlab.png)](https://chatlab.fun/cn)
+
+<table>
+  <tr>
+    <td width="50%"><a href="https://github.com/Ruoan-486/QCE2Chatlab"><img src="docs/images/bento-qce2chatlab.png" alt="QCE2ChatLab"></a></td>
+    <td width="50%"><a href="https://github.com/CutrelyAlex/QQChatAnalyzer"><img src="docs/images/bento-qqchatanalyzer.png" alt="QQChatAnalyzer"></a></td>
+  </tr>
+  <tr>
+    <td width="50%"><a href="https://github.com/JUSTMONIKA2022/QQ-Chat-AI-Analyzer"><img src="docs/images/bento-qq-chat-ai-analyzer.png" alt="QQ-Chat-AI-Analyzer"></a></td>
+    <td width="50%"><a href="https://github.com/streetartist/napcat-qce-python"><img src="docs/images/bento-napcat-qce-python.png" alt="napcat-qce-python"></a></td>
+  </tr>
+</table>
+
+我们非常欢迎和 QCE 有关的社区项目！如果需要展示您的项目，可以在[这里](https://github.com/shuakami/qq-chat-exporter/issues/new)提一个 issue。
 
 ## 贡献者
 
