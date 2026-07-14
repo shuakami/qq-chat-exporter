@@ -187,39 +187,106 @@ pub fn shutdown(state: &AppState) {
     kill_napcat_only();
 }
 
-/// Best-effort discovery of the desktop QQ executable via the registry.
+/// Best-effort discovery of the desktop QQ executable via the registry,
+/// App Paths, the tencent:// protocol handler and common install dirs.
 #[cfg(windows)]
 fn detect_qq_path() -> Option<String> {
-    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::enums::{HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
     use winreg::RegKey;
 
-    // QQNT records its install dir under the uninstall key.
-    const UNINSTALL: &str =
-        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QQ";
-    for hive in [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER] {
-        let root = RegKey::predef(hive);
-        if let Ok(key) = root.open_subkey(UNINSTALL) {
-            if let Ok(dir) = key.get_value::<String, _>("UninstallString") {
-                // UninstallString points at Uninstall.exe in the QQ dir.
-                if let Some(parent) = std::path::Path::new(&dir).parent() {
-                    let exe = parent.join("QQ.exe");
-                    if exe.exists() {
-                        return Some(exe.to_string_lossy().into_owned());
-                    }
+    fn existing(path: &std::path::Path) -> Option<String> {
+        path.exists().then(|| path.to_string_lossy().into_owned())
+    }
+
+    // QQNT records its install dir under the uninstall key
+    // (64-bit view, 32-bit WOW6432Node view and per-user installs).
+    const UNINSTALL_KEYS: [(&str, isize); 3] = [
+        (r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QQ", 0),
+        (
+            r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\QQ",
+            0,
+        ),
+        (r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QQ", 1),
+    ];
+    for (subkey, hive) in UNINSTALL_KEYS {
+        let root = RegKey::predef(if hive == 0 {
+            HKEY_LOCAL_MACHINE
+        } else {
+            HKEY_CURRENT_USER
+        });
+        let Ok(key) = root.open_subkey(subkey) else {
+            continue;
+        };
+        if let Ok(icon) = key.get_value::<String, _>("DisplayIcon") {
+            // DisplayIcon may carry an icon index suffix like `...\QQ.exe,0`.
+            let path = icon.split(',').next().unwrap_or(&icon).trim_matches('"');
+            if let Some(found) = existing(std::path::Path::new(path)) {
+                return Some(found);
+            }
+        }
+        if let Ok(uninst) = key.get_value::<String, _>("UninstallString") {
+            // UninstallString points at Uninstall.exe in the QQ dir.
+            let uninst = uninst.trim_matches('"');
+            if let Some(parent) = std::path::Path::new(uninst).parent() {
+                if let Some(found) = existing(&parent.join("QQ.exe")) {
+                    return Some(found);
                 }
             }
-            if let Ok(dir) = key.get_value::<String, _>("DisplayIcon") {
-                let p = std::path::Path::new(&dir);
-                if p.exists() {
-                    return Some(p.to_string_lossy().into_owned());
+        }
+        if let Ok(dir) = key.get_value::<String, _>("InstallLocation") {
+            if let Some(found) = existing(&std::path::Path::new(&dir).join("QQ.exe")) {
+                return Some(found);
+            }
+        }
+    }
+
+    // App Paths registration.
+    const APP_PATHS: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\QQ.exe";
+    for hive in [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER] {
+        if let Ok(key) = RegKey::predef(hive).open_subkey(APP_PATHS) {
+            if let Ok(path) = key.get_value::<String, _>("") {
+                if let Some(found) = existing(std::path::Path::new(path.trim_matches('"'))) {
+                    return Some(found);
                 }
             }
         }
     }
-    // Common default location.
-    let candidate = r"C:\Program Files\Tencent\QQNT\QQ.exe";
-    if std::path::Path::new(candidate).exists() {
-        return Some(candidate.to_string());
+
+    // tencent:// protocol handler: points inside versions\<ver>\resources\app,
+    // so walk up the directory tree probing for QQ.exe at each level.
+    if let Ok(key) = RegKey::predef(HKEY_CLASSES_ROOT).open_subkey(r"Tencent\shell\open\command") {
+        if let Ok(command) = key.get_value::<String, _>("") {
+            let exe = command
+                .split('"')
+                .nth(1)
+                .unwrap_or(command.trim())
+                .to_string();
+            let mut dir = std::path::Path::new(&exe).parent();
+            for _ in 0..6 {
+                let Some(current) = dir else { break };
+                if let Some(found) = existing(&current.join("QQ.exe")) {
+                    return Some(found);
+                }
+                dir = current.parent();
+            }
+        }
     }
-    None
+
+    // Common default locations.
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    for var in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Ok(base) = std::env::var(var) {
+            candidates.push(std::path::Path::new(&base).join(r"Tencent\QQNT\QQ.exe"));
+        }
+    }
+    if let Ok(base) = std::env::var("LocalAppData") {
+        candidates.push(std::path::Path::new(&base).join(r"Programs\Tencent\QQNT\QQ.exe"));
+    }
+    candidates.push(std::path::PathBuf::from(
+        r"C:\Program Files\Tencent\QQNT\QQ.exe",
+    ));
+    candidates.push(std::path::PathBuf::from(
+        r"D:\Program Files\Tencent\QQNT\QQ.exe",
+    ));
+    candidates.into_iter().find_map(|p| existing(&p))
 }
