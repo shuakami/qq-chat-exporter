@@ -14,7 +14,11 @@ import platform
 from pathlib import Path
 from urllib.request import urlretrieve, urlopen
 from datetime import datetime
-from plugin_runtime import copy_windows_server_binary, stage_plugin_runtime
+from plugin_runtime import (
+    copy_windows_server_binary,
+    stage_plugin_runtime,
+    write_find_qq_script,
+)
 
 SOURCE_PLUGIN_DIR = "plugins/qq-chat-exporter"
 RUNTIME_PLUGIN_ID = "napcat-plugin-qce"
@@ -65,6 +69,158 @@ def rewrite_runtime_plugin_package(plugin_dir):
     with open(package_json, "w", encoding="utf-8") as f:
         json.dump(package_data, f, indent=2, ensure_ascii=False)
         f.write("\n")
+
+# Enhanced napiLoader launchers (issue #589): the upstream NapCat.Framework
+# loaders only probe a single WOW6432Node uninstall key and abort with
+# "provided QQ path is invalid" when it is missing. We replace them with
+# launchers that reuse the saved path, run the multi-source find-qq.ps1 probe,
+# fall back to the direct registry query and common install paths, and offer a
+# manual QQ.exe picker with an actionable error message instead of dying.
+NAPILOADER_RESOLVE_LOGIC = '''
+:resolve_qq_path
+rem Priority 1: Command line argument
+if not "%~1"=="" if exist "%~1" (
+    set "QQPath=%~1"
+    goto :save_and_boot
+)
+
+rem Priority 2: Saved path from previous run
+if exist "%QQ_PATH_CONFIG%" (
+    set /p SavedPath=<"!QQ_PATH_CONFIG!"
+    if exist "!SavedPath!" (
+        set "QQPath=!SavedPath!"
+        echo [Info] Using saved QQ path: !SavedPath!
+        goto :napcat_boot
+    )
+)
+
+rem Priority 3: Multi-source probe (registry, App Paths, protocol handler,
+rem shortcuts) via find-qq.ps1 (issue #589)
+if exist "%cd%\\find-qq.ps1" (
+    for /f "usebackq delims=" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%cd%\\find-qq.ps1" 2^>nul`) do set "QQPath=%%i"
+    if not "!QQPath!"=="" if exist "!QQPath!" goto :save_and_boot
+)
+
+rem Priority 3b: Direct registry query (fallback when PowerShell is unavailable)
+for /f "tokens=2*" %%a in ('reg query "HKEY_LOCAL_MACHINE\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\QQ" /v "UninstallString" 2^>nul') do (
+    set "RetString=%%~b"
+    for %%x in ("!RetString!") do set "pathWithoutUninstall=%%~dpx"
+    set "QQPath=!pathWithoutUninstall!QQ.exe"
+    if exist "!QQPath!" goto :save_and_boot
+)
+
+rem Priority 4: Common installation paths
+rem Hoist %ProgramFiles(x86)% out of the for-list so the literal `(x86)` does
+rem not collide with the surrounding `for ... in (...)` parentheses (#291).
+set "PFX86=%ProgramFiles(x86)%"
+for %%p in (
+    "%ProgramFiles%\\Tencent\\QQNT\\QQ.exe"
+    "!PFX86!\\Tencent\\QQNT\\QQ.exe"
+    "%LocalAppData%\\Programs\\Tencent\\QQNT\\QQ.exe"
+    "C:\\Program Files\\Tencent\\QQNT\\QQ.exe"
+    "D:\\Program Files\\Tencent\\QQNT\\QQ.exe"
+) do (
+    if exist %%p (
+        set "QQPath=%%~p"
+        goto :save_and_boot
+    )
+)
+
+:manual_select
+echo.
+echo ============================================
+echo   QQ Installation Not Found
+echo ============================================
+echo.
+echo Could not detect QQ installation automatically.
+echo This may happen if you are using a portable/green version of QQ.
+echo.
+echo If QQ ^(QQNT^) is not installed yet, download it first:
+echo   https://im.qq.com/
+echo.
+echo Options:
+echo   [1] Browse for QQ.exe (GUI file picker)
+echo   [2] Enter path manually
+echo   [3] Exit
+echo.
+set /p choice="Select option (1/2/3): "
+
+if "%choice%"=="1" goto :gui_select
+if "%choice%"=="2" goto :text_input
+if "%choice%"=="3" exit /b 1
+goto :manual_select
+
+:gui_select
+echo.
+echo [Info] Opening file picker...
+for /f "delims=" %%i in ('powershell -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'QQ Executable (QQ.exe)|QQ.exe|All Files (*.*)|*.*'; $f.Title = 'Select QQ.exe'; $f.InitialDirectory = 'C:\\Program Files'; if ($f.ShowDialog() -eq 'OK') { $f.FileName } else { '' }"') do set "QQPath=%%i"
+
+if "%QQPath%"=="" (
+    echo [Error] No file selected.
+    goto :manual_select
+)
+goto :validate_path
+
+:text_input
+echo.
+set /p "QQPath=Enter full path to QQ.exe: "
+
+:validate_path
+if not exist "!QQPath!" (
+    echo [Error] File not found: !QQPath!
+    goto :manual_select
+)
+
+for %%f in ("!QQPath!") do set "filename=%%~nxf"
+if /i not "%filename%"=="QQ.exe" (
+    echo [Warning] Selected file is not QQ.exe, continue anyway? (Y/N)
+    set /p confirm="Confirm: "
+    if /i not "!confirm!"=="Y" goto :manual_select
+)
+
+:save_and_boot
+if not exist "%cd%\\config" mkdir "%cd%\\config"
+echo !QQPath!>"%QQ_PATH_CONFIG%"
+echo [Info] QQ path saved to config\\qq_path.txt
+
+:napcat_boot
+echo.
+echo [Info] Using QQ: "!QQPath!"
+
+set NAPCAT_MAIN_PATH=%NAPCAT_MAIN_PATH:\\=/%
+'''
+
+NAPILOADER_HEADER = '''@echo off
+chcp 65001 >nul
+setlocal enabledelayedexpansion
+cd /d "%~dp0"
+
+set NAPCAT_INJECT_PATH=%cd%\\napiloader.dll
+set NAPCAT_LAUNCHER_PATH=%cd%\\napimain.exe
+set NAPCAT_MAIN_PATH=%cd%\\nativeLoader.cjs
+set QQ_PATH_CONFIG=%cd%\\config\\qq_path.txt
+'''
+
+NAPILOADER_BAT = NAPILOADER_HEADER + NAPILOADER_RESOLVE_LOGIC + '''
+start "" "%NAPCAT_LAUNCHER_PATH%" "!QQPath!" "%NAPCAT_INJECT_PATH%" "%NAPCAT_MAIN_PATH%"
+'''
+
+NAPILOADER_DEBUG_BAT = NAPILOADER_HEADER + '''set NAPCAT_DEBUG_CONSOLE=1
+''' + NAPILOADER_RESOLVE_LOGIC + '''
+"%NAPCAT_LAUNCHER_PATH%" "!QQPath!" "%NAPCAT_INJECT_PATH%" "%NAPCAT_MAIN_PATH%"
+
+pause
+'''
+
+def write_enhanced_napiloaders(output_dir):
+    """Replace upstream napiLoader launchers with multi-source QQ discovery."""
+    for name, content in (
+        ("napiLoader.bat", NAPILOADER_BAT),
+        ("napiLoader-debug.bat", NAPILOADER_DEBUG_BAT),
+    ):
+        with open(os.path.join(output_dir, name), "w", encoding="utf-8", newline="\r\n") as f:
+            f.write(content)
+    write_find_qq_script(Path(output_dir))
 
 def download_file(url, dest):
     """Download file"""
@@ -124,6 +280,13 @@ def main():
     print("[3/8] Extracting NapCat.Framework...")
     with zipfile.ZipFile("NapCat.Framework.zip", 'r') as zf:
         zf.extractall(output_dir)
+    print("[x] Done")
+    print()
+
+    # Replace upstream napiLoader launchers with multi-source QQ discovery
+    # and a manual-selection fallback (issue #589).
+    print("[3.5/8] Writing enhanced napiLoader launchers...")
+    write_enhanced_napiloaders(output_dir)
     print("[x] Done")
     print()
     

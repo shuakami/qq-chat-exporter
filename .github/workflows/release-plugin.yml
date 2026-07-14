@@ -634,22 +634,46 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/}"
           npm install --no-save --no-package-lock playwright@1.49.1
           npx playwright install --with-deps chromium
-          node scripts/generate-release-banner.mjs "$VERSION" CHANGELOG_RAW.txt "release-files/release-banner-${VERSION}.png"
+          node scripts/generate-release-banner.mjs "$VERSION" CHANGELOG_RAW.txt "release-banner-${VERSION}.png"
 
-      - name: "将 Banner 插入发布说明"
+      # Banner 通过 release-assets 孤儿分支托管（而不是作为 Release Asset 上传），
+      # 避免出现在 Release 的 Assets 列表里被误下载。
+      - name: "发布 Banner 到 release-assets 分支"
+        id: publish_banner
         if: steps.release_banner.outcome == 'success'
+        continue-on-error: true
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
-          if [ -f "release-files/release-banner-${VERSION}.png" ]; then
-            awk -v ver="$VERSION" '
-              $0 == "### " ver " 更新内容" { print "<details>"; print "<summary>完整更新内容</summary>"; inlist=1; next }
-              inlist && /^### / { print "</details>"; print ""; inlist=0 }
-              { print }
-            ' RELEASE_NOTES.md > RELEASE_NOTES.tmp
-            mv RELEASE_NOTES.tmp RELEASE_NOTES.md
-            printf '![%s](https://github.com/%s/releases/download/%s/release-banner-%s.png)\n\n' "$VERSION" "${GITHUB_REPOSITORY}" "$VERSION" "$VERSION" | cat - RELEASE_NOTES.md > RELEASE_NOTES.tmp
-            mv RELEASE_NOTES.tmp RELEASE_NOTES.md
+          [ -f "release-banner-${VERSION}.png" ] || exit 1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          WORKTREE=$(mktemp -d)
+          if git fetch origin release-assets 2>/dev/null; then
+            git worktree add "$WORKTREE" -B release-assets origin/release-assets
+          else
+            git worktree add --detach "$WORKTREE"
+            git -C "$WORKTREE" checkout --orphan release-assets
+            git -C "$WORKTREE" rm -rf --quiet . || true
           fi
+          mkdir -p "$WORKTREE/banners"
+          cp "release-banner-${VERSION}.png" "$WORKTREE/banners/"
+          git -C "$WORKTREE" add "banners/release-banner-${VERSION}.png"
+          git -C "$WORKTREE" commit -m "chore: add release banner for ${VERSION}"
+          git -C "$WORKTREE" push origin release-assets
+          git worktree remove --force "$WORKTREE"
+
+      - name: "将 Banner 插入发布说明"
+        if: steps.publish_banner.outcome == 'success'
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          awk -v ver="$VERSION" '
+            $0 == "### " ver " 更新内容" { print "<details>"; print "<summary>完整更新内容</summary>"; inlist=1; next }
+            inlist && /^### / { print "</details>"; print ""; inlist=0 }
+            { print }
+          ' RELEASE_NOTES.md > RELEASE_NOTES.tmp
+          mv RELEASE_NOTES.tmp RELEASE_NOTES.md
+          printf '![%s](https://raw.githubusercontent.com/%s/release-assets/banners/release-banner-%s.png)\n\n' "$VERSION" "${GITHUB_REPOSITORY}" "$VERSION" | cat - RELEASE_NOTES.md > RELEASE_NOTES.tmp
+          mv RELEASE_NOTES.tmp RELEASE_NOTES.md
 
       - name: "创建 GitHub Release"
         uses: softprops/action-gh-release@v1
@@ -662,7 +686,6 @@ jobs:
             release-files/NapCat-Framework-QCE-${{ github.ref_name }}.zip
             release-files/napcat-plugin-qce.zip
             release-files/QQChatExporter-Installer-${{ github.ref_name }}.exe
-            release-files/release-banner-${{ github.ref_name }}.png
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           generate_release_notes: false
