@@ -597,6 +597,129 @@ mod forward_resource_tests {
     }
 }
 
+#[cfg(test)]
+mod ark_multi_forward_tests {
+    use super::{SimpleMessageParser, SimpleParserOptions};
+    use serde_json::json;
+
+    fn multimsg_ark(resid: &str) -> String {
+        json!({
+            "app": "com.tencent.multimsg",
+            "config": { "autosize": 1, "round": 1 },
+            "desc": "[聊天记录]",
+            "meta": {
+                "detail": {
+                    "news": [
+                        { "text": "甲: 你好" },
+                        { "text": "乙: [图片]" }
+                    ],
+                    "resid": resid,
+                    "source": "群聊的聊天记录",
+                    "summary": "查看2条转发消息",
+                    "uniseq": "uniseq-1"
+                }
+            },
+            "prompt": "[聊天记录]",
+            "view": "contact"
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn parses_multimsg_ark_card_as_forward() {
+        let inner = json!({
+            "msgId": "inner-text",
+            "msgTime": "1778262589",
+            "senderUid": "u_a",
+            "senderUin": "10001",
+            "sendNickName": "甲",
+            "elements": [{
+                "elementType": 1,
+                "textElement": { "content": "你好" }
+            }]
+        });
+        let outer = json!({
+            "msgId": "outer-ark-forward",
+            "msgTime": "1778262645",
+            "chatType": 1,
+            "peerUid": "u_peer",
+            "senderUid": "u_b",
+            "senderUin": "10002",
+            "sendNickName": "乙",
+            "records": [inner],
+            "elements": [{
+                "elementId": "ark-element",
+                "elementType": 10,
+                "arkElement": { "bytesData": multimsg_ark("ark-res-id") }
+            }]
+        });
+
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let parsed = parser.parse_messages(&[outer]).await;
+        let element = &parsed[0].content.elements[0];
+        assert_eq!(element.element_type, "forward");
+        assert_eq!(element.data["title"], "群聊的聊天记录");
+        assert_eq!(element.data["resId"], "ark-res-id");
+        assert_eq!(element.data["summary"], "查看2条转发消息");
+        assert_eq!(element.data["messageCount"], 1);
+        assert_eq!(element.data["messages"][0]["content"]["text"], "你好");
+    }
+
+    #[tokio::test]
+    async fn multimsg_ark_without_resid_or_records_falls_back_to_json() {
+        let ark = json!({
+            "app": "com.tencent.multimsg",
+            "desc": "[聊天记录]",
+            "prompt": "[聊天记录]"
+        })
+        .to_string();
+        let message = json!({
+            "msgId": "ark-no-resid",
+            "msgTime": "1778262645",
+            "chatType": 1,
+            "peerUid": "u_peer",
+            "senderUid": "u_b",
+            "senderUin": "10002",
+            "sendNickName": "乙",
+            "elements": [{
+                "elementType": 10,
+                "arkElement": { "bytesData": ark }
+            }]
+        });
+
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let parsed = parser.parse_messages(&[message]).await;
+        assert_eq!(parsed[0].content.elements[0].element_type, "json");
+    }
+
+    #[tokio::test]
+    async fn plain_ark_card_still_parses_as_json() {
+        let ark = json!({
+            "app": "com.tencent.structmsg",
+            "desc": "News",
+            "prompt": "[分享]标题"
+        })
+        .to_string();
+        let message = json!({
+            "msgId": "ark-share",
+            "msgTime": "1778262645",
+            "chatType": 1,
+            "peerUid": "u_peer",
+            "senderUid": "u_b",
+            "senderUin": "10002",
+            "sendNickName": "乙",
+            "elements": [{
+                "elementType": 10,
+                "arkElement": { "bytesData": ark }
+            }]
+        });
+
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let parsed = parser.parse_messages(&[message]).await;
+        assert_eq!(parsed[0].content.elements[0].element_type, "json");
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct CachedSenderInfo {
     group_card: Option<String>,
@@ -722,6 +845,16 @@ pub fn escape_html_fast(text: &str) -> String {
         }
     }
     out
+}
+
+/// 从 "查看N条转发消息" 一类的 summary 文案里抠出消息数，抠不到返回 0。
+fn summary_message_count(summary: &str) -> usize {
+    let digits: String = summary
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(char::is_ascii_digit)
+        .collect();
+    digits.parse().unwrap_or(0)
 }
 
 fn parse_size_value(v: Option<&Value>) -> i64 {
@@ -1308,6 +1441,19 @@ impl SimpleMessageParser {
         // JSON 卡片
         if let Some(ae) = v_get(element, "arkElement").filter(|v| !v.is_null()) {
             let json_content = v_str(ae, "bytesData").unwrap_or("{}").to_string();
+
+            // 合并转发也可能以 ark 卡片（com.tencent.multimsg）的形式出现，
+            // 按 forward 元素解析而不是普通 JSON 卡片（issue #582）。
+            let raw_json = serde_json::from_str::<Value>(&json_content).unwrap_or(Value::Null);
+            if v_str(&raw_json, "app") == Some("com.tencent.multimsg") {
+                if let Some(parsed) = self
+                    .parse_ark_multi_forward(&raw_json, message, forward_depth)
+                    .await
+                {
+                    return Some(parsed);
+                }
+            }
+
             let parsed_json = Self::parse_json_content(&json_content);
             let title = v_str(&parsed_json, "title");
             let description = v_str(&parsed_json, "description");
@@ -2019,6 +2165,85 @@ impl SimpleMessageParser {
             escape_html_fast(&header)
         );
         (text, html)
+    }
+
+    /// 把 com.tencent.multimsg 的 ark 卡片按合并转发解析（issue #582）。
+    ///
+    /// 卡片可视信息在 `meta.detail`（`resid` / `source` / `summary` / `news`），
+    /// 解析不到 `resid` 且没有 `records` 时返回 `None`，回退到普通 JSON 卡片。
+    async fn parse_ark_multi_forward(
+        &mut self,
+        ark_json: &Value,
+        message: &Value,
+        forward_depth: u32,
+    ) -> Option<MessageElement> {
+        let detail = v_get(ark_json, "meta").and_then(|m| v_get(m, "detail"));
+        let res_id = detail
+            .and_then(|d| v_str(d, "resid"))
+            .unwrap_or("")
+            .to_string();
+
+        let has_records = v_get(message, "records")
+            .and_then(Value::as_array)
+            .is_some_and(|arr| !arr.is_empty());
+        if res_id.is_empty() && !has_records {
+            return None;
+        }
+
+        let inner_messages = if forward_depth >= MAX_FORWARD_DEPTH {
+            Vec::new()
+        } else {
+            self.fetch_forward_inner_messages(message, &res_id, forward_depth + 1)
+                .await
+        };
+
+        let card_title = detail
+            .and_then(|d| v_str(d, "source"))
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("聊天记录")
+            .to_string();
+        let card_summary = detail
+            .and_then(|d| v_str(d, "summary"))
+            .filter(|s| !s.trim().is_empty())
+            .map_or_else(
+                || {
+                    if inner_messages.is_empty() {
+                        "查看转发消息".to_string()
+                    } else {
+                        format!("查看{}条转发消息", inner_messages.len())
+                    }
+                },
+                str::to_string,
+            );
+        let preview_lines: Vec<String> = detail
+            .and_then(|d| v_get(d, "news"))
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|n| v_str(n, "text"))
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let message_count = if inner_messages.is_empty() {
+            summary_message_count(&card_summary)
+        } else {
+            inner_messages.len()
+        };
+
+        Some(MessageElement {
+            element_type: "forward".to_string(),
+            data: json!({
+                "title": card_title,
+                "resId": res_id,
+                "summary": card_summary,
+                "preview": preview_lines,
+                "messageCount": message_count,
+                "messages": inner_messages
+            }),
+        })
     }
 
     /// 拉合并转发消息卡片里的子消息列表并扁平化（issue #161）。
