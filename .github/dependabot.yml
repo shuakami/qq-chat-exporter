@@ -1,6 +1,16 @@
 version: 2
 updates:
   - package-ecosystem: "npm"
+    directories:
+      - "/plugins/qq-chat-exporter"
+      - "/qce-v4-tool"
+      - "/qce-chunked-viewer"
+      - "/qce-viewer"
+      - "/installer"
+      - "/uninstaller"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
