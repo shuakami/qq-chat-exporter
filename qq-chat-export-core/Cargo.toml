@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.82"
 description = "QQ Chat Exporter — production-grade Rust port of the TypeScript exporter module (Text / JSON / JSONL / HTML / Excel / Modern HTML)."
-license = "MIT"
+license = "GPL-3.0-only"
 repository = "https://github.com/shuakami/qq-chat-exporter"
 
 [dependencies]
