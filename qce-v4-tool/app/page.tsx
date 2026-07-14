@@ -36,6 +36,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import {
   Download,
@@ -82,6 +83,7 @@ import {
 } from "lucide-react"
 import type { CreateTaskForm, CreateScheduledExportForm } from "@/types/api"
 import { useQCE } from "@/hooks/use-qce"
+import { BUILD_VERSION, isNewerVersion } from "@/lib/version"
 import { useScheduledExports } from "@/hooks/use-scheduled-exports"
 import { useChatHistory } from "@/hooks/use-chat-history"
 import { useStickerPacks } from "@/hooks/use-sticker-packs"
@@ -199,6 +201,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   
   // GitHub stars
   const [githubStars, setGithubStars] = useState<number | null>(null)
+  const [updateInfo, setUpdateInfo] = useState<{ tag: string; url: string } | null>(null)
   
   // 定时导出筛选状态
   const [scheduledFilter, setScheduledFilter] = useState<'all' | 'enabled' | 'disabled'>('all')
@@ -422,6 +425,30 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     openTaskFileLocation,
   } = useQCE({ onNotification: handleQceNotification })
 
+  useEffect(() => {
+    const currentVersion = systemInfo?.version || BUILD_VERSION
+    if (!currentVersion || currentVersion === 'unknown') return
+
+    const checkUpdate = async () => {
+      try {
+        const res = await fetch('https://api.github.com/repos/shuakami/qq-chat-exporter/releases?per_page=1')
+        if (!res.ok) return
+
+        const releases = await res.json()
+        const latest = releases?.[0]
+        if (latest?.tag_name && latest?.html_url && isNewerVersion(latest.tag_name, currentVersion)) {
+          setUpdateInfo({ tag: latest.tag_name, url: latest.html_url })
+        } else {
+          setUpdateInfo(null)
+        }
+      } catch {
+        // 静默失败
+      }
+    }
+
+    checkUpdate()
+  }, [systemInfo?.version])
+
   // 打开群精华消息模态框
   const handleOpenEssenceModal = useCallback((groupCode: string, groupName: string) => {
     setEssenceGroup({ groupCode, groupName })
@@ -549,6 +576,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     packs: stickerPacks,
     exportRecords: stickerExportRecords,
     loading: stickerPacksLoading,
+    exporting: stickerPacksExporting,
     error: stickerPacksError,
     loadStickerPacks,
     loadExportRecords: loadStickerExportRecords,
@@ -657,9 +685,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
           ] : undefined,
           0
         )
-        stickerPacksLoadedRef.current = false
-        await Promise.all([loadStickerPacks(), loadStickerExportRecords()])
-        stickerPacksLoadedRef.current = true
+        await loadStickerExportRecords()
       } else {
         addNotification('error', '导出失败', `表情包"${packName}"导出失败`)
       }
@@ -691,9 +717,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
           ] : undefined,
           0
         )
-        stickerPacksLoadedRef.current = false
-        await Promise.all([loadStickerPacks(), loadStickerExportRecords()])
-        stickerPacksLoadedRef.current = true
+        await loadStickerExportRecords()
       } else {
         addNotification('error', '导出失败', '表情包导出失败')
       }
@@ -1441,11 +1465,36 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                     {/* Help dropdown (docs) */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors">
+                        <button
+                          className="relative inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors"
+                          aria-label={updateInfo ? `帮助，有新版本 ${updateInfo.tag}` : '帮助'}
+                        >
                           <HelpCircle className="w-4 h-4" />
+                          {updateInfo && (
+                            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-card" />
+                          )}
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl min-w-[140px]">
+                      <DropdownMenuContent align="end" className="rounded-xl border-black/[0.06] dark:border-white/[0.08] shadow-xl min-w-[220px]">
+                        {updateInfo && (
+                          <>
+                            <DropdownMenuItem asChild>
+                              <a
+                                href={updateInfo.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex cursor-pointer flex-col items-start gap-0.5 py-2"
+                              >
+                                <span className="text-[13px] font-medium text-foreground">发现新版本</span>
+                                <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                                  <span>{updateInfo.tag}</span>
+                                  <span>查看更新内容</span>
+                                </span>
+                              </a>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                          </>
+                        )}
                         <DropdownMenuItem asChild>
                           <a
                             href="https://shuakami.github.io/qq-chat-exporter/"
@@ -1639,7 +1688,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                       stickerPacksLoadedRef.current = false
                     }
                   }}
-                  disabled={stickerPacksLoading}
+                  disabled={stickerPacksLoading || stickerPacksExporting}
                 >
                   {stickerPacksLoading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
                 </Button>
@@ -1647,7 +1696,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                   size="sm"
                   className="h-8 text-[13px] rounded-full px-2.5"
                   onClick={handleExportAllStickerPacks}
-                  disabled={stickerPacksLoading || stickerPacks.length === 0}
+                  disabled={stickerPacksLoading || stickerPacksExporting || stickerPacks.length === 0}
                 >
                   导出所有
                 </Button>
@@ -2717,7 +2766,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                           <button
                             className="text-[11px] text-muted-foreground/40 hover:text-foreground transition-colors flex-shrink-0 ml-4 opacity-0 group-hover:opacity-100"
                             onClick={() => handleExportStickerPack(pack.packId, pack.packName)}
-                            disabled={stickerPacksLoading}
+                            disabled={stickerPacksLoading || stickerPacksExporting}
                           >
                             导出
                           </button>
