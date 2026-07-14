@@ -478,21 +478,43 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/}"
           NAPCAT_VERSION="${{ needs.get-napcat-version.outputs.version }}"
           
-          # 获取上一个 tag
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          # 获取上一个 tag：正式版对比上一个正式版（跳过 alpha/beta/rc，聚合全部预发布的更新）
+          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"rc"* ]]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          else
+            PREV_TAG=$(git tag --merged HEAD^ --sort=-v:refname | grep -vE -- '-(alpha|beta|rc)' | head -n 1 || echo "")
+          fi
           
           # 生成更新内容
+          NL=$'\n'
           CHANGELOG=""
           if [ -n "$PREV_TAG" ]; then
-            while IFS= read -r commit; do
-              subject=$(git log -1 --format="%s" "$commit")
-              CHANGELOG="${CHANGELOG}- ${subject}
-          "
-            done < <(git log ${PREV_TAG}..HEAD --format="%H" --reverse)
+            git log "${PREV_TAG}..HEAD" --format="- %s" --reverse > CHANGELOG_RAW.txt
+            if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"rc"* ]]; then
+              CHANGELOG=$(cat CHANGELOG_RAW.txt)
+            else
+              # 正式版：按预发布 tag 分段聚合全部更新日志
+              SEG_TAGS=$(git tag --merged HEAD --no-merged "$PREV_TAG" --sort=v:refname | grep -v "^${VERSION}\$" || true)
+              seg_prev="$PREV_TAG"
+              for seg_tag in $SEG_TAGS; do
+                body=$(git log "${seg_prev}..${seg_tag}" --format="- %s" --reverse)
+                if [ -n "$body" ]; then
+                  CHANGELOG="${CHANGELOG}#### ${seg_tag}${NL}${NL}${body}${NL}${NL}"
+                fi
+                seg_prev="$seg_tag"
+              done
+              body=$(git log "${seg_prev}..HEAD" --format="- %s" --reverse)
+              if [ -n "$body" ]; then
+                CHANGELOG="${CHANGELOG}#### ${VERSION}${NL}${NL}${body}${NL}"
+              fi
+              if [ -z "$CHANGELOG" ]; then
+                CHANGELOG=$(cat CHANGELOG_RAW.txt)
+              fi
+            fi
           else
             CHANGELOG="- 首次发布完整集成包"
+            printf '%s\n' "$CHANGELOG" > CHANGELOG_RAW.txt
           fi
-          printf '%s\n' "$CHANGELOG" | sed 's/^ *//' > CHANGELOG_RAW.txt
           
           # 判断是否为预发布版本
           PRERELEASE_NOTE=""
