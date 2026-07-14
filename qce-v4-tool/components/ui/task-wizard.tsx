@@ -225,6 +225,9 @@ export function TaskWizard({
   const [showTargetSelector, setShowTargetSelector] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+  // 每次打开只初始化一次目标视图，避免后台会话列表异步刷新导致 groups/friends
+  // 引用变化时把用户已选好的目标清空、弹回选择页（概率性返回上一步）。
+  const didInitTargetRef = useRef(false)
   
   // 手动输入 QQ 号 / 群号模式（Issue #226）：friend | group | null
   const [manualInputMode, setManualInputMode] = useState<'friend' | 'group' | null>(null)
@@ -283,7 +286,9 @@ export function TaskWizard({
   ])
 
   useEffect(() => {
-    if (prefilledData?.peerUid && isOpen) {
+    if (!isOpen || didInitTargetRef.current) return
+    if (prefilledData?.peerUid) {
+      // groups/friends 可能在打开后才异步加载完成，找到目标前允许本 effect 随列表更新重跑。
       const targetList = prefilledData.chatType === 2 ? groups : friends
       const found = targetList.find((t) => {
         if (prefilledData.chatType === 2) return "groupCode" in t && t.groupCode === prefilledData.peerUid
@@ -292,10 +297,12 @@ export function TaskWizard({
       if (found) {
         setSelectedTarget(found)
         setShowTargetSelector(false)
+        didInitTargetRef.current = true
       }
-    } else if (isOpen && !prefilledData?.peerUid) {
+    } else {
       setSelectedTarget(null)
       setShowTargetSelector(true)
+      didInitTargetRef.current = true
     }
   }, [prefilledData, groups, friends, isOpen])
 
@@ -329,6 +336,7 @@ export function TaskWizard({
     if (!isOpen) {
       if (preferencesReady) writeAdvancedPreferences(form)
       setPreferencesReady(false)
+      didInitTargetRef.current = false
       setSelectedTarget(null)
       setSearchTerm("")
       setShowTargetSelector(true)
