@@ -12,6 +12,12 @@ use crate::fetcher::chat_type::is_private_like_chat_type;
 /// issue #305 / #316：自适应缩小后的 batchSize 下限。
 const MIN_BATCH_SIZE_ON_TIMEOUT: i64 = 200;
 
+/// 缩小后的 batchSize 连续成功该次数后翻倍回升（不超过配置值）。
+const BATCH_SIZE_RECOVERY_SUCCESSES: u32 = 3;
+
+/// 分页批次之间的间隔（本地 IPC 调用，仅留出让路空隙）。
+const INTER_BATCH_DELAY_MS: u64 = 20;
+
 /// 聊天对象（对应 NapCat `Peer`）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -189,6 +195,7 @@ pub enum FetchStrategy {
 #[derive(Debug)]
 struct FetcherState {
     batch_size: i64,
+    consecutive_successes: u32,
     stats: ApiCallStats,
     current_strategy: FetchStrategy,
 }
@@ -211,6 +218,7 @@ impl BatchMessageFetcher {
             config,
             state: Mutex::new(FetcherState {
                 batch_size,
+                consecutive_successes: 0,
                 stats: ApiCallStats::default(),
                 current_strategy: FetchStrategy::Hybrid,
             }),
@@ -330,7 +338,7 @@ impl BatchMessageFetcher {
                     return Ok(None);
                 }
                 // 避免过于频繁的 API 调用。
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(INTER_BATCH_DELAY_MS)).await;
             }
         }
         if self.is_cancelled() {
@@ -574,6 +582,22 @@ impl BatchMessageFetcher {
                     tracing::info!("[BatchMessageFetcher] API调用成功");
                     let mut state = self.state.lock().await;
                     state.stats.consecutive_failures = 0;
+                    // issue #305 / #316 的反向路径：缩小后的 batchSize 在连续成功后
+                    // 逐步翻倍回升，避免一次超时让整个任务全程使用小批次。
+                    if state.batch_size < self.config.batch_size {
+                        state.consecutive_successes += 1;
+                        if state.consecutive_successes >= BATCH_SIZE_RECOVERY_SUCCESSES {
+                            let previous = state.batch_size;
+                            let next = (previous * 2).min(self.config.batch_size);
+                            state.batch_size = next;
+                            state.consecutive_successes = 0;
+                            tracing::info!(
+                                "[BatchMessageFetcher] 连续成功，batchSize 回升: {previous} -> {next}"
+                            );
+                        }
+                    } else {
+                        state.consecutive_successes = 0;
+                    }
                     return Ok(value);
                 }
                 Ok(Err(message)) => FetchError::Api(message),
@@ -598,6 +622,7 @@ impl BatchMessageFetcher {
             // issue #305 / #316：超时类错误下次重试用更小的 batchSize。
             if result.is_timeout() {
                 let mut state = self.state.lock().await;
+                state.consecutive_successes = 0;
                 if state.batch_size > MIN_BATCH_SIZE_ON_TIMEOUT {
                     let previous = state.batch_size;
                     let next = (previous / 2).max(MIN_BATCH_SIZE_ON_TIMEOUT);
@@ -846,6 +871,71 @@ mod tests {
 
         assert_eq!(batch.actual_count, 1);
         assert_eq!(batch.next_message_id.as_deref(), Some("message-1"));
+    }
+
+    struct NoopApi;
+
+    #[async_trait]
+    impl MessageFetchApi for NoopApi {
+        async fn get_aio_first_view_latest_msgs(
+            &self,
+            _peer: &Peer,
+            _count: i64,
+        ) -> Result<Value, String> {
+            Ok(json!({ "msgList": [] }))
+        }
+
+        async fn get_msg_history(
+            &self,
+            _peer: &Peer,
+            _msg_id: &str,
+            _count: i64,
+        ) -> Result<Value, String> {
+            Ok(json!({ "msgList": [] }))
+        }
+
+        async fn get_msgs_by_seq_range(
+            &self,
+            _peer: &Peer,
+            _start_seq: &str,
+            _end_seq: &str,
+        ) -> Result<Value, String> {
+            Ok(json!({ "msgList": [] }))
+        }
+    }
+
+    #[tokio::test]
+    async fn shrunk_batch_size_recovers_after_consecutive_successes() {
+        let fetcher = BatchMessageFetcher::new(Arc::new(NoopApi), BatchFetchConfig::default());
+        {
+            let mut state = fetcher.state.lock().await;
+            state.batch_size = MIN_BATCH_SIZE_ON_TIMEOUT;
+        }
+
+        for _ in 0..BATCH_SIZE_RECOVERY_SUCCESSES {
+            fetcher
+                .call_with_retry(|_batch_size| async { Ok(json!({ "msgList": [] })) })
+                .await
+                .expect("call succeeds");
+        }
+        assert_eq!(
+            fetcher.state.lock().await.batch_size,
+            MIN_BATCH_SIZE_ON_TIMEOUT * 2
+        );
+
+        // 回升不超过配置上限。
+        {
+            let mut state = fetcher.state.lock().await;
+            state.batch_size = 4000;
+            state.consecutive_successes = 0;
+        }
+        for _ in 0..BATCH_SIZE_RECOVERY_SUCCESSES {
+            fetcher
+                .call_with_retry(|_batch_size| async { Ok(json!({ "msgList": [] })) })
+                .await
+                .expect("call succeeds");
+        }
+        assert_eq!(fetcher.state.lock().await.batch_size, 5000);
     }
 
     #[test]
