@@ -38,7 +38,23 @@ function renderItem(t) {
   return `<li><span class="ct ct-${cls}">${label}</span><span>${escapeHtml(rest)}</span></li>`;
 }
 
-let lis = items.slice(0, MAX_ITEMS).map(renderItem).join('');
+const PRIORITY = { feat: 0, fix: 1, perf: 2 };
+function rank(t) {
+  const m = t.match(/^(\w+)(\([^)]+\))?\s*:/);
+  return m && m[1] in PRIORITY ? PRIORITY[m[1]] : 3;
+}
+
+let selected = items;
+if (items.length > MAX_ITEMS) {
+  selected = items
+    .map((t, i) => ({ t, i, r: rank(t) }))
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .slice(0, MAX_ITEMS)
+    .sort((a, b) => a.i - b.i)
+    .map((x) => x.t);
+}
+
+let lis = selected.map(renderItem).join('');
 if (items.length > MAX_ITEMS) {
   lis += `<li class="more">…以及另外 ${items.length - MAX_ITEMS} 项改进</li>`;
 }
