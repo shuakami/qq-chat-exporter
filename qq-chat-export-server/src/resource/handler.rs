@@ -53,7 +53,7 @@ impl Default for ResourceHandlerConfig {
         Self {
             storage_root: home.join(".qq-chat-exporter").join("resources"),
             download_timeout_ms: 30000,
-            max_concurrent_downloads: 2,
+            max_concurrent_downloads: 8,
             max_retries: 5,
             circuit_breaker_threshold: 20,
             circuit_breaker_recovery_time_ms: 60000,
