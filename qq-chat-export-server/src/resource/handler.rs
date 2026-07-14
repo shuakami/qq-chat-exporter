@@ -13,7 +13,6 @@ use tokio::task::JoinSet;
 use crate::export_debug::ExportDebugTrace;
 use crate::resource::circuit_breaker::CircuitBreaker;
 use crate::resource::health::{ResourceHealthChecker, RESOURCE_HEALTH_CACHE_MS};
-use crate::resource::FORWARDED_RESOURCE_MESSAGE_FLAG;
 use crate::storage::{DatabaseManager, ResourceInfo};
 
 /// 健康检查过期阈值（6 小时）。
@@ -149,7 +148,6 @@ struct DownloadTask {
     element_id: String,
     element: Value,
     priority: i64,
-    is_forwarded: bool,
 }
 
 /// 单个资源的初始状态。
@@ -320,10 +318,6 @@ impl ResourceHandler {
             let peer_uid = str_field(message, "peerUid")
                 .unwrap_or_default()
                 .to_string();
-            let is_forwarded = message
-                .get(FORWARDED_RESOURCE_MESSAGE_FLAG)
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
             let Some(elements) = message.get("elements").and_then(Value::as_array) else {
                 continue;
             };
@@ -353,7 +347,6 @@ impl ResourceHandler {
                         element_id,
                         element: element.clone(),
                         priority: calculate_priority(&*shared.lock().await),
-                        is_forwarded,
                     });
                     resources_for_message.push(Arc::clone(&shared));
                     all_resources.push((shared, initial));
@@ -794,9 +787,6 @@ impl ResourceHandler {
                 return Ok(source_path);
             }
         }
-        if task.is_forwarded {
-            return Err("合并转发内资源未命中本地缓存，普通消息下载接口无法获取".to_string());
-        }
 
         let download = self.downloader.download_media(
             &task.msg_id,
@@ -1129,7 +1119,7 @@ fn is_retriable_error(error_message: &str) -> bool {
 
 /// 判断是否为明确不可重试的错误。
 fn is_non_retriable_error(error_message: &str) -> bool {
-    const NON_RETRIABLE: [&str; 11] = [
+    const NON_RETRIABLE: [&str; 10] = [
         "404",
         "403",
         "401",
@@ -1140,7 +1130,6 @@ fn is_non_retriable_error(error_message: &str) -> bool {
         "malformed",
         "file exists",
         "disk quota",
-        "合并转发内资源",
     ];
     let lower = error_message.to_lowercase();
     NON_RETRIABLE.iter().any(|pattern| lower.contains(pattern))
@@ -1401,10 +1390,6 @@ mod tests {
         release_first_attempt: Notify,
     }
 
-    struct WritingDownloader {
-        calls: AtomicUsize,
-    }
-
     #[async_trait]
     impl MediaDownloader for RetrySlotDownloader {
         async fn download_media(
@@ -1430,25 +1415,6 @@ mod tests {
         }
     }
 
-    #[async_trait]
-    impl MediaDownloader for WritingDownloader {
-        async fn download_media(
-            &self,
-            _msg_id: &str,
-            _chat_type: i64,
-            _peer_uid: &str,
-            _element_id: &str,
-            dest_path: &str,
-            _timeout_ms: u64,
-        ) -> Result<String, String> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            tokio::fs::write(dest_path, b"image")
-                .await
-                .map_err(|error| error.to_string())?;
-            Ok(dest_path.to_string())
-        }
-    }
-
     fn download_task(element_id: &str, file_name: &str) -> DownloadTask {
         DownloadTask {
             resource: Arc::new(Mutex::new(base_resource(
@@ -1465,112 +1431,7 @@ mod tests {
             element_id: element_id.to_string(),
             element: json!({ "picElement": { "fileName": file_name } }),
             priority: 100,
-            is_forwarded: false,
         }
-    }
-
-    #[tokio::test]
-    async fn forwarded_resources_skip_unsupported_remote_download_without_blocking() {
-        let root =
-            std::env::temp_dir().join(format!("qce-forward-resource-{}", uuid::Uuid::new_v4()));
-        let downloader = Arc::new(WritingDownloader {
-            calls: AtomicUsize::new(0),
-        });
-        let db = Arc::new(DatabaseManager::new(&root.join("qce.db")));
-        db.initialize().await.expect("initialize test database");
-        let handler = Arc::new(
-            ResourceHandler::new(
-                downloader.clone(),
-                None,
-                db,
-                ResourceHandlerConfig {
-                    storage_root: root.clone(),
-                    max_retries: 1,
-                    ..ResourceHandlerConfig::default()
-                },
-            )
-            .await,
-        );
-        let cancel_flag = AtomicBool::new(false);
-        let mut forwarded = json!({
-            "msgId": "forwarded-message",
-            "chatType": 2,
-            "peerUid": "peer",
-            "elements": [{
-                "elementId": "forwarded-element",
-                "elementType": 2,
-                "picElement": {
-                    "fileName": "forwarded.jpg",
-                    "fileSize": 5,
-                    "md5HexStr": "forwarded-md5"
-                }
-            }]
-        });
-        forwarded[FORWARDED_RESOURCE_MESSAGE_FLAG] = Value::Bool(true);
-
-        let resources = tokio::time::timeout(
-            Duration::from_secs(1),
-            handler.process_message_resources_with_cancel(&[forwarded], Arc::new(cancel_flag)),
-        )
-        .await
-        .expect("forwarded resource should fail fast");
-
-        assert_eq!(downloader.calls.load(Ordering::SeqCst), 0);
-        let resource = &resources["forwarded-message"][0];
-        assert_eq!(resource.status, "skipped");
-        assert!(resource
-            .last_error
-            .as_deref()
-            .is_some_and(|error| error.contains("合并转发内资源")));
-        let breaker = handler.circuit_breaker.status().await;
-        assert_eq!(breaker["state"], "closed");
-        assert_eq!(breaker["failureCount"], 0);
-        let _ = tokio::fs::remove_dir_all(root).await;
-    }
-
-    #[tokio::test]
-    async fn regular_resources_still_use_remote_download() {
-        let root =
-            std::env::temp_dir().join(format!("qce-regular-resource-{}", uuid::Uuid::new_v4()));
-        let downloader = Arc::new(WritingDownloader {
-            calls: AtomicUsize::new(0),
-        });
-        let db = Arc::new(DatabaseManager::new(&root.join("qce.db")));
-        db.initialize().await.expect("initialize test database");
-        let handler = Arc::new(
-            ResourceHandler::new(
-                downloader.clone(),
-                None,
-                db,
-                ResourceHandlerConfig {
-                    storage_root: root.clone(),
-                    max_retries: 1,
-                    ..ResourceHandlerConfig::default()
-                },
-            )
-            .await,
-        );
-        let regular = json!({
-            "msgId": "regular-message",
-            "chatType": 2,
-            "peerUid": "peer",
-            "elements": [{
-                "elementId": "regular-element",
-                "elementType": 2,
-                "picElement": {
-                    "fileName": "regular.jpg",
-                    "fileSize": 5,
-                    "md5HexStr": "regular-md5"
-                }
-            }]
-        });
-        let resources = handler.process_message_resources(&[regular]).await;
-
-        assert_eq!(downloader.calls.load(Ordering::SeqCst), 1);
-        let resource = &resources["regular-message"][0];
-        assert_eq!(resource.status, "downloaded");
-        assert!(resource.accessible);
-        let _ = tokio::fs::remove_dir_all(root).await;
     }
 
     #[tokio::test]
