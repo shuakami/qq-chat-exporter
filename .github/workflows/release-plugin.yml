@@ -492,6 +492,7 @@ jobs:
           else
             CHANGELOG="- 首次发布完整集成包"
           fi
+          printf '%s\n' "$CHANGELOG" | sed 's/^ *//' > CHANGELOG_RAW.txt
           
           # 判断是否为预发布版本
           PRERELEASE_NOTE=""
@@ -603,7 +604,25 @@ jobs:
           # 移除每行开头的空格
           sed -i 's/^          //' RELEASE_NOTES.md
           echo "已为版本 ${VERSION} 生成发布说明"
-      
+
+      - name: "生成 Release Banner"
+        id: release_banner
+        continue-on-error: true
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          npm install --no-save --no-package-lock playwright@1.49.1
+          npx playwright install --with-deps chromium
+          node scripts/generate-release-banner.mjs "$VERSION" CHANGELOG_RAW.txt "release-files/release-banner-${VERSION}.png"
+
+      - name: "将 Banner 插入发布说明"
+        if: steps.release_banner.outcome == 'success'
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          if [ -f "release-files/release-banner-${VERSION}.png" ]; then
+            printf '![%s](https://github.com/%s/releases/download/%s/release-banner-%s.png)\n\n' "$VERSION" "${GITHUB_REPOSITORY}" "$VERSION" "$VERSION" | cat - RELEASE_NOTES.md > RELEASE_NOTES.tmp
+            mv RELEASE_NOTES.tmp RELEASE_NOTES.md
+          fi
+
       - name: "创建 GitHub Release"
         uses: softprops/action-gh-release@v1
         with:
@@ -615,6 +634,7 @@ jobs:
             release-files/NapCat-Framework-QCE-${{ github.ref_name }}.zip
             release-files/napcat-plugin-qce.zip
             release-files/QQChatExporter-Installer-${{ github.ref_name }}.exe
+            release-files/release-banner-${{ github.ref_name }}.png
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           generate_release_notes: false
