@@ -107,7 +107,7 @@ impl CircuitBreaker {
 
 /// 判断错误是否应计入熔断（业务错误不计入）。
 fn should_count_as_failure(error_message: &str) -> bool {
-    const IGNORED_ERRORS: [&str; 12] = [
+    const IGNORED_ERRORS: [&str; 11] = [
         "404",
         "not found",
         "forbidden",
@@ -119,7 +119,6 @@ fn should_count_as_failure(error_message: &str) -> bool {
         "文件不存在",
         "权限问题",
         "无法找到有效的下载文件",
-        "合并转发内资源",
     ];
     let lower = error_message.to_lowercase();
     !IGNORED_ERRORS.iter().any(|ignored| lower.contains(ignored))
