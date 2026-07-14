@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>QCE Release Banner</title>
+<link rel="preconnect" href="https://fonts.loli.net">
+<link href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { background:transparent; }
+  body { font-family: Inter, "Noto Sans SC", system-ui, sans-serif; color:#18181b; -webkit-font-smoothing:antialiased; }
+  .banner { position:relative; width:1600px; height:800px; overflow:hidden; }
+  .frame {
+    position:absolute; inset:0; border-radius:12px; overflow:hidden;
+    border:1px solid rgba(24,24,27,0.10); background:#ffffff;
+  }
+  #shader { position:absolute; inset:0; }
+  .wordmark {
+    position:absolute; left:0; right:0; top:64px; z-index:1;
+    text-align:center; font-weight:700; letter-spacing:-0.04em; line-height:1; white-space:nowrap;
+    font-size:150px; user-select:none; pointer-events:none;
+        background:linear-gradient(to bottom, rgba(49,124,254,0.13), rgba(49,124,254,0.02));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .copy { position:absolute; left:84px; top:200px; z-index:3; max-width:600px; }
+  h1 { font-size:52px; font-weight:700; letter-spacing:-0.04em; line-height:1.12; }
+  ul { list-style:none; margin-top:26px; }
+  ul li {
+    display:flex; align-items:baseline; gap:10px; margin:12px 0;
+    font-size:16px; line-height:1.5; color:#3f3f46;
+  }
+  ul li.more { color:#a1a1aa; }
+  .ct {
+    flex:none; font-family:"JetBrains Mono",monospace; font-size:11.5px; font-weight:500;
+    padding:2.5px 8px; border-radius:6px; letter-spacing:0;
+    position:relative; top:-2px;
+  }
+  .ct-feat { background:rgba(49,124,254,0.10); color:#1d4ed8; }
+  .ct-fix { background:rgba(234,88,12,0.10); color:#c2410c; }
+  .ct-perf { background:rgba(147,51,234,0.10); color:#7e22ce; }
+  .ct-docs { background:rgba(24,24,27,0.06); color:#52525b; }
+  .ct-other { background:rgba(24,24,27,0.06); color:#52525b; }
+  .scope { color:inherit; opacity:0.65; }
+  ul li code { font-family:"JetBrains Mono",monospace; font-size:0.86em; background:rgba(24,24,27,0.05); border-radius:5px; padding:2px 6px; }
+  .shot {
+    position:absolute; left:760px; top:236px; right:-80px; bottom:-2px; z-index:2;
+    border-radius:16px 0 0 0; overflow:hidden;
+    border:1px solid rgba(24,24,27,0.08); border-right:none; border-bottom:none;
+    box-shadow:
+      0 2px 4px rgba(24,24,27,0.04),
+      0 16px 32px -8px rgba(24,24,27,0.10),
+      0 56px 112px -28px rgba(24,124,254,0.16);
+    background:#fff;
+  }
+  .shot iframe { border:0; display:block; width:1633px; height:952px; transform-origin:0 0; pointer-events:none; background:#fff; }
+</style>
+</head>
+<body>
+<div class="banner">
+  <div class="frame">
+    <div id="shader"></div>
+    <div class="wordmark">{{VERSION_MARK}}</div>
+    <div class="copy">
+      <h1>{{TAG}}</h1>
+      <ul>{{ITEMS}}</ul>
+    </div>
+    <div class="shot"><iframe src="{{UI_URL}}"></iframe></div>
+  </div>
+</div>
+<script>
+  (function(){
+    function fit(){
+      var el = document.querySelector('.shot');
+      var f = el.querySelector('iframe');
+      var s = el.clientWidth / 1633;
+      f.style.transform = 'scale(' + s + ')';
+      f.style.height = (el.clientHeight / s) + 'px';
+    }
+    window.addEventListener('load', fit); fit();
+  })();
+</script>
+<script type="module">
+  var m = await import('{{SHADER_URL}}');
+  var s = m.defaultObjectSizing;
+  var host = document.getElementById('shader');
+  var tex = m.getShaderNoiseTexture();
+  if (tex && !(tex.complete && tex.naturalWidth)) {
+    await new Promise(function(r){ tex.onload = r; tex.onerror = r; });
+  }
+  new m.ShaderMount(host, m.grainGradientFragmentShader, {
+    u_colorBack: m.getShaderColorFromString('#00000000'),
+    u_colors: ['#f0f5ff', '#d9e6ff', '#317cfe10'].map(m.getShaderColorFromString),
+    u_colorsCount: 3,
+    u_softness: 1, u_intensity: 0.38, u_noise: 0.1,
+    u_shape: m.GrainGradientShapes.corners,
+    u_noiseTexture: tex,
+    u_fit: m.ShaderFitOptions[s.fit], u_scale: s.scale, u_rotation: s.rotation,
+    u_offsetX: s.offsetX, u_offsetY: s.offsetY,
+    u_originX: s.originX, u_originY: s.originY,
+    u_worldWidth: s.worldWidth, u_worldHeight: s.worldHeight
+  }, undefined, 0.4, 0, 1, 1920 * 1080);
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ window.__shaderReady = true; }); });
+</script>
+</body>
+</html>
