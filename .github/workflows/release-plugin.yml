@@ -54,7 +54,7 @@ jobs:
         working-directory: qce-v4-tool
 
       - name: "Upload frontend artifact"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qce-frontend-out
           path: qce-v4-tool/out
@@ -96,7 +96,7 @@ jobs:
           QCE_VERSION: ${{ github.ref_name }}
 
       - name: "Upload Rust server artifact"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qce-server-${{ matrix.platform }}-${{ matrix.arch }}
           path: ${{ matrix.binary_path }}
@@ -162,7 +162,7 @@ jobs:
           QCE_SERVER_BINARY: prebuilt-server/${{ matrix.server_binary }}
       
       - name: "Upload Shell package artifact"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}
           path: NapCat-QCE-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.${{ matrix.artifact_ext }}
@@ -204,7 +204,7 @@ jobs:
           QCE_SERVER_WINDOWS_X64: prebuilt-server/qce-server.exe
       
       - name: "Upload Framework package artifact"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: NapCat-Framework-QCE
           path: NapCat-Framework-QCE-*.zip
@@ -263,7 +263,7 @@ jobs:
           QCE_SERVER_WINDOWS_X64: prebuilt-server/windows/qce-server.exe
 
       - name: "Upload NapCat plugin artifact"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: napcat-plugin-qce
           path: napcat-plugin-qce.zip
@@ -343,7 +343,7 @@ jobs:
           ls -lh installer/dist-installer
 
       - name: "Upload installer binary artifact"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qce-installer-binaries
           path: installer/dist-installer/*.exe
@@ -388,7 +388,7 @@ jobs:
           ls -lh dist-installer
 
       - name: "Upload installer artifact"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qce-installer-windows
           path: dist-installer/*.exe
