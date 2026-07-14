@@ -284,7 +284,7 @@ export function ExportHelpDialog({
             className="fixed inset-4 sm:inset-[8%] z-[111] flex flex-col bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden"
           >
             {/* Top bar */}
-            <div className="flex h-[52px] flex-shrink-0 items-center justify-between border-b border-black/[0.05] dark:border-white/[0.06] px-5">
+            <div className="flex h-[52px] flex-shrink-0 items-center justify-between px-5">
               <div className="flex items-center gap-[9px] text-sm font-semibold tracking-[-0.01em] text-foreground select-none">
                 <span>QCE</span>
                 <span className="rotate-[8deg] text-[15px] font-light text-foreground/20">/</span>
@@ -352,7 +352,7 @@ export function ExportHelpDialog({
             </div>
 
             {/* Bottom bar */}
-            <div className="flex h-[72px] flex-shrink-0 items-center justify-end gap-3 border-t border-black/[0.05] dark:border-white/[0.06] px-6">
+            <div className="flex h-[72px] flex-shrink-0 items-center justify-end gap-3 px-6">
               {showOpenLocation && (onOpenFileLocation || onOpenExportDirectory) && (
                 <Button
                   variant="outline"
