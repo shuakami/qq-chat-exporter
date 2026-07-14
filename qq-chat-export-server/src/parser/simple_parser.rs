@@ -487,6 +487,38 @@ mod reply_target_tests {
         assert_eq!(reply_data(&parsed[3])["referencedMessageId"], "first");
         assert_eq!(reply_data(&parsed[4])["referencedMessageId"], "second");
     }
+
+    #[tokio::test]
+    async fn anonymous_system_message_gets_system_sender_placeholder() {
+        let system = json!({
+            "msgId": "sys-1",
+            "msgSeq": "10",
+            "msgTime": 1_758_025_100,
+            "msgType": 5,
+            "chatType": 1,
+            "peerUid": "u_peer",
+            "senderUid": "",
+            "senderUin": "0",
+            "elements": [{ "elementType": 8, "grayTipElement": {} }]
+        });
+        let normal = raw_message(
+            "text-1",
+            "11",
+            1_758_025_200,
+            "1687657986",
+            json!([{ "elementType": 1, "textElement": { "content": "hi" } }]),
+        );
+
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let parsed = parser.parse_messages(&[system, normal]).await;
+
+        assert!(parsed[0].system);
+        assert_eq!(parsed[0].sender.uid, "未知");
+        assert_eq!(parsed[0].sender.uin, None);
+        assert_eq!(parsed[0].sender.name, "系统消息");
+        assert_eq!(parsed[1].sender.uin.as_deref(), Some("1687657986"));
+        assert_eq!(parsed[1].sender.name, "笨蛋Darf v2");
+    }
 }
 
 #[cfg(test)]
@@ -925,16 +957,28 @@ impl SimpleMessageParser {
         let content = self.parse_message_content(message, 0).await;
         let msg_type = v_i64(message, "msgType").unwrap_or(0);
 
-        CleanMessage {
-            id: trimmed_field(message, "msgId").unwrap_or_default(),
-            seq: trimmed_field(message, "msgSeq").unwrap_or_default(),
-            timestamp,
-            time: rfc3339_from_millis(timestamp),
-            sender: Sender {
-                uid: v_str(message, "senderUid")
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("未知")
-                    .to_string(),
+        // 系统灰条消息（撤回提示等）没有真实发送者：NapCat 给出的
+        // senderUid 为空、senderUin 为 "0"，若原样导出会被第三方导入工具
+        // 当成一个名叫 "0" 的用户，这里归一化成明确的系统占位。
+        let sender_uid = trimmed_field(message, "senderUid");
+        let sender_uin = trimmed_field(message, "senderUin");
+        let anonymous_system =
+            msg_type == 5 && sender_uid.is_none() && sender_uin.as_deref().is_none_or(|u| u == "0");
+
+        let sender = if anonymous_system {
+            Sender {
+                uid: "未知".to_string(),
+                uin: None,
+                name: "系统消息".to_string(),
+                nickname: None,
+                group_card: None,
+                remark: None,
+                title: None,
+                avatar_base64: None,
+            }
+        } else {
+            Sender {
+                uid: sender_uid.unwrap_or_else(|| "未知".to_string()),
                 uin: v_str(message, "senderUin").map(str::to_string),
                 name: sender_info.name,
                 nickname: sender_info.nickname,
@@ -942,7 +986,15 @@ impl SimpleMessageParser {
                 remark: sender_info.remark,
                 title: self.resolve_sender_title(message),
                 avatar_base64: None,
-            },
+            }
+        };
+
+        CleanMessage {
+            id: trimmed_field(message, "msgId").unwrap_or_default(),
+            seq: trimmed_field(message, "msgSeq").unwrap_or_default(),
+            timestamp,
+            time: rfc3339_from_millis(timestamp),
+            sender,
             message_type: Self::get_message_type_string(msg_type),
             content,
             recalled: v_get(message, "recallTime")
