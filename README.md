@@ -1,6 +1,6 @@
 [![][image-banner]][releases-link]
 
-QCE 将 QQ / QQNT 聊天记录导出为 HTML、JSON、TXT、Excel，支持定时备份、批量导出、表情包导出。全部在本地完成，不上传任何数据。
+QCE能导出聊天记录为 HTML、JSON、TXT。且支持定时备份、批量导出、表情包导出。
 
 **[使用文档][docs-link]** **[下载][releases-link]** **[Docker 部署][docker-doc]** **[反馈问题][issues-link]**
 
