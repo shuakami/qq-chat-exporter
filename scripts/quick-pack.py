@@ -12,7 +12,7 @@ import tarfile
 from pathlib import Path
 from urllib.request import urlretrieve, urlopen
 from datetime import datetime
-from plugin_runtime import copy_native_server_binary, stage_plugin_runtime
+from plugin_runtime import FIND_QQ_PS1, copy_native_server_binary, stage_plugin_runtime
 
 def get_qce_version():
     """Get QCE version from package.json or environment variable"""
@@ -344,6 +344,9 @@ echo.
 echo Could not detect QQ installation automatically.
 echo This may happen if you are using a portable/green version of QQ.
 echo.
+echo If QQ ^(QQNT^) is not installed yet, download it first:
+echo   https://im.qq.com/
+echo.
 echo Options:
 echo   [1] Browse for QQ.exe (GUI file picker)
 echo   [2] Enter path manually
@@ -571,78 +574,6 @@ pause
 exit /b
 '''
 
-    # find-qq.ps1: multi-source QQNT discovery for the launcher (issue #589).
-    # Probes uninstall registry entries (64-bit / 32-bit / per-user),
-    # App Paths, the tencent:// protocol handler and QQ shortcuts, then
-    # prints the first QQ.exe that actually exists on disk.
-    find_qq_ps1 = '''$ErrorActionPreference = 'SilentlyContinue'
-
-$candidates = New-Object System.Collections.Generic.List[string]
-
-function Add-Candidate([string]$path) {
-    if ($path) { $script:candidates.Add($path.Trim('"').Trim()) }
-}
-
-# 1) Uninstall registry entries (64-bit, 32-bit and per-user installs)
-foreach ($key in @(
-    'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\QQ',
-    'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\QQ',
-    'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\QQ'
-)) {
-    $props = Get-ItemProperty -LiteralPath $key
-    if (-not $props) { continue }
-    if ($props.DisplayIcon) { Add-Candidate ($props.DisplayIcon -replace ',\\d+$', '') }
-    if ($props.UninstallString) {
-        $dir = Split-Path -Parent ($props.UninstallString.Trim('"'))
-        if ($dir) { Add-Candidate (Join-Path $dir 'QQ.exe') }
-    }
-    if ($props.InstallLocation) { Add-Candidate (Join-Path $props.InstallLocation 'QQ.exe') }
-}
-
-# 2) App Paths
-foreach ($key in @(
-    'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\QQ.exe',
-    'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\QQ.exe'
-)) {
-    Add-Candidate (Get-ItemProperty -LiteralPath $key).'(default)'
-}
-
-# 3) tencent:// protocol handler: points inside versions\\<ver>\\resources\\app,
-#    so walk up the directory tree probing for QQ.exe at each level.
-$proto = (Get-ItemProperty -LiteralPath 'Registry::HKEY_CLASSES_ROOT\\Tencent\\shell\\open\\command').'(default)'
-if ($proto -match '"([^"]+)"') {
-    $dir = Split-Path -Parent $Matches[1]
-    for ($i = 0; $i -lt 6 -and $dir; $i++) {
-        Add-Candidate (Join-Path $dir 'QQ.exe')
-        $dir = Split-Path -Parent $dir
-    }
-}
-
-# 4) Start menu and desktop shortcuts
-$shell = New-Object -ComObject WScript.Shell
-foreach ($root in @(
-    "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs",
-    "$env:ProgramData\\Microsoft\\Windows\\Start Menu\\Programs",
-    "$env:USERPROFILE\\Desktop",
-    "$env:PUBLIC\\Desktop"
-)) {
-    Get-ChildItem -LiteralPath $root -Filter '*QQ*.lnk' -Recurse -Depth 2 |
-        ForEach-Object { Add-Candidate $shell.CreateShortcut($_.FullName).TargetPath }
-}
-
-# 5) Common installation directories
-foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, "$env:LocalAppData\\Programs", 'D:\\Program Files')) {
-    if ($base) { Add-Candidate (Join-Path $base 'Tencent\\QQNT\\QQ.exe') }
-}
-
-foreach ($candidate in $candidates) {
-    if ((Split-Path -Leaf $candidate) -ieq 'QQ.exe' -and (Test-Path -LiteralPath $candidate)) {
-        Write-Output $candidate
-        exit 0
-    }
-}
-'''
-
     # reset-qq-path.bat
     reset_qq_path_bat = '''@echo off
 chcp 65001 >nul
@@ -684,7 +615,7 @@ pause
         "launcher-win10.bat": launcher_win10_bat,
         "launcher-win10-user.bat": launcher_win10_user_bat,
         "reset-qq-path.bat": reset_qq_path_bat,
-        "find-qq.ps1": find_qq_ps1
+        "find-qq.ps1": FIND_QQ_PS1
     }
 
     # Only emit the Windows .bat launchers in Windows packages — they are pure
@@ -892,8 +823,38 @@ extern "C" void qq_magic_napi_register(void *m) {
  * 无需 NapCat 登录即可运行，用于浏览已导出的聊天记录和资源
  */
 import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+function securityConfigPath() {
+    const override = (process.env.QCE_CONFIG_DIR || '').trim();
+    const dir = override || path.join(os.homedir(), '.qq-chat-exporter');
+    return path.join(dir, 'security.json');
+}
+
+// Issue #457: surface the one-click login URL so standalone users are not
+// stuck on the token prompt with no token in sight.
+async function printLoginUrl(port) {
+    const configFile = securityConfigPath();
+    for (let attempt = 0; attempt < 30; attempt++) {
+        try {
+            const config = JSON.parse(await readFile(configFile, 'utf8'));
+            if (config.accessToken) {
+                console.log('');
+                console.log(`[QCE] 一键登录: http://127.0.0.1:${port}/qce/auth?token=${encodeURIComponent(config.accessToken)}`);
+                console.log('[QCE] 此链接包含访问令牌，请勿分享给他人');
+                console.log('');
+                return;
+            }
+        } catch {
+            // security.json not written yet; keep polling.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    console.log(`[QCE] 未能读取访问令牌，请打开 ${configFile} 查看 accessToken 字段`);
+}
 
 async function main() {
     const port = parseInt(process.argv[2]) || 40653;
@@ -919,6 +880,7 @@ async function main() {
     const stop = () => child.kill();
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);
+    printLoginUrl(port);
 }
 
 main();
