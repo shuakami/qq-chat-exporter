@@ -89,7 +89,7 @@ docker logs -f napcat-qce
 [releases-link]: https://github.com/shuakami/qq-chat-exporter/releases
 [issues-link]: https://github.com/shuakami/qq-chat-exporter/issues
 [stars-link]: https://github.com/shuakami/qq-chat-exporter/stargazers
-[license-link]: https://github.com/shuakami/qq-chat-exporter/blob/main/LICENSE
+[license-link]: LICENSE
 [docker-doc]: https://shuakami.github.io/qq-chat-exporter/docs/docker-napcat-deployment.html
 [github-release-shield]: https://img.shields.io/github/v/release/shuakami/qq-chat-exporter?color=317cfe&labelColor=black&logo=github&style=flat-square
 [github-downloads-shield]: https://img.shields.io/github/downloads/shuakami/qq-chat-exporter/total?color=317cfe&labelColor=black&style=flat-square
