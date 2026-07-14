@@ -31,7 +31,7 @@ use crate::fetcher::{
 };
 use crate::parser::{ForwardFetcher, SimpleMessageParser, SimpleParserOptions};
 use crate::paths::PathManager;
-use crate::resource::ResourceBatchSummary;
+use crate::resource::{ResourceBatchSummary, FORWARDED_RESOURCE_MESSAGE_FLAG};
 use crate::storage::ResourceInfo;
 
 /// 当前毫秒时间戳。
@@ -1430,7 +1430,16 @@ async fn process_export_task(
             .await?;
     }
     let mut resource_messages = filtered_messages.clone();
-    resource_messages.extend(parser.take_forward_raw_messages());
+    let mut forward_resource_messages = parser.take_forward_raw_messages();
+    for message in &mut forward_resource_messages {
+        if let Some(object) = message.as_object_mut() {
+            object.insert(
+                FORWARDED_RESOURCE_MESSAGE_FLAG.to_string(),
+                Value::Bool(true),
+            );
+        }
+    }
+    resource_messages.extend(forward_resource_messages);
     let mut resource_message_ids = HashSet::new();
     resource_messages.retain(|message| {
         let Some(message_id) = message.get("msgId").and_then(Value::as_str) else {
