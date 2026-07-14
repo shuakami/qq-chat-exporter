@@ -72,7 +72,7 @@ docker logs -f napcat-qce
 
 ## 贡献者
 
-感谢每一位让 QCE 变得更好的贡献者，也感谢 [NapCatQQ](https://github.com/NapNeko/NapCatQQ) 团队提供的框架支持。参与开发？请阅读[贡献指南](docs/contributing.md)。
+感谢每一位让 QCE 变得更好的贡献者，也感谢 [NapCatQQ](https://github.com/NapNeko/NapCatQQ) 团队提供的框架支持。参与开发？请阅读[贡献指南](https://shuakami.github.io/qq-chat-exporter/docs/contributing.html)。
 
 <a href="https://github.com/shuakami/qq-chat-exporter/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=shuakami/qq-chat-exporter" alt="Contributors" />
@@ -90,7 +90,7 @@ docker logs -f napcat-qce
 [issues-link]: https://github.com/shuakami/qq-chat-exporter/issues
 [stars-link]: https://github.com/shuakami/qq-chat-exporter/stargazers
 [license-link]: https://github.com/shuakami/qq-chat-exporter/blob/main/LICENSE
-[docker-doc]: docs/docker-napcat-deployment.md
+[docker-doc]: https://shuakami.github.io/qq-chat-exporter/docs/docker-napcat-deployment.html
 [github-release-shield]: https://img.shields.io/github/v/release/shuakami/qq-chat-exporter?color=317cfe&labelColor=black&logo=github&style=flat-square
 [github-downloads-shield]: https://img.shields.io/github/downloads/shuakami/qq-chat-exporter/total?color=317cfe&labelColor=black&style=flat-square
 [github-stars-shield]: https://img.shields.io/github/stars/shuakami/qq-chat-exporter?color=317cfe&labelColor=black&style=flat-square
