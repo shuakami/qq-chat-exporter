@@ -41,8 +41,9 @@ a{color:inherit;text-decoration:none}
   background:rgba(255,255,255,0.86); backdrop-filter:blur(14px) saturate(1.4);
   -webkit-backdrop-filter:blur(14px) saturate(1.4);
 }
-.topbar .brand{font-weight:600; font-size:14px; letter-spacing:-0.01em}
-.topbar .brand .doc{color:var(--muted); font-weight:400; margin-left:8px}
+.topbar .brand{display:inline-flex; align-items:center; gap:9px; font-weight:600; font-size:14px; letter-spacing:-0.01em}
+.topbar .brand .sep{color:rgba(24,24,27,0.18); font-weight:300; font-size:15px; transform:rotate(8deg); user-select:none}
+.topbar .brand .doc{color:var(--muted); font-weight:400}
 .topbar .right{margin-left:auto; display:flex; align-items:center; gap:20px; font-size:14px; color:var(--muted); line-height:1}
 .topbar .right a{display:inline-flex; align-items:center; height:20px}
 .topbar .right a:hover{color:var(--fg)}
@@ -206,8 +207,9 @@ a{color:inherit;text-decoration:none}
 body.nav-open .mnav{transform:none}
 body.nav-open{overflow:hidden}
 .mnav-head{display:flex; align-items:center; justify-content:space-between; padding:16px 32px; flex:none}
-.mnav-head .brand{font-weight:600; font-size:14px; letter-spacing:-0.01em}
-.mnav-head .brand .doc{color:var(--muted); font-weight:400; margin-left:8px}
+.mnav-head .brand{display:inline-flex; align-items:center; gap:9px; font-weight:600; font-size:14px; letter-spacing:-0.01em}
+.mnav-head .brand .sep{color:rgba(24,24,27,0.18); font-weight:300; font-size:15px; transform:rotate(8deg); user-select:none}
+.mnav-head .brand .doc{color:var(--muted); font-weight:400}
 .mnav-close{display:flex; align-items:center; justify-content:center; width:32px; height:32px; border:0; background:none; padding:0; cursor:pointer; color:rgba(0,0,0,0.4); transition:color .2s}
 .mnav-close:hover{color:#000}
 .mnav-body{flex:1; overflow-y:auto; padding:8px 32px 48px; display:flex; flex-direction:column}
@@ -246,7 +248,7 @@ TEMPLATE = '''<!doctype html>
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="../index.html">QQ Chat Exporter<span class="doc">/ 文档</span></a>
+  <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
   <span class="right">
     <a href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
     <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
@@ -257,7 +259,7 @@ TEMPLATE = '''<!doctype html>
 </header>
 <div class="mnav" aria-hidden="true">
   <div class="mnav-head">
-    <a class="brand" href="../index.html">QQ Chat Exporter<span class="doc">/ 文档</span></a>
+    <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
     <button class="mnav-close" aria-label="关闭" onclick="document.body.classList.remove('nav-open')">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
     </button>
