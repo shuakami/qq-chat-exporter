@@ -10,6 +10,7 @@ import { toast } from "@/components/ui/toast"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { BatchExportItem, BatchExportConfig } from "@/components/ui/batch-export-dialog"
 import { SessionList } from "@/components/ui/session-list"
+import { ExportHelpDialog, type ExportHelpFormat } from "@/components/ui/export-help-dialog"
 import {
   sessionTaskStatsKey,
   type SessionTaskStats,
@@ -192,11 +193,8 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   const [previewResource, setPreviewResource] = useState<{ type: string; url: string; name: string } | null>(null)
   
   // 大规模导出帮助模态框状态
-  const [showJsonlHelp, setShowJsonlHelp] = useState(false)
-  const [showStreamingZipHelp, setShowStreamingZipHelp] = useState(false)
-  const [showHtmlHelp, setShowHtmlHelp] = useState(false)
-  const [showJsonHelp, setShowJsonHelp] = useState(false)
-  const [showExportHelpMenu, setShowExportHelpMenu] = useState(false)
+  const [exportHelpOpen, setExportHelpOpen] = useState(false)
+  const [exportHelpFormat, setExportHelpFormat] = useState<ExportHelpFormat>('html')
   const [helpFilePath, setHelpFilePath] = useState<string>('')
   
   // GitHub stars
@@ -286,11 +284,13 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   useEffect(() => {
     const handleJsonlHelp = (e: CustomEvent<{ filePath: string }>) => {
       setHelpFilePath(e.detail.filePath)
-      setShowJsonlHelp(true)
+      setExportHelpFormat('jsonl')
+      setExportHelpOpen(true)
     }
     const handleStreamingZipHelp = (e: CustomEvent<{ filePath: string }>) => {
       setHelpFilePath(e.detail.filePath)
-      setShowStreamingZipHelp(true)
+      setExportHelpFormat('zip')
+      setExportHelpOpen(true)
     }
     
     window.addEventListener('show-jsonl-help', handleJsonlHelp as EventListener)
@@ -1573,43 +1573,19 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
             )}
             {activeTab === "tasks" && (
               <>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 text-[13px] rounded-full px-2"
-                    >
-                      <HelpCircle className="w-4 h-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56 rounded-xl">
-                    <DropdownMenuItem onClick={() => setShowHtmlHelp(true)}>
-                      <div>
-                        <div className="font-medium text-foreground">HTML 导出</div>
-                        <div className="text-[11px] text-muted-foreground/60">可视化聊天记录</div>
-                      </div>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setShowJsonHelp(true)}>
-                      <div>
-                        <div className="font-medium text-foreground">JSON 导出</div>
-                        <div className="text-[11px] text-muted-foreground/60">结构化数据格式</div>
-                      </div>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setShowStreamingZipHelp(true)}>
-                      <div>
-                        <div className="font-medium text-foreground">流式 ZIP</div>
-                        <div className="text-[11px] text-muted-foreground/60">大规模 HTML 分块打包</div>
-                      </div>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setShowJsonlHelp(true)}>
-                      <div>
-                        <div className="font-medium text-foreground">JSONL 分块</div>
-                        <div className="text-[11px] text-muted-foreground/60">大规模数据处理</div>
-                      </div>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-[13px] rounded-full px-2"
+                  aria-label="导出格式说明"
+                  onClick={() => {
+                    setHelpFilePath('')
+                    setExportHelpFormat('html')
+                    setExportHelpOpen(true)
+                  }}
+                >
+                  <HelpCircle className="w-4 h-4" />
+                </Button>
                 <Button size="sm" variant="ghost" className="h-8 text-[13px] rounded-full px-2" onClick={handleLoadTasks} disabled={isLoading}>
                   {isLoading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
                 </Button>
@@ -3153,367 +3129,14 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
         })()}
       </AnimatePresence>
 
-      {/* HTML 导出帮助模态框 */}
-      <AnimatePresence>
-        {showHtmlHelp && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="fixed inset-0 bg-background/80 z-[110]"
-              onClick={() => setShowHtmlHelp(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.97, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.97, y: 8 }}
-              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="fixed inset-4 sm:inset-[10%] z-[111] flex flex-col bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden"
-            >
-              <div className="px-6 py-4 flex items-center justify-between flex-shrink-0">
-                <div>
-                  <h3 className="font-medium text-foreground">HTML 导出</h3>
-                  <p className="text-xs text-muted-foreground">可视化聊天记录</p>
-                </div>
-                <button
-                  onClick={() => setShowHtmlHelp(false)}
-                  className="p-2 text-muted-foreground/70 hover:text-muted-foreground transition-colors rounded-lg hover:bg-muted"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-6 space-y-5">
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-foreground">适合什么场景？</h4>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    HTML 格式导出的聊天记录可以直接用浏览器打开查看，保留原始的对话样式，适合回顾和分享。
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-foreground">怎么用？</h4>
-                  <ol className="text-sm text-muted-foreground space-y-2">
-                    <li className="flex gap-2">
-                      <span className="font-medium text-muted-foreground">1.</span>
-                      <span>导出完成后，在导出目录找到 .html 文件</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="font-medium text-muted-foreground">2.</span>
-                      <span>双击用浏览器打开即可查看</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="font-medium text-muted-foreground">3.</span>
-                      <span>图片等资源在同目录的 resources 文件夹</span>
-                    </li>
-                  </ol>
-                </div>
-
-                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30">
-                  <p className="text-xs text-amber-700 dark:text-amber-200">
-                    注意：不要单独移动 HTML 文件，需要和 resources 文件夹放在一起，图片才能正常显示。
-                  </p>
-                </div>
-              </div>
-
-              <div className="px-6 py-4 flex-shrink-0">
-                <Button className="w-full rounded-full" onClick={() => setShowHtmlHelp(false)}>
-                  知道了
-                </Button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* JSON 导出帮助模态框 */}
-      <AnimatePresence>
-        {showJsonHelp && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="fixed inset-0 bg-background/80 z-[110]"
-              onClick={() => setShowJsonHelp(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.97, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.97, y: 8 }}
-              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="fixed inset-4 sm:inset-[10%] z-[111] flex flex-col bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden"
-            >
-              <div className="px-6 py-4 flex items-center justify-between flex-shrink-0">
-                <div>
-                  <h3 className="font-medium text-foreground">JSON 导出</h3>
-                  <p className="text-xs text-muted-foreground">结构化数据格式</p>
-                </div>
-                <button
-                  onClick={() => setShowJsonHelp(false)}
-                  className="p-2 text-muted-foreground/70 hover:text-muted-foreground transition-colors rounded-lg hover:bg-muted"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-6 space-y-5">
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-foreground">适合什么场景？</h4>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    JSON 是通用的数据格式，适合程序处理、数据分析、导入其他工具或二次开发。
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-foreground">可以做什么？</h4>
-                  <ul className="text-sm text-muted-foreground space-y-2">
-                    <li className="flex gap-2">
-                      <span className="text-muted-foreground/70">•</span>
-                      <span>用 Python、Node.js 等脚本分析聊天数据</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="text-muted-foreground/70">•</span>
-                      <span>导入数据库做统计查询</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="text-muted-foreground/70">•</span>
-                      <span>转换成其他格式（如 Excel、CSV）</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="text-muted-foreground/70">•</span>
-                      <span>作为 AI 训练语料</span>
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="p-4 rounded-xl bg-muted">
-                  <p className="text-xs text-muted-foreground">
-                    JSON 文件可以用任何文本编辑器打开查看，推荐使用 VS Code 等支持语法高亮的编辑器。
-                  </p>
-                </div>
-              </div>
-
-              <div className="px-6 py-4 flex-shrink-0">
-                <Button className="w-full rounded-full" onClick={() => setShowJsonHelp(false)}>
-                  知道了
-                </Button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* JSONL 分块导出帮助模态框 */}
-      <AnimatePresence>
-        {showJsonlHelp && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="fixed inset-0 bg-background/80 z-[110]"
-              onClick={() => setShowJsonlHelp(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.97, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.97, y: 8 }}
-              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="fixed inset-4 sm:inset-[10%] z-[111] flex flex-col bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden"
-            >
-              <div className="px-6 py-4 flex items-center justify-between flex-shrink-0">
-                <div>
-                  <h3 className="font-medium text-foreground">JSONL 分块导出</h3>
-                  <p className="text-xs text-muted-foreground">适合大规模数据处理</p>
-                </div>
-                <button
-                  onClick={() => setShowJsonlHelp(false)}
-                  className="p-2 text-muted-foreground/70 hover:text-muted-foreground transition-colors rounded-lg hover:bg-muted"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-6 space-y-5">
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-foreground">这是什么？</h4>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    JSONL（JSON Lines）格式把聊天记录拆成多个小文件，每个文件包含几千条消息。适合处理几十万甚至上百万条消息的超大群聊。
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-foreground">文件结构</h4>
-                  <div className="rounded-xl bg-neutral-900 p-4 font-mono text-xs text-neutral-300 overflow-x-auto">
-                    <div className="text-muted-foreground">导出目录/</div>
-                    <div className="pl-4">├── chunk_001.jsonl</div>
-                    <div className="pl-4">├── chunk_002.jsonl</div>
-                    <div className="pl-4">├── chunk_003.jsonl</div>
-                    <div className="pl-4 text-muted-foreground">└── ...</div>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-foreground">怎么用？</h4>
-                  <ul className="text-sm text-muted-foreground space-y-2">
-                    <li className="flex gap-2">
-                      <span className="text-muted-foreground/70">•</span>
-                      <span>用 Python、Node.js 等脚本逐行读取处理</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="text-muted-foreground/70">•</span>
-                      <span>导入数据库做分析统计</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="text-muted-foreground/70">•</span>
-                      <span>训练 AI 模型的语料数据</span>
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="p-4 rounded-xl bg-muted">
-                  <p className="text-xs text-muted-foreground">
-                    每个 .jsonl 文件的每一行都是一条独立的 JSON 消息，可以流式读取，不用一次性加载到内存。
-                  </p>
-                </div>
-              </div>
-
-              <div className="px-6 py-4 flex-shrink-0 flex gap-3">
-                <Button
-                  variant="outline"
-                  className="flex-1 rounded-full"
-                  onClick={() => {
-                    if (helpFilePath) {
-                      openFileLocation(helpFilePath)
-                    } else {
-                      openExportDirectory()
-                    }
-                  }}
-                >
-                  {helpFilePath ? '打开文件位置' : '打开导出目录'}
-                </Button>
-                <Button
-                  className="flex-1 rounded-full"
-                  onClick={() => setShowJsonlHelp(false)}
-                >
-                  知道了
-                </Button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* 流式 ZIP 导出帮助模态框 */}
-      <AnimatePresence>
-        {showStreamingZipHelp && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="fixed inset-0 bg-background/80 z-[110]"
-              onClick={() => setShowStreamingZipHelp(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.97, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.97, y: 8 }}
-              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="fixed inset-4 sm:inset-[10%] z-[111] flex flex-col bg-card rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.12)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.4)] overflow-hidden"
-            >
-              <div className="px-6 py-4 flex items-center justify-between flex-shrink-0">
-                <div>
-                  <h3 className="font-medium text-foreground">流式 HTML ZIP 导出</h3>
-                  <p className="text-xs text-muted-foreground">分块 HTML + 资源打包</p>
-                </div>
-                <button
-                  onClick={() => setShowStreamingZipHelp(false)}
-                  className="p-2 text-muted-foreground/70 hover:text-muted-foreground transition-colors rounded-lg hover:bg-muted"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-6 space-y-5">
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-foreground">这是什么？</h4>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    流式 ZIP 把聊天记录导出成分块的 HTML 格式，每块约 2000 条消息，然后连同图片等资源一起打包成 ZIP。适合超大群聊，边导出边写入，不会爆内存。
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-foreground">ZIP 里有什么？</h4>
-                  <div className="rounded-xl bg-neutral-900 p-4 font-mono text-xs text-neutral-300 overflow-x-auto">
-                    <div className="text-muted-foreground">xxx_streaming.zip/</div>
-                    <div className="pl-4">├── index.html <span className="text-muted-foreground">（主页面，直接打开）</span></div>
-                    <div className="pl-4">├── assets/ <span className="text-muted-foreground">（样式和脚本）</span></div>
-                    <div className="pl-4">├── data/</div>
-                    <div className="pl-8">├── manifest.js <span className="text-muted-foreground">（清单）</span></div>
-                    <div className="pl-8">├── chunks/ <span className="text-muted-foreground">（分块消息）</span></div>
-                    <div className="pl-8 text-muted-foreground">└── index/ （消息索引）</div>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-foreground">怎么用？</h4>
-                  <ol className="text-sm text-muted-foreground space-y-2">
-                    <li className="flex gap-2">
-                      <span className="font-medium text-muted-foreground">1.</span>
-                      <span>解压 ZIP 文件到任意文件夹</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="font-medium text-muted-foreground">2.</span>
-                      <span>双击打开 index.html</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="font-medium text-muted-foreground">3.</span>
-                      <span>页面会自动加载分块数据，支持搜索和跳转</span>
-                    </li>
-                  </ol>
-                </div>
-
-                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30">
-                  <p className="text-xs text-amber-700 dark:text-amber-200">
-                    注意：必须解压后才能正常查看，不要直接在压缩软件里打开 HTML。
-                  </p>
-                </div>
-              </div>
-
-              <div className="px-6 py-4 flex-shrink-0 flex gap-3">
-                <Button
-                  variant="outline"
-                  className="flex-1 rounded-full"
-                  onClick={() => {
-                    if (helpFilePath) {
-                      openFileLocation(helpFilePath)
-                    } else {
-                      openExportDirectory()
-                    }
-                  }}
-                >
-                  {helpFilePath ? '打开文件位置' : '打开导出目录'}
-                </Button>
-                <Button
-                  className="flex-1 rounded-full"
-                  onClick={() => setShowStreamingZipHelp(false)}
-                >
-                  知道了
-                </Button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
-
+      <ExportHelpDialog
+        open={exportHelpOpen}
+        format={exportHelpFormat}
+        filePath={helpFilePath || undefined}
+        onClose={() => setExportHelpOpen(false)}
+        onOpenFileLocation={openFileLocation}
+        onOpenExportDirectory={openExportDirectory}
+      />
 
       {/* 新手引导 */}
       {showOnboarding && (() => {
