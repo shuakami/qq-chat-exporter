@@ -619,7 +619,7 @@ jobs:
           ### Contributors
 
           <a href="https://github.com/shuakami/qq-chat-exporter/graphs/contributors">
-            <img src="https://contrib.rocks/image?repo=shuakami/qq-chat-exporter&max=12&columns=12" width="125" />
+            <img src="https://contrib.rocks/image?repo=shuakami/qq-chat-exporter" alt="Contributors" />
           </a>
           EOF
           
