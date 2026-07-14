@@ -20,6 +20,14 @@ const RESOURCE_HEALTH_STALE_MS: i64 = 6 * 60 * 60 * 1000;
 /// 每轮健康检查的批大小。
 const RESOURCE_HEALTH_BATCH_SIZE: usize = 50;
 
+/// 图片/语音走 NT 本地缓存或 CDN 直链，正常几秒内完成；超过该时长基本
+/// 可判定为卡死，不必等满配置的完整超时。视频/文件可能很大，仍用配置值。
+const SMALL_MEDIA_TIMEOUT_MS: u64 = 15000;
+
+/// 命中完整下载超时的资源最多尝试的总次数（含首次）：吃满超时的下载几乎
+/// 不会在重试中成功，而每次重试都要再付出一个完整超时窗口，会拖长导出尾部。
+const MAX_TIMEOUT_ATTEMPTS: u32 = 2;
+
 /// 资源处理配置（对应 TS `ResourceHandlerConfig`）。
 #[derive(Debug, Clone)]
 pub struct ResourceHandlerConfig {
@@ -608,7 +616,10 @@ impl ResourceHandler {
                         "fileName": file_name,
                         "attempt": attempt,
                         "queueWaitMs": queued_at.elapsed().as_millis(),
-                        "timeoutMs": self.config.download_timeout_ms,
+                        "timeoutMs": effective_download_timeout_ms(
+                            &resource_type,
+                            self.config.download_timeout_ms,
+                        ),
                     }))
                     .await;
             }
@@ -679,7 +690,12 @@ impl ResourceHandler {
                             tracing::warn!("保存资源信息失败: {error}");
                         }
                     }
-                    if retriable && retries < self.config.max_retries {
+                    let attempt_limit = if is_timeout_error(&error_message) {
+                        MAX_TIMEOUT_ATTEMPTS.min(self.config.max_retries)
+                    } else {
+                        self.config.max_retries
+                    };
+                    if retriable && retries < attempt_limit {
                         // 指数退避：1s, 2s, 4s, ... 上限 10s
                         let delay_ms = (1000u64 << (retries.saturating_sub(1)).min(10)).min(10000);
                         tokio::select! {
@@ -788,26 +804,22 @@ impl ResourceHandler {
             }
         }
 
+        let timeout_ms =
+            effective_download_timeout_ms(&resource_type, self.config.download_timeout_ms);
         let download = self.downloader.download_media(
             &task.msg_id,
             task.chat_type,
             &task.peer_uid,
             &task.element_id,
             &local_path,
-            self.config.download_timeout_ms,
+            timeout_ms,
         );
-        let downloaded_path = tokio::time::timeout(
-            Duration::from_millis(self.config.download_timeout_ms),
-            download,
-        )
-        .await
-        .map_err(|_| {
-            enhance_download_error(
-                &resource_type,
-                &format!("timeout after {}ms", self.config.download_timeout_ms),
-            )
-        })?
-        .map_err(|error| enhance_download_error(&resource_type, &error))?;
+        let downloaded_path = tokio::time::timeout(Duration::from_millis(timeout_ms), download)
+            .await
+            .map_err(|_| {
+                enhance_download_error(&resource_type, &format!("timeout after {timeout_ms}ms"))
+            })?
+            .map_err(|error| enhance_download_error(&resource_type, &error))?;
 
         if downloaded_path.trim().is_empty() {
             // 尝试检查本地路径是否已有文件
@@ -1096,6 +1108,19 @@ fn calculate_priority(resource: &ResourceInfo) -> i64 {
         priority += 10;
     }
     priority
+}
+
+/// 按资源类型取有效下载超时：图片/语音用较短超时，视频/文件用配置值。
+fn effective_download_timeout_ms(resource_type: &str, configured_ms: u64) -> u64 {
+    match resource_type {
+        "video" | "file" => configured_ms,
+        _ => configured_ms.min(SMALL_MEDIA_TIMEOUT_MS),
+    }
+}
+
+/// 判断是否为下载超时错误（含桥接调用超时）。
+fn is_timeout_error(error_message: &str) -> bool {
+    error_message.contains("下载超时") || error_message.to_lowercase().contains("timeout")
 }
 
 /// 判断是否为可重试的错误。
@@ -1415,6 +1440,26 @@ mod tests {
         }
     }
 
+    struct AlwaysTimeoutDownloader {
+        attempts: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl MediaDownloader for AlwaysTimeoutDownloader {
+        async fn download_media(
+            &self,
+            _msg_id: &str,
+            _chat_type: i64,
+            _peer_uid: &str,
+            _element_id: &str,
+            _dest_path: &str,
+            timeout_ms: u64,
+        ) -> Result<String, String> {
+            self.attempts.fetch_add(1, Ordering::SeqCst);
+            Err(format!("timeout after {timeout_ms}ms"))
+        }
+    }
+
     fn download_task(element_id: &str, file_name: &str) -> DownloadTask {
         DownloadTask {
             resource: Arc::new(Mutex::new(base_resource(
@@ -1498,6 +1543,44 @@ mod tests {
         cancel_flag.store(true, Ordering::SeqCst);
         retry_handle.await.expect("retry task should exit cleanly");
         next_handle.await.expect("next task should exit cleanly");
+    }
+
+    #[test]
+    fn small_media_uses_short_timeout_but_large_media_keeps_configured() {
+        assert_eq!(effective_download_timeout_ms("image", 30000), 15000);
+        assert_eq!(effective_download_timeout_ms("audio", 30000), 15000);
+        assert_eq!(effective_download_timeout_ms("video", 30000), 30000);
+        assert_eq!(effective_download_timeout_ms("file", 30000), 30000);
+        assert_eq!(effective_download_timeout_ms("image", 10000), 10000);
+    }
+
+    #[tokio::test]
+    async fn timed_out_download_is_retried_at_most_once() {
+        let root = std::env::temp_dir().join(format!("qce-timeout-cap-{}", uuid::Uuid::new_v4()));
+        let downloader = Arc::new(AlwaysTimeoutDownloader {
+            attempts: AtomicUsize::new(0),
+        });
+        let db = Arc::new(DatabaseManager::new(&root.join("qce.db")));
+        let handler = ResourceHandler::new(
+            downloader.clone(),
+            None,
+            db,
+            ResourceHandlerConfig {
+                storage_root: root,
+                ..ResourceHandlerConfig::default()
+            },
+        )
+        .await;
+        let cancel_flag = AtomicBool::new(false);
+
+        handler
+            .execute_download_with_retries(&download_task("stuck", "stuck.jpg"), &cancel_flag, None)
+            .await;
+
+        assert_eq!(
+            downloader.attempts.load(Ordering::SeqCst),
+            MAX_TIMEOUT_ATTEMPTS as usize
+        );
     }
 
     #[test]
