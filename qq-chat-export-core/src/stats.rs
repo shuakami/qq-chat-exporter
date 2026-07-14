@@ -95,15 +95,19 @@ impl StatsAccumulator {
         };
         *self.by_type.entry(type_key.to_owned()).or_insert(0) += 1;
 
-        let sender_key = if m.sender.uid.is_empty() {
-            "unknown".to_owned()
-        } else {
-            m.sender.uid.clone()
-        };
-        let entry = self.by_sender.entry(sender_key).or_insert((None, 0));
-        entry.1 += 1;
-        if entry.0.is_none() && !m.sender.name.is_empty() {
-            entry.0 = Some(m.sender.name.clone());
+        // 系统灰条消息没有真实发送者，不计入发送者统计，避免第三方导入工具
+        // 把它当成一个真实成员。
+        if !m.system {
+            let sender_key = if m.sender.uid.is_empty() {
+                "unknown".to_owned()
+            } else {
+                m.sender.uid.clone()
+            };
+            let entry = self.by_sender.entry(sender_key).or_insert((None, 0));
+            entry.1 += 1;
+            if entry.0.is_none() && !m.sender.name.is_empty() {
+                entry.0 = Some(m.sender.name.clone());
+            }
         }
 
         for r in &m.content.resources {
@@ -165,5 +169,53 @@ impl StatsAccumulator {
                 total_size: self.res_total_size,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StatsAccumulator;
+    use crate::types::{CleanMessage, MessageContent, Sender};
+
+    fn message(uid: &str, name: &str, system: bool) -> CleanMessage {
+        CleanMessage {
+            id: "1".to_owned(),
+            seq: "1".to_owned(),
+            timestamp: 1_700_000_000_000,
+            time: String::new(),
+            sender: Sender {
+                uid: uid.to_owned(),
+                uin: None,
+                name: name.to_owned(),
+                nickname: None,
+                group_card: None,
+                remark: None,
+                title: None,
+                avatar_base64: None,
+            },
+            message_type: if system { "system" } else { "text" }.to_owned(),
+            content: MessageContent {
+                text: String::new(),
+                html: None,
+                elements: Vec::new(),
+                resources: Vec::new(),
+                mentions: Vec::new(),
+            },
+            recalled: false,
+            system,
+            raw_message: None,
+        }
+    }
+
+    #[test]
+    fn system_messages_are_counted_but_excluded_from_senders() {
+        let mut acc = StatsAccumulator::new();
+        acc.consume(&message("u_alice", "Alice", false));
+        acc.consume(&message("未知", "系统消息", true));
+
+        let stats = acc.finalize();
+        assert_eq!(stats.total_messages, 2);
+        assert_eq!(stats.senders.len(), 1);
+        assert_eq!(stats.senders[0].uid, "u_alice");
     }
 }
