@@ -134,10 +134,16 @@
         .card-chat iframe { width:600px; height:700px; }
 
         @media(max-width:900px){
-            .card-chat { display:none; }
+            .card-app {
+                width:92%; max-height:340px;
+            }
+            .card-chat {
+                left:auto; right:4%; width:min(230px,58%); height:250px;
+            }
         }
         @media(max-width:600px){
             .card-app { max-height:300px; }
+            .card-chat { height:220px; }
         }
     </style>
 </head>
