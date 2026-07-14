@@ -9,7 +9,7 @@
   },
   "keywords": ["qq", "chat", "exporter", "viewer"],
   "author": "shuakami",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "dependencies": {
     "express": "^4.18.2",
     "open": "^8.4.2"
@@ -18,4 +18,3 @@
     "node": ">=14.0.0"
   }
 }
-

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.82"
 description = "QQ Chat Exporter — Rust server (HTTP API + WebSocket progress + NapCat Core API bridge client), serving the existing qce webui."
-license = "MIT"
+license = "GPL-3.0-only"
 repository = "https://github.com/shuakami/qq-chat-exporter"
 
 [dependencies]
