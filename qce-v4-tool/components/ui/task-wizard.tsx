@@ -1244,7 +1244,7 @@ export function TaskWizard({
                 checked: form.debugExport || false,
                 set: (v: boolean) => setForm((p) => ({ ...p, debugExport: v })),
                 title: "调试导出",
-                desc: "额外保存原始消息、解析结果、最终消息及逐资源调用耗时与错误",
+                desc: "额外保存原始消息、解析结果、最终消息及逐资源调用耗时与错误；默认关闭，排查导出问题时再开启。",
                 visible: true,
                 group: "性能与处理"
               },

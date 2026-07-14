@@ -619,6 +619,12 @@ jobs:
         run: |
           VERSION="${GITHUB_REF#refs/tags/}"
           if [ -f "release-files/release-banner-${VERSION}.png" ]; then
+            awk -v ver="$VERSION" '
+              $0 == "### " ver " 更新内容" { print "<details>"; print "<summary>完整更新内容</summary>"; inlist=1; next }
+              inlist && /^### / { print "</details>"; print ""; inlist=0 }
+              { print }
+            ' RELEASE_NOTES.md > RELEASE_NOTES.tmp
+            mv RELEASE_NOTES.tmp RELEASE_NOTES.md
             printf '![%s](https://github.com/%s/releases/download/%s/release-banner-%s.png)\n\n' "$VERSION" "${GITHUB_REPOSITORY}" "$VERSION" "$VERSION" | cat - RELEASE_NOTES.md > RELEASE_NOTES.tmp
             mv RELEASE_NOTES.tmp RELEASE_NOTES.md
           fi
