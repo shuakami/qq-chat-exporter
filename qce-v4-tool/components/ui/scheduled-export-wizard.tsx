@@ -902,7 +902,7 @@ export function ScheduledExportWizard({
                       checked: baseForm.debugExport,
                       set: (v: boolean) => setBaseForm(p => ({ ...p, debugExport: v })),
                       title: "调试导出",
-                      desc: "额外保存原始消息、解析结果、最终消息及逐资源调用耗时与错误；默认关闭，排查导出问题时再开启。",
+                      desc: "额外保存原始消息、解析结果、最终消息及逐资源调用耗时与错误",
                       visible: true,
                     }
                   ].filter((opt) => (opt as any).visible !== false).map((opt) => (
