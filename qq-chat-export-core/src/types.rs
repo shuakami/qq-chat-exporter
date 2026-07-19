@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-/// 导出格式（与 TS `ExportFormat` 对齐）。
+/// 导出格式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum ExportFormat {
@@ -69,7 +69,7 @@ pub struct MessageElement {
     /// reply / at / forward / json / location / system ……
     #[serde(rename = "type")]
     pub element_type: String,
-    /// 元素数据（结构随类型而异，保持与 TS 输出一致的弱类型透传）。
+    /// 元素数据；结构随类型而异，按弱类型 JSON 透传。
     #[serde(default)]
     pub data: Value,
 }
@@ -144,7 +144,7 @@ pub struct MessageContent {
     pub mentions: Vec<Mention>,
 }
 
-/// 解析后消息（对应 TS `CleanMessage`）。
+/// 解析后消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanMessage {
@@ -178,7 +178,7 @@ pub struct CleanMessage {
     pub raw_message: Option<Value>,
 }
 
-/// 聊天信息（对应 TS `chatInfo` 参数）。
+/// 聊天信息。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatInfo {
@@ -211,7 +211,7 @@ pub struct ChatInfo {
     pub peer_uin: Option<String>,
 }
 
-/// 时间戳格式（对应 TS `options.timeFormat` 的取值语义）。
+/// 时间戳格式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimeFormat {
     /// `YYYY-MM-DD HH:mm:ss`（默认）。
@@ -226,7 +226,7 @@ pub enum TimeFormat {
 }
 
 impl TimeFormat {
-    /// 从 TS 侧字符串解析（未知值回退 Full，与 TS 的 default 分支一致）。
+    /// 从字符串解析；未知值回退为 `Full`。
     #[must_use]
     pub fn parse(s: &str) -> Self {
         match s {
@@ -238,7 +238,7 @@ impl TimeFormat {
     }
 }
 
-/// 导出选项（对应 TS `ExportOptions`）。
+/// 导出选项。
 #[derive(Debug, Clone)]
 pub struct ExportOptions {
     /// 输出文件路径。
@@ -247,7 +247,7 @@ pub struct ExportOptions {
     pub include_resource_links: bool,
     /// 是否包含系统消息。
     pub include_system_messages: bool,
-    /// 是否过滤纯图片消息（TS 侧该过滤已废弃，恒为直通）。
+    /// 是否过滤纯图片消息；该选项已废弃，不改变输出。
     pub filter_pure_image_messages: bool,
     /// 时间格式。
     pub time_format: TimeFormat,
@@ -321,11 +321,11 @@ impl CancellationToken {
     }
 }
 
-/// 导出结果（对应 TS `ExportResult`）。
+/// 导出结果。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportOutcome {
-    /// 任务 ID（由调用方回填，导出器内为空字符串，与 TS 一致）。
+    /// 任务 ID；由调用方回填，导出器内保持为空字符串。
     pub task_id: String,
     /// 导出格式。
     pub format: ExportFormat,
@@ -343,7 +343,7 @@ pub struct ExportOutcome {
     pub completed_at: String,
 }
 
-/// 应用元信息（对应 TS `APP_INFO` / `VERSION`）。
+/// 应用元信息。
 #[derive(Debug, Clone, Serialize)]
 pub struct AppMetadata {
     /// 软件名称。

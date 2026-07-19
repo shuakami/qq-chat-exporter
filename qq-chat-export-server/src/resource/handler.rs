@@ -28,7 +28,7 @@ const SMALL_MEDIA_TIMEOUT_MS: u64 = 15000;
 /// 不会在重试中成功，而每次重试都要再付出一个完整超时窗口，会拖长导出尾部。
 const MAX_TIMEOUT_ATTEMPTS: u32 = 2;
 
-/// 资源处理配置（对应 TS `ResourceHandlerConfig`）。
+/// 资源处理配置。
 #[derive(Debug, Clone)]
 pub struct ResourceHandlerConfig {
     /// 资源存储根目录。
@@ -73,7 +73,7 @@ impl Default for ResourceHandlerConfig {
     }
 }
 
-/// 媒体下载抽象（对应 TS `core.apis.FileApi.downloadMedia`）。
+/// 媒体下载抽象。
 ///
 /// 由 NapCat bridge 客户端实现：返回下载完成后的文件路径（可能为空字符串，
 /// 表示 API 返回空路径），错误以人类可读消息返回供熔断器分类。
@@ -215,7 +215,7 @@ impl ResourceHandler {
         handler
     }
 
-    /// 启动定期健康检查任务（对应 TS `startHealthCheckTimer`）。
+    /// 启动定期健康检查任务。
     pub async fn start_health_check(self: &Arc<Self>) {
         let mut guard = self.health_check_handle.lock().await;
         if let Some(handle) = guard.take() {
@@ -479,7 +479,7 @@ impl ResourceHandler {
         Some((resource, initial))
     }
 
-    /// 与数据库缓存记录合并（对应 TS `mergeWithCachedResource`）。
+    /// 与数据库缓存记录合并。
     async fn merge_with_cached_resource(&self, resource: ResourceInfo) -> ResourceInfo {
         if resource.md5.is_empty() {
             return resource;
@@ -578,7 +578,7 @@ impl ResourceHandler {
         self.is_downloading.store(false, Ordering::SeqCst);
     }
 
-    /// 带重试的下载执行（对应 TS `executeDownload` + 队列重投逻辑）。
+    /// 带重试的下载执行。
     async fn execute_download_with_retries(
         &self,
         task: &DownloadTask,
@@ -765,7 +765,7 @@ impl ResourceHandler {
         }
     }
 
-    /// 下载资源（含空路径回退与文件校验，对应 TS `downloadResource`）。
+    /// 下载资源。
     async fn download_resource(&self, task: &DownloadTask) -> Result<String, String> {
         let (local_path, resource_type, expected_size) = {
             let resource = task.resource.lock().await;
@@ -867,7 +867,7 @@ impl ResourceHandler {
         }
     }
 
-    /// 执行定期健康检查（对应 TS `performScheduledHealthCheck`）。
+    /// 执行定期健康检查。
     async fn perform_scheduled_health_check(&self) {
         if self
             .is_downloading
@@ -939,7 +939,7 @@ impl ResourceHandler {
         self.health_checker.cleanup().await;
     }
 
-    /// 清理过期缓存文件（对应 TS `cleanupExpiredCache`）。
+    /// 清理过期缓存文件。
     pub async fn cleanup_expired_cache(&self) {
         if !self.config.enable_local_cache {
             return;
@@ -969,7 +969,7 @@ fn is_media_element(element: &Value) -> bool {
         .any(|key| element.get(*key).is_some_and(|v| !v.is_null()))
 }
 
-/// 从消息元素提取资源信息（对应 TS `extractResourceInfo`）。
+/// 从消息元素提取资源信息。
 fn extract_resource_info(element: &Value) -> Option<ResourceInfo> {
     let now = now_ms();
     if let Some(pic) = element.get("picElement").filter(|v| !v.is_null()) {
@@ -1073,7 +1073,7 @@ fn base_resource(
     }
 }
 
-/// 宽松整数读取（TS 侧 fileSize 可能是字符串或数字）。
+/// 宽松读取整数，`fileSize` 可以是字符串或数字。
 fn loose_i64(value: Option<&Value>) -> i64 {
     match value {
         Some(Value::Number(n)) => n.as_i64().unwrap_or(0),
@@ -1160,7 +1160,7 @@ fn is_non_retriable_error(error_message: &str) -> bool {
     NON_RETRIABLE.iter().any(|pattern| lower.contains(pattern))
 }
 
-/// 根据错误类型生成更具体的错误信息（对应 TS `downloadResource` 的 catch 分支）。
+/// 根据错误类型生成更具体的错误信息。
 fn enhance_download_error(resource_type: &str, error_message: &str) -> String {
     let mut enhanced = format!("{resource_type}资源下载失败");
     if error_message.contains("空路径") {

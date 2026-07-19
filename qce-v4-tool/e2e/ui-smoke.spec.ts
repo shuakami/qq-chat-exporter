@@ -65,10 +65,7 @@ test.describe('Auth flow', () => {
             timeout: 15_000
         });
 
-        // After verification succeeds the auth page persists the token and
-        // redirects out of /auth. Wait for the redirect to settle before
-        // checking storage – the in-flight navigation otherwise nukes our
-        // evaluate() context.
+        // Wait for the auth redirect to settle before reading storage so navigation does not replace the page context.
         await page.waitForURL(
             (url) => !url.pathname.endsWith('/auth') && !url.pathname.endsWith('/auth/'),
             { timeout: 15_000 }

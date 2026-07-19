@@ -33,7 +33,7 @@ impl PathManager {
         }
     }
 
-    /// 用户主目录（`USERPROFILE` / `HOME`，兜底当前目录）。
+    /// 用户主目录（`USERPROFILE` / `HOME`，回退当前目录）。
     fn user_home() -> PathBuf {
         std::env::var_os("USERPROFILE")
             .or_else(|| std::env::var_os("HOME"))

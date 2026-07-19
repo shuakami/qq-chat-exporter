@@ -46,7 +46,7 @@ pub struct SimpleParserOptions {
 }
 
 impl SimpleParserOptions {
-    /// 与 TS `DEFAULT_SIMPLE_OPTIONS` 对齐的默认值（html=full、preferGroupMemberName=true）。
+    /// 默认启用完整 HTML 和群成员名优先显示。
     #[must_use]
     pub fn standard() -> Self {
         Self {
@@ -766,7 +766,7 @@ fn v_i64(v: &Value, key: &str) -> Option<i64> {
     }
 }
 
-/// 与 TS `String(value)` + trim 对齐：数字也转字符串。
+/// 读取字段并去除首尾空白；数字和布尔值会转为字符串。
 fn trimmed_field(v: &Value, key: &str) -> Option<String> {
     let raw = v_get(v, key)?;
     let text = match raw {
@@ -791,7 +791,7 @@ fn trimmed_opt(value: Option<&str>) -> Option<String> {
     }
 }
 
-/// RFC3339（UTC，毫秒精度）格式化，与 TS `rfc3339FromMillis` 输出对齐。
+/// 将毫秒时间戳格式化为 UTC RFC3339 字符串，保留毫秒。
 #[must_use]
 pub fn rfc3339_from_millis(ms: i64) -> String {
     match Utc.timestamp_millis_opt(ms).single() {
@@ -800,7 +800,7 @@ pub fn rfc3339_from_millis(ms: i64) -> String {
     }
 }
 
-/// 秒 → 毫秒，非法输入返回 0，与 TS `millisFromUnixSeconds` 对齐。
+/// 将秒级时间戳转为毫秒；无效输入返回 0。
 fn millis_from_unix_seconds(value: Option<&Value>) -> i64 {
     match value {
         Some(Value::Number(n)) => n.as_i64().map_or(0, |s| s.saturating_mul(1000)),
@@ -827,7 +827,7 @@ fn unix_seconds(value: Option<&Value>) -> Option<i64> {
     }
 }
 
-/// HTML 转义（与 TS `escapeHtmlFast` 语义一致）。
+/// HTML 转义。
 #[must_use]
 pub fn escape_html_fast(text: &str) -> String {
     if !text.contains(['&', '<', '>', '"', '\'']) {
@@ -2655,7 +2655,7 @@ impl SimpleMessageParser {
         let meta_detail = v_get(&parsed, "meta").and_then(|m| v_get(m, "detail_1"));
         let meta_news = v_get(&parsed, "meta").and_then(|m| v_get(m, "news"));
 
-        // TS 侧全部走 truthy 判断，空字符串视为缺失。
+        // 空字符串按缺失值处理。
         fn truthy(v: Option<&str>) -> Option<&str> {
             v.filter(|s| !s.is_empty())
         }

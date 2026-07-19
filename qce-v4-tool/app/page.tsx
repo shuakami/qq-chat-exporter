@@ -302,7 +302,6 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     }
   }, [])
 
-  // 获取 GitHub stars
   useEffect(() => {
     const fetchStars = async () => {
       try {

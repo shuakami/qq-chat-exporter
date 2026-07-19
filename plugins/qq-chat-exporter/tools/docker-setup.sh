@@ -69,7 +69,6 @@ fi
 mkdir -p "$PLUGIN_DIR/node_modules/$PLATFORM_PKG"
 tar -xzf "$TARBALL" -C "$PLUGIN_DIR/node_modules/$PLATFORM_PKG" --strip-components=1
 
-# 清理
 rm -rf "$TEMP_DIR"
 
 echo "[QCE Setup] $PLATFORM_PKG@$ESBUILD_VERSION 安装完成"

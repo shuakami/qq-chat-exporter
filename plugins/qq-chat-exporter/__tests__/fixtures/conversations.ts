@@ -149,7 +149,7 @@ export function privateWithForward(): MockConversation {
  * 模拟一个「对方已注销 / 已从好友列表删除」的私聊：
  *   - 这个 uid 不在 FRIENDS 里；
  *   - getUidByUinV2('77777') 仍能反查到 `u_deactivated_77777`（mock 里给了一个
- *     特殊兜底分支，模拟本机数据库还留着会话痕迹）；
+ *     特殊回退分支，模拟本机数据库仍保留会话记录）；
  *   - 这条会话有真实历史消息，按 peer 取消息能跑通。
  */
 export function privateDeactivatedFriend(): MockConversation {

@@ -9,7 +9,7 @@ use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
 use crate::security::VerifyTokenReason;
 
-/// 服务器地址信息（对应 TS `getServerAddresses`）。
+/// 服务器地址信息。
 fn server_addresses(state: &SharedState) -> Value {
     let port = state.port;
     let mut result = json!({ "local": format!("http://127.0.0.1:{port}") });

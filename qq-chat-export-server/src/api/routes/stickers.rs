@@ -471,7 +471,7 @@ fn detect_ext_by_magic(buf: &[u8]) -> Option<&'static str> {
     None
 }
 
-/// issue #313：将落盘文件按真实格式重命名扩展名。
+/// issue #313：将持久化文件按真实格式重命名扩展名。
 async fn normalize_sticker_extension(path: &FsPath) -> PathBuf {
     let Ok(data) = tokio::fs::read(path).await else {
         return path.to_path_buf();

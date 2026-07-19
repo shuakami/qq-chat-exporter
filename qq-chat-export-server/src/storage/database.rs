@@ -30,10 +30,10 @@ const WRITE_QUEUE_FLUSH_THRESHOLD: usize = 100;
 /// 每个定时导出保留的执行历史条数。
 const EXECUTION_HISTORY_LIMIT: usize = 100;
 
-/// 任务数据库记录（与 TS `TaskDbRecord` JSON 结构一致）。
+/// 任务数据库记录。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskDbRecord {
-    /// 记录 ID（TS 侧为 `Date.now()`）。
+    /// 以毫秒时间戳生成的记录 ID。
     pub id: i64,
     /// 任务 ID。
     #[serde(rename = "taskId")]
@@ -48,12 +48,12 @@ pub struct TaskDbRecord {
     /// 更新时间（ISO 字符串）。
     #[serde(rename = "updatedAt")]
     pub updated_at: Value,
-    /// 兼容 TS 侧可能存在的额外字段。
+    /// 保留旧版数据中的未知字段。
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
-/// 资源信息（与 TS `ResourceInfo` JSON 结构一致，弱类型透传额外字段）。
+/// 资源信息；未知 JSON 字段会原样保留。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceInfo {
     /// 资源 MD5（主键）。
@@ -92,7 +92,7 @@ pub struct ResourceInfo {
     /// 最近错误。
     #[serde(rename = "lastError", skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
-    /// 兼容 TS 侧其它字段（taskId、messageId、created_at 等）。
+    /// 保留 `taskId`、`messageId`、`created_at` 等旧版字段。
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -111,7 +111,7 @@ where
     })
 }
 
-/// 任务持久化去抖快照（对应 TS `TaskPersistSnapshot`）。
+/// 任务持久化去抖快照。
 #[derive(Debug, Clone)]
 struct TaskPersistSnapshot {
     config_json: String,
@@ -124,7 +124,7 @@ struct TaskPersistSnapshot {
     persisted_at: i64,
 }
 
-/// 资源持久化去抖快照（对应 TS `ResourcePersistSnapshot`）。
+/// 资源持久化去抖快照。
 #[derive(Debug, Clone)]
 struct ResourcePersistSnapshot {
     signature: String,
@@ -146,7 +146,7 @@ struct DbState {
     scheduled_exports: HashMap<String, Value>,
     /// 执行历史（scheduledExportId → 历史列表）。
     execution_history: HashMap<String, Vec<Value>>,
-    /// 待落盘写入队列（文件路径 → 行数据）。
+    /// 待持久化写入队列（文件路径 → 行数据）。
     write_queue: Vec<(PathBuf, Value)>,
     /// 任务持久化去抖快照。
     task_persist_snapshots: HashMap<String, TaskPersistSnapshot>,
@@ -191,7 +191,7 @@ pub struct DatabaseManager {
 }
 
 impl DatabaseManager {
-    /// 创建管理器。`db_path` 与 TS 侧一致：取其父目录作为数据库目录。
+    /// 创建管理器，并使用 `db_path` 的父目录作为数据库目录。
     #[must_use]
     pub fn new(db_path: &Path) -> Self {
         let db_dir = db_path
@@ -825,9 +825,9 @@ impl DatabaseManager {
         self.state.lock().await.initialized
     }
 
-    // ================================
+
     // 资源管理
-    // ================================
+
 
     /// 保存资源信息（带去抖）。
     pub async fn save_resource_info(&self, resource: &ResourceInfo) -> Result<(), DatabaseError> {
@@ -956,9 +956,9 @@ impl DatabaseManager {
         })
     }
 
-    // ================================
+
     // 定时导出 / 执行历史
-    // ================================
+
 
     /// 保存定时导出任务。
     pub async fn save_scheduled_export(&self, config: &Value) -> Result<(), DatabaseError> {
@@ -1123,7 +1123,7 @@ fn new_task_record(task_id: &str, config_json: &str, state_json: &str) -> TaskDb
     }
 }
 
-/// 判断任务是否需要落盘（去抖逻辑，对应 TS `shouldPersistTask`）。
+/// 判断任务是否需要持久化。
 fn should_persist_task(
     state: &DbState,
     task_id: &str,
@@ -1261,7 +1261,7 @@ fn build_task_state_signature(task_state: &Value) -> String {
     .to_string()
 }
 
-/// 判断资源是否需要落盘（去抖逻辑）。
+/// 判断资源是否需要持久化（去抖逻辑）。
 fn should_persist_resource(state: &DbState, resource: &ResourceInfo) -> bool {
     if resource.md5.is_empty() {
         return true;

@@ -42,7 +42,7 @@ pub struct ResourceStat {
     pub total_size: u64,
 }
 
-/// 最终统计（对应 TS `finalize()` 返回结构）。
+/// 最终统计。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FinalStats {

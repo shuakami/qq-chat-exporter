@@ -84,17 +84,15 @@ async fn run() -> Result<(), String> {
     let bridge_endpoint = std::env::var("QCE_BRIDGE_ENDPOINT")
         .unwrap_or_else(|_| "http://127.0.0.1:40654".to_string());
 
-    // ============ 路径管理器 + 用户自定义目录 ============
+    // 路径管理器 + 用户自定义目录
     let path_manager = Arc::new(PathManager::new());
     load_custom_dirs(&path_manager).await;
     if let Err(error) = path_manager.migrate_legacy_export_dirs().await {
         tracing::warn!("[QCE] Failed to migrate legacy export directories: {error}");
     }
 
-    // ============ 数据库 ============
-    // 与 TS 侧 ConfigManager 对齐：databasePath = ~/.qq-chat-exporter/database.db，
-    // DatabaseManager 取 parent 目录（~/.qq-chat-exporter/）存放 JSONL 文件，
-    // 这样两个版本共享同一份 tasks.jsonl / resources.jsonl 等数据。
+    // 数据库
+    // JSONL 文件存放在 `~/.qq-chat-exporter/`，与 `database.db` 共用父目录。
     let db_path = path_manager.default_base_dir().join("database.db");
     tokio::fs::create_dir_all(path_manager.default_base_dir())
         .await
@@ -104,12 +102,12 @@ async fn run() -> Result<(), String> {
         .await
         .map_err(|e| format!("数据库初始化失败: {e}"))?;
 
-    // ============ NapCat bridge 客户端 ============
+    // NapCat bridge 客户端
     let napcat = NapCatBridgeClient::new(&bridge_endpoint, 120_000)
         .map_err(|e| format!("创建 bridge 客户端失败: {e}"))?;
     tracing::info!("[QCE] NapCat bridge: {bridge_endpoint}");
 
-    // ============ 资源处理器 ============
+    // 资源处理器
     let resource_handler = Arc::new(
         ResourceHandler::new(
             Arc::new(napcat.clone()),
@@ -124,14 +122,14 @@ async fn run() -> Result<(), String> {
     );
     resource_handler.start_health_check().await;
 
-    // ============ 进度跟踪 / 安全管理 ============
+    // 进度跟踪 / 安全管理
     let progress_tracker = Arc::new(ProgressTracker::new(Arc::clone(&db)));
     let security_manager =
         Arc::new(SecurityManager::new().map_err(|e| format!("创建安全管理器失败: {e}"))?);
     security_manager.initialize();
     let _watcher = security_manager.spawn_config_watcher();
 
-    // ============ 定时导出管理器 ============
+    // 定时导出管理器
     let executor = Arc::new(scheduled_executor::ApiScheduledExportExecutor::new(
         napcat.clone(),
         Arc::clone(&resource_handler),
@@ -140,10 +138,10 @@ async fn run() -> Result<(), String> {
     let scheduled_export_manager = Arc::new(ScheduledExportManager::new(Arc::clone(&db), executor));
     scheduled_export_manager.initialize().await;
 
-    // ============ 孤儿任务归一化（issue #144） + 任务表加载 ============
+    // 孤儿任务归一化（issue #144） + 任务表加载
     let export_tasks = reconcile_and_load_tasks(&db).await;
 
-    // ============ 静态前端目录 ============
+    // 静态前端目录
     let static_dir = resolve_static_dir();
     tracing::info!("[QCE] Static frontend directory: {}", static_dir.display());
 
@@ -187,7 +185,7 @@ async fn run() -> Result<(), String> {
     .map_err(|e| format!("HTTP 服务异常退出: {e}"))
 }
 
-/// 装配全部路由与中间件（对应 TS `ApiServer.setupRoutes`）。
+/// 装配全部路由与中间件。
 fn build_router(
     state: &SharedState,
     path_manager: &PathManager,
@@ -387,7 +385,7 @@ fn build_router(
         )
         .route("/api/merge-resources", post(resources::merge_resources));
 
-    // 静态托管（对应 TS express.static + FrontendBuilder.setupStaticRoutes）。
+    // 静态托管。
     let frontend = ServeDir::new(static_dir).append_index_html_on_directories(true);
     let router = api
         .nest_service("/downloads", ServeDir::new(path_manager.exports_dir()))
@@ -429,7 +427,7 @@ fn build_router(
 
 /// `GET /qce[/*]` — 前端应用入口 / SPA 回退。
 /// 优先返回子路由的 index.html（如 /qce/sessions → sessions/index.html），
-/// 找不到时回退到根 index.html（SPA 兜底）。
+/// 找不到时回退到根 index.html（SPA 回退）。
 async fn frontend_index(State(state): State<SharedState>, uri: axum::http::Uri) -> Response {
     let path = uri.path().trim_start_matches("/qce").trim_matches('/');
     if !path.is_empty() && !path.contains('.') {
@@ -590,7 +588,7 @@ async fn reconcile_and_load_tasks(db: &Arc<DatabaseManager>) -> HashMap<String, 
     tasks
 }
 
-/// 把 TS 时代持久化的任务字段映射成前端视图（对应 TS `loadExistingTasks`）：
+/// 将旧版持久化的任务字段映射为当前前端视图：
 /// `chatName`→`sessionName`、`formats[0]`→`format`、`processedMessages`→
 /// `messageCount`、按消息数补算 `progress`、`state.endTime`→`completedAt`，
 /// 并把顶层 `startTime`/`endTime`（旧版是任务运行时间）替换为 `filter` 里的

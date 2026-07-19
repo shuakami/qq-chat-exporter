@@ -11,7 +11,7 @@ pub struct JsonStreamContext {
     pub nl: &'static str,
 }
 
-/// 创建流式上下文（对应 TS `createJsonStreamContext`）。
+/// 创建流式上下文。
 #[must_use]
 pub fn create_json_stream_context(pretty: bool, indent_unit: &str) -> JsonStreamContext {
     JsonStreamContext {
@@ -21,7 +21,7 @@ pub fn create_json_stream_context(pretty: bool, indent_unit: &str) -> JsonStream
     }
 }
 
-/// 生成 `level` 级缩进（对应 TS `indent`）。
+/// 生成 `level` 级缩进。
 #[must_use]
 pub fn indent(ctx: &JsonStreamContext, level: usize) -> String {
     if !ctx.pretty || level == 0 {
@@ -37,7 +37,7 @@ pub const DEFAULT_MANIFEST_FILE_NAME: &str = "manifest.json";
 /// chunked-jsonl 默认 avatars 文件名。
 pub const DEFAULT_AVATARS_FILE_NAME: &str = "avatars.json";
 
-/// 统一 chunk 文件命名：`c000001.jsonl`（对应 TS `formatChunkFileName`）。
+/// 统一 chunk 文件命名：`c000001.jsonl`。
 #[must_use]
 pub fn format_chunk_file_name(index: usize, ext: &str) -> String {
     let clean_ext = if ext.starts_with('.') {
@@ -48,13 +48,13 @@ pub fn format_chunk_file_name(index: usize, ext: &str) -> String {
     format!("c{index:06}{clean_ext}")
 }
 
-/// 单文件 JSON 模板（对应 TS `JsonSingleFileTemplates`）。
+/// 单文件 JSON 模板。
 pub struct JsonSingleFileTemplates;
 
 impl JsonSingleFileTemplates {
     /// JSON 开头：metadata / chatInfo / statistics 字段 + messages 数组开括号。
     ///
-    /// 注意：与 TS 一致，metadata/chatInfo/statistics 故意不做 pretty stringify。
+    /// `metadata`、`chatInfo` 和 `statistics` 保持紧凑 JSON，不进行缩进。
     pub fn begin<M: Serialize, C: Serialize, S: Serialize>(
         metadata: &M,
         chat_info: &C,
@@ -126,7 +126,7 @@ impl JsonSingleFileTemplates {
     }
 }
 
-/// 通用 JSON 文件渲染（小文件：manifest 等；对应 TS `renderJsonFile`）。
+/// 通用 JSON 文件渲染（小文件：manifest 等）。
 pub fn render_json_file<T: Serialize>(
     data: &T,
     pretty: bool,
@@ -144,7 +144,7 @@ pub fn render_json_file<T: Serialize>(
     }
 }
 
-/// 流式写 JSON 对象骨架（对应 TS `JsonObjectStreamTemplates`，用于 avatars.json）。
+/// 流式写 JSON 对象骨架。
 pub struct JsonObjectStreamTemplates;
 
 impl JsonObjectStreamTemplates {

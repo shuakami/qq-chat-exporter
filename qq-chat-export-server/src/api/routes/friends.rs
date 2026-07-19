@@ -257,7 +257,7 @@ async fn enrich_contact_names(contacts: &mut [Value], state: &SharedState, inclu
     }
 }
 
-/// 单个好友映射（对应 TS friends 列表项）。
+/// 单个好友映射。
 fn map_friend(friend: &Value, category_id: &Value) -> Value {
     // NapCat 新结构：字段在 coreInfo / baseInfo 下；旧结构直接平铺。
     let core = friend.get("coreInfo").unwrap_or(friend);

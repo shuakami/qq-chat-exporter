@@ -11,7 +11,7 @@ use crate::storage::DatabaseManager;
 
 use super::cron::should_execute;
 
-/// 执行历史保留上限（与 TS 一致）。
+/// 执行历史保留上限。
 const HISTORY_LIMIT: usize = 100;
 
 /// 单次导出执行结果（由执行器返回，管理器负责落库与状态归类）。
@@ -45,7 +45,7 @@ pub trait ScheduledExportExecutor: Send + Sync {
 pub struct ScheduledExportManager {
     db: Arc<DatabaseManager>,
     executor: Arc<dyn ScheduledExportExecutor>,
-    /// 任务配置（弱类型 JSON，与 TS 存储结构一致）。
+    /// 任务配置，按弱类型 JSON 存储。
     tasks: Mutex<HashMap<String, Value>>,
     /// 每个任务的 cron 调度句柄。
     cron_jobs: Mutex<HashMap<String, tokio::task::JoinHandle<()>>>,
@@ -394,7 +394,7 @@ impl ScheduledExportManager {
         history
     }
 
-    /// 保存任务到数据库（静默处理错误，与 TS 一致）。
+    /// 保存任务到数据库；错误不会中断调度流程。
     async fn save_task(&self, task: &Value) {
         if let Err(error) = self.db.save_scheduled_export(task).await {
             tracing::warn!("Failed to save scheduled task: {error}");
@@ -402,7 +402,7 @@ impl ScheduledExportManager {
     }
 }
 
-/// 根据任务配置构造 cron 表达式（与 TS `startTask` 一致）。
+/// 根据任务配置构造 cron 表达式。
 fn build_cron_expression(task: &Value) -> String {
     let schedule_type = task
         .get("scheduleType")
@@ -440,7 +440,7 @@ fn parse_execute_time(execute_time: Option<&str>) -> (u32, u32) {
     (hour, minute)
 }
 
-/// 计算下次执行时间（ISO 字符串，与 TS `calculateNextRun` 语义一致）。
+/// 计算下次执行时间，返回 ISO 字符串。
 fn calculate_next_run(
     schedule_type: &str,
     cron_expression: Option<&str>,
@@ -496,7 +496,7 @@ fn add_one_month(dt: chrono::DateTime<Local>) -> chrono::DateTime<Local> {
     }
 }
 
-/// 计算时间范围（返回秒级时间戳，与 TS `calculateTimeRange` 一致）。
+/// 计算时间范围，返回秒级时间戳。
 fn calculate_time_range(time_range_type: &str, custom: Option<&Value>) -> (i64, i64) {
     let now_ms = now_millis();
     let now = Local::now();
@@ -571,7 +571,7 @@ fn to_iso(dt: chrono::DateTime<Local>) -> String {
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-/// 随机 9 位后缀（对应 TS `Math.random().toString(36).substr(2, 9)`）。
+/// 随机 9 位后缀。
 fn random_suffix() -> String {
     const CHARS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
     let mut seed = std::time::SystemTime::now()

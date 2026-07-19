@@ -23,7 +23,7 @@ pub async fn request_id_middleware(mut request: Request<Body>, next: Next) -> Re
     response
 }
 
-/// 从请求中提取真实客户端 IP（优先代理头，对应 TS `getClientIP`）。
+/// 从请求中提取真实客户端 IP。
 pub fn client_ip(request: &Request<Body>) -> Option<String> {
     let headers = request.headers();
     if let Some(forwarded) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {

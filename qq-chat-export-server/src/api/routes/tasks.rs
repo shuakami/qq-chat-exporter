@@ -22,7 +22,6 @@ fn created_at_ms(task: &Value) -> i64 {
 fn normalize_task_for_frontend(task: &Value) -> Value {
     let mut t = task.clone();
     if let Some(obj) = t.as_object_mut() {
-        // id = taskId
         if let Some(tid) = obj.get("taskId").cloned() {
             obj.insert("id".to_string(), tid);
         }

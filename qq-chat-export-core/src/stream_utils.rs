@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
 
-/// 默认写缓冲阈值：1 MiB（与 TS 默认一致）。
+/// 默认写缓冲阈值为 1 MiB。
 pub const DEFAULT_FLUSH_THRESHOLD: usize = 1024 * 1024;
 
-/// 小缓冲文本写入器（对应 TS `BufferedTextWriter`）。
+/// 小缓冲文本写入器。
 ///
 /// 攒批到阈值后一次性写入底层文件，避免每条消息一次写调用；
 /// 全程流式，内存占用上限为 `flush_threshold + 单次写入长度`。
@@ -65,8 +65,7 @@ impl BufferedTextWriter {
         self.bytes_written + self.buffer.len() as u64
     }
 
-    /// 结束写入：冲刷缓冲并确保数据落盘、文件句柄释放
-    /// （对应 TS `endWriteStream`，Windows 下句柄释放尤其重要）。
+    /// 结束写入：冲刷缓冲、同步文件并释放句柄。
     pub async fn end(mut self) -> ExportResultT<u64> {
         self.flush_buffer().await?;
         self.inner
@@ -81,7 +80,7 @@ impl BufferedTextWriter {
     }
 }
 
-/// 让出执行权（对应 TS `yieldToEventLoop`）：长循环中避免饿死同 runtime 的其他任务。
+/// 让出执行权：长循环中避免饿死同 runtime 的其他任务。
 pub async fn yield_to_event_loop() {
     tokio::task::yield_now().await;
 }

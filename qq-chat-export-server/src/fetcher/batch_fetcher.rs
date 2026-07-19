@@ -42,7 +42,7 @@ pub struct MessageTypeFilter {
     pub sub_types: Option<Vec<i64>>,
 }
 
-/// 消息筛选条件（对应 TS `MessageFilter`）。
+/// 消息筛选条件。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageFilter {
@@ -63,7 +63,7 @@ pub struct MessageFilter {
     pub keywords: Option<Vec<String>>,
 }
 
-/// 批量获取配置（对应 TS `BatchFetchConfig`）。
+/// 批量获取配置。
 #[derive(Debug, Clone)]
 pub struct BatchFetchConfig {
     /// 每批次获取数量（建议 1000-10000）。
@@ -90,7 +90,7 @@ impl Default for BatchFetchConfig {
     }
 }
 
-/// 批量获取结果（对应 TS `BatchFetchResult`）。
+/// 批量获取结果。
 #[derive(Debug, Clone, Default)]
 pub struct BatchFetchResult {
     /// 本批消息（NapCat RawMessage 原始 JSON）。
@@ -109,7 +109,7 @@ pub struct BatchFetchResult {
     pub earliest_msg_time: Option<i64>,
 }
 
-/// API 调用统计（对应 TS `ApiCallStats`）。
+/// API 调用统计。
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiCallStats {
@@ -180,7 +180,7 @@ pub trait MessageFetchApi: Send + Sync {
     ) -> Result<Value, String>;
 }
 
-/// 获取策略（对应 TS `FetchStrategy`）。
+/// 获取策略。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FetchStrategy {
     /// 基于时间范围的顺序获取。
@@ -388,7 +388,7 @@ impl BatchMessageFetcher {
         if !self.config.enable_optimization {
             return FetchStrategy::TimeBasedSequential;
         }
-        // 与 TS 侧一致：暂时都使用基础方法，避免复杂 API 问题。
+        // 暂时统一使用基础方法，避免不同版本的复杂 API 差异。
         let _ = filter;
         FetchStrategy::TimeBasedSequential
     }
@@ -659,7 +659,7 @@ impl BatchMessageFetcher {
     }
 }
 
-/// 处理 API 调用结果，统一格式化（对应 TS `processApiResult`）。
+/// 处理 API 调用结果，统一格式化。
 fn process_api_result(
     api_result: Value,
     filter: Option<&MessageFilter>,
@@ -754,7 +754,7 @@ fn process_api_result(
     }
 }
 
-/// 客户端筛选（对应 TS `applyClientSideFilter`）。
+/// 客户端筛选。
 fn apply_client_side_filter(messages: Vec<Value>, filter: &MessageFilter) -> Vec<Value> {
     let input_count = messages.len();
     let mut filtered = messages;

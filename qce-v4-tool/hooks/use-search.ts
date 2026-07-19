@@ -159,7 +159,6 @@ export function useSearch() {
     }
   }, [filterFriends])
 
-  // 更新 ref 引用
   useEffect(() => {
     loadGroupsRef.current = loadGroups
     loadFriendsRef.current = loadFriends

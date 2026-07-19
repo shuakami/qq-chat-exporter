@@ -26,7 +26,7 @@ pub enum ConfigError {
     Validation(String),
 }
 
-/// 系统配置（对应 TS `SystemConfig`）。
+/// 系统配置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SystemConfig {
@@ -76,7 +76,7 @@ impl Default for SystemConfig {
     }
 }
 
-/// 用户配置（对应 TS `UserConfig`）。
+/// 用户配置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct UserConfig {
@@ -427,7 +427,7 @@ impl ConfigManager {
     }
 }
 
-/// 应用环境变量覆盖（对应 TS `applyEnvironmentOverrides`）。
+/// 应用环境变量覆盖。
 fn apply_environment_overrides(config: &mut SystemConfig) {
     if let Ok(value) = std::env::var("QCE_DATABASE_PATH") {
         config.database_path = value;
@@ -455,7 +455,7 @@ fn apply_int_env(name: &str, target: &mut i64) {
     }
 }
 
-/// 验证配置（对应 TS `validateConfig`）。
+/// 验证配置。
 fn validate_config(system: &SystemConfig, user: &UserConfig) -> Result<(), ConfigError> {
     if system.default_batch_size <= 0 || system.default_batch_size > 50000 {
         return Err(ConfigError::Validation(

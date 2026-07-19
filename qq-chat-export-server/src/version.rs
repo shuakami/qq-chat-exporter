@@ -58,7 +58,7 @@ pub fn major_version() -> &'static str {
     VERSION.get().split('.').next().unwrap_or("5")
 }
 
-/// 完整应用名称（带版本 + GitHub 地址），对应 TS `APP_INFO.name`。
+/// 完整应用名称（带版本 + GitHub 地址）。
 pub static APP_NAME: AppNameLazy = AppNameLazy;
 
 /// APP_NAME 惰性单元。

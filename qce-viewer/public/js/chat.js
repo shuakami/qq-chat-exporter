@@ -4,7 +4,6 @@ let allResources = [];
 let currentResourceFilter = 'all';
 let currentView = 'grid';
 
-// 初始化
 document.addEventListener('DOMContentLoaded', () => {
     const params = new URLSearchParams(window.location.search);
     const type = params.get('type');

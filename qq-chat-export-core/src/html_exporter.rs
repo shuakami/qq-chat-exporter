@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::time::Instant;
 
-/// HTML 主题（对应 TS `HtmlTheme`）。
+/// HTML 主题。
 #[derive(Debug, Clone)]
 pub struct HtmlTheme {
     /// 主题名称。
@@ -29,7 +29,7 @@ pub struct HtmlTheme {
 
 const FONT_STACK_CN: &str = "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"PingFang SC\", \"Hiragino Sans GB\", \"Microsoft YaHei\", sans-serif";
 
-/// 预定义主题（对应 TS `PREDEFINED_THEMES`）。
+/// 预定义主题。
 #[must_use]
 pub fn predefined_theme(name: &str) -> Option<HtmlTheme> {
     match name {
@@ -77,7 +77,7 @@ fn default_theme() -> HtmlTheme {
     predefined_theme("default").expect("default 主题恒定存在")
 }
 
-/// HTML 格式选项（对应 TS `HtmlFormatOptions`）。
+/// HTML 格式选项。
 #[derive(Debug, Clone)]
 pub struct HtmlFormatOptions {
     /// 页面标题（`None` 时取「聊天名 - 聊天记录」）。
@@ -153,7 +153,7 @@ impl HtmlExporter {
         &mut self.ctx
     }
 
-    /// 设置预定义主题（对应 TS `setTheme`；未知主题名保持不变）。
+    /// 设置预定义主题（未知主题名保持不变）。
     pub fn set_theme(&mut self, theme_name: &str) {
         if let Some(theme) = predefined_theme(theme_name) {
             self.html_options.theme = theme;
@@ -200,7 +200,7 @@ impl HtmlExporter {
         })
     }
 
-    /// 生成 HTML 内容（对应 TS `generateContent`）。
+    /// 生成 HTML 内容。
     fn generate_content(&self, messages: &[CleanMessage], chat_info: &ChatInfo) -> String {
         let statistics = if self.html_options.show_statistics {
             self.generate_statistics(messages)
@@ -228,7 +228,7 @@ impl HtmlExporter {
         html.trim().to_owned()
     }
 
-    /// 生成 HTML 头部（对应 TS `generateHtmlHead`）。
+    /// 生成 HTML 头部。
     fn generate_html_head(&self, chat_info: &ChatInfo) -> String {
         let title = self
             .html_options
@@ -255,7 +255,7 @@ impl HtmlExporter {
         )
     }
 
-    /// 生成 CSS 样式（对应 TS `generateCss`，主题变量注入逻辑一致）。
+    /// 生成 CSS 样式。
     fn generate_css(&self) -> String {
         let theme = &self.html_options.theme;
         let responsive = self.html_options.responsive;
@@ -650,7 +650,7 @@ impl HtmlExporter {
         )
     }
 
-    /// 生成页面头部（对应 TS `generateHeader`）。
+    /// 生成页面头部。
     fn generate_header(&self, chat_info: &ChatInfo, messages: &[CleanMessage]) -> String {
         let time_range = self.get_time_range(messages);
 
@@ -680,7 +680,7 @@ impl HtmlExporter {
         )
     }
 
-    /// 生成统计信息（对应 TS `generateStatistics`）。
+    /// 生成统计信息。
     fn generate_statistics(&self, messages: &[CleanMessage]) -> String {
         let stats = calculate_message_stats(messages);
         format!(
@@ -689,12 +689,12 @@ impl HtmlExporter {
         )
     }
 
-    /// 生成搜索栏（对应 TS `generateSearchBar`）。
+    /// 生成搜索栏。
     fn generate_search_bar(&self) -> String {
         "\n        <div class=\"search-bar\">\n            <input type=\"text\" class=\"search-input\" placeholder=\"搜索消息内容...\" id=\"searchInput\">\n        </div>".to_owned()
     }
 
-    /// 生成消息 HTML 列表（对应 TS `generateMessagesHtml`）。
+    /// 生成消息 HTML 列表。
     fn generate_messages_html(&self, messages: &[CleanMessage]) -> String {
         let mut elements: Vec<String> = Vec::with_capacity(messages.len());
         for (i, message) in messages.iter().enumerate() {
@@ -719,7 +719,7 @@ impl HtmlExporter {
         elements.join("\n")
     }
 
-    /// 生成单条消息 HTML（对应 TS `generateMessageHtml`）。
+    /// 生成单条消息 HTML。
     fn generate_message_html(&self, message: &CleanMessage) -> String {
         if message.system {
             return format!(
@@ -787,7 +787,7 @@ impl HtmlExporter {
         )
     }
 
-    /// 生成回复 HTML（对应 TS `generateReplyHtml`）。
+    /// 生成回复 HTML。
     fn generate_reply_html(&self, reply: &Value) -> String {
         let sender_name = reply
             .get("senderName")
@@ -805,7 +805,7 @@ impl HtmlExporter {
         )
     }
 
-    /// 生成资源 HTML（对应 TS `generateResourcesHtml`）。
+    /// 生成资源 HTML。
     fn generate_resources_html(&self, resources: &[crate::types::MessageResource]) -> String {
         let include_links = self.ctx.options.include_resource_links;
         let elements: Vec<String> = resources
@@ -897,7 +897,7 @@ impl HtmlExporter {
         elements.join("<br>")
     }
 
-    /// 生成页脚（对应 TS `generateFooter`）。
+    /// 生成页脚。
     fn generate_footer(&self) -> String {
         format!(
             "\n        <div class=\"chat-footer\">\n            <p>由 <strong>QQ聊天记录导出工具</strong> 生成</p>\n            <p>导出时间: {}</p>\n        </div>",
@@ -905,7 +905,7 @@ impl HtmlExporter {
         )
     }
 
-    /// 生成 JavaScript（对应 TS `generateJavaScript`）。
+    /// 生成 JavaScript。
     fn generate_javascript(&self) -> String {
         let search_js = if self.html_options.enable_search {
             r"
@@ -1006,7 +1006,7 @@ impl HtmlExporter {
         )
     }
 
-    /// 获取时间范围（对应 TS `getTimeRange`）。
+    /// 获取时间范围。
     fn get_time_range(&self, messages: &[CleanMessage]) -> Option<String> {
         if messages.is_empty() {
             return None;
@@ -1023,7 +1023,7 @@ impl HtmlExporter {
     }
 }
 
-/// 消息统计（对应 TS `calculateMessageStats`）。
+/// 消息统计。
 fn calculate_message_stats(messages: &[CleanMessage]) -> MessageStats {
     let senders: HashSet<&str> = messages.iter().map(|m| m.sender.uid.as_str()).collect();
     let total_resources: usize = messages.iter().map(|m| m.content.resources.len()).sum();
@@ -1048,7 +1048,7 @@ fn calculate_message_stats(messages: &[CleanMessage]) -> MessageStats {
     }
 }
 
-/// 处理消息文本（URL 链接 + 换行；对应 TS `processMessageText`）。
+/// 处理消息文本（URL 链接 + 换行）。
 #[must_use]
 pub fn process_message_text(text: &str) -> String {
     let escaped = escape_html(text);
@@ -1101,7 +1101,7 @@ fn is_silk_source(source: &str) -> bool {
         .is_some_and(|path| path.to_ascii_lowercase().ends_with(".silk"))
 }
 
-/// 头像占位符：名字首字符大写（对应 TS `generateAvatarPlaceholder`）。
+/// 头像占位符：名字首字符大写。
 fn avatar_placeholder(name: &str) -> String {
     name.chars()
         .next()
@@ -1109,7 +1109,7 @@ fn avatar_placeholder(name: &str) -> String {
         .unwrap_or_default()
 }
 
-/// 聊天类型图标（对应 TS `getChatTypeIcon`）。
+/// 聊天类型图标。
 #[must_use]
 pub fn chat_type_icon(chat_type: &str) -> &'static str {
     match chat_type {
@@ -1120,7 +1120,7 @@ pub fn chat_type_icon(chat_type: &str) -> &'static str {
     }
 }
 
-/// 聊天类型显示名称（对应 TS `getChatTypeDisplayName`；未知类型原样返回）。
+/// 聊天类型显示名称（未知类型原样返回）。
 #[must_use]
 pub fn chat_type_display_name(chat_type: &str) -> &str {
     match chat_type {
