@@ -244,3 +244,4 @@ These rules apply when the developer has not given explicit guidance. Unless the
 - Keep communication short, objective, and results-oriented. Only block when you genuinely need external input from the developer.
 
 All of the rules above can be bypassed when the developer provides explicit guidance.
+- `scripts/quick-pack.py` contains embedded Windows batch content and uses CRLF line endings. Edit it with byte-preserving replacements; do not rewrite the whole file or normalize trailing whitespace.
