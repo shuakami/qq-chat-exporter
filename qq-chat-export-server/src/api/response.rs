@@ -4,7 +4,7 @@ use axum::Json;
 use chrono::Utc;
 use serde_json::{json, Value};
 
-/// 错误类型（对应 TS `ErrorType` 枚举）。
+/// 错误类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorType {
     /// 参数校验错误。
@@ -26,7 +26,7 @@ pub enum ErrorType {
 }
 
 impl ErrorType {
-    /// TS 侧的字符串常量。
+    /// 用于 API 序列化的字符串常量。
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -111,7 +111,7 @@ impl std::error::Error for ApiError {}
 #[derive(Debug, Clone)]
 pub struct RequestId(pub String);
 
-/// 生成请求 ID（与 TS `generateRequestId` 一致的形态：`req_<ts>_<rand>`）。
+/// 生成 `req_<timestamp>_<random>` 形式的请求 ID。
 #[must_use]
 pub fn generate_request_id() -> String {
     let now = Utc::now().timestamp_millis();

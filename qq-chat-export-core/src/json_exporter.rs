@@ -21,7 +21,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-/// 导出模式（对应 TS `JsonFormatOptions.exportMode`）。
+/// 导出模式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum JsonExportMode {
     /// 单文件 JSON（默认）。
@@ -31,7 +31,7 @@ pub enum JsonExportMode {
     ChunkedJsonl,
 }
 
-/// 分块 JSONL 导出选项（对应 TS `ChunkedJsonlExportOptions`）。
+/// 分块 JSONL 导出选项。
 #[derive(Debug, Clone)]
 pub struct ChunkedJsonlExportOptions {
     /// 输出目录；`None` 时从 `output_path` 推导：`<outputBase>_chunked_jsonl`。
@@ -65,7 +65,7 @@ impl Default for ChunkedJsonlExportOptions {
     }
 }
 
-/// JSON 格式选项（对应 TS `JsonFormatOptions`）。
+/// JSON 格式选项。
 #[derive(Debug, Clone)]
 pub struct JsonFormatOptions {
     /// 是否美化输出。
@@ -95,7 +95,7 @@ impl Default for JsonFormatOptions {
     }
 }
 
-/// chunked-jsonl manifest（对应 TS `ChunkedJsonlExportManifest`）。
+/// chunked-jsonl manifest。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ChunkedJsonlManifest<'a> {
@@ -126,7 +126,7 @@ struct AvatarsRef {
     count: usize,
 }
 
-/// 导出选项记录（对应 TS `generateExportOptions` 返回结构）。
+/// 导出选项记录。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportOptionsRecord {
@@ -135,7 +135,7 @@ pub struct ExportOptionsRecord {
     options: Value,
 }
 
-/// 格式化后的 chatInfo（对应 TS `JsonExportData['chatInfo']`）。
+/// 格式化后的 chatInfo。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormattedChatInfo {
@@ -158,7 +158,7 @@ pub struct FormattedChatInfo {
     participant_count: Option<u64>,
 }
 
-/// chunked-jsonl 导出结果（对应 TS `ChunkedJsonlExportResult`）。
+/// chunked-jsonl 导出结果。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChunkedJsonlOutcome {
@@ -198,12 +198,12 @@ impl JsonExporter {
         &mut self.ctx
     }
 
-    /// 覆盖应用元信息（对应 TS `APP_INFO` / `VERSION`）。
+    /// 覆盖应用元信息。
     pub fn set_metadata(&mut self, metadata: AppMetadata) {
         self.metadata = metadata;
     }
 
-    /// 导出入口（对应 TS `export` override）。
+    /// 导出入口。
     pub async fn export(
         &self,
         messages: Vec<CleanMessage>,
@@ -268,7 +268,7 @@ impl JsonExporter {
         total: usize,
         start_time: Instant,
     ) -> ExportResultT<ExportOutcome> {
-        // ========== 阶段1: 写 NDJSON ==========
+        // 阶段1: 写 NDJSON
         let mut ndjson_writer =
             BufferedTextWriter::create(tmp_file, DEFAULT_FLUSH_THRESHOLD).await?;
         let mut stats_acc = StatsAccumulator::new();
@@ -312,7 +312,7 @@ impl JsonExporter {
         }
         ndjson_writer.end().await?;
 
-        // ========== 阶段2: 合成最终 JSON ==========
+        // 阶段2: 合成最终 JSON
         let final_stats = stats_acc.finalize();
         let formatted_chat_info = self.format_chat_info_async(chat_info).await;
 
@@ -588,7 +588,7 @@ impl JsonExporter {
         dir.join(format!("{base}_chunked_jsonl"))
     }
 
-    /// 流式写出 avatarMap → JSON 文件（对应 TS `writeAvatarMapToJsonFile`）。
+    /// 流式写出 avatarMap → JSON 文件。
     async fn write_avatar_map_to_json_file(
         &self,
         avatar_map: &indexmap::IndexMap<String, String>,
@@ -630,12 +630,12 @@ impl JsonExporter {
         Ok(())
     }
 
-    /// 格式化聊天信息（对应 TS `formatChatInfoAsync`，支持群头像 base64 转换）。
+    /// 格式化聊天信息。
     async fn format_chat_info_async(&self, chat_info: &ChatInfo) -> FormattedChatInfo {
         let mut avatar = None;
         if let Some(url) = &chat_info.avatar {
             if self.json_options.embed_avatars_as_base64 {
-                // 下载失败时保留原 URL（与 TS 一致）
+                // 下载失败时保留原 URL。
                 avatar = Some(
                     self.download_url_as_base64(url)
                         .await
@@ -658,7 +658,7 @@ impl JsonExporter {
         }
     }
 
-    /// 生成导出选项记录（对应 TS `generateExportOptions`）。
+    /// 生成导出选项记录。
     fn generate_export_options(&self) -> ExportOptionsRecord {
         let time_format = match self.ctx.options.time_format {
             crate::types::TimeFormat::Full => "YYYY-MM-DD HH:mm:ss",
@@ -679,7 +679,7 @@ impl JsonExporter {
         }
     }
 
-    /// 预下载所有消息发送者的头像（对应 TS `preDownloadAvatars`）。
+    /// 预下载所有消息发送者的头像。
     async fn pre_download_avatars(
         &self,
         messages: &[CleanMessage],
@@ -703,7 +703,7 @@ impl JsonExporter {
         avatar_map
     }
 
-    /// 下载头像并转换为 base64（对应 TS `downloadAvatarAsBase64`）。
+    /// 下载头像并转换为 base64。
     async fn download_avatar_as_base64(&self, uin: &str) -> Option<String> {
         let avatar_url = format!("https://q1.qlogo.cn/g?b=qq&nk={uin}&s=100");
         let response = self.http.get(&avatar_url).send().await.ok()?;
@@ -714,8 +714,7 @@ impl JsonExporter {
         Some(format!("data:image/jpeg;base64,{}", BASE64.encode(&bytes)))
     }
 
-    /// 下载任意 URL 的图片并转换为 base64（对应 TS `downloadUrlAsBase64`，
-    /// 含 PNG / GIF 魔数嗅探）。
+    /// 下载任意 URL 的图片并转换为 base64，通过魔数识别 PNG 和 GIF。
     async fn download_url_as_base64(&self, url: &str) -> Option<String> {
         let response = self.http.get(url).send().await.ok()?;
         if !response.status().is_success() {
@@ -736,8 +735,7 @@ impl JsonExporter {
     }
 }
 
-/// 智能清理 rawMessage：递归删除 null / 空串 / 空数组 / 空对象
-/// （对应 TS `cleanRawMessage`）。
+/// 递归删除 `rawMessage` 中的 null、空字符串、空数组和空对象。
 #[must_use]
 pub fn clean_raw_message(value: &Value) -> Option<Value> {
     match value {
@@ -783,8 +781,7 @@ pub fn clean_raw_message(value: &Value) -> Option<Value> {
     }
 }
 
-/// issue #277：把已下载资源的相对路径覆写到消息
-/// （对应 TS `SimpleMessageParser.updateSingleMessageResourcePaths` 的导出侧行为）。
+/// 将已下载资源的相对路径写回消息（issue #277）。
 ///
 /// - `content.resources[]`：按文件名匹配写入 `localPath`（`<typeDir>/<fileName>`）；
 /// - `content.elements[]`：image / video / audio / file 元素的 `data.localPath` 同步覆写。

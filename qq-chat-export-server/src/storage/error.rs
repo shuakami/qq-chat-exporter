@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-/// 数据库错误（对应 TS `SystemError` 的 `DATABASE_ERROR` 分支）。
+/// 数据库错误。
 #[derive(Debug, Error)]
 pub enum DatabaseError {
     /// 文件 I/O 失败。

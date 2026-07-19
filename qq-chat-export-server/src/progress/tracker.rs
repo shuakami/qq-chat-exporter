@@ -19,7 +19,7 @@ const SNAPSHOT_LIMIT: usize = 1000;
 /// 速度历史数据点上限。
 const SPEED_HISTORY_LIMIT: usize = 60;
 
-/// 任务状态枚举（与 TS `ExportTaskStatus` 字符串值一致）。
+/// 任务状态枚举。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ExportTaskStatus {
@@ -37,7 +37,7 @@ pub enum ExportTaskStatus {
     Cancelled,
 }
 
-/// 导出任务状态（与 TS `ExportTaskState` JSON 结构一致）。
+/// 导出任务状态。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportTaskState {
@@ -71,12 +71,12 @@ pub struct ExportTaskState {
     /// 处理速度（消息/秒）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processing_speed: Option<f64>,
-    /// 兼容 TS 侧可能存在的额外字段。
+    /// 保留旧版数据中的未知字段。
     #[serde(flatten)]
     pub extra: serde_json::Map<String, Value>,
 }
 
-/// 事件类型（与 TS `EventType` 字符串值一致）。
+/// 事件类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
@@ -98,7 +98,7 @@ pub enum EventType {
     HealthStatusChanged,
 }
 
-/// 事件数据（与 TS `EventData` JSON 结构一致）。
+/// 事件数据。
 #[derive(Debug, Clone, Serialize)]
 pub struct EventData {
     /// 事件类型。
@@ -124,7 +124,7 @@ pub enum PhaseStatus {
     Failed,
 }
 
-/// 任务阶段定义（对应 TS `TaskPhase`）。
+/// 任务阶段定义。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskPhase {
@@ -168,7 +168,7 @@ fn default_phases() -> Vec<TaskPhase> {
     ]
 }
 
-/// 进度快照（对应 TS `ProgressSnapshot`）。
+/// 进度快照。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgressSnapshot {
@@ -186,7 +186,7 @@ pub struct ProgressSnapshot {
     pub phase: String,
 }
 
-/// 性能统计（对应 TS `PerformanceStats`）。
+/// 性能统计。
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PerformanceStats {

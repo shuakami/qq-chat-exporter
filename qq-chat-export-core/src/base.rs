@@ -36,7 +36,7 @@ impl ExporterContext {
         self.progress_callback = callback;
     }
 
-    /// 更新进度（对应 TS `updateProgress`）。
+    /// 更新进度。
     pub fn update_progress(&self, current: usize, total: usize, message: &str) {
         if let Some(cb) = &self.progress_callback {
             let percentage = if total > 0 {
@@ -66,24 +66,24 @@ impl ExporterContext {
         }
     }
 
-    /// 确保输出目录存在（对应 TS `ensureOutputDirectory`）。
+    /// 确保输出目录存在。
     pub async fn ensure_output_directory(&self) -> ExportResultT<()> {
         ensure_parent_dir(&self.options.output_path).await
     }
 
-    /// 获取输出文件大小；失败时返回 0（与 TS `getFileSize` 一致）。
+    /// 获取输出文件大小；失败时返回 0。
     pub async fn output_file_size(&self) -> u64 {
         file_size_or_zero(&self.options.output_path).await
     }
 
-    /// 按指定时间格式格式化本地时间（对应 TS `formatTimestamp`）。
+    /// 按指定时间格式格式化本地时间。
     #[must_use]
     pub fn format_timestamp(&self, ts: DateTime<Local>) -> String {
         format_timestamp(ts, self.options.time_format)
     }
 
     /// issue #277：把 `resource_map` 中已下载的资源复制到导出目录
-    /// `resources/<typeDir>/<fileName>` 下（对应 TS `copyResourcesAlongsideExport`）。
+    /// `resources/<typeDir>/<fileName>` 下。
     ///
     /// - 重复目标路径按存在性跳过；
     /// - 单个资源拷贝失败仅跳过，不中断导出；
@@ -155,7 +155,7 @@ pub async fn file_size_or_zero(path: &Path) -> u64 {
     tokio::fs::metadata(path).await.map_or(0, |m| m.len())
 }
 
-/// 资源类型 → 目录名映射（与 TS `typeOf` 一致）。
+/// 资源类型到目录名的映射。
 #[must_use]
 pub fn resource_type_dir(resource_type: &str) -> &'static str {
     match resource_type {
@@ -166,7 +166,7 @@ pub fn resource_type_dir(resource_type: &str) -> &'static str {
     }
 }
 
-/// HTML 转义（对应 TS `escapeHtml`：& < > " '）。
+/// HTML 转义。
 #[must_use]
 pub fn escape_html(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -183,7 +183,7 @@ pub fn escape_html(text: &str) -> String {
     out
 }
 
-/// 按 `TimeFormat` 格式化本地时间（对应 TS `formatTimestamp`）。
+/// 按 `TimeFormat` 格式化本地时间。
 #[must_use]
 pub fn format_timestamp(ts: DateTime<Local>, format: TimeFormat) -> String {
     match format {
@@ -204,7 +204,7 @@ pub fn format_timestamp(ts: DateTime<Local>, format: TimeFormat) -> String {
     }
 }
 
-/// 相对时间（对应 TS `getRelativeTime`）。
+/// 相对时间。
 #[must_use]
 fn relative_time(ts: DateTime<Local>) -> String {
     let diff_ms = Local::now().timestamp_millis() - ts.timestamp_millis();
@@ -244,9 +244,9 @@ pub fn now_iso() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
-/// 按时间戳排序消息（对应 TS `sortMessagesByTimestamp`）。
+/// 按时间戳排序消息。
 ///
-/// `CleanMessage.timestamp` 已是毫秒级；与 TS 相同地把无效（<=0）时间戳排到最前，
+/// `CleanMessage.timestamp` 使用毫秒；无效（<=0）时间戳排在最前，
 /// 并对疑似秒级（10 位）时间戳做比较级换算，原始数据保持不变。
 pub fn sort_messages_by_timestamp(messages: &mut [CleanMessage]) {
     messages.sort_by_key(|m| comparable_ts(m.timestamp));
@@ -264,8 +264,8 @@ fn comparable_ts(ts: i64) -> i64 {
     }
 }
 
-/// 消息预处理：过滤空 ID + 时间排序（对应 TS `preprocessMessages`；
-/// `applyPureImageFilter` 在 TS 侧已废弃为直通，这里同样直通）。
+/// 消息预处理：过滤空 ID 并按时间排序。
+/// 纯图片过滤已废弃，相关选项不改变输出。
 #[must_use]
 pub fn preprocess_messages(messages: Vec<CleanMessage>) -> Vec<CleanMessage> {
     let mut valid: Vec<CleanMessage> = messages.into_iter().filter(|m| !m.id.is_empty()).collect();

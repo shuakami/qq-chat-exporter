@@ -26,7 +26,7 @@ spec.loader.exec_module(qp)
 
 qp.get_platform_info = lambda: ("Windows", "x64", ".zip")
 
-# GitHub API 可能因速率限制拿不到最新版本，兜底到 v4.18.8（最新稳定版）。
+# GitHub API 受速率限制时回退到 v4.18.8。
 _orig_get_napcat_latest_version = qp.get_napcat_latest_version
 def get_napcat_latest_version():
     import urllib.request, json as _json

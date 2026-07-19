@@ -186,7 +186,7 @@ pub async fn system_status(
     )
 }
 
-/// 进程内存占用（对齐 TS `process.memoryUsage()` 的字段形态）。
+/// 进程内存占用统计。
 fn memory_usage() -> Value {
     let mut system = sysinfo::System::new();
     let pid = sysinfo::Pid::from_u32(std::process::id());

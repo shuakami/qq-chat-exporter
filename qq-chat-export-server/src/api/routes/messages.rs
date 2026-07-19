@@ -288,7 +288,7 @@ fn local_date_time_strings() -> (String, String) {
     )
 }
 
-/// issue #363：把资源摘要翻译成给用户看的一句话（对应 TS `buildResourceSummaryMessage`）。
+/// issue #363：把资源摘要翻译成给用户看的一句话。
 fn build_resource_summary_message(summary: Option<&ResourceBatchSummary>) -> Option<String> {
     let summary = summary?;
     if summary.attempted == 0 {
@@ -308,7 +308,7 @@ fn build_resource_summary_message(summary: Option<&ResourceBatchSummary>) -> Opt
     ))
 }
 
-/// 发件人过滤器（对应 TS `buildSenderFilter`，include/exclude 均空时为 None）。
+/// 发件人过滤器。
 fn build_sender_filter(filter: &Value) -> Option<(HashSet<String>, HashSet<String>)> {
     fn normalize(list: Option<&Value>) -> HashSet<String> {
         list.and_then(Value::as_array)
@@ -953,7 +953,7 @@ enum ExportMode {
     StreamingJsonl,
 }
 
-/// 后台导出主流程包装：负责取消 / 失败态与清理（对应 TS `processExportTaskAsync`）。
+/// 后台导出主流程包装：负责取消 / 失败态与清理。
 async fn run_export_task(
     state: SharedState,
     task_id: String,
@@ -1089,7 +1089,7 @@ async fn fetch_group_member_title_map(
             }
         }
     }
-    // 兜底：WebApi.getGroupMembers 的 .title 字段比较稳。
+    // 回退：WebApi.getGroupMembers 的 .title 字段比较稳。
     if title_map.is_empty() {
         if let Ok(web_members) = state
             .napcat
@@ -1274,7 +1274,7 @@ async fn create_zip_from_dir(dir: PathBuf, zip_path: PathBuf) -> Result<(), Stri
     .map_err(|e| e.to_string())?
 }
 
-/// 导出主流程（对应 TS `processExportTaskAsync` / 流式变体）。
+/// 导出主流程。
 #[allow(clippy::too_many_lines)]
 async fn process_export_task(
     state: &SharedState,
@@ -1311,7 +1311,7 @@ async fn process_export_task(
         None
     };
 
-    // ============ 阶段 1：抓取消息（0 → 50） ============
+    // 阶段 1：抓取消息（0 → 50）
     let batch_size = loose_i64(req.options.get("batchSize")).unwrap_or(5000);
     let fetcher = BatchMessageFetcher::new(
         Arc::new(state.napcat.clone()),
@@ -1375,7 +1375,7 @@ async fn process_export_task(
         return Err("任务已被用户停止".to_string());
     }
 
-    // ============ 群昵称补全 + 群头衔映射（issue #331） ============
+    // 群昵称补全 + 群头衔映射（issue #331）
     let mut title_map: Option<HashMap<String, String>> = None;
     if req.chat_type == GROUP_CHAT_TYPE && !all_messages.is_empty() {
         fill_group_member_names(state, &req.peer_uid, &mut all_messages).await;
@@ -1439,7 +1439,7 @@ async fn process_export_task(
         message_id == "0" || resource_message_ids.insert(message_id.to_string())
     });
 
-    // ============ 阶段 2：资源下载（70 → 85） ============
+    // 阶段 2：资源下载（70 → 85）
     let filter_pure_image = req
         .options
         .get("filterPureImageMessages")
@@ -1542,7 +1542,7 @@ async fn process_export_task(
         return Err("任务已被用户停止".to_string());
     }
 
-    // ============ 阶段 3：解析 + 生成文件（85 →） ============
+    // 阶段 3：解析 + 生成文件（85 →）
     update_task(
         state,
         task_id,
@@ -1815,7 +1815,7 @@ async fn process_export_task(
         }
     }
 
-    // ============ 完成（100） ============
+    // 完成（100）
     if is_cancelled(state, task_id, cancel_flag).await {
         return Err("任务已被用户停止".to_string());
     }

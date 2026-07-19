@@ -5,7 +5,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// security.json 结构（字段名与 TS 版持平，序列化为 camelCase）。
+/// `security.json` 结构，字段序列化为 camelCase。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SecurityConfig {

@@ -31,7 +31,7 @@ pub const CACHE_EXPIRE_TIME_MS: i64 = 10 * 60 * 1000;
 /// WebSocket 广播消息。
 pub type WsMessage = String;
 
-/// API 服务器共享状态（对应 TS `QQChatExporterApiServer` 的成员）。
+/// API 服务器共享状态。
 pub struct AppState {
     /// NapCat bridge 客户端。
     pub napcat: NapCatBridgeClient,

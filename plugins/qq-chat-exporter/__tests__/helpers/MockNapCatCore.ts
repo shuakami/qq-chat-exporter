@@ -246,7 +246,7 @@ export function createMockCore(config: MockConfig = {}): MockNapCatCore {
                 const m = (g.members ?? []).find((x) => x.uin === uin);
                 if (m) return m.uid;
             }
-            // 兜底命中：fixture 里特地放了一条「已注销好友」的对话，peerUid 形如
+            // fixture 包含一条「已注销好友」对话，`peerUid` 形如
             // `u_deactivated_<uin>`，让 issue #204 的 e2e 可以验证「按 QQ 号
             // 反查到一个非好友、但有历史会话的 uid」这条链路。
             const conv = conversations.find(

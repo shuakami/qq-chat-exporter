@@ -2,7 +2,6 @@
 let allResources = [];
 let currentFilter = 'all';
 
-// 初始化
 document.addEventListener('DOMContentLoaded', () => {
     loadResources();
     setupModalHandlers();

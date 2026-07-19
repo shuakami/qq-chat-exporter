@@ -154,7 +154,6 @@ def main() -> None:
     print(f"[INFO] Output archive: {output_zip}")
     print()
 
-    # 清理
     if staging_root.exists():
         shutil.rmtree(staging_root)
 

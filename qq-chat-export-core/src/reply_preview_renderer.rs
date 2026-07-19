@@ -2,7 +2,7 @@ use crate::base::escape_html;
 use serde_json::Value;
 use std::path::Path;
 
-/// 渲染上下文（对应 TS `ReplyPreviewRenderContext`）。
+/// 渲染上下文。
 ///
 /// - `resource_base_href`：相对资源根（一般是 `resources`）；
 /// - `lookup_data_uri`：自包含模式下把资源拉成 data URI；返回 `None` 则走相对路径；
@@ -49,7 +49,7 @@ pub fn render_reply_preview_element(pe: &Value, ctx: &ReplyPreviewRenderContext<
                 );
             }
             if let Some(origin_url) = get_str(pe, "originUrl").filter(|s| !s.is_empty()) {
-                // 兜底：被引用消息不在导出范围内，但 NT 给了带签名的 originImageUrl。
+                // 回退：被引用消息不在导出范围内，但 NT 给了带签名的 originImageUrl。
                 // QQ 的 URL 会过期、可能跨域；用 onerror 让浏览器在加载失败时退回到「[图片]」文本。
                 return format!(
                     "<img src=\"{}\" class=\"reply-content-thumb\" alt=\"引用图片\" loading=\"lazy\" onerror=\"this.replaceWith(document.createTextNode('[图片]'))\">",

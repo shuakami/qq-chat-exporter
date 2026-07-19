@@ -14,8 +14,8 @@ pub fn fnv1a32(s: &str, seed: u32) -> u32 {
 
 /// FNV-1a 32 位哈希（直接消费 UTF-16 码元切片）。
 ///
-/// TS 侧的 n-gram 建索引按 `String#slice` 的 UTF-16 码元切片，可能切断
-/// 代理对；为保证 Bloom 输出与 TS 位级一致，这里提供直接对码元序列
+/// n-gram 索引按 UTF-16 码元切片，可能切断
+/// 代理对；直接处理码元序列可保持 Bloom 输出稳定。
 /// 哈希的入口，避免中途经过 UTF-8 的有损转换。
 #[must_use]
 pub fn fnv1a32_utf16(units: &[u16], seed: u32) -> u32 {
@@ -46,7 +46,7 @@ impl BloomFilter {
         }
     }
 
-    /// 加入一个 token（空串忽略，与 TS 一致）。
+    /// 加入一个 token；空字符串会被忽略。
     pub fn add(&mut self, token: &str) {
         if token.is_empty() || self.bits == 0 {
             return;

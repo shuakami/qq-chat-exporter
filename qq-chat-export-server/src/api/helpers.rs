@@ -7,7 +7,7 @@ use qce_exporter::CleanMessage;
 use crate::fetcher::is_private_like_chat_type;
 use crate::napcat::NapCatBridgeClient;
 
-/// 单步查询超时（毫秒，对齐 TS `DEFAULT_TIMEOUT = 2000`）。
+/// 单步查询超时，单位为毫秒。
 const SESSION_NAME_TIMEOUT_MS: u64 = 2000;
 
 /// 下载 URL 到内存（30 秒超时，跟随重定向；失败返回 `None`）。
@@ -26,7 +26,7 @@ pub async fn http_get_bytes(url: &str) -> Option<bytes::Bytes> {
     response.bytes().await.ok()
 }
 
-/// 宽松转数字（对应 TS `toNumber`）。
+/// 宽松转数字。
 fn to_number(value: Option<&Value>) -> i64 {
     match value {
         Some(Value::Number(n)) => n.as_i64().unwrap_or(0),
@@ -35,7 +35,7 @@ fn to_number(value: Option<&Value>) -> i64 {
     }
 }
 
-/// 宽松转字符串（对应 TS `toString`）。
+/// 宽松转字符串。
 fn to_string(value: Option<&Value>) -> String {
     match value {
         Some(Value::String(s)) => s.clone(),
@@ -44,7 +44,7 @@ fn to_string(value: Option<&Value>) -> String {
     }
 }
 
-/// 单条通知映射（对应 TS `mapItem`）。
+/// 单条通知映射。
 fn map_notify_item(raw: &Value, kind: &str) -> Value {
     let requester_nick = raw
         .get("requester_nick")
@@ -65,7 +65,7 @@ fn map_notify_item(raw: &Value, kind: &str) -> Value {
     })
 }
 
-/// 群系统通知规范化（对应 TS `normalizeGroupSystemNotify`，issue #317）。
+/// 群系统通知规范化。
 pub fn normalize_group_system_notify(raw: &Value) -> Value {
     let empty: Vec<Value> = Vec::new();
     let join = raw
@@ -107,7 +107,7 @@ fn flat_buddy_list(categories: &Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-/// 按 QQ 号反查用户（对应 TS `lookupUserByUin`，issue #204）。
+/// 按 QQ 号反查用户。
 pub async fn lookup_user_by_uin(raw_uin: &str, napcat: &NapCatBridgeClient) -> Value {
     let uin = raw_uin.trim();
     let is_valid = uin.len() >= 4 && uin.len() <= 12 && uin.chars().all(|c| c.is_ascii_digit());
@@ -223,9 +223,8 @@ pub fn chat_avatar_url(chat_type: &str, peer_uid: &str, peer_uin: Option<&str>) 
     peer_uin.map(|uin| format!("https://q1.qlogo.cn/g?b=qq&nk={uin}&s=640"))
 }
 
-/// 单聊型会话导出时把数字 QQ 号解析为真正的 NTQQ uid（对应 TS
-/// `resolvePeerUid`，issue #353）。任何缺失 / 异常 / 空返回都安全降级到原始
-/// peerUid。
+/// 单聊导出时将数字 QQ 号解析为 NTQQ UID（issue #353）。
+/// 查询缺失、失败或返回空值时保留原 `peerUid`。
 pub async fn resolve_peer_uid(
     chat_type: i64,
     peer_uid: &str,
@@ -251,10 +250,10 @@ fn should_resolve_peer_uid(chat_type: i64, peer_uid: &str) -> bool {
         && peer_uid.chars().all(|c| c.is_ascii_digit())
 }
 
-/// 会话名解析（对应 TS `resolveSessionName`，issue #365）。
+/// 会话名解析。
 ///
 /// - chatType === 2 → 走群列表；
-/// - 其它任何 chatType → 优先用好友缓存，再试 `getUserDetailInfo`，最后兜底
+/// - 其它任何 chatType → 优先用好友缓存，再试 `getUserDetailInfo`，最后回退
 ///   fallback（默认 peerUid）。任意异常都吞掉。
 pub async fn resolve_session_name(
     chat_type: i64,

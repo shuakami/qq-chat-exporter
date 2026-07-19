@@ -1,14 +1,14 @@
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use serde_json::Value;
 
-/// reply 元素的字段挑选输入（对应 TS `ReplyRenderInput`，弱类型透传）。
+/// reply 元素的字段挑选输入。
 #[derive(Debug, Clone, Default)]
 pub struct ReplyRenderInput {
     /// SimpleMessageParser 写入的目标消息 id（与 messageMap key 对齐）。
     pub referenced_message_id: Option<String>,
     /// 历史字段，部分老代码 / 老快照里仍然在用。
     pub reply_msg_id: Option<String>,
-    /// 内部查找用的 sourceMsgIdInRecords，作为兜底。
+    /// 内部查找用的 sourceMsgIdInRecords，作为回退。
     pub msg_id: Option<String>,
     /// parser 写入的时间：秒级 epoch / ms 级 epoch / ISO string。
     pub timestamp: Option<Value>,
@@ -103,7 +103,7 @@ pub fn reply_timestamp_millis(value: Option<&Value>) -> Option<i64> {
 /// - 字符串：先 trim，全数字先按数字走，否则按 RFC3339 / 常见格式解析；
 /// - 0 / 空 / 解析失败：返回空串。
 ///
-/// 与 TS 一致固定走 UTC 计算，保证跨时区 / CI 稳定。
+/// 固定使用 UTC 计算，保证跨时区和 CI 环境下的结果稳定。
 #[must_use]
 pub fn format_reply_timestamp(value: Option<&Value>) -> String {
     let Some(ms) = reply_timestamp_millis(value) else {
@@ -121,7 +121,7 @@ pub fn format_reply_timestamp(value: Option<&Value>) -> String {
     )
 }
 
-/// 合成跳转目标与时间标签（对应 TS `pickReplyRenderHints`）。
+/// 合成跳转目标与时间标签。
 #[must_use]
 pub fn pick_reply_render_hints(data: &ReplyRenderInput) -> (Option<String>, String) {
     let formatted_time =

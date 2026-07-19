@@ -111,7 +111,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             None
         };
 
-        // ============ 阶段 1：抓取消息 ============
+        // 阶段 1：抓取消息
         let fetcher = BatchMessageFetcher::new(
             Arc::new(self.napcat.clone()),
             BatchFetchConfig {
@@ -163,7 +163,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
                 .await?;
         }
 
-        // ============ 阶段 2：资源下载（issue #341 跳过类型） ============
+        // 阶段 2：资源下载（issue #341 跳过类型）
         let requested_skip_types: Vec<String> = options
             .get("skipDownloadResourceTypes")
             .and_then(Value::as_array)
@@ -208,7 +208,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         // 重置共享 ResourceHandler 的状态，避免影响后续任务。
         self.resource_handler.set_skip_download_types(None).await;
 
-        // ============ 阶段 3：文件名 / 输出目录 ============
+        // 阶段 3：文件名 / 输出目录
         tokio::fs::create_dir_all(&output_dir)
             .await
             .map_err(|e| format!("创建输出目录失败: {e}"))?;
@@ -229,7 +229,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         let (file_name, _reservation) = reserve_scheduled_file_name(&output_dir, &base_file_name);
         let file_path = output_dir.join(&file_name);
 
-        // ============ 阶段 4：解析 + 导出 ============
+        // 阶段 4：解析 + 导出
         let mut parser = SimpleMessageParser::new(SimpleParserOptions {
             html_enabled: format == "HTML",
             prefer_group_member_name: options

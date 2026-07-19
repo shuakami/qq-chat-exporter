@@ -20,7 +20,7 @@ use tokio::fs;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::task::JoinSet;
 
-/// HTML 导出选项（对应 TS `HtmlExportOptions`）。
+/// HTML 导出选项。
 #[derive(Debug, Clone)]
 pub struct HtmlExportOptions {
     /// 输出文件路径（单文件模式为 HTML 文件，chunked 模式为 index.html）。
@@ -60,7 +60,7 @@ impl Default for HtmlExportOptions {
     }
 }
 
-/// Chunked 导出选项（对应 TS `ChunkedHtmlExportOptions`）。
+/// Chunked 导出选项。
 #[derive(Debug, Clone, Default)]
 pub struct ChunkedHtmlExportOptions {
     /// 资源与数据目录名（相对于 `output_path` 所在目录），默认 `assets`。
@@ -95,7 +95,7 @@ pub struct ChunkedHtmlExportOptions {
     pub write_manifest_json: Option<bool>,
 }
 
-/// Chunked 导出结果（对应 TS `ChunkedHtmlExportResult`）。
+/// Chunked 导出结果。
 #[derive(Debug, Clone)]
 pub struct ChunkedHtmlExportResult {
     /// 输出目录。
@@ -114,7 +114,7 @@ pub struct ChunkedHtmlExportResult {
     pub copied_resources: Vec<String>,
 }
 
-/// 内部资源任务结构（对应 TS `ResourceTask`）。
+/// 内部资源任务结构。
 #[derive(Debug, Clone)]
 struct ResourceTask {
     /// image / video / audio / file / ...
@@ -525,7 +525,7 @@ impl ModernHtmlExporter {
         let mut running: JoinSet<Option<String>> = JoinSet::new();
         let mut copied_resources: Vec<String> = Vec::new();
 
-        // chunk options（与 TS 相同的下限 / 默认值钳制）
+        // 限制 chunk 选项的最小值并应用默认值。
         let max_messages_per_chunk = options.max_messages_per_chunk.unwrap_or(2000).max(100);
         let max_chunk_bytes = options
             .max_chunk_bytes
@@ -651,7 +651,7 @@ impl ModernHtmlExporter {
             })
             .await;
 
-        // restore（对应 TS finally 分支）
+        // restore
         self.resource_base_href = old_resource_base_href;
         // 出错时中止未完成的复制任务，避免后台任务泄漏
         if result.is_err() {
@@ -1021,12 +1021,12 @@ impl ModernHtmlExporter {
 
     /* ------------------------ 元数据回填 ------------------------ */
 
-    /// 更新 HTML 文件中的元数据注释（对应 TS `updateMetadata`；失败静默）。
+    /// 更新 HTML 文件中的元数据注释（失败静默）。
     async fn update_metadata(&self, message_count: usize) {
         let Ok(content) = fs::read_to_string(&self.options.output_path).await else {
             return;
         };
-        // 与 TS 正则 `<!-- QCE_METADATA: \{[^}]+\} -->` 等价的手工匹配
+        // 手工匹配 `<!-- QCE_METADATA: \{[^}]+\} -->` 形式的标记。
         let Some(start) = content.find("<!-- QCE_METADATA: {") else {
             return;
         };
@@ -1735,7 +1735,7 @@ struct ChunkedRunArgs<'a> {
 
 /* ------------------------ chunk 生命周期 ------------------------ */
 
-/// 开启新 chunk（对应 TS `startChunk`）。
+/// 开启新 chunk。
 async fn start_chunk(
     chunk: &mut ChunkState,
     chunks_dir: &Path,
@@ -1780,7 +1780,7 @@ async fn start_chunk(
     Ok(())
 }
 
-/// 关闭当前 chunk 并记录 meta（对应 TS `finishChunk`）。
+/// 关闭当前 chunk 并记录 meta。
 async fn finish_chunk(
     chunk: &mut ChunkState,
     chunks_meta: &mut Vec<Value>,
@@ -1825,14 +1825,14 @@ async fn finish_chunk(
 
 /* ------------------------ 流式写入 / 并发复制 ------------------------ */
 
-/// 写入一段字符串（对应 TS `writeChunk`；tokio `write_all` 天然遵循 backpressure）。
+/// 写入一段字符串（tokio `write_all` 天然遵循 backpressure）。
 async fn write_chunk(ws: &mut BufWriter<fs::File>, path: &Path, chunk: &str) -> ExportResultT<()> {
     ws.write_all(chunk.as_bytes())
         .await
         .map_err(|e| ExportError::io("writeChunk", path, e))
 }
 
-/// 资源复制并发数：根据 CPU 数量自适应，范围 [2, 8]（与 TS 一致）。
+/// 资源复制并发数根据 CPU 数量调整，范围为 [2, 8]。
 fn copy_concurrency() -> usize {
     let cpus = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
     cpus.clamp(2, 8)
@@ -1920,7 +1920,7 @@ fn move_dir_merge_sync(src: &Path, dst: &Path) -> ExportResultT<()> {
 
 /* ------------------------ 资源枚举与复制 ------------------------ */
 
-/// 枚举消息中的资源任务（对应 TS `iterResources`）。
+/// 枚举消息中的资源任务。
 fn iter_resources(message: &CleanMessage) -> Vec<ResourceTask> {
     let mut tasks = Vec::new();
 
@@ -1981,7 +1981,7 @@ fn iter_resources(message: &CleanMessage) -> Vec<ResourceTask> {
     tasks
 }
 
-/// 流式复制单个资源到导出目录（对应 TS `copyResourceFileStream`）。
+/// 流式复制单个资源到导出目录。
 ///
 /// 返回成功复制（或已存在）的相对路径；失败 / 找不到时返回 `None`（静默跳过）。
 async fn copy_resource_file(resource: &ResourceTask, output_dir: &Path) -> Option<String> {
@@ -2000,7 +2000,7 @@ async fn copy_resource_file(resource: &ResourceTask, output_dir: &Path) -> Optio
         return Some(target_relative);
     }
 
-    // 确保父目录存在（理论上已创建，这里兜底）
+    // 确保父目录存在（理论上已创建，这里回退）
     if let Some(parent) = target_absolute.parent() {
         if fs::create_dir_all(parent).await.is_err() {
             return None;
@@ -2048,7 +2048,7 @@ async fn resolve_resource_source_path(resource: &ResourceTask) -> Option<PathBuf
 }
 
 /// ResourceHandler 资源根目录：`%USERPROFILE%/.qq-chat-exporter/resources`，
-/// 无 `USERPROFILE`（非 Windows）时与 TS 相同回退到进程工作目录。
+/// 无 `USERPROFILE` 时回退到进程工作目录。
 fn resource_handler_root() -> PathBuf {
     let base = std::env::var_os("USERPROFILE").map_or_else(
         || std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
@@ -2057,7 +2057,7 @@ fn resource_handler_root() -> PathBuf {
     base.join(".qq-chat-exporter").join("resources")
 }
 
-/// 跨平台 HOME 目录（对应 TS `os.homedir()`）。
+/// 跨平台 HOME 目录。
 fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
@@ -2067,7 +2067,7 @@ fn home_dir() -> PathBuf {
         )
 }
 
-/// 解析资源路径为绝对路径（对应 TS `resolveResourcePath`，修复 Issue #30）。
+/// 解析资源路径为绝对路径。
 fn resolve_resource_path(resource_path: &str) -> PathBuf {
     let p = Path::new(resource_path);
     // 已是绝对路径
@@ -2097,7 +2097,7 @@ fn resolve_resource_path(resource_path: &str) -> PathBuf {
     resource_root.join(resource_path)
 }
 
-/// 资源路径有效性（对应 TS `isValidResourcePath`）。
+/// 资源路径有效性。
 fn is_valid_resource_path(resource_path: &str) -> bool {
     let trimmed = resource_path.trim();
     if trimmed.is_empty() {
@@ -2113,7 +2113,7 @@ fn is_valid_resource_path(resource_path: &str) -> bool {
         || (!trimmed.contains('\\') && !trimmed.contains('/'))
 }
 
-/// 资源类型 → 约定目录名（对应 TS `normalizeTypeDir`）。
+/// 资源类型 → 约定目录名。
 fn normalize_type_dir(resource_type: &str) -> &'static str {
     // 仅特定类型收敛到约定目录，其他一律归档至 files
     match resource_type {
@@ -2193,7 +2193,7 @@ fn guess_mime_type(resource: &ResourceTask, source_path: &Path) -> &'static str 
 
 /* ------------------------ 与渲染无关的元素工具 ------------------------ */
 
-/// 读取 JSON 对象字符串字段；数字字段转为字符串（对齐 TS 的宽松取值）。
+/// 读取 JSON 对象的字符串字段；数字字段会转为字符串。
 fn str_field(data: &Value, key: &str) -> Option<String> {
     match data.get(key) {
         Some(Value::String(s)) => Some(s.clone()),
@@ -2202,7 +2202,7 @@ fn str_field(data: &Value, key: &str) -> Option<String> {
     }
 }
 
-/// 数字字段展示：缺省 / 非数字时为 0（对应 TS `data?.duration || 0`）。
+/// 数字字段展示：缺省 / 非数字时为 0。
 fn num_field_display(data: &Value, key: &str) -> String {
     match data.get(key) {
         Some(Value::Number(n)) => n.to_string(),
@@ -2637,7 +2637,7 @@ fn utf16_slice(s: &str, max: usize) -> (String, bool) {
     }
 }
 
-/// 渲染合并转发卡片（对应 TS `renderForwardElement`，issue #161 / #434）。
+/// 渲染合并转发卡片。
 fn render_forward_element(exporter: &ModernHtmlExporter, data: &Value, depth: usize) -> String {
     let raw_summary = str_field(data, "summary")
         .or_else(|| str_field(data, "content"))
@@ -2669,7 +2669,7 @@ fn render_forward_element(exporter: &ModernHtmlExporter, data: &Value, depth: us
             usize::try_from(n).unwrap_or(usize::MAX)
         });
     // issue #434：子消息本身可能又是一条合并转发（嵌套[聊天记录]），递归展开成
-    // 内层卡片。解析器侧 MAX_FORWARD_DEPTH=3，这里用同样的上限兜底异常数据。
+    // 内层卡片。解析器侧 MAX_FORWARD_DEPTH=3，这里用同样的上限回退异常数据。
     const MAX_RENDER_DEPTH: usize = 3;
     const INITIAL_FORWARD_LINES: usize = 4;
 
@@ -2823,7 +2823,7 @@ fn render_forward_element(exporter: &ModernHtmlExporter, data: &Value, depth: us
     )
 }
 
-/// 判断 summary 是否像 XML 原文（对应 TS 的 startsWith('<') + 标签正则）。
+/// 判断 summary 是否像 XML 原文。
 fn looks_like_xml(s: &str) -> bool {
     let trimmed = s.trim();
     trimmed.starts_with('<')
@@ -2833,8 +2833,6 @@ fn looks_like_xml(s: &str) -> bool {
             part.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
         })
 }
-
-/// 对应 TS `text.replace(/\s+/g, ' ').trim()`。
 fn normalize_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -2998,7 +2996,7 @@ fn render_location_element(data: &Value) -> String {
 
 /* ------------------------ Chunked：全文检索文本提取 ------------------------ */
 
-/// 提取消息的纯文本用于索引/搜索（不影响原 HTML 渲染，对应 TS `extractPlainText`）。
+/// 提取消息的纯文本用于索引/搜索。
 /// 仅用于 Chunked 模式 message.text 与 Bloom 建索引。
 #[allow(clippy::too_many_lines)]
 fn extract_plain_text(message: &CleanMessage) -> String {
@@ -3160,7 +3158,7 @@ fn extract_plain_text(message: &CleanMessage) -> String {
     parts.join(" ").trim().to_owned()
 }
 
-/// 把消息文本按 2/3-gram 加入 Bloom（对应 TS `addTextToBloom`，按 UTF-16 码元）。
+/// 把消息文本按 2/3-gram 加入 Bloom。
 fn add_text_to_bloom(bloom: &mut BloomFilter, text_lower_units: &[u16]) {
     if text_lower_units.is_empty() {
         return;
@@ -3177,7 +3175,7 @@ fn add_text_to_bloom(bloom: &mut BloomFilter, text_lower_units: &[u16]) {
 
 /* ------------------------ 基础工具 ------------------------ */
 
-/// 是否为系统消息（对应 TS `isSystemMessage`）。
+/// 是否为系统消息。
 fn is_system_message(message: &CleanMessage) -> bool {
     message.message_type == "system"
         || message
@@ -3187,7 +3185,7 @@ fn is_system_message(message: &CleanMessage) -> bool {
             .any(|el| el.element_type == "system")
 }
 
-/// 展示名称：remark > name > uin > uid > "未知用户"（对应 TS `getDisplayName`）。
+/// 展示名称：remark > name > uin > uid > "未知用户"。
 fn get_display_name(message: &CleanMessage) -> String {
     let s = &message.sender;
     if let Some(remark) = s.remark.as_deref().filter(|v| !v.is_empty()) {
@@ -3205,7 +3203,7 @@ fn get_display_name(message: &CleanMessage) -> String {
     "未知用户".to_owned()
 }
 
-/// sender 的筛选 UID：uid || uin || ''（对应 TS chunked 侧取值）。
+/// sender 的筛选 UID：uid || uin || ''。
 fn sender_uid_of(message: &CleanMessage) -> String {
     if !message.sender.uid.is_empty() {
         return message.sender.uid.clone();
@@ -3214,7 +3212,6 @@ fn sender_uid_of(message: &CleanMessage) -> String {
 }
 
 /// 消息时间戳（毫秒）：优先 `timestamp` 字段，缺省时解析 `time` 串。
-/// 对应 TS `safeToDate(message?.timestamp || message?.time)`。
 fn message_ts_ms(message: &CleanMessage) -> Option<i64> {
     if message.timestamp > 0 {
         // 秒级（10 位）时间戳换算为毫秒
@@ -3253,13 +3250,13 @@ fn message_local_date(message: &CleanMessage) -> Option<DateTime<Local>> {
     Local.timestamp_millis_opt(ms).single()
 }
 
-/// 日期 key `YYYY-MM-DD`（对应 TS `getMessageDateInfo().key`）。
+/// 日期 key `YYYY-MM-DD`。
 fn message_date_key(message: &CleanMessage) -> Option<String> {
     let d = message_local_date(message)?;
     Some(format!("{:04}-{:02}-{:02}", d.year(), d.month(), d.day()))
 }
 
-/// 日期标签 `YYYY-MM-DD 周X`（对应 TS `formatDateLabel`）。
+/// 日期标签 `YYYY-MM-DD 周X`。
 fn message_date_label(message: &CleanMessage) -> Option<String> {
     let d = message_local_date(message)?;
     let weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -3272,7 +3269,7 @@ fn message_date_label(message: &CleanMessage) -> Option<String> {
     ))
 }
 
-/// 消息时间展示（对应 TS `formatTime` 的 `toLocaleString('zh-CN')` 全字段输出）。
+/// 消息时间展示。
 fn format_time(time: &str) -> String {
     parse_time_string(time).map_or_else(String::new, locale_datetime_zh)
 }
@@ -3312,7 +3309,7 @@ fn iso_from_ms(ms: i64) -> Value {
         })
 }
 
-/// 头像 HTML（对应 TS `generateAvatarHtml`）。
+/// 头像 HTML。
 fn generate_avatar_html(uin: Option<&str>, name: Option<&str>) -> String {
     match uin.filter(|u| !u.is_empty()) {
         Some(uin) => {
@@ -3352,14 +3349,14 @@ fn avatar_fallback_color(seed: &str) -> String {
     format!("hsl({} 58% 48%)", hash % 360)
 }
 
-/// 取首字符并大写（对应 TS `name.charAt(0).toUpperCase()`）。
+/// 取首字符并大写。
 fn first_char_upper(name: &str) -> String {
     name.chars()
         .next()
         .map_or_else(String::new, |c| c.to_uppercase().collect())
 }
 
-/// 根据 QQ 表情 ID 获取友好名称（对应 TS `getFaceNameById`）。
+/// 根据 QQ 表情 ID 获取友好名称。
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn get_face_name_by_id(id: &str) -> String {

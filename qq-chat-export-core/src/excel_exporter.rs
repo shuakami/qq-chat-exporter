@@ -6,7 +6,7 @@ use rust_xlsxwriter::{Workbook, Worksheet};
 use serde_json::Value;
 use std::time::Instant;
 
-/// 列宽设置（对应 TS `ExcelFormatOptions.columnWidths`）。
+/// 列宽设置。
 #[derive(Debug, Clone)]
 pub struct ExcelColumnWidths {
     /// 时间列宽。
@@ -30,7 +30,7 @@ impl Default for ExcelColumnWidths {
     }
 }
 
-/// Excel 格式选项（对应 TS `ExcelFormatOptions`）。
+/// Excel 格式选项。
 #[derive(Debug, Clone)]
 pub struct ExcelFormatOptions {
     /// 主工作表名称。
@@ -57,7 +57,7 @@ impl Default for ExcelFormatOptions {
     }
 }
 
-/// 发送者统计条目（对应 TS `MessageStatistics.bySender` 的值）。
+/// 发送者统计条目。
 #[derive(Debug, Clone)]
 pub struct SenderEntry {
     /// 发送者 UID。
@@ -68,7 +68,7 @@ pub struct SenderEntry {
     pub count: u64,
 }
 
-/// 消息统计（对应 TS `MessageStatistics`）。
+/// 消息统计。
 #[derive(Debug, Clone, Default)]
 pub struct MessageStatistics {
     /// 消息总数。
@@ -91,7 +91,7 @@ pub struct MessageStatistics {
     pub duration_days: i64,
 }
 
-/// 计算消息统计（对应 TS `SimpleMessageParser.calculateStatistics`）。
+/// 计算消息统计。
 #[must_use]
 pub fn calculate_statistics(messages: &[CleanMessage]) -> MessageStatistics {
     let mut stats = MessageStatistics {
@@ -233,7 +233,7 @@ impl ExcelExporter {
         })
     }
 
-    /// 添加聊天记录工作表（对应 TS `addMessagesSheet`）。
+    /// 添加聊天记录工作表。
     fn add_messages_sheet(
         &self,
         workbook: &mut Workbook,
@@ -278,7 +278,7 @@ impl ExcelExporter {
             sheet.write_number(row, col, msg.content.resources.len() as f64)?;
         }
 
-        // 列宽（与 TS !cols wch 一致）
+        // 工作表列宽
         let w = &self.excel_options.column_widths;
         let mut widths: Vec<f64> = vec![8.0, w.timestamp, w.sender, 16.0];
         if has_title_column {
@@ -291,7 +291,7 @@ impl ExcelExporter {
         Ok(())
     }
 
-    /// 添加统计信息工作表（对应 TS `addStatisticsSheet`）。
+    /// 添加统计信息工作表。
     fn add_statistics_sheet(
         &self,
         workbook: &mut Workbook,
@@ -349,7 +349,7 @@ impl ExcelExporter {
         Ok(())
     }
 
-    /// 添加发送者统计工作表（对应 TS `addSenderStatsSheet`）。
+    /// 添加发送者统计工作表。
     fn add_sender_stats_sheet(
         &self,
         workbook: &mut Workbook,
@@ -389,7 +389,7 @@ impl ExcelExporter {
         Ok(())
     }
 
-    /// 添加资源统计工作表（对应 TS `addResourceStatsSheet`）。
+    /// 添加资源统计工作表。
     fn add_resource_stats_sheet(
         &self,
         workbook: &mut Workbook,
@@ -452,7 +452,7 @@ fn write_string_row(sheet: &mut Worksheet, row: u32, values: &[&str]) -> ExportR
     Ok(())
 }
 
-/// 发送者展示名称（对应 TS `getSenderDisplayName`）。
+/// 发送者展示名称。
 fn sender_display_name(msg: &CleanMessage) -> &str {
     if !msg.sender.name.is_empty() {
         &msg.sender.name
@@ -463,7 +463,7 @@ fn sender_display_name(msg: &CleanMessage) -> &str {
     }
 }
 
-/// 消息类型标签（对应 TS `getMessageTypeLabel`；未知类型原样返回）。
+/// 消息类型标签（未知类型原样返回）。
 #[must_use]
 pub fn message_type_label(msg_type: &str) -> &str {
     match msg_type {
@@ -481,7 +481,7 @@ pub fn message_type_label(msg_type: &str) -> &str {
     }
 }
 
-/// 提取消息的文本内容（对应 TS `extractTextContent`）。
+/// 提取消息的文本内容。
 #[must_use]
 pub fn extract_text_content(msg: &CleanMessage) -> String {
     let mut text = msg.content.text.clone();

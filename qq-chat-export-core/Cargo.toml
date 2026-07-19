@@ -24,7 +24,7 @@ unsafe_code = "forbid"
 [lints.clippy]
 all = { level = "deny", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
-# 以下 pedantic 项与「与 TS 版逐行对齐」的移植目标冲突，显式豁免并说明原因：
+# 以下 pedantic 规则与当前 API 形状或控制流冲突，显式豁免并说明原因：
 # - match_same_arms: QQ 表情 ID 映射表等按 TS 源码逐项排列，合并同值分支会破坏可比对性
 match_same_arms = "allow"
 # - missing_errors_doc / missing_panics_doc: 错误语义统一由 ExportError 文档承载
@@ -38,7 +38,7 @@ doc_markdown = "allow"
 # - unused_self / too_many_lines / items_after_statements / struct_excessive_bools /
 #   single_match_else / similar_names / needless_continue / needless_pass_by_value /
 #   format_push_string / assigning_clones / needless_raw_string_hashes:
-#   保持与 TS 方法结构、选项字段与控制流一一对应，优先可比对性
+#   保持现有方法结构、选项字段和控制流，避免无关重构
 unused_self = "allow"
 too_many_lines = "allow"
 items_after_statements = "allow"

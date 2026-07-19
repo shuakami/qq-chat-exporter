@@ -24,9 +24,9 @@ pub const MODERN_CHUNKED_INDEX_HTML_TEMPLATE: &str =
 /// Chunked viewer 应用脚本（assets/app.js）。
 pub const MODERN_CHUNKED_APP_JS: &str = include_str!("../assets/modern_chunked_app.js");
 
-/// 模板渲染：替换 `{{KEY}}` 占位符（对应 TS `renderTemplate`）。
+/// 模板渲染：替换 `{{KEY}}` 占位符。
 ///
-/// 与 TS 语义一致：占位符名为 `\w+`，未提供的键替换为空串。
+/// 占位符名匹配 `\w+`；未提供的键替换为空字符串。
 #[must_use]
 pub fn render_template(template: &str, vars: &[(&str, &str)]) -> String {
     let mut out = String::with_capacity(template.len());

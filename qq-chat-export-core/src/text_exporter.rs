@@ -7,10 +7,10 @@ use chrono::Local;
 use serde_json::Value;
 use std::time::Instant;
 
-/// 时间戳格式（对应 TS `TextFormatOptions.timestampFormat`）。
+/// 时间戳格式。
 pub type TextTimestampFormat = TimeFormat;
 
-/// 文本格式选项（对应 TS `TextFormatOptions`）。
+/// 文本格式选项。
 #[derive(Debug, Clone)]
 pub struct TextFormatOptions {
     /// 消息之间的分隔符。
@@ -50,7 +50,7 @@ pub struct TextExporter {
 }
 
 /// issue #128：把被引用消息时间戳渲染成 `MM-DD HH:MM` 标签（本地时区，
-/// 与 TS `formatReplyTimeLabel` 的 `Date#getMonth` 等本地取值一致）。
+/// 使用本地时间的年、月、日和时分生成标签。
 fn format_reply_time_label(ts: i64) -> String {
     if ts <= 0 {
         return String::new();
@@ -84,7 +84,7 @@ impl TextExporter {
         &mut self.ctx
     }
 
-    /// 导出入口（对应 TS `BaseExporter.export` + `generateContent`）。
+    /// 导出入口。
     pub async fn export(
         &self,
         messages: Vec<CleanMessage>,
@@ -209,7 +209,7 @@ impl TextExporter {
         ]
     }
 
-    /// 格式化单条消息（对应 TS `formatMessage`）。
+    /// 格式化单条消息。
     fn format_message(&self, message: &CleanMessage, message_number: usize) -> Vec<String> {
         let mut lines: Vec<String> = Vec::new();
 
@@ -314,7 +314,7 @@ impl TextExporter {
         lines.iter().map(|line| self.wrap_line(line)).collect()
     }
 
-    /// 换行处理（对应 TS `wrapLine`，按字符数简单折行）。
+    /// 换行处理。
     fn wrap_line(&self, line: &str) -> String {
         let width = self.text_options.line_width;
         let chars: Vec<char> = line.chars().collect();
@@ -328,7 +328,7 @@ impl TextExporter {
         chunks.join(&format!("\n{}", self.text_options.indent_char))
     }
 
-    /// 计算消息的实际时间范围（对应 TS `calculateTimeRange`）。
+    /// 计算消息的实际时间范围。
     fn calculate_time_range(&self, messages: &[CleanMessage]) -> Option<String> {
         let mut earliest: Option<i64> = None;
         let mut latest: Option<i64> = None;
@@ -348,7 +348,7 @@ impl TextExporter {
     }
 }
 
-/// 聊天类型显示名称（对应 TS `getChatTypeDisplayName`）。
+/// 聊天类型显示名称。
 #[must_use]
 pub fn chat_type_display_name(chat_type: &str) -> &'static str {
     match chat_type {

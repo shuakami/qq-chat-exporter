@@ -16,9 +16,9 @@ use qce_exporter::types::{ChatInfo, CleanMessage};
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
 
-// ===================
+
 // 通用小工具
-// ===================
+
 
 fn iso(time: std::time::SystemTime) -> String {
     DateTime::<Utc>::from(time).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
@@ -98,9 +98,9 @@ fn ext_of(name: &str) -> String {
         .unwrap_or_default()
 }
 
-// ===================
+
 // 导出文件名解析（Issue #216 新旧格式兼容）
-// ===================
+
 
 fn valid_qq_uin(value: &str) -> bool {
     value != "0" && !value.is_empty() && value.chars().all(|c| c.is_ascii_digit())
@@ -276,9 +276,9 @@ fn strip_suffix_ci<'a>(input: &'a str, suffix: &str) -> Option<&'a str> {
     }
 }
 
-// ===================
+
 // 导出文件元数据解析
-// ===================
+
 
 #[derive(Default)]
 struct FileMetadata {
@@ -428,9 +428,9 @@ async fn display_name_for_chat(
     }
 }
 
-// ===================
+
 // 目录扫描
-// ===================
+
 
 /// 高性能目录统计（递归文件数 + 总大小）。
 fn scan_directory_stats(dir: &FsPath) -> (i64, i64) {
@@ -568,9 +568,9 @@ async fn scan_export_dir(
     }
 }
 
-// ===================
+
 // GET /api/exports/files
-// ===================
+
 
 /// 获取导出文件列表（聊天记录索引页面）。
 pub async fn list_export_files(
@@ -597,9 +597,9 @@ pub async fn list_export_files(
     response::success(json!({ "files": files }), &request_id)
 }
 
-// ===================
+
 // GET /api/exports/files/:fileName/info
-// ===================
+
 
 /// 获取特定导出文件的详细信息。
 pub async fn export_file_info(
@@ -721,9 +721,9 @@ pub async fn export_file_info(
     response::success(result, &request_id)
 }
 
-// ===================
+
 // DELETE /api/exports/files/:fileName（Issue #32）
-// ===================
+
 
 /// 删除导出文件（HTML + JSON + 资源目录）。
 pub async fn delete_export_file(
@@ -769,9 +769,9 @@ pub async fn delete_export_file(
     )
 }
 
-// ===================
+
 // GET /api/exports/files/:fileName/preview
-// ===================
+
 
 fn escape_html(text: &str) -> String {
     text.replace('&', "&amp;")
@@ -909,9 +909,9 @@ pub async fn preview_export_file(
         .into_response()
 }
 
-// ===================
+
 // GET /api/exports/files/:fileName/resources/*path
-// ===================
+
 
 /// 构建单个资源目录的文件名缓存（shortName → 实际文件名）。
 async fn build_resource_cache(state: &SharedState, dir_path: &str) -> HashMap<String, String> {
@@ -1084,9 +1084,9 @@ async fn find_export_local_resource(
     None
 }
 
-// ===================
+
 // GET /api/resources/index
-// ===================
+
 
 /// 构建完整的资源索引（全局资源目录 + ZIP + JSONL）。
 pub async fn resources_index(
@@ -1244,9 +1244,9 @@ pub async fn resources_index(
     )
 }
 
-// ===================
+
 // GET /api/resources/export/:fileName
-// ===================
+
 
 /// 获取特定导出文件的资源列表。
 pub async fn export_file_resources(
@@ -1311,9 +1311,9 @@ pub async fn export_file_resources(
     response::success(json!({ "resources": resources }), &request_id)
 }
 
-// ===================
+
 // GET /api/resources/files
-// ===================
+
 
 /// `nameSearch` 子串最大长度。
 const MAX_NAME_SEARCH_LENGTH: usize = 200;
@@ -1418,9 +1418,9 @@ pub async fn global_resource_files(
     )
 }
 
-// ===================
+
 // GET /api/download-file（Issue #192）
-// ===================
+
 
 /// 动态下载 API（自定义导出路径的文件下载，含路径安全校验）。
 pub async fn download_file(
@@ -1515,9 +1515,9 @@ pub async fn download_file(
         .into_response()
 }
 
-// ===================
+
 // POST /api/open-file-location / /api/open-export-directory
-// ===================
+
 
 fn extract_html_time_range(html: &str) -> Option<String> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -1611,9 +1611,9 @@ pub async fn open_export_directory(
     )
 }
 
-// ===================
+
 // 手动导出文件名解析（Issue #163）
-// ===================
+
 
 /// 手动导出文件名解析结果。
 struct ManualExportInfo {
@@ -1657,9 +1657,9 @@ fn parse_manual_export_file_name(file_name: &str) -> Option<ManualExportInfo> {
     })
 }
 
-// ===================
+
 // GET /api/merge-resources/available-tasks
-// ===================
+
 
 /// 获取可用于合并的备份列表（定时备份 + 手动导出，按会话分组）。
 pub async fn merge_available_tasks(
@@ -1818,9 +1818,9 @@ pub async fn merge_available_tasks(
     )
 }
 
-// ===================
+
 // POST /api/merge-resources（ResourceMerger 移植）
-// ===================
+
 
 struct MergeSource {
     html_file: PathBuf,

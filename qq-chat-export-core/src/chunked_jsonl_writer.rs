@@ -4,7 +4,7 @@ use crate::stream_utils::{BufferedTextWriter, DEFAULT_FLUSH_THRESHOLD};
 use serde::Serialize;
 use std::path::PathBuf;
 
-/// chunk 元信息（对应 TS `ChunkedJsonlChunkInfo`）。
+/// chunk 元信息。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChunkedJsonlChunkInfo {
@@ -30,7 +30,7 @@ pub struct ChunkedJsonlChunkInfo {
     pub end_ts_ms: Option<i64>,
 }
 
-/// 写入器配置（对应 TS `ChunkedJsonlWriterOptions`）。
+/// 写入器配置。
 pub struct ChunkedJsonlWriterOptions {
     /// chunk 输出目录（绝对路径）。
     pub chunks_dir: PathBuf,

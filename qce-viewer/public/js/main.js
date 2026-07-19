@@ -2,7 +2,6 @@
 let allChats = [];
 let currentFilter = 'all';
 
-// 初始化
 document.addEventListener('DOMContentLoaded', () => {
     loadData();
     setupSearch();

@@ -347,7 +347,7 @@ pub async fn group_join_requests(
     )
 }
 
-/// 精华消息内容项映射（对应 TS msg_content 的 map）。
+/// 精华消息内容项映射。
 fn map_essence_content(content: Option<&Value>) -> Vec<Value> {
     content
         .and_then(Value::as_array)
@@ -441,7 +441,7 @@ pub async fn group_essence(
     )
 }
 
-/// 查群名（找不到时返回 `群<code>` 兜底）。
+/// 查群名（找不到时返回 `群<code>` 回退）。
 async fn lookup_group_name(state: &SharedState, group_code: &str, fallback_prefix: bool) -> String {
     if let Ok(groups) = state.napcat.get_groups(false).await {
         if let Some(list) = groups.as_array() {
@@ -467,7 +467,7 @@ async fn lookup_group_name(state: &SharedState, group_code: &str, fallback_prefi
     }
 }
 
-/// 生成精华消息 HTML（对应 TS `generateEssenceHtml` 的等价简洁实现）。
+/// 生成精华消息 HTML。
 fn generate_essence_html(group_name: &str, group_code: &str, messages: &[Value]) -> String {
     let escape = qce_exporter::base::escape_html;
     let mut items = String::new();

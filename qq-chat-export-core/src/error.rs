@@ -26,7 +26,7 @@ pub enum ExportError {
     #[error("Excel 生成失败: {0}")]
     Xlsx(#[from] rust_xlsxwriter::XlsxError),
 
-    /// 导出被调用方取消（对应 TS 的「导出已取消」）。
+    /// 导出被调用方取消。
     #[error("导出已取消")]
     Cancelled,
 
