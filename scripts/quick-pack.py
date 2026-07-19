@@ -19,7 +19,7 @@ def get_qce_version():
     # Priority: QCE_VERSION env > package.json
     if os.environ.get('QCE_VERSION'):
         return os.environ['QCE_VERSION'].lstrip('v')
-
+    
     try:
         with open('plugins/qq-chat-exporter/package.json', 'r', encoding='utf-8') as f:
             pkg = json.load(f)
@@ -35,7 +35,7 @@ def get_platform_info():
     """Detect current platform"""
     system = platform.system()
     machine = platform.machine().lower()
-
+    
     if system == "Windows":
         return "Windows", "x64", ".zip"
     elif system == "Darwin":
@@ -125,7 +125,7 @@ def rewrite_runtime_plugin_package(plugin_dir):
 def create_archive(source_dir, output_file, format_type):
     """Create archive (zip or tar.gz)"""
     print(f"[->] Creating archive: {output_file}")
-
+    
     if format_type == ".zip":
         with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
             for root, dirs, files in os.walk(source_dir):
@@ -136,7 +136,7 @@ def create_archive(source_dir, output_file, format_type):
     else:
         with tarfile.open(output_file, "w:gz") as tar:
             tar.add(source_dir, arcname=os.path.basename(source_dir))
-
+    
     size = os.path.getsize(output_file)
     print(f"[x] Created: {output_file} ({size / 1024 / 1024:.2f} MB)")
 
@@ -145,28 +145,28 @@ def main():
     print("NapCat + QCE Plugin - Complete Package Builder")
     print("=" * 50)
     print()
-
+    
     # Detect platform
     os_name, arch, archive_ext = get_platform_info()
-
+    
     # Get QCE version for output filename
     qce_version = VERSION
     print(f"[*] QCE Version: {qce_version}")
-
+    
     # Directory name (without version for internal use)
     pack_dir = f"NapCat-QCE-{os_name}-{arch}"
     # Output filename (with version)
     output_basename = f"NapCat-QCE-{os_name}-{arch}-v{qce_version}"
-
+    
     print(f"[*] Platform: {os_name} {arch}")
     print(f"[*] Package: {output_basename}")
     print()
-
+    
     # Get NapCat version
     napcat_version = get_napcat_latest_version()
     napcat_url = f"https://github.com/NapNeko/NapCatQQ/releases/download/{napcat_version}/NapCat.Shell.zip"
     print()
-
+    
     # Clean old files
     print("[2/11] Cleaning old files...")
     if os.path.exists(pack_dir):
@@ -177,7 +177,7 @@ def main():
         shutil.rmtree("temp_napcat_extract")
     print("[x] Cleaned")
     print()
-
+    
     # Download NapCat
     print(f"[3/11] Downloading NapCat.Shell {napcat_version}...")
     try:
@@ -186,7 +186,7 @@ def main():
         print(f"[!] Download failed: {e}")
         sys.exit(1)
     print()
-
+    
     # Extract NapCat
     print("[4/11] Extracting NapCat.Shell...")
     temp_extract_dir = "temp_napcat_extract"
@@ -194,7 +194,7 @@ def main():
         shutil.rmtree(temp_extract_dir)
     os.makedirs(temp_extract_dir)
     extract_zip("NapCat.Shell.zip", temp_extract_dir)
-
+    
     # Check if there's a NapCat.Shell subdirectory or if files are directly in temp dir
     extracted_napcat = os.path.join(temp_extract_dir, "NapCat.Shell")
     if os.path.exists(extracted_napcat):
@@ -204,7 +204,7 @@ def main():
     else:
         # If files are directly in temp dir, rename the temp dir
         os.rename(temp_extract_dir, pack_dir)
-
+    
     # Fix NapCat bug: loadNapCat.js has wrong path (./napcat/napcat.mjs instead of ./napcat.mjs)
     load_napcat_path = os.path.join(pack_dir, "loadNapCat.js")
     if os.path.exists(load_napcat_path):
@@ -247,10 +247,10 @@ const CurrentPath = path.dirname(__filename);
         print(f"[x] Removed {len(pruned)} other-platform file(s): {', '.join(pruned)}")
     else:
         print("[x] No other-platform artifacts to remove")
-
+    
     # Update launcher scripts with portable QQ support (GUI file picker + path memory)
     print("[4.2/11] Updating launcher scripts with portable QQ support...")
-
+    
     # Common launcher logic for portable QQ support.
     #
     # Notes on `(x86)` paths (issue #291):
@@ -629,17 +629,17 @@ pause
         print("[x] Launcher scripts updated")
     else:
         print("[x] Skipped Windows .bat launchers (non-Windows build)")
-
+    
     print("[x] Extracted")
     print()
-
+    
     # Create plugin directories
     print("[5/11] Creating plugin directories...")
     os.makedirs(f"{pack_dir}/plugins", exist_ok=True)
     os.makedirs(f"{pack_dir}/static", exist_ok=True)
     print("[x] Created")
     print()
-
+    
     # Copy plugin files
     print("[6/11] Copying plugin files...")
     plugin_dir = f"{pack_dir}/plugins/{RUNTIME_PLUGIN_ID}"
@@ -651,7 +651,7 @@ pause
     )
     print("[x] Copied")
     print()
-
+    
     # Copy frontend files
     print("[8/11] Copying frontend files...")
     frontend_out = os.environ.get("QCE_FRONTEND_OUT", "qce-v4-tool/out")
@@ -666,12 +666,12 @@ pause
     copy_directory(frontend_out, f"{pack_dir}/static/qce")
     print("[x] Copied")
     print()
-
+    
     # Update config files
     print("[9/11] Updating config files...")
     config_dir = f"{pack_dir}/config"
     os.makedirs(config_dir, exist_ok=True)
-
+    
     napcat_config = {
         "fileLog": False,
         "consoleLog": True,
@@ -686,7 +686,7 @@ pause
         "napcat-plugin-builtin": True,
         RUNTIME_PLUGIN_ID: True
     }
-
+    
     onebot_config = {
         "network": {
             "httpServers": [],
@@ -704,7 +704,7 @@ pause
         "reportSelfMessage": False,
         "token": ""
     }
-
+    
     with open(f"{config_dir}/napcat.json", "w") as f:
         json.dump(napcat_config, f, indent=2)
 
@@ -715,14 +715,14 @@ pause
         json.dump(onebot_config, f, indent=2)
 
     write_napcat_builtin_plugin_config(config_dir)
-
+    
     print("[x] Updated")
     print()
-
+    
     # Pre-compile qq_magic.so for Linux (fixes qq_magic_napi_register symbol issue)
     if os_name == "Linux":
         print("[9.3/11] Pre-compiling qq_magic.so for Linux...")
-
+        
         # Linux QQ does not export qq_magic_napi_register, the symbol NapCat
         # uses to bypass module-signing checks.  We ship a tiny stub library
         # that defines the symbol and forwards to the real
@@ -815,7 +815,7 @@ extern "C" void qq_magic_napi_register(void *m) {
 
     # Create standalone mode scripts
     print("[9.5/11] Creating standalone mode scripts...")
-
+    
     # Create standalone mode launcher
     standalone_mjs = '''#!/usr/bin/env node
 /**
@@ -885,10 +885,10 @@ async function main() {
 
 main();
 '''
-
+    
     with open(f"{pack_dir}/qce-standalone.mjs", "w", encoding="utf-8", newline="\n") as f:
         f.write(standalone_mjs)
-
+    
     # Create Windows batch launcher for standalone mode
     if os_name == "Windows":
         # Issue #286：以管理员双击 .bat 时 CMD 初始 CWD 是 C:\\Windows\\system32，
@@ -938,7 +938,7 @@ pause
 '''.replace("__RUNTIME_PLUGIN_ID__", RUNTIME_PLUGIN_ID)
         with open(f"{pack_dir}/start-standalone.bat", "w", encoding="utf-8") as f:
             f.write(standalone_bat)
-
+    
     # Create Linux/macOS shell launcher for standalone mode
     if os_name != "Windows":
         standalone_sh = '''#!/bin/bash
@@ -952,6 +952,7 @@ echo "[QCE] 独立模式"
 echo "[QCE] 无需登录QQ即可浏览已导出的聊天记录"
 echo ""
 
+# 检查 Node.js
 if ! command -v node &> /dev/null; then
     echo "[错误] 未检测到 Node.js"
     echo ""
@@ -969,14 +970,14 @@ node qce-standalone.mjs "$@"
         standalone_sh_path = f"{pack_dir}/start-standalone.sh"
         with open(standalone_sh_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(standalone_sh)
-
+        
         # Make it executable
         import stat
         os.chmod(standalone_sh_path, os.stat(standalone_sh_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-
+    
     print("[x] Created standalone scripts")
     print()
-
+    
     # Create launcher script for Linux/macOS
     if os_name != "Windows":
         print("[9.6/11] Creating launcher script...")
@@ -1034,15 +1035,15 @@ await import(napcatUrl);
         launcher_path = f"{pack_dir}/launcher-user.sh"
         with open(launcher_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(launcher_script)
-
+        
         # Make it executable
         os.chmod(launcher_path, os.stat(launcher_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         print("[x] Created (with napcat-bootstrap.mjs shim, issue #269)")
         print()
-
+    
     # Create README
     print("[10/11] Creating README...")
-
+    
     if os_name == "Windows":
         usage_steps = """使用方法:
 1. 解压到任意目录
@@ -1086,7 +1087,7 @@ Linux 说明:
 - 启动脚本会自动加载，无需额外配置"""
         else:  # macOS
             usage_steps += "\n\nmacOS 用户: 运行 xattr -r -d com.apple.quarantine . 移除系统隔离"
-
+    
     readme_content = f"""{"=" * 50}
 NapCat + QQ Chat Exporter - 完整包
 {"=" * 50}
@@ -1120,13 +1121,13 @@ QCE 版本: {VERSION}
 - QCE 插件: https://github.com/shuakami/qq-chat-exporter
 {"=" * 50}
 """
-
+    
     with open(f"{pack_dir}/README.txt", "w", encoding="utf-8") as f:
         f.write(readme_content)
-
+    
     print("[x] Created")
     print()
-
+    
     # Build and bundle the Rust server binary
     print("[10.5/11] Building Rust server (qce-server)...")
     build_rust_server(pack_dir)
@@ -1137,13 +1138,13 @@ QCE 版本: {VERSION}
     output_file = f"{output_basename}{archive_ext}"
     create_archive(pack_dir, output_file, archive_ext)
     print()
-
+    
     # Clean up
     if os.path.exists("NapCat.Shell.zip"):
         os.remove("NapCat.Shell.zip")
     if os.path.exists("temp_napcat_extract"):
         shutil.rmtree("temp_napcat_extract")
-
+    
     # Summary
     print("=" * 50)
     print("[x] Package Complete!")
