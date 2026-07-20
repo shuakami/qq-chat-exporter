@@ -249,12 +249,19 @@ export async function startRustApiServer(core, frontendPath) {
   if (frontendPath) {
     env.QCE_STATIC_DIR = frontendPath;
   }
-  const child = spawn(binaryPath, [], {
-    cwd: path.dirname(binaryPath),
-    env,
-    windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
+  let child;
+  try {
+    child = spawn(binaryPath, [], {
+      cwd: path.dirname(binaryPath),
+      env,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+  } catch (error) {
+    appendRuntimeLog(logFile, '[qce-plugin]', `startup failed: ${error instanceof Error ? error.message : String(error)}`);
+    await bridge.stop();
+    throw error;
+  }
 
   const stdioCaptured = process.env.QCE_STDIO_CAPTURED === '1';
   child.stdout?.on('data', (chunk) => {
