@@ -59,11 +59,23 @@ body:
     id: error
     attributes:
       label: "📋 错误信息"
+      description: "来自控制台、浏览器或程序目录下的 `logs` 文件夹"
       render: shell
       placeholder: |
         粘贴控制台或浏览器的错误信息
         
         如果是闪退，尝试用 cmd 运行 bat 文件查看输出
+
+  - type: checkboxes
+    id: evidence
+    attributes:
+      label: "📎 日志和截图确认"
+      description: "请确认已提供完整日志和必要截图；如果某项不适用，请在问题描述中说明原因。"
+      options:
+        - label: "我已提供完整日志；即使启动失败，也已提供启动失败时生成的日志。"
+          required: true
+        - label: "我已提供必要截图；如果不适用，已在问题描述中说明。"
+          required: true
 
   - type: checkboxes
     id: checklist

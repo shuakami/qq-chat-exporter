@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
@@ -25,6 +25,27 @@ export function bridgeJsonReplacer(_key, value) {
 
 function runtimeDir() {
   return path.dirname(fileURLToPath(import.meta.url));
+}
+
+function runtimeLogFile() {
+  const pluginRoot = path.resolve(runtimeDir(), '..');
+  const logDir = process.env.QCE_LOG_DIR
+    ? path.resolve(process.env.QCE_LOG_DIR)
+    : path.join(pluginRoot, 'logs');
+  const logFile = process.env.QCE_LOG_FILE
+    ? path.resolve(process.env.QCE_LOG_FILE)
+    : path.join(logDir, 'qce-runtime.log');
+  mkdirSync(path.dirname(logFile), { recursive: true });
+  return logFile;
+}
+
+function appendRuntimeLog(logFile, prefix, message) {
+  const text = String(message);
+  try {
+    appendFileSync(logFile, `[${new Date().toISOString()}] ${prefix} ${text}${text.endsWith('\n') ? '' : '\n'}`);
+  } catch (error) {
+    console.error(`[QCE] failed to write runtime log: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function executableName() {
@@ -199,19 +220,31 @@ async function waitForPort(child, port, timeoutMs = 15_000) {
 }
 
 export async function startRustApiServer(core, frontendPath) {
+  const logFile = runtimeLogFile();
+  appendRuntimeLog(logFile, '[qce-plugin]', 'starting qce-server');
   const binaryPath = findRustServerBinary();
   if (!binaryPath) {
-    throw new Error(
+    const error = new Error(
       `qce-server is required but was not found for ${process.platform}-${process.arch}`
     );
+    appendRuntimeLog(logFile, '[qce-plugin]', `startup failed: ${error.message}`);
+    throw error;
   }
 
-  const bridge = await createNapCatBridge(core);
+  let bridge;
+  try {
+    bridge = await createNapCatBridge(core);
+  } catch (error) {
+    appendRuntimeLog(logFile, '[qce-plugin]', `bridge startup failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
+  }
   /** @type {NodeJS.ProcessEnv} */
   const env = {
     ...process.env,
     QCE_BRIDGE_ENDPOINT: `http://${BRIDGE_HOST}:${bridge.port}`,
-    QCE_SERVER_PORT: String(API_PORT)
+    QCE_SERVER_PORT: String(API_PORT),
+    QCE_LOG_DIR: path.dirname(logFile),
+    QCE_LOG_FILE: logFile
   };
   if (frontendPath) {
     env.QCE_STATIC_DIR = frontendPath;
@@ -223,16 +256,34 @@ export async function startRustApiServer(core, frontendPath) {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
+  const stdioCaptured = process.env.QCE_STDIO_CAPTURED === '1';
   child.stdout?.on('data', (chunk) => {
+    if (!stdioCaptured) {
+      appendRuntimeLog(logFile, '[qce-server]', chunk);
+    }
     core.context.logger.log(`[qce-server] ${String(chunk).trimEnd()}`);
   });
   child.stderr?.on('data', (chunk) => {
+    if (!stdioCaptured) {
+      appendRuntimeLog(logFile, '[qce-server]', chunk);
+    }
     core.context.logger.logError(`[qce-server] ${String(chunk).trimEnd()}`);
+  });
+  child.on('error', (error) => {
+    appendRuntimeLog(logFile, '[qce-plugin]', `process error: ${error.message}`);
+  });
+  child.on('exit', (code, signal) => {
+    appendRuntimeLog(logFile, '[qce-plugin]', `qce-server exited code=${code ?? 'null'} signal=${signal ?? 'null'}`);
   });
 
   try {
-    await waitForPort(child, API_PORT);
+    await Promise.race([
+      waitForPort(child, API_PORT),
+      new Promise((_, reject) => child.once('error', reject))
+    ]);
+    appendRuntimeLog(logFile, '[qce-plugin]', `qce-server ready on port ${API_PORT}`);
   } catch (error) {
+    appendRuntimeLog(logFile, '[qce-plugin]', `startup failed: ${error instanceof Error ? error.message : String(error)}`);
     child.kill();
     await bridge.stop();
     throw error;
@@ -241,6 +292,7 @@ export async function startRustApiServer(core, frontendPath) {
   return {
     async stop() {
       if (child.exitCode === null) {
+        appendRuntimeLog(logFile, '[qce-plugin]', 'stopping qce-server');
         child.kill();
         await new Promise((resolve) => {
           const timer = setTimeout(resolve, 2_000);

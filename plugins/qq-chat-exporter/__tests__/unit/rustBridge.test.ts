@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import net from 'node:net';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
     bridgeJsonReplacer,
-    createNapCatBridge
+    createNapCatBridge,
+    startRustApiServer
 } from '../../runtime/rustBridge.mjs';
+
+import { createTempDir } from '../helpers/tempDir.js';
 
 async function freePort(): Promise<number> {
     const server = net.createServer();
@@ -96,5 +101,38 @@ test('bridge exposes raw NapCat services with the original arguments', async () 
         });
     } finally {
         await bridge.stop();
+    }
+});
+
+
+test('qce-server spawn failures are written to the configured runtime log', async () => {
+    const tmp = createTempDir('rust-bridge-log-');
+    const binary = path.join(tmp.path, process.platform === 'win32' ? 'qce-server.exe' : 'qce-server');
+    const logFile = path.join(tmp.path, 'logs', 'qce-runtime.log');
+    fs.writeFileSync(binary, 'not an executable');
+    const previousBinary = process.env.QCE_RUST_SERVER_PATH;
+    const previousLogFile = process.env.QCE_LOG_FILE;
+    process.env.QCE_RUST_SERVER_PATH = binary;
+    process.env.QCE_LOG_FILE = logFile;
+    const core = {
+        context: {
+            logger: {
+                log() {},
+                logError() {}
+            }
+        }
+    };
+
+    try {
+        await assert.rejects(() => startRustApiServer(core, undefined));
+        const log = fs.readFileSync(logFile, 'utf8');
+        assert.ok(log.includes('[qce-plugin] starting qce-server'));
+        assert.match(log, /\[qce-plugin\] (process error|startup failed|bridge startup failed|qce-server exited)/);
+    } finally {
+        if (previousBinary === undefined) delete process.env.QCE_RUST_SERVER_PATH;
+        else process.env.QCE_RUST_SERVER_PATH = previousBinary;
+        if (previousLogFile === undefined) delete process.env.QCE_LOG_FILE;
+        else process.env.QCE_LOG_FILE = previousLogFile;
+        tmp.cleanup();
     }
 });

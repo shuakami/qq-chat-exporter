@@ -196,14 +196,18 @@ pub async fn start_install(
     options: InstallOptions,
 ) -> Result<(), String> {
     let install_dir = PathBuf::from(&options.install_path);
+    let _ = std::fs::create_dir_all(install_dir.join("logs"));
+    util::installer_log(&install_dir, "installation started");
 
     // Kill any running NapCat / headless QQ first — they hold file locks on
     // the install directory that would make extraction fail with "另一个程序
     // 正在使用此文件".
     crate::service::kill_stale_runtime();
 
-    check_writable(&install_dir)
-        .map_err(|e| format!("无法写入安装目录（{e}），请更换安装位置后重试"))?;
+    check_writable(&install_dir).map_err(|e| {
+        util::installer_log(&install_dir, &format!("installation failed: cannot write install directory: {e}"));
+        format!("无法写入安装目录（{e}），请更换安装位置后重试")
+    })?;
 
     // The release build appends the full Shell package to the end of this exe,
     // so a normal run is a single self-contained file with no network download.
@@ -218,16 +222,28 @@ pub async fn start_install(
             extract_archive(&app_clone, &mut archive, &extract_dir)
         })
         .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("解压失败：{e}"))?;
+        .map_err(|e| {
+            util::installer_log(&install_dir, &format!("installation failed: extraction task: {e}"));
+            e.to_string()
+        })?
+        .map_err(|e| {
+            util::installer_log(&install_dir, &format!("installation failed: extraction: {e}"));
+            format!("解压失败：{e}")
+        })?;
     } else {
         emit(&app, "install-progress", 2.0, "正在获取最新版本信息...", "Downloading");
-        let asset = resolve_shell_asset().await.map_err(|e| e.to_string())?;
+        let asset = resolve_shell_asset().await.map_err(|e| {
+            util::installer_log(&install_dir, &format!("installation failed: resolve package: {e}"));
+            e.to_string()
+        })?;
 
         let tmp_zip = install_dir.join("_qce_shell.zip");
         download_with_progress(&app, &asset.url, &tmp_zip)
             .await
-            .map_err(|e| format!("下载失败：{e}"))?;
+            .map_err(|e| {
+                util::installer_log(&install_dir, &format!("installation failed: download: {e}"));
+                format!("下载失败：{e}")
+            })?;
 
         emit(&app, "install-progress", 70.0, "正在解压核心组件...", "Extracting");
         let extract_dir = install_dir.clone();
@@ -235,14 +251,23 @@ pub async fn start_install(
         let app_clone = app.clone();
         tokio::task::spawn_blocking(move || extract_zip_flat(&app_clone, &zip_path, &extract_dir))
             .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| format!("解压失败：{e}"))?;
+            .map_err(|e| {
+                util::installer_log(&install_dir, &format!("installation failed: extraction task: {e}"));
+                e.to_string()
+            })?
+            .map_err(|e| {
+                util::installer_log(&install_dir, &format!("installation failed: extraction: {e}"));
+                format!("解压失败：{e}")
+            })?;
         let _ = std::fs::remove_file(&tmp_zip);
     }
 
     // --- post-install configuration --------------------------------------
     emit(&app, "install-progress", 92.0, "正在写入配置...", "Configuring");
-    write_runtime_config(&install_dir, &state).map_err(|e| e.to_string())?;
+    write_runtime_config(&install_dir, &state).map_err(|e| {
+        util::installer_log(&install_dir, &format!("installation failed: write config: {e}"));
+        e.to_string()
+    })?;
 
     // Copy this exe into the install dir so shortcuts / autostart survive the
     // user deleting the original download. On relaunch it detects the saved
@@ -263,6 +288,7 @@ pub async fn start_install(
         inner.install_dir = Some(install_dir.clone());
     }
 
+    util::installer_log(&install_dir, "installation completed");
     emit(&app, "install-progress", 100.0, "安装完成", "Done");
     Ok(())
 }
