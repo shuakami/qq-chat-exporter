@@ -267,6 +267,11 @@ const CurrentPath = path.dirname(__filename);
     #      delayed expansion (`!var!`) inside any `( ... )` block, which expands
     #      *after* CMD has finished parsing the block boundaries.
     launcher_common_logic = '''
+if not defined QCE_LOG_DIR set "QCE_LOG_DIR=%cd%\\logs"
+if not exist "%QCE_LOG_DIR%" mkdir "%QCE_LOG_DIR%"
+if not defined QCE_LOG_FILE set "QCE_LOG_FILE=%QCE_LOG_DIR%\\qce-runtime.log"
+echo [%date% %time%] [launcher] starting >> "%QCE_LOG_FILE%"
+
 :resolve_qq_path
 rem Priority 1: Command line argument
 if not "%~1"=="" (
@@ -673,7 +678,7 @@ pause
     os.makedirs(config_dir, exist_ok=True)
     
     napcat_config = {
-        "fileLog": False,
+        "fileLog": True,
         "consoleLog": True,
         "fileLogLevel": "debug",
         "consoleLogLevel": "info",
@@ -823,6 +828,7 @@ extern "C" void qq_magic_napi_register(void *m) {
  * 无需 NapCat 登录即可运行，用于浏览已导出的聊天记录和资源
  */
 import { spawn } from 'node:child_process';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -864,17 +870,33 @@ async function main() {
         process.platform === 'win32' ? 'qce-server.exe' : 'qce-server'
     );
 
-    console.log('[QCE] Starting standalone mode');
+    const logDir = process.env.QCE_LOG_DIR || path.join(packageRoot, 'logs');
+    mkdirSync(logDir, { recursive: true });
+    const logFile = process.env.QCE_LOG_FILE || path.join(logDir, 'qce-runtime.log');
+    const writeLog = (stream, prefix, chunk) => {
+        const text = String(chunk);
+        appendFileSync(logFile, `[${new Date().toISOString()}] ${prefix} ${text}${text.endsWith('\n') ? '' : '\n'}`);
+        stream.write(text);
+    };
+    writeLog(process.stdout, '[qce-standalone]', 'starting standalone mode\n');
     const child = spawn(binary, [], {
         cwd: packageRoot,
-        env: { ...process.env, QCE_SERVER_PORT: String(port) },
-        stdio: 'inherit'
+        env: {
+            ...process.env,
+            QCE_SERVER_PORT: String(port),
+            QCE_LOG_DIR: logDir,
+            QCE_LOG_FILE: logFile
+        },
+        stdio: ['ignore', 'pipe', 'pipe']
     });
+    child.stdout.on('data', (chunk) => writeLog(process.stdout, '[qce-server]', chunk));
+    child.stderr.on('data', (chunk) => writeLog(process.stderr, '[qce-server]', chunk));
     child.on('error', (error) => {
-        console.error('[QCE] Standalone startup failed:', error);
+        writeLog(process.stderr, '[qce-standalone]', `startup failed: ${error}\n`);
         process.exit(1);
     });
     child.on('exit', (code, signal) => {
+        writeLog(process.stdout, '[qce-standalone]', `exited code=${code ?? 'null'} signal=${signal ?? 'null'}\n`);
         process.exit(code ?? (signal ? 1 : 0));
     });
     const stop = () => child.kill();
@@ -897,6 +919,9 @@ main();
 chcp 65001 > nul
 title QCE 独立模式
 cd /d "%~dp0"
+set "QCE_LOG_DIR=%~dp0logs"
+if not exist "%QCE_LOG_DIR%" mkdir "%QCE_LOG_DIR%"
+set "QCE_LOG_FILE=%QCE_LOG_DIR%\\qce-runtime.log"
 
 echo.
 echo [QCE] 独立模式

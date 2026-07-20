@@ -73,6 +73,14 @@ function run(launcher: string, env: NodeJS.ProcessEnv, args: string[] = []) {
     return spawnSync('bash', [launcher, ...args], { env, encoding: 'utf8' });
 }
 
+function assertRuntimeLog(tmpPath: string, marker: string) {
+    const logPath = path.join(tmpPath, 'logs', 'qce-runtime.log');
+    assert.ok(fs.existsSync(logPath), 'launcher should create qce-runtime.log');
+    const log = fs.readFileSync(logPath, 'utf8');
+    assert.ok(log.includes('[QCE] launcher started:'), `missing launcher timestamp: ${log}`);
+    assert.ok(log.includes(marker), `missing child output ${marker}: ${log}`);
+}
+
 test('launcher-user.sh: passes bash syntax check', { skip: skipReason ?? false }, () => {
     const r = spawnSync('bash', ['-n', LAUNCHER_SH], { encoding: 'utf8' });
     assert.equal(r.status, 0, `bash -n failed: ${r.stderr}`);
@@ -96,6 +104,7 @@ test('launcher: QCE_LINUX_LEGACY_LAUNCH=1 uses the Node bootstrap, not Electron'
         assert.ok(r.stdout.includes('napcat-bootstrap.mjs'), 'node bootstrap should target napcat-bootstrap.mjs');
         assert.ok(!r.stdout.includes('Linux Electron mode'), 'should not enter the Electron flow');
         assert.ok(!r.stdout.includes('ELECTRON_QQ_RAN'), 'should not exec the QQ Electron binary');
+        assertRuntimeLog(tmp.path, 'NODE_BOOTSTRAP_RAN');
     } finally {
         tmp.cleanup();
     }
@@ -116,6 +125,7 @@ test('launcher: --legacy flag uses the Node bootstrap, not Electron', { skip: sk
         assert.ok(r.stdout.includes('Legacy launch mode enabled'), `expected legacy banner, got: ${r.stdout}`);
         assert.ok(r.stdout.includes('NODE_BOOTSTRAP_RAN'), 'should exec the node bootstrap stub');
         assert.ok(!r.stdout.includes('ELECTRON_QQ_RAN'), 'should not exec the QQ Electron binary');
+        assertRuntimeLog(tmp.path, 'NODE_BOOTSTRAP_RAN');
     } finally {
         tmp.cleanup();
     }
@@ -142,6 +152,7 @@ test('launcher: default Linux flow drives the QQ Electron binary', { skip: skipR
         assert.ok(r.stdout.includes('ELECTRON_QQ_RAN'), 'should exec the QQ Electron binary');
         assert.ok(!r.stdout.includes('Legacy launch mode enabled'), 'should not announce legacy mode');
         assert.ok(!r.stdout.includes('NODE_BOOTSTRAP_RAN'), 'should not run the node bootstrap');
+        assertRuntimeLog(tmp.path, 'ELECTRON_QQ_RAN');
     } finally {
         tmp.cleanup();
     }

@@ -44,6 +44,18 @@ set -u
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
+QCE_LOG_DIR="${QCE_LOG_DIR:-$SCRIPT_DIR/logs}"
+QCE_LOG_FILE="${QCE_LOG_FILE:-$QCE_LOG_DIR/qce-runtime.log}"
+export QCE_LOG_DIR QCE_LOG_FILE
+export QCE_STDIO_CAPTURED=1
+mkdir -p "$QCE_LOG_DIR"
+if command -v tee >/dev/null 2>&1; then
+    exec > >(tee -a "$QCE_LOG_FILE") 2>&1
+else
+    exec >> "$QCE_LOG_FILE" 2>&1
+fi
+echo "[QCE] launcher started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 # --- 0. Launch-mode selection ----------------------------------------------
 #
 # Linux only: opt back into the standalone Node.js launch (see "Legacy launch

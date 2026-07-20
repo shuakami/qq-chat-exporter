@@ -194,6 +194,10 @@ NAPILOADER_HEADER = '''@echo off
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
+if not defined QCE_LOG_DIR set "QCE_LOG_DIR=%cd%\\logs"
+if not exist "%QCE_LOG_DIR%" mkdir "%QCE_LOG_DIR%"
+if not defined QCE_LOG_FILE set "QCE_LOG_FILE=%QCE_LOG_DIR%\\qce-runtime.log"
+echo [%date% %time%] [launcher] starting >> "%QCE_LOG_FILE%"
 
 set NAPCAT_INJECT_PATH=%cd%\\napiloader.dll
 set NAPCAT_LAUNCHER_PATH=%cd%\\napimain.exe
@@ -202,7 +206,7 @@ set QQ_PATH_CONFIG=%cd%\\config\\qq_path.txt
 '''
 
 NAPILOADER_BAT = NAPILOADER_HEADER + NAPILOADER_RESOLVE_LOGIC + '''
-start "" "%NAPCAT_LAUNCHER_PATH%" "!QQPath!" "%NAPCAT_INJECT_PATH%" "%NAPCAT_MAIN_PATH%"
+"%NAPCAT_LAUNCHER_PATH%" "!QQPath!" "%NAPCAT_INJECT_PATH%" "%NAPCAT_MAIN_PATH%"
 '''
 
 NAPILOADER_DEBUG_BAT = NAPILOADER_HEADER + '''set NAPCAT_DEBUG_CONSOLE=1
@@ -319,7 +323,7 @@ def main():
     os.makedirs(config_dir, exist_ok=True)
     
     napcat_config = {
-        "fileLog": False,
+        "fileLog": True,
         "consoleLog": True,
         "fileLogLevel": "debug",
         "consoleLogLevel": "info",
