@@ -27,7 +27,7 @@ use crate::api::state::{MessageCacheEntry, SharedState, CACHE_EXPIRE_TIME_MS};
 use crate::export_debug::ExportDebugSession;
 use crate::fetcher::{
     chat_type_prefix, classify_chat_type_binary, repair_group_message_sequence, BatchFetchConfig,
-    BatchMessageFetcher, FetchError, MessageFilter, Peer, SequenceRepairConfig, GROUP_CHAT_TYPE,
+    BatchMessageFetcher, MessageFilter, Peer, SequenceRepairConfig, GROUP_CHAT_TYPE,
 };
 use crate::parser::{ForwardFetcher, SimpleMessageParser, SimpleParserOptions};
 use crate::paths::PathManager;
@@ -72,18 +72,6 @@ fn loose_bool(value: Option<&Value>) -> bool {
         ),
         _ => false,
     }
-}
-
-fn sequence_repair_error(error: FetchError) -> ApiError {
-    let code = match error {
-        FetchError::SequenceRepairNoProgress { .. } => "MESSAGE_SEQUENCE_REPAIR_NO_PROGRESS",
-        FetchError::SequenceRepairBudgetExhausted { .. } => {
-            "MESSAGE_SEQUENCE_REPAIR_BUDGET_EXHAUSTED"
-        }
-        FetchError::SequenceGapsUnresolved { .. } => "MESSAGE_SEQUENCE_GAPS_UNRESOLVED",
-        _ => "MESSAGE_SEQUENCE_REPAIR_FAILED",
-    };
-    ApiError::internal(format!("群聊历史完整性检查失败: {error}"), code)
 }
 
 /// 从请求体解析 peer（chatType 允许数字或字符串）。
@@ -521,7 +509,13 @@ pub async fn fetch_messages(
                 cache_hit = false;
             }
             Ok(_) => {}
-            Err(error) => return response::error(&sequence_repair_error(error), &request_id),
+            Err(error) => {
+                tracing::warn!("[Messages] 缓存消息序列未能确认完整，继续返回已有消息: {error}");
+                state
+                    .invalidate_message_cache_for_peer(chat_type, &peer_uid)
+                    .await;
+                cache_hit = false;
+            }
         }
     }
 
@@ -637,7 +631,12 @@ pub async fn fetch_messages(
                     .await;
             }
             Ok(_) => {}
-            Err(error) => return response::error(&sequence_repair_error(error), &request_id),
+            Err(error) => {
+                tracing::warn!("[Messages] 消息序列未能确认完整，继续返回已获取消息: {error}");
+                state
+                    .invalidate_message_cache_for_peer(chat_type, &peer_uid)
+                    .await;
+            }
         }
     }
 
@@ -1460,31 +1459,33 @@ async fn process_export_task(
     }
 
     if req.chat_type == GROUP_CHAT_TYPE && !all_messages.is_empty() {
-        update_task(
-            state,
-            task_id,
-            json!({ "progress": 52, "message": "正在检查群聊历史完整性...", "messageCount": all_messages.len() }),
-        )
-        .await;
-        let report = repair_group_message_sequence(
+        match repair_group_message_sequence(
             &state.napcat,
             &peer,
             &mut all_messages,
             SequenceRepairConfig::default(),
         )
         .await
-        .map_err(|error| sequence_repair_error(error).message)?;
-        if report.initial_gap_count > 0 {
-            tracing::info!(
-                "[Export] 群聊消息序列修复完成: gaps={}, missing={}, added={}, rounds={}",
-                report.initial_gap_count,
-                report.initial_missing_positions,
-                report.repaired_messages,
-                report.rounds
-            );
-            state
-                .invalidate_message_cache_for_peer(req.chat_type, &req.peer_uid)
-                .await;
+        {
+            Ok(report) if report.initial_gap_count > 0 => {
+                tracing::info!(
+                    "[Export] 群聊消息序列修复完成: gaps={}, missing={}, added={}, rounds={}",
+                    report.initial_gap_count,
+                    report.initial_missing_positions,
+                    report.repaired_messages,
+                    report.rounds
+                );
+                state
+                    .invalidate_message_cache_for_peer(req.chat_type, &req.peer_uid)
+                    .await;
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!("[Export] 群聊消息序列未能确认完整，继续导出已获取消息: {error}");
+                state
+                    .invalidate_message_cache_for_peer(req.chat_type, &req.peer_uid)
+                    .await;
+            }
         }
     }
 
