@@ -99,7 +99,9 @@ jobs:
           targets: x86_64-pc-windows-gnu
 
       - name: Install Windows cross compiler
-        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+        run: |
+          sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
+          timeout 300s sudo apt-get install -y mingw-w64
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -157,7 +159,9 @@ jobs:
           targets: x86_64-pc-windows-gnu
 
       - name: Install Windows cross compiler
-        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+        run: |
+          sudo apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30
+          timeout 300s sudo apt-get install -y mingw-w64
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
