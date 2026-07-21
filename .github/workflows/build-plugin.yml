@@ -142,3 +142,104 @@ jobs:
           name: NapCat-Framework-QCE-${{ steps.version.outputs.version }}
           path: NapCat-Framework-QCE-*.zip
           retention-days: 7
+
+
+  build-store-plugin:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Install Windows cross compiler
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Generate build version
+        id: version
+        shell: bash
+        run: |
+          BASE_VERSION=$(node -p "require('./plugins/qq-chat-exporter/package.json').version")
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "version=${BASE_VERSION}-pr${{ github.event.pull_request.number }}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build frontend
+        run: |
+          cd qce-v4-tool
+          pnpm install
+          pnpm run build
+
+      - name: Build Linux server
+        run: cargo build --release
+        working-directory: qq-chat-export-server
+        env:
+          QCE_VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Build Windows server
+        run: cargo build --release --target x86_64-pc-windows-gnu
+        working-directory: qq-chat-export-server
+        env:
+          QCE_VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Stage plugin runtime
+        run: node tools/create-overlay-runtime.cjs
+        working-directory: plugins/qq-chat-exporter
+
+      - name: Build NapCat plugin store package
+        run: python3 scripts/build-napcat-plugin.py
+        env:
+          NODE_ENV: production
+          QCE_VERSION: ${{ steps.version.outputs.version }}
+          QCE_FRONTEND_OUT: qce-v4-tool/out
+          QCE_SERVER_LINUX_X64: qq-chat-export-server/target/release/qce-server
+          QCE_SERVER_WINDOWS_X64: qq-chat-export-server/target/x86_64-pc-windows-gnu/release/qce-server.exe
+
+      - name: Upload NapCat plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: napcat-plugin-qce-pr${{ github.event.pull_request.number }}-${{ steps.version.outputs.version }}
+          path: napcat-plugin-qce.zip
+          retention-days: 7
+
+  build-docker-test-image:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push PR Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ghcr.io/shuakami/napcat-qce:pr-${{ github.event.pull_request.number }}-${{ github.sha }}
