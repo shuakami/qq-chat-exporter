@@ -69,18 +69,18 @@ jobs:
       # 完整 Shell 包会被直接拼接到 exe 尾部（zip 从文件尾部定位，
       # exe 仍可正常执行），安装器运行时从自身解压，无需联网下载。
       - name: "构建 Shell 完整包 (内嵌进 exe)"
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         run: python scripts/quick-pack.py
         working-directory: .
         env:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=4096
-          QCE_VERSION: ${{ github.ref_name }}
+          QCE_VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('pr-{0}', github.run_id) }}
 
       # Inject uninstaller exe into the Shell zip so it gets extracted
       # to the install directory alongside the main application files.
       - name: "注入卸载器到 Shell 包"
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         run: |
           UNINSTALLER="uninstaller/src-tauri/target/release/qce-uninstaller.exe"
           PKG=$(ls NapCat-QCE-Windows-x64-*.zip 2>/dev/null | head -1 || true)
