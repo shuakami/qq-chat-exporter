@@ -26,8 +26,8 @@ use crate::api::response::{self, ApiError, RequestId};
 use crate::api::state::{MessageCacheEntry, SharedState, CACHE_EXPIRE_TIME_MS};
 use crate::export_debug::ExportDebugSession;
 use crate::fetcher::{
-    chat_type_prefix, classify_chat_type_binary, BatchFetchConfig, BatchMessageFetcher,
-    MessageFilter, Peer, GROUP_CHAT_TYPE,
+    chat_type_prefix, classify_chat_type_binary, repair_group_message_sequence, BatchFetchConfig,
+    BatchMessageFetcher, FetchError, MessageFilter, Peer, SequenceRepairConfig, GROUP_CHAT_TYPE,
 };
 use crate::parser::{ForwardFetcher, SimpleMessageParser, SimpleParserOptions};
 use crate::paths::PathManager;
@@ -60,6 +60,30 @@ fn loose_i64(value: Option<&Value>) -> Option<i64> {
         Some(Value::String(s)) => s.trim().parse::<i64>().ok(),
         _ => None,
     }
+}
+
+fn loose_bool(value: Option<&Value>) -> bool {
+    match value {
+        Some(Value::Bool(value)) => *value,
+        Some(Value::Number(value)) => value.as_i64().is_some_and(|value| value != 0),
+        Some(Value::String(value)) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes"
+        ),
+        _ => false,
+    }
+}
+
+fn sequence_repair_error(error: FetchError) -> ApiError {
+    let code = match error {
+        FetchError::SequenceRepairNoProgress { .. } => "MESSAGE_SEQUENCE_REPAIR_NO_PROGRESS",
+        FetchError::SequenceRepairBudgetExhausted { .. } => {
+            "MESSAGE_SEQUENCE_REPAIR_BUDGET_EXHAUSTED"
+        }
+        FetchError::SequenceGapsUnresolved { .. } => "MESSAGE_SEQUENCE_GAPS_UNRESOLVED",
+        _ => "MESSAGE_SEQUENCE_REPAIR_FAILED",
+    };
+    ApiError::internal(format!("群聊历史完整性检查失败: {error}"), code)
 }
 
 /// 从请求体解析 peer（chatType 允许数字或字符串）。
@@ -425,6 +449,7 @@ pub async fn fetch_messages(
     let batch_size = loose_i64(body.get("batchSize")).unwrap_or(5000);
     let page = loose_i64(body.get("page")).unwrap_or(1).max(1);
     let limit = loose_i64(body.get("limit")).unwrap_or(50).max(1);
+    let force_refresh = loose_bool(body.get("forceRefresh")) || loose_bool(body.get("bypassCache"));
 
     let start_time = loose_i64(filter.get("startTime"));
     let end_time = loose_i64(filter.get("endTime"));
@@ -442,6 +467,12 @@ pub async fn fetch_messages(
         end_time.unwrap_or(now)
     );
 
+    if force_refresh {
+        state
+            .invalidate_message_cache_for_peer(chat_type, &peer_uid)
+            .await;
+    }
+
     let cached = {
         let mut cache = state.message_cache.lock().await;
         match cache.get(&cache_key) {
@@ -454,12 +485,44 @@ pub async fn fetch_messages(
         }
     };
 
-    let cache_hit = cached.is_some();
+    let mut cache_hit = cached.is_some();
     let mut all_messages: Vec<Value> = Vec::new();
     let mut has_more = false;
     if let Some(entry) = cached {
         all_messages = entry.messages;
         has_more = entry.has_more;
+    }
+
+    let peer = Peer {
+        chat_type,
+        peer_uid: peer_uid.clone(),
+        guild_id: None,
+    };
+    if chat_type == GROUP_CHAT_TYPE && !all_messages.is_empty() {
+        match repair_group_message_sequence(
+            &state.napcat,
+            &peer,
+            &mut all_messages,
+            SequenceRepairConfig::default(),
+        )
+        .await
+        {
+            Ok(report) if report.initial_gap_count > 0 => {
+                tracing::info!(
+                    "[Messages] 缓存消息序列修复完成: gaps={}, missing={}, added={}, rounds={}",
+                    report.initial_gap_count,
+                    report.initial_missing_positions,
+                    report.repaired_messages,
+                    report.rounds
+                );
+                state
+                    .invalidate_message_cache_for_peer(chat_type, &peer_uid)
+                    .await;
+                cache_hit = false;
+            }
+            Ok(_) => {}
+            Err(error) => return response::error(&sequence_repair_error(error), &request_id),
+        }
     }
 
     let start_index = usize::try_from((page - 1) * limit).unwrap_or(0);
@@ -508,11 +571,6 @@ pub async fn fetch_messages(
             ..BatchFetchConfig::default()
         },
     );
-    let peer = Peer {
-        chat_type,
-        peer_uid: peer_uid.clone(),
-        guild_id: None,
-    };
     let fetch_filter = MessageFilter {
         start_time: Some(start_time.unwrap_or(0)),
         end_time: Some(end_time.unwrap_or(now)),
@@ -556,6 +614,32 @@ pub async fn fetch_messages(
         previous = Some(batch);
     }
     has_more = reached_target;
+
+    if chat_type == GROUP_CHAT_TYPE && !all_messages.is_empty() {
+        match repair_group_message_sequence(
+            &state.napcat,
+            &peer,
+            &mut all_messages,
+            SequenceRepairConfig::default(),
+        )
+        .await
+        {
+            Ok(report) if report.initial_gap_count > 0 => {
+                tracing::info!(
+                    "[Messages] 消息序列修复完成: gaps={}, missing={}, added={}, rounds={}",
+                    report.initial_gap_count,
+                    report.initial_missing_positions,
+                    report.repaired_messages,
+                    report.rounds
+                );
+                state
+                    .invalidate_message_cache_for_peer(chat_type, &peer_uid)
+                    .await;
+            }
+            Ok(_) => {}
+            Err(error) => return response::error(&sequence_repair_error(error), &request_id),
+        }
+    }
 
     // 按时间戳倒序。
     all_messages.sort_by_key(|m| std::cmp::Reverse(msg_time_ms(m)));
@@ -1373,6 +1457,35 @@ async fn process_export_task(
 
     if is_cancelled(state, task_id, cancel_flag).await {
         return Err("任务已被用户停止".to_string());
+    }
+
+    if req.chat_type == GROUP_CHAT_TYPE && !all_messages.is_empty() {
+        update_task(
+            state,
+            task_id,
+            json!({ "progress": 52, "message": "正在检查群聊历史完整性...", "messageCount": all_messages.len() }),
+        )
+        .await;
+        let report = repair_group_message_sequence(
+            &state.napcat,
+            &peer,
+            &mut all_messages,
+            SequenceRepairConfig::default(),
+        )
+        .await
+        .map_err(|error| sequence_repair_error(error).message)?;
+        if report.initial_gap_count > 0 {
+            tracing::info!(
+                "[Export] 群聊消息序列修复完成: gaps={}, missing={}, added={}, rounds={}",
+                report.initial_gap_count,
+                report.initial_missing_positions,
+                report.repaired_messages,
+                report.rounds
+            );
+            state
+                .invalidate_message_cache_for_peer(req.chat_type, &req.peer_uid)
+                .await;
+        }
     }
 
     // 群昵称补全 + 群头衔映射（issue #331）
