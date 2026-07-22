@@ -25,6 +25,7 @@ fn is_public_ipv4(ip: Ipv4Addr) -> bool {
         || octets[0] >= 240
         || (octets[0] == 100 && (64..=127).contains(&octets[1]))
         || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+        || (octets[0] == 192 && octets[1] == 88 && octets[2] == 99)
         || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19)))
 }
 
@@ -39,7 +40,14 @@ fn is_public_ipv6(ip: Ipv6Addr) -> bool {
         || ip.is_multicast()
         || (segments[0] & 0xfe00) == 0xfc00
         || (segments[0] & 0xffc0) == 0xfe80
-        || (segments[0] == 0x2001 && segments[1] == 0x0db8))
+        || (segments[0] & 0xffc0) == 0xfec0
+        || (segments[0] == 0x0100 && segments[1..4] == [0, 0, 0])
+        || (segments[0] == 0x0064 && segments[1] == 0xff9b)
+        || (segments[0] == 0x2001 && segments[1] == 0)
+        || (segments[0] == 0x2001 && (segments[1] & 0xfff0) == 0x0010)
+        || (segments[0] == 0x2001 && (segments[1] & 0xfff0) == 0x0020)
+        || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+        || segments[0] == 0x2002)
 }
 
 #[must_use]
@@ -58,7 +66,8 @@ fn validate_url(url: &Url) -> Option<(&str, u16)> {
         return None;
     }
     let host = url.host_str()?;
-    if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
+    let lower_host = host.to_ascii_lowercase();
+    if lower_host == "localhost" || lower_host.ends_with(".localhost") {
         return None;
     }
     Some((host, url.port_or_known_default()?))
@@ -189,11 +198,18 @@ mod tests {
             "192.168.1.1",
             "169.254.1.1",
             "100.64.0.1",
+            "192.88.99.1",
             "0.0.0.0",
             "::1",
             "fc00::1",
             "fe80::1",
             "2001:db8::1",
+            "fec0::1",
+            "100::1",
+            "64:ff9b::7f00:1",
+            "2001::1",
+            "2001:20::1",
+            "2002:7f00:1::1",
             "::ffff:127.0.0.1",
         ] {
             assert!(
