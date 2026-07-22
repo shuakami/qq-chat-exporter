@@ -406,9 +406,28 @@ impl MessageFetchApi for NapCatBridgeClient {
         start_seq: &str,
         end_seq: &str,
     ) -> Result<Value, String> {
+        let params = json!([peer_to_value(peer), start_seq, end_seq]);
+        match self
+            .call("MsgService.getMsgsBySeqRange", params.clone())
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(_) => self
+                .call("MsgApi.getMsgsBySeqRange", params)
+                .await
+                .map_err(|error| error.to_string()),
+        }
+    }
+
+    async fn get_msgs_by_seq_and_count(
+        &self,
+        peer: &Peer,
+        anchor_seq: i64,
+        count: i64,
+    ) -> Result<Value, String> {
         self.call(
-            "MsgApi.getMsgsBySeqRange",
-            json!([peer_to_value(peer), start_seq, end_seq]),
+            "MsgApi.getMsgsBySeqAndCount",
+            json!([peer_to_value(peer), anchor_seq, count, true, true]),
         )
         .await
         .map_err(|error| error.to_string())
