@@ -13,12 +13,13 @@ use serde_json::{json, Value};
 use qce_exporter::modern_html_exporter::{HtmlExportOptions, ModernHtmlExporter};
 use qce_exporter::types::{ChatInfo, CleanMessage};
 
+use crate::api::path_security::{
+    resolve_existing_within, resolve_for_creation_within, valid_relative_resource_path,
+};
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
 
-
 // 通用小工具
-
 
 fn iso(time: std::time::SystemTime) -> String {
     DateTime::<Utc>::from(time).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
@@ -126,7 +127,8 @@ fn resolve_export_file(state: &SharedState, file_name: &str) -> Option<ResolvedE
         if !candidate.is_file() {
             continue;
         }
-        let (Ok(path), Ok(canonical_base)) = (candidate.canonicalize(), base_dir.canonicalize()) else {
+        let (Ok(path), Ok(canonical_base)) = (candidate.canonicalize(), base_dir.canonicalize())
+        else {
             continue;
         };
         if path.starts_with(&canonical_base) {
@@ -140,9 +142,7 @@ fn resolve_export_file(state: &SharedState, file_name: &str) -> Option<ResolvedE
     None
 }
 
-
 // 导出文件名解析（Issue #216 新旧格式兼容）
-
 
 fn valid_qq_uin(value: &str) -> bool {
     value != "0" && !value.is_empty() && value.chars().all(|c| c.is_ascii_digit())
@@ -318,9 +318,7 @@ fn strip_suffix_ci<'a>(input: &'a str, suffix: &str) -> Option<&'a str> {
     }
 }
 
-
 // 导出文件元数据解析
-
 
 #[derive(Default)]
 struct FileMetadata {
@@ -470,9 +468,7 @@ async fn display_name_for_chat(
     }
 }
 
-
 // 目录扫描
-
 
 /// 高性能目录统计（递归文件数 + 总大小）。
 fn scan_directory_stats(dir: &FsPath) -> (i64, i64) {
@@ -610,9 +606,7 @@ async fn scan_export_dir(
     }
 }
 
-
 // GET /api/exports/files
-
 
 /// 获取导出文件列表（聊天记录索引页面）。
 pub async fn list_export_files(
@@ -639,9 +633,7 @@ pub async fn list_export_files(
     response::success(json!({ "files": files }), &request_id)
 }
 
-
 // GET /api/exports/files/:fileName/info
-
 
 /// 获取特定导出文件的详细信息。
 pub async fn export_file_info(
@@ -756,9 +748,7 @@ pub async fn export_file_info(
     response::success(result, &request_id)
 }
 
-
 // DELETE /api/exports/files/:fileName（Issue #32）
-
 
 /// 删除导出文件（HTML + JSON + 资源目录）。
 pub async fn delete_export_file(
@@ -796,9 +786,7 @@ pub async fn delete_export_file(
     )
 }
 
-
 // GET /api/exports/files/:fileName/preview
-
 
 fn escape_html(text: &str) -> String {
     text.replace('&', "&amp;")
@@ -912,10 +900,9 @@ pub async fn preview_export_file(
             .filter(|token| !token.is_empty())
             .map(|token| format!("?token={}", encode_uri_component(token)))
             .unwrap_or_default();
-        let resource_re = regex::Regex::new(
-            r#"(?P<attr>src|href)=\"(?:\./|\.\./)resources/(?P<path>[^\"]*)\""#,
-        )
-        .expect("valid resource URL regex");
+        let resource_re =
+            regex::Regex::new(r#"(?P<attr>src|href)=\"(?:\./|\.\./)resources/(?P<path>[^\"]*)\""#)
+                .expect("valid resource URL regex");
         content = resource_re
             .replace_all(&content, |captures: &regex::Captures<'_>| {
                 format!(
@@ -939,9 +926,7 @@ pub async fn preview_export_file(
         .into_response()
 }
 
-
 // GET /api/exports/files/:fileName/resources/*path
-
 
 /// 构建单个资源目录的文件名缓存（shortName → 实际文件名）。
 async fn build_resource_cache(state: &SharedState, dir_path: &str) -> HashMap<String, String> {
@@ -982,13 +967,8 @@ async fn find_resource_file(state: &SharedState, resource_path: &str) -> Option<
     let short_name = path.file_name().map(|n| n.to_string_lossy().into_owned())?;
     let cache = build_resource_cache(state, &dir_path).await;
     let actual = cache.get(&short_name)?;
-    Some(
-        state
-            .path_manager
-            .resources_dir()
-            .join(dir_path)
-            .join(actual),
-    )
+    let resources_dir = state.path_manager.resources_dir();
+    resolve_existing_within(&resources_dir.join(dir_path).join(actual), &[resources_dir])
 }
 
 /// HTML 预览页面的资源文件服务。
@@ -1005,10 +985,7 @@ pub async fn export_file_resource(
         let err = ApiError::validation("非法的导出文件名", "INVALID_FILENAME");
         return response::error(&err, &request_id);
     }
-    if resource_path.contains("..")
-        || resource_path.starts_with('/')
-        || resource_path.starts_with('\\')
-    {
+    if !valid_relative_resource_path(&resource_path) {
         let err = ApiError::validation("非法的资源路径", "INVALID_PATH");
         return response::error(&err, &request_id);
     }
@@ -1083,7 +1060,7 @@ async fn find_export_local_resource(
 
     let candidate = resource_dir.join(resource_path);
     if candidate.is_file() {
-        return Some(candidate);
+        return resolve_existing_within(&candidate, &[resource_dir.clone()]);
     }
 
     // 带 MD5 前缀匹配：目录下文件名为 `md5_originalName.ext`
@@ -1107,20 +1084,18 @@ async fn find_export_local_resource(
         }
         let file_name = entry.file_name().to_string_lossy().into_owned();
         if file_name == short_name {
-            return Some(entry.path());
+            return resolve_existing_within(&entry.path(), &[resource_dir.clone()]);
         }
         if let Some(idx) = file_name.find('_') {
             if idx > 0 && file_name[idx + 1..] == short_name {
-                return Some(entry.path());
+                return resolve_existing_within(&entry.path(), &[resource_dir.clone()]);
             }
         }
     }
     None
 }
 
-
 // GET /api/resources/index
-
 
 /// 构建完整的资源索引（全局资源目录 + ZIP + JSONL）。
 pub async fn resources_index(
@@ -1278,9 +1253,7 @@ pub async fn resources_index(
     )
 }
 
-
 // GET /api/resources/export/:fileName
-
 
 /// 获取特定导出文件的资源列表。
 pub async fn export_file_resources(
@@ -1349,9 +1322,7 @@ pub async fn export_file_resources(
     response::success(json!({ "resources": resources }), &request_id)
 }
 
-
 // GET /api/resources/files
-
 
 /// `nameSearch` 子串最大长度。
 const MAX_NAME_SEARCH_LENGTH: usize = 200;
@@ -1386,7 +1357,7 @@ pub async fn global_resource_files(
         .get("limit")
         .and_then(|l| l.parse::<usize>().ok())
         .unwrap_or(50)
-        .max(1);
+        .clamp(1, 200);
     let name_search = normalize_name_search(params.get("nameSearch").map(String::as_str));
 
     let resources_dir = state.path_manager.resources_dir();
@@ -1456,12 +1427,11 @@ pub async fn global_resource_files(
     )
 }
 
-
 // GET /api/download-file（Issue #192）
-
 
 /// 动态下载 API（自定义导出路径的文件下载，含路径安全校验）。
 pub async fn download_file(
+    State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
@@ -1482,15 +1452,6 @@ pub async fn download_file(
         );
     }
     let normalized = PathBuf::from(raw_path);
-    if normalized
-        .components()
-        .any(|c| matches!(c, std::path::Component::ParentDir))
-    {
-        return response::error(
-            &permission_err("非法的文件路径", "INVALID_PATH"),
-            &request_id,
-        );
-    }
 
     // 只允许下载导出文件扩展名。
     let ext = ext_of(raw_path);
@@ -1508,6 +1469,17 @@ pub async fn download_file(
             &request_id,
         );
     }
+
+    let roots = [
+        state.path_manager.exports_dir(),
+        state.path_manager.scheduled_exports_dir(),
+    ];
+    let Some(normalized) = resolve_existing_within(&normalized, &roots) else {
+        return response::error(
+            &permission_err("文件不在允许的导出目录内", "PATH_NOT_ALLOWED"),
+            &request_id,
+        );
+    };
 
     let Ok(meta) = std::fs::metadata(&normalized) else {
         let err = ApiError::new(ErrorType::FileSystem, "文件不存在", "FILE_NOT_FOUND")
@@ -1553,9 +1525,7 @@ pub async fn download_file(
         .into_response()
 }
 
-
 // POST /api/open-file-location / /api/open-export-directory
-
 
 fn extract_html_time_range(html: &str) -> Option<String> {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -1615,6 +1585,7 @@ fn should_select_in_file_manager(target: &FsPath) -> bool {
 
 /// 打开文件所在位置（文件管理器中选中该文件）。
 pub async fn open_file_location(
+    State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
     Json(body): Json<Value>,
 ) -> Response {
@@ -1626,11 +1597,15 @@ pub async fn open_file_location(
         let err = ApiError::validation("缺少文件路径参数", "MISSING_FILE_PATH");
         return response::error(&err, &request_id);
     };
-    let path = PathBuf::from(file_path);
-    if !path.exists() {
-        let err = ApiError::validation("文件不存在", "FILE_NOT_FOUND");
+    let roots = [
+        state.path_manager.exports_dir(),
+        state.path_manager.scheduled_exports_dir(),
+        state.path_manager.resources_dir(),
+    ];
+    let Some(path) = resolve_existing_within(&PathBuf::from(file_path), &roots) else {
+        let err = ApiError::validation("文件不在允许的导出目录内", "PATH_NOT_ALLOWED");
         return response::error(&err, &request_id);
-    }
+    };
     open_in_file_manager(&path, should_select_in_file_manager(&path));
     response::success(json!({ "message": "已打开文件位置" }), &request_id)
 }
@@ -1643,15 +1618,10 @@ pub async fn open_export_directory(
     let export_dir = state.path_manager.exports_dir();
     let _ = std::fs::create_dir_all(&export_dir);
     open_in_file_manager(&export_dir, false);
-    response::success(
-        json!({ "message": "已打开导出目录", "path": export_dir.to_string_lossy() }),
-        &request_id,
-    )
+    response::success(json!({ "message": "已打开导出目录" }), &request_id)
 }
 
-
 // 手动导出文件名解析（Issue #163）
-
 
 /// 手动导出文件名解析结果。
 struct ManualExportInfo {
@@ -1695,9 +1665,7 @@ fn parse_manual_export_file_name(file_name: &str) -> Option<ManualExportInfo> {
     })
 }
 
-
 // GET /api/merge-resources/available-tasks
-
 
 /// 获取可用于合并的备份列表（定时备份 + 手动导出，按会话分组）。
 pub async fn merge_available_tasks(
@@ -1856,9 +1824,7 @@ pub async fn merge_available_tasks(
     )
 }
 
-
 // POST /api/merge-resources（ResourceMerger 移植）
-
 
 struct MergeSource {
     html_file: PathBuf,
@@ -1902,17 +1868,16 @@ fn validate_merge_sources(
     let re = RE.get_or_init(|| regex::Regex::new(r"\.(html|json)$").expect("valid regex"));
 
     for file_name in file_names {
-        let export_path = export_dir.join(file_name);
-        let scheduled_path = scheduled_dir.join(file_name);
-        let (found_path, task_dir) = if export_path.exists() {
-            (export_path, &export_dir)
-        } else if scheduled_path.exists() {
-            (scheduled_path, &scheduled_dir)
-        } else {
+        if !valid_export_file_name(file_name) {
+            return Err(format!("非法的导出文件名: {file_name}"));
+        }
+        let Some(resolved) = resolve_export_file(state, file_name) else {
             return Err(format!(
                 "未找到文件: {file_name}（已搜索exports和scheduled-exports目录）"
             ));
         };
+        let found_path = resolved.path;
+        let task_dir = resolved.base_dir;
 
         let base_name = re.replace(file_name, "").into_owned();
         let json_file = format!("{base_name}.json");
@@ -1926,10 +1891,17 @@ fn validate_merge_sources(
             None
         };
 
+        let resource_candidate = task_dir.join(format!("resources_{base_name}"));
+        let resource_dir = if resource_candidate.exists() {
+            resolve_existing_within(&resource_candidate, std::slice::from_ref(&task_dir))
+                .ok_or_else(|| format!("资源目录越过导出目录边界: {file_name}"))?
+        } else {
+            resource_candidate
+        };
         sources.push(MergeSource {
             html_file: found_path,
             json_file: json_path,
-            resource_dir: task_dir.join(format!("resources_{base_name}")),
+            resource_dir,
         });
     }
     Ok(sources)
@@ -2124,6 +2096,10 @@ pub async fn merge_resources(
                 .collect()
         })
         .unwrap_or_default();
+    if source_task_ids.len() > 100 {
+        let err = ApiError::validation("单次最多合并100个任务", "TOO_MANY_SOURCE_TASKS");
+        return response::error(&err, &request_id);
+    }
     if source_task_ids.len() < 2 {
         let err = ApiError::validation("至少需要选择2个任务进行合并", "INVALID_SOURCE_TASKS");
         return response::error(&err, &request_id);
@@ -2136,14 +2112,27 @@ pub async fn merge_resources(
         .get("deduplicateMessages")
         .and_then(Value::as_bool)
         .unwrap_or(true);
-    let output_path = body
+    let requested_output_path = body
         .get("outputPath")
         .and_then(Value::as_str)
         .filter(|p| !p.is_empty())
         .map_or_else(
-            || state.path_manager.default_base_dir().join("merged"),
+            || state.path_manager.exports_dir().join("merged"),
             PathBuf::from,
         );
+    let roots = [
+        state.path_manager.exports_dir(),
+        state.path_manager.scheduled_exports_dir(),
+    ];
+    let Some(output_path) = resolve_for_creation_within(&requested_output_path, &roots) else {
+        let err = ApiError::new(
+            ErrorType::Api,
+            "合并输出目录必须位于导出目录内",
+            "OUTPUT_PATH_NOT_ALLOWED",
+        )
+        .with_status(StatusCode::FORBIDDEN);
+        return response::error(&err, &request_id);
+    };
 
     let start_time = std::time::Instant::now();
     let merge_task_id = format!(
