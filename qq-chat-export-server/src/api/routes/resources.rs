@@ -956,6 +956,9 @@ async fn build_resource_cache(state: &SharedState, dir_path: &str) -> HashMap<St
     }
 
     let mut cache = state.resource_file_cache.lock().await;
+    if cache.len() >= 256 && !cache.contains_key(dir_path) {
+        cache.clear();
+    }
     cache.insert(dir_path.to_string(), map.clone());
     map
 }
@@ -1352,7 +1355,7 @@ pub async fn global_resource_files(
         .get("page")
         .and_then(|p| p.parse::<usize>().ok())
         .unwrap_or(1)
-        .max(1);
+        .clamp(1, 1_000_000);
     let limit = params
         .get("limit")
         .and_then(|l| l.parse::<usize>().ok())
@@ -1412,7 +1415,7 @@ pub async fn global_resource_files(
     });
 
     let total = files.len();
-    let start_index = (page - 1) * limit;
+    let start_index = (page - 1).saturating_mul(limit);
     let paginated: Vec<Value> = files.into_iter().skip(start_index).take(limit).collect();
 
     response::success(
@@ -1421,7 +1424,7 @@ pub async fn global_resource_files(
             "total": total,
             "page": page,
             "limit": limit,
-            "hasMore": start_index + limit < total,
+            "hasMore": start_index.saturating_add(limit) < total,
         }),
         &request_id,
     )
