@@ -19,7 +19,7 @@ pub async fn group_files_export_records(
         .get("limit")
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|l| *l >= 1)
-        .unwrap_or(50);
+        .map_or(50, |l| l.min(100));
     let mut records = load_records(&state).await;
     records.truncate(limit);
     response::success(

@@ -7,7 +7,7 @@ use axum::response::Response;
 use axum::Json;
 use serde_json::{json, Value};
 
-use crate::api::helpers::http_get_bytes;
+use crate::api::http_security::http_download_to_file;
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
 
@@ -174,12 +174,20 @@ async fn fetch_all_files_recursive(
 /// 获取群文件下载链接。
 async fn file_download_url(state: &SharedState, group_code: &str, file_id: &str) -> Option<String> {
     let file_uuid = file_id.strip_prefix('/').unwrap_or(file_id);
-    let result = state.napcat.get_group_file_url(group_code, file_uuid).await.ok()?;
+    let result = state
+        .napcat
+        .get_group_file_url(group_code, file_uuid)
+        .await
+        .ok()?;
     match result {
         Value::String(url) if !url.is_empty() => Some(url),
         other => {
             let url = str_of(&other, "url");
-            if url.is_empty() { None } else { Some(url) }
+            if url.is_empty() {
+                None
+            } else {
+                Some(url)
+            }
         }
     }
 }
@@ -228,7 +236,11 @@ pub async fn group_file_count(
         let err = ApiError::validation("群号不能为空", "INVALID_GROUP_CODE");
         return response::error(&err, &request_id);
     }
-    let count = match state.napcat.get_group_file_count(vec![group_code.clone()]).await {
+    let count = match state
+        .napcat
+        .get_group_file_count(vec![group_code.clone()])
+        .await
+    {
         Ok(result) => result
             .get("groupFileCounts")
             .and_then(Value::as_array)
@@ -267,14 +279,23 @@ pub async fn download_group_file(
             &request_id,
         ),
         None => {
-            let err = ApiError::new(ErrorType::Api, "获取文件下载链接失败", "DOWNLOAD_URL_FAILED");
+            let err = ApiError::new(
+                ErrorType::Api,
+                "获取文件下载链接失败",
+                "DOWNLOAD_URL_FAILED",
+            );
             response::error(&err, &request_id)
         }
     }
 }
 
 /// 生成可读文件清单（Markdown）。
-fn build_readable_list(group_name: &str, files: &[Value], folders: &[Value], total_size: i64) -> String {
+fn build_readable_list(
+    group_name: &str,
+    files: &[Value],
+    folders: &[Value],
+    total_size: i64,
+) -> String {
     let mut text = format!("# {group_name} 群文件列表\n");
     text.push_str(&format!("导出时间: {}\n", now_iso()));
     text.push_str(&format!("文件总数: {}\n", files.len()));
@@ -332,7 +353,11 @@ pub async fn export_group_files_metadata(
     }
     let group_name = {
         let name = str_of(&body, "groupName");
-        if name.is_empty() { group_code.clone() } else { name }
+        if name.is_empty() {
+            group_code.clone()
+        } else {
+            name
+        }
     };
     let id = export_id();
     let export_dir = export_base_path(&state).join(format!(
@@ -342,7 +367,11 @@ pub async fn export_group_files_metadata(
         chrono::Utc::now().timestamp_millis()
     ));
     if let Err(error) = tokio::fs::create_dir_all(&export_dir).await {
-        let err = ApiError::new(ErrorType::FileSystem, error.to_string(), "CREATE_DIR_FAILED");
+        let err = ApiError::new(
+            ErrorType::FileSystem,
+            error.to_string(),
+            "CREATE_DIR_FAILED",
+        );
         return response::error(&err, &request_id);
     }
 
@@ -423,14 +452,16 @@ pub async fn export_group_files_metadata(
 }
 
 /// 下载单个群文件到指定路径（通过下载链接）。
-async fn download_file_to(state: &SharedState, group_code: &str, file_id: &str, dest: &FsPath) -> bool {
+async fn download_file_to(
+    state: &SharedState,
+    group_code: &str,
+    file_id: &str,
+    dest: &FsPath,
+) -> bool {
     let Some(url) = file_download_url(state, group_code, file_id).await else {
         return false;
     };
-    match http_get_bytes(&url).await {
-        Some(data) => tokio::fs::write(dest, data).await.is_ok(),
-        None => false,
-    }
+    http_download_to_file(&url, dest, 2 * 1024 * 1024 * 1024).await
 }
 
 /// `POST /api/groups/:groupCode/files/export-with-download` — 导出并下载群文件。
@@ -446,7 +477,11 @@ pub async fn export_group_files_with_download(
     }
     let group_name = {
         let name = str_of(&body, "groupName");
-        if name.is_empty() { group_code.clone() } else { name }
+        if name.is_empty() {
+            group_code.clone()
+        } else {
+            name
+        }
     };
     let id = export_id();
     let export_dir = export_base_path(&state).join(format!(
@@ -456,7 +491,11 @@ pub async fn export_group_files_with_download(
         chrono::Utc::now().timestamp_millis()
     ));
     if let Err(error) = tokio::fs::create_dir_all(&export_dir).await {
-        let err = ApiError::new(ErrorType::FileSystem, error.to_string(), "CREATE_DIR_FAILED");
+        let err = ApiError::new(
+            ErrorType::FileSystem,
+            error.to_string(),
+            "CREATE_DIR_FAILED",
+        );
         return response::error(&err, &request_id);
     }
 
@@ -469,7 +508,10 @@ pub async fn export_group_files_with_download(
     folder_paths.insert(String::new(), export_dir.clone());
     for folder in &folders {
         let parent = str_of(folder, "parentFolderId");
-        let parent_path = folder_paths.get(&parent).cloned().unwrap_or_else(|| export_dir.clone());
+        let parent_path = folder_paths
+            .get(&parent)
+            .cloned()
+            .unwrap_or_else(|| export_dir.clone());
         let folder_path = parent_path.join(sanitize(&str_of(folder, "folderName")));
         let _ = tokio::fs::create_dir_all(&folder_path).await;
         folder_paths.insert(str_of(folder, "folderId"), folder_path);
@@ -479,7 +521,10 @@ pub async fn export_group_files_with_download(
     let mut failed = 0usize;
     for (index, file) in files.iter().enumerate() {
         let parent = str_of(file, "parentFolderId");
-        let parent_path = folder_paths.get(&parent).cloned().unwrap_or_else(|| export_dir.clone());
+        let parent_path = folder_paths
+            .get(&parent)
+            .cloned()
+            .unwrap_or_else(|| export_dir.clone());
         let file_path = parent_path.join(sanitize(&str_of(file, "fileName")));
 
         state.broadcast_ws(&json!({

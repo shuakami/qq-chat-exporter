@@ -8,6 +8,44 @@ use crate::api::state::SharedState;
 use crate::paths::PathManager;
 use crate::version::{APP_COPYRIGHT, APP_NAME, VERSION};
 
+const MAX_CONFIG_PATH_LENGTH: usize = 4096;
+
+#[derive(Debug, PartialEq, Eq)]
+enum ConfigPathUpdate {
+    Missing,
+    Clear,
+    Set(String),
+}
+
+fn parse_config_path(body: &Value, key: &str) -> Result<ConfigPathUpdate, ApiError> {
+    let Some(value) = body.get(key) else {
+        return Ok(ConfigPathUpdate::Missing);
+    };
+    if value.is_null() {
+        return Ok(ConfigPathUpdate::Clear);
+    }
+    let Some(value) = value.as_str() else {
+        return Err(ApiError::validation(
+            format!("{key} 必须是字符串或 null"),
+            "INVALID_PATH_TYPE",
+        ));
+    };
+    let sanitized = PathManager::sanitize_path(value);
+    if sanitized.is_empty() {
+        return Ok(ConfigPathUpdate::Clear);
+    }
+    if sanitized.chars().count() > MAX_CONFIG_PATH_LENGTH
+        || sanitized.chars().any(char::is_control)
+        || PathManager::validate_path(&sanitized).is_err()
+    {
+        return Err(ApiError::validation(
+            "禁止访问系统关键目录或使用无效路径",
+            "INVALID_PATH",
+        ));
+    }
+    Ok(ConfigPathUpdate::Set(sanitized))
+}
+
 /// `GET /` — API 信息。
 pub async fn root(
     State(state): State<SharedState>,
@@ -195,9 +233,9 @@ fn memory_usage() -> Value {
         true,
         sysinfo::ProcessRefreshKind::new().with_memory(),
     );
-    let (rss, virtual_mem) = system
-        .process(pid)
-        .map_or((0, 0), |process| (process.memory(), process.virtual_memory()));
+    let (rss, virtual_mem) = system.process(pid).map_or((0, 0), |process| {
+        (process.memory(), process.virtual_memory())
+    });
     json!({
         "rss": rss,
         "heapTotal": rss,
@@ -213,7 +251,10 @@ pub async fn get_config(
     State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
 ) -> Response {
-    let config_path = state.path_manager.default_base_dir().join("user-config.json");
+    let config_path = state
+        .path_manager
+        .default_base_dir()
+        .join("user-config.json");
     let config: Value = tokio::fs::read_to_string(&config_path)
         .await
         .ok()
@@ -237,7 +278,22 @@ pub async fn put_config(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Json(body): Json<Value>,
 ) -> Response {
-    let config_path = state.path_manager.default_base_dir().join("user-config.json");
+    if !body.is_object() {
+        let err = ApiError::validation("请求体必须是对象", "INVALID_BODY");
+        return response::error(&err, &request_id);
+    }
+    let custom_output_dir = match parse_config_path(&body, "customOutputDir") {
+        Ok(value) => value,
+        Err(err) => return response::error(&err, &request_id),
+    };
+    let custom_scheduled_dir = match parse_config_path(&body, "customScheduledExportDir") {
+        Ok(value) => value,
+        Err(err) => return response::error(&err, &request_id),
+    };
+    let config_path = state
+        .path_manager
+        .default_base_dir()
+        .join("user-config.json");
     if let Some(parent) = config_path.parent() {
         if tokio::fs::create_dir_all(parent).await.is_err() {
             let err = ApiError::new(ErrorType::Config, "更新配置失败", "UPDATE_CONFIG_FAILED");
@@ -255,67 +311,79 @@ pub async fn put_config(
         return response::error(&err, &request_id);
     };
 
-    if let Some(custom_output_dir) = body.get("customOutputDir") {
-        match custom_output_dir.as_str().map(str::trim) {
-            None | Some("") => {
-                config_obj.insert("customOutputDir".to_string(), Value::Null);
-                if state.path_manager.set_custom_output_dir(None).is_err() {
-                    let err = ApiError::validation("路径验证失败", "INVALID_PATH");
-                    return response::error(&err, &request_id);
-                }
-            }
-            Some(dir) => {
-                let sanitized = PathManager::sanitize_path(dir);
-                if state
-                    .path_manager
-                    .set_custom_output_dir(Some(&sanitized))
-                    .is_err()
-                {
-                    let err = ApiError::validation("禁止访问系统关键目录", "INVALID_PATH");
-                    return response::error(&err, &request_id);
-                }
-                config_obj.insert("customOutputDir".to_string(), Value::String(sanitized));
-            }
+    match &custom_output_dir {
+        ConfigPathUpdate::Missing => {}
+        ConfigPathUpdate::Clear => {
+            config_obj.insert("customOutputDir".to_string(), Value::Null);
+        }
+        ConfigPathUpdate::Set(value) => {
+            config_obj.insert("customOutputDir".to_string(), Value::String(value.clone()));
         }
     }
 
-    if let Some(custom_scheduled_dir) = body.get("customScheduledExportDir") {
-        match custom_scheduled_dir.as_str().map(str::trim) {
-            None | Some("") => {
-                config_obj.insert("customScheduledExportDir".to_string(), Value::Null);
-                if state
-                    .path_manager
-                    .set_custom_scheduled_export_dir(None)
-                    .is_err()
-                {
-                    let err = ApiError::validation("路径验证失败", "INVALID_PATH");
-                    return response::error(&err, &request_id);
-                }
-            }
-            Some(dir) => {
-                let sanitized = PathManager::sanitize_path(dir);
-                if state
-                    .path_manager
-                    .set_custom_scheduled_export_dir(Some(&sanitized))
-                    .is_err()
-                {
-                    let err = ApiError::validation("禁止访问系统关键目录", "INVALID_PATH");
-                    return response::error(&err, &request_id);
-                }
-                config_obj.insert(
-                    "customScheduledExportDir".to_string(),
-                    Value::String(sanitized),
-                );
-            }
+    match &custom_scheduled_dir {
+        ConfigPathUpdate::Missing => {}
+        ConfigPathUpdate::Clear => {
+            config_obj.insert("customScheduledExportDir".to_string(), Value::Null);
+        }
+        ConfigPathUpdate::Set(value) => {
+            config_obj.insert(
+                "customScheduledExportDir".to_string(),
+                Value::String(value.clone()),
+            );
         }
     }
 
-    let serialized = serde_json::to_string_pretty(&config).unwrap_or_else(|_| "{}".to_string());
+    let Ok(serialized) = serde_json::to_string_pretty(&config) else {
+        let err = ApiError::new(ErrorType::Config, "更新配置失败", "UPDATE_CONFIG_FAILED");
+        return response::error(&err, &request_id);
+    };
     if tokio::fs::write(&config_path, serialized).await.is_err() {
         let err = ApiError::new(ErrorType::Config, "更新配置失败", "UPDATE_CONFIG_FAILED");
         return response::error(&err, &request_id);
     }
-    if state.path_manager.ensure_all_directories_exist().await.is_err() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(0o600);
+        if tokio::fs::set_permissions(&config_path, permissions)
+            .await
+            .is_err()
+        {
+            let err = ApiError::new(ErrorType::Config, "更新配置失败", "UPDATE_CONFIG_FAILED");
+            return response::error(&err, &request_id);
+        }
+    }
+    if !matches!(custom_output_dir, ConfigPathUpdate::Missing) {
+        let value = match &custom_output_dir {
+            ConfigPathUpdate::Set(value) => Some(value.as_str()),
+            ConfigPathUpdate::Missing | ConfigPathUpdate::Clear => None,
+        };
+        if state.path_manager.set_custom_output_dir(value).is_err() {
+            let err = ApiError::validation("路径验证失败", "INVALID_PATH");
+            return response::error(&err, &request_id);
+        }
+    }
+    if !matches!(custom_scheduled_dir, ConfigPathUpdate::Missing) {
+        let value = match &custom_scheduled_dir {
+            ConfigPathUpdate::Set(value) => Some(value.as_str()),
+            ConfigPathUpdate::Missing | ConfigPathUpdate::Clear => None,
+        };
+        if state
+            .path_manager
+            .set_custom_scheduled_export_dir(value)
+            .is_err()
+        {
+            let err = ApiError::validation("路径验证失败", "INVALID_PATH");
+            return response::error(&err, &request_id);
+        }
+    }
+    if state
+        .path_manager
+        .ensure_all_directories_exist()
+        .await
+        .is_err()
+    {
         let err = ApiError::new(ErrorType::Config, "更新配置失败", "UPDATE_CONFIG_FAILED");
         return response::error(&err, &request_id);
     }
@@ -330,4 +398,25 @@ pub async fn put_config(
         }),
         &request_id,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_config_path, ConfigPathUpdate};
+    use serde_json::json;
+
+    #[test]
+    fn config_paths_reject_type_confusion_and_control_characters() {
+        assert!(parse_config_path(&json!({ "customOutputDir": 123 }), "customOutputDir").is_err());
+        assert!(parse_config_path(
+            &json!({ "customOutputDir": "C:/exports\nother" }),
+            "customOutputDir"
+        )
+        .is_err());
+        assert_eq!(
+            parse_config_path(&json!({ "customOutputDir": null }), "customOutputDir")
+                .expect("null is valid"),
+            ConfigPathUpdate::Clear
+        );
+    }
 }

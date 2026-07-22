@@ -7,7 +7,7 @@ use axum::response::Response;
 use axum::Json;
 use serde_json::{json, Value};
 
-use crate::api::helpers::http_get_bytes;
+use crate::api::http_security::http_get_bytes;
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
 
@@ -75,7 +75,12 @@ async fn fetch_album_list(state: &SharedState, group_code: &str) -> Vec<Value> {
         return Vec::new();
     };
     let response_value = result.get("response").unwrap_or(&result);
-    if response_value.get("result").and_then(Value::as_i64).unwrap_or(-1) != 0 {
+    if response_value
+        .get("result")
+        .and_then(Value::as_i64)
+        .unwrap_or(-1)
+        != 0
+    {
         return Vec::new();
     }
     let empty: Vec<Value> = Vec::new();
@@ -89,7 +94,11 @@ async fn fetch_album_list(state: &SharedState, group_code: &str) -> Vec<Value> {
             let album_id = str_of(album, "album_id");
             let name = {
                 let n = str_of(album, "name");
-                if n.is_empty() { format!("相册_{album_id}") } else { n }
+                if n.is_empty() {
+                    format!("相册_{album_id}")
+                } else {
+                    n
+                }
             };
             json!({
                 "albumId": album_id,
@@ -141,8 +150,14 @@ fn normalize_media_item(item: &Value) -> Value {
     .into_iter()
     .find(|s| !s.is_empty())
     .unwrap_or_default();
-    let is_video = item.get("is_video").and_then(Value::as_bool).unwrap_or(false)
-        || item.get("isVideo").and_then(Value::as_bool).unwrap_or(false)
+    let is_video = item
+        .get("is_video")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || item
+            .get("isVideo")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
         || media_data.get("type").and_then(Value::as_i64) == Some(1);
     json!({
         "id": id,
@@ -170,7 +185,12 @@ async fn fetch_album_media(state: &SharedState, group_code: &str, album_id: &str
         else {
             break;
         };
-        if response_value.get("result").and_then(Value::as_i64).unwrap_or(-1) != 0 {
+        if response_value
+            .get("result")
+            .and_then(Value::as_i64)
+            .unwrap_or(-1)
+            != 0
+        {
             break;
         }
         let empty: Vec<Value> = Vec::new();
@@ -251,7 +271,11 @@ pub async fn export_group_album(
     }
     let group_name = {
         let name = str_of(&body, "groupName");
-        if name.is_empty() { group_code.clone() } else { name }
+        if name.is_empty() {
+            group_code.clone()
+        } else {
+            name
+        }
     };
     let album_ids: Vec<String> = body
         .get("albumIds")
@@ -275,7 +299,11 @@ pub async fn export_group_album(
         chrono::Utc::now().timestamp_millis()
     ));
     if let Err(error) = tokio::fs::create_dir_all(&export_dir).await {
-        let err = ApiError::new(ErrorType::FileSystem, error.to_string(), "CREATE_DIR_FAILED");
+        let err = ApiError::new(
+            ErrorType::FileSystem,
+            error.to_string(),
+            "CREATE_DIR_FAILED",
+        );
         return response::error(&err, &request_id);
     }
 
@@ -319,7 +347,11 @@ pub async fn export_group_album(
 
         let mut album_media_data: Vec<Value> = Vec::new();
         for media in &media_items {
-            let ext = if str_of(media, "type") == "video" { ".mp4" } else { ".jpg" };
+            let ext = if str_of(media, "type") == "video" {
+                ".mp4"
+            } else {
+                ".jpg"
+            };
             let file_name = format!("{}{ext}", sanitize(&str_of(media, "id")));
             let file_path = album_dir.join(&file_name);
 
@@ -359,7 +391,11 @@ pub async fn export_group_album(
 
         let downloaded_in_album = album_media_data
             .iter()
-            .filter(|m| m.get("downloaded").and_then(Value::as_bool).unwrap_or(false))
+            .filter(|m| {
+                m.get("downloaded")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            })
             .count();
         album_data.push(json!({
             "albumId": str_of(album, "albumId"),
@@ -427,7 +463,7 @@ pub async fn album_export_records(
         .get("limit")
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|l| *l >= 1)
-        .unwrap_or(50);
+        .map_or(50, |l| l.min(100));
     let mut records = load_records(&state).await;
     records.truncate(limit);
     response::success(

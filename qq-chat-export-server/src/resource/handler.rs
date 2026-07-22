@@ -1244,7 +1244,7 @@ async fn normalize_audio_file_extension(file_path: &str, resource: &mut Resource
         let _ = tokio::fs::remove_file(&new_path).await;
     }
     if let Err(error) = tokio::fs::rename(file_path, &new_path).await {
-        tracing::warn!("修正音频扩展名失败 {file_path} → {new_path}: {error}");
+        tracing::warn!("修正音频扩展名失败: {error}");
         return original;
     }
 

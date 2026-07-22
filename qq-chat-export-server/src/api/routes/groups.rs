@@ -20,12 +20,14 @@ fn page_and_limit(params: &HashMap<String, String>) -> (usize, usize) {
         .get("page")
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|p| *p >= 1)
-        .unwrap_or(1);
+        .unwrap_or(1)
+        .min(1_000_000);
     let limit = params
         .get("limit")
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|l| *l >= 1)
-        .unwrap_or(999);
+        .unwrap_or(999)
+        .min(2_000);
     (page, limit)
 }
 
@@ -59,9 +61,7 @@ pub fn sanitize_file_component(name: &str, max_len: usize) -> String {
         .chars()
         .take(max_len)
         .collect();
-    safe = safe
-        .trim_end_matches(['_', ' ', '.'])
-        .to_string();
+    safe = safe.trim_end_matches(['_', ' ', '.']).to_string();
     if matches!(
         safe.to_ascii_uppercase().as_str(),
         "CON"
@@ -197,8 +197,8 @@ pub async fn list_groups(
         .collect();
 
     let total = groups_with_avatars.len();
-    let start_index = (page - 1) * limit;
-    let end_index = start_index + limit;
+    let start_index = (page - 1).saturating_mul(limit);
+    let end_index = start_index.saturating_add(limit);
     let paginated: Vec<Value> = groups_with_avatars
         .iter()
         .skip(start_index)
@@ -905,23 +905,12 @@ mod member_list_tests {
         let name = "group_avatars_name_1_20260712_163632123.zip";
         std::fs::write(base.join(name), b"old").unwrap();
         let collision = reserve_unique_file_name(&base, name);
-        assert_eq!(
-            collision,
-            "group_avatars_name_1_20260712_163632123_2.zip"
-        );
+        assert_eq!(collision, "group_avatars_name_1_20260712_163632123_2.zip");
         release_group_export_path(&base.join(collision));
-        let first = reserve_unique_file_name(
-            &base,
-            "group_essence_name_1_20260712_163632123.html",
-        );
-        let second = reserve_unique_file_name(
-            &base,
-            "group_essence_name_1_20260712_163632123.html",
-        );
-        assert_eq!(
-            second,
-            "group_essence_name_1_20260712_163632123_2.html"
-        );
+        let first = reserve_unique_file_name(&base, "group_essence_name_1_20260712_163632123.html");
+        let second =
+            reserve_unique_file_name(&base, "group_essence_name_1_20260712_163632123.html");
+        assert_eq!(second, "group_essence_name_1_20260712_163632123_2.html");
         release_group_export_path(&base.join(first));
         release_group_export_path(&base.join(second));
         std::fs::remove_dir_all(base).unwrap();
