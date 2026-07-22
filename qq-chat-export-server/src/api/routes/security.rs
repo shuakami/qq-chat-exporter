@@ -30,35 +30,14 @@ fn server_addresses(state: &SharedState) -> Value {
 pub async fn security_status(
     State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
-    request: Request<Body>,
+    _request: Request<Body>,
 ) -> Response {
     let mut status = state.security_manager.security_status();
     if let Some(obj) = status.as_object_mut() {
         obj.insert("requiresAuth".to_string(), Value::Bool(true));
-        obj.insert(
-            "serverIP".to_string(),
-            state.security_manager.public_ip().map_or(Value::Null, Value::String),
-        );
-        obj.insert(
-            "isDocker".to_string(),
-            Value::Bool(state.security_manager.is_in_docker()),
-        );
-        obj.insert(
-            "ipWhitelistDisabled".to_string(),
-            Value::Bool(state.security_manager.is_ip_whitelist_disabled()),
-        );
-        obj.insert(
-            "allowedIPs".to_string(),
-            json!(state.security_manager.allowed_ips()),
-        );
-        obj.insert(
-            "currentClientIP".to_string(),
-            client_ip(&request).map_or(Value::Null, Value::String),
-        );
-        obj.insert(
-            "configPath".to_string(),
-            Value::String(state.security_manager.config_path().display().to_string()),
-        );
+        obj.remove("publicIP");
+        obj.remove("createdAt");
+        obj.remove("lastAccess");
     }
     response::success(status, &request_id)
 }
@@ -70,12 +49,16 @@ pub async fn auth(
     request: Request<Body>,
 ) -> Response {
     let ip = client_ip(&request);
-    let Ok(body_bytes) = axum::body::to_bytes(request.into_body(), 1024 * 1024).await else {
+    let Ok(body_bytes) = axum::body::to_bytes(request.into_body(), 4096).await else {
         let err = ApiError::validation("缺少访问令牌", "MISSING_TOKEN");
         return response::error(&err, &request_id);
     };
     let body: Value = serde_json::from_slice(&body_bytes).unwrap_or(Value::Null);
-    let Some(token) = body.get("token").and_then(Value::as_str).filter(|t| !t.is_empty()) else {
+    let Some(token) = body
+        .get("token")
+        .and_then(Value::as_str)
+        .filter(|t| !t.is_empty())
+    else {
         let err = ApiError::validation("缺少访问令牌", "MISSING_TOKEN");
         return response::error(&err, &request_id);
     };
@@ -114,16 +97,38 @@ pub async fn auth(
     }
 }
 
+fn valid_ip_rule(value: &str) -> bool {
+    if value == "*" || value == "0.0.0.0" {
+        return true;
+    }
+    if value.parse::<std::net::IpAddr>().is_ok() {
+        return true;
+    }
+    let Some((address, prefix)) = value.split_once('/') else {
+        return false;
+    };
+    address.parse::<std::net::Ipv4Addr>().is_ok()
+        && prefix.parse::<u8>().is_ok_and(|bits| bits <= 32)
+}
+
 /// `POST /api/server/host` — 更新服务器地址配置。
 pub async fn update_server_host(
     State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
     axum::Json(body): axum::Json<Value>,
 ) -> Response {
-    let Some(host) = body.get("host").and_then(Value::as_str).filter(|h| !h.is_empty()) else {
+    let Some(host) = body.get("host").and_then(Value::as_str).map(str::trim) else {
         let err = ApiError::validation("服务器地址不能为空", "INVALID_HOST");
         return response::error(&err, &request_id);
     };
+    let valid_host = !host.is_empty()
+        && host.len() <= 255
+        && !host.chars().any(char::is_control)
+        && !host.contains(['/', '\\', ':']);
+    if !valid_host {
+        let err = ApiError::validation("服务器地址格式无效", "INVALID_HOST");
+        return response::error(&err, &request_id);
+    }
     state.security_manager.update_server_host(host);
     response::success(
         json!({
@@ -145,7 +150,6 @@ pub async fn get_ip_whitelist(
             "allowedIPs": state.security_manager.allowed_ips(),
             "disabled": state.security_manager.is_ip_whitelist_disabled(),
             "isDocker": state.security_manager.is_in_docker(),
-            "configPath": state.security_manager.config_path().display().to_string(),
             "currentClientIP": client_ip(&request),
         }),
         &request_id,
@@ -158,10 +162,14 @@ pub async fn add_ip_whitelist(
     Extension(RequestId(request_id)): Extension<RequestId>,
     axum::Json(body): axum::Json<Value>,
 ) -> Response {
-    let Some(ip) = body.get("ip").and_then(Value::as_str).filter(|v| !v.is_empty()) else {
+    let Some(ip) = body.get("ip").and_then(Value::as_str).map(str::trim) else {
         let err = ApiError::validation("IP地址不能为空", "INVALID_IP");
         return response::error(&err, &request_id);
     };
+    if !valid_ip_rule(ip) {
+        let err = ApiError::validation("IP地址或CIDR格式无效", "INVALID_IP");
+        return response::error(&err, &request_id);
+    }
     state.security_manager.add_allowed_ip(ip);
     response::success(
         json!({
@@ -178,7 +186,11 @@ pub async fn remove_ip_whitelist(
     Extension(RequestId(request_id)): Extension<RequestId>,
     axum::Json(body): axum::Json<Value>,
 ) -> Response {
-    let Some(ip) = body.get("ip").and_then(Value::as_str).filter(|v| !v.is_empty()) else {
+    let Some(ip) = body
+        .get("ip")
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+    else {
         let err = ApiError::validation("IP地址不能为空", "INVALID_IP");
         return response::error(&err, &request_id);
     };
@@ -236,4 +248,19 @@ pub async fn add_current_ip(
         }),
         &request_id,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::valid_ip_rule;
+
+    #[test]
+    fn ip_rules_accept_supported_forms_and_reject_malformed_values() {
+        for valid in ["127.0.0.1", "::1", "10.0.0.0/8", "*"] {
+            assert!(valid_ip_rule(valid), "{valid}");
+        }
+        for invalid in ["", "999.1.1.1", "10.0.0.0/33", "not-an-ip", "10.0.0.0/x"] {
+            assert!(!valid_ip_rule(invalid), "{invalid}");
+        }
+    }
 }

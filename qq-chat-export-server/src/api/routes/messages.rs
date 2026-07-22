@@ -635,11 +635,20 @@ async fn prepare_export_request(
             .and_then(Value::as_str)
             .unwrap_or(""),
     );
-    let output_dir = if custom_output_dir.trim().is_empty() {
+    let requested_output_dir = if custom_output_dir.trim().is_empty() {
         state.path_manager.exports_dir()
     } else {
         PathBuf::from(&custom_output_dir)
     };
+    let output_roots = [
+        state.path_manager.exports_dir(),
+        state.path_manager.scheduled_exports_dir(),
+    ];
+    let output_dir = crate::api::path_security::resolve_for_creation_within(
+        &requested_output_dir,
+        &output_roots,
+    )
+    .ok_or_else(|| ApiError::validation("导出目录必须位于允许的导出目录内", "INVALID_PATH"))?;
 
     // 会话名：优先用户输入（issue #365）。
     let user_session_name = body

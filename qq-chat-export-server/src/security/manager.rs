@@ -138,7 +138,11 @@ fn ip_matches_cidr(ip: &str, cidr: &str) -> bool {
     let Some(ip_num) = ip_to_number(ip) else {
         return false;
     };
-    let mask: u32 = if mask_bits == 0 { 0 } else { u32::MAX << (32 - mask_bits) };
+    let mask: u32 = if mask_bits == 0 {
+        0
+    } else {
+        u32::MAX << (32 - mask_bits)
+    };
     (ip_num & mask) == (network & mask)
 }
 
@@ -220,10 +224,20 @@ impl SecurityManager {
     pub fn initialize(&self) {
         {
             let mut public_ip = self.public_ip.write().expect("public_ip 锁中毒");
-            *public_ip = Some(if self.is_docker { "0.0.0.0" } else { "127.0.0.1" }.to_string());
+            *public_ip = Some(
+                if self.is_docker {
+                    "0.0.0.0"
+                } else {
+                    "127.0.0.1"
+                }
+                .to_string(),
+            );
         }
 
-        tracing::info!("[QCE][SecurityManager] config: {}", self.config_path.display());
+        tracing::info!(
+            "[QCE][SecurityManager] config: {}",
+            self.config_path.display()
+        );
 
         if self.config_path.exists() {
             self.load_config();
@@ -416,6 +430,14 @@ impl SecurityManager {
             if std::fs::write(&self.config_path, data).is_err() {
                 tracing::warn!("[QCE][SecurityManager] security.json 写入失败");
             }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let permissions = std::fs::Permissions::from_mode(0o600);
+                if std::fs::set_permissions(&self.config_path, permissions).is_err() {
+                    tracing::warn!("[QCE][SecurityManager] security.json 权限设置失败");
+                }
+            }
         }
         self.record_mtime();
     }
@@ -456,11 +478,12 @@ impl SecurityManager {
         if cfg.token_expired.is_some_and(|expiry| Utc::now() > expiry) {
             return Err(VerifyTokenReason::TokenExpired);
         }
-        if !cfg.disable_ip_whitelist.unwrap_or(false) {
-            if let Some(ip) = client_ip {
-                if !cfg.allowed_i_ps.is_empty() && !Self::check_ip_allowed(&cfg, ip) {
-                    return Err(VerifyTokenReason::IpNotAllowed);
-                }
+        if !cfg.disable_ip_whitelist.unwrap_or(false) && !cfg.allowed_i_ps.is_empty() {
+            let Some(ip) = client_ip else {
+                return Err(VerifyTokenReason::IpNotAllowed);
+            };
+            if !Self::check_ip_allowed(&cfg, ip) {
+                return Err(VerifyTokenReason::IpNotAllowed);
             }
         }
 
@@ -563,7 +586,10 @@ impl SecurityManager {
     /// 获取当前白名单列表。
     pub fn allowed_ips(&self) -> Vec<String> {
         let guard = self.config.read().expect("config 锁中毒");
-        guard.as_ref().map(|c| c.allowed_i_ps.clone()).unwrap_or_default()
+        guard
+            .as_ref()
+            .map(|c| c.allowed_i_ps.clone())
+            .unwrap_or_default()
     }
 
     /// 设置是否禁用 IP 白名单验证。
