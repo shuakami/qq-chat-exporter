@@ -14,8 +14,11 @@ pub async fn request_id_middleware(mut request: Request<Body>, next: Next) -> Re
         .headers()
         .get("x-request-id")
         .and_then(|value| value.to_str().ok())
+        .filter(|value| value.len() <= 128)
         .map_or_else(response::generate_request_id, ToString::to_string);
-    request.extensions_mut().insert(RequestId(request_id.clone()));
+    request
+        .extensions_mut()
+        .insert(RequestId(request_id.clone()));
     let mut response = next.run(request).await;
     if let Ok(header_value) = HeaderValue::from_str(&request_id) {
         response.headers_mut().insert("x-request-id", header_value);
@@ -25,21 +28,6 @@ pub async fn request_id_middleware(mut request: Request<Body>, next: Next) -> Re
 
 /// 从请求中提取真实客户端 IP。
 pub fn client_ip(request: &Request<Body>) -> Option<String> {
-    let headers = request.headers();
-    if let Some(forwarded) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-        if let Some(first) = forwarded.split(',').next() {
-            let trimmed = first.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
-            }
-        }
-    }
-    if let Some(real_ip) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
-        let trimmed = real_ip.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
-        }
-    }
     request
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
@@ -75,39 +63,38 @@ fn map_verify_token_failure(
 
 /// 判断路径是否为公开路由（无需认证）。
 fn is_public_route(path: &str) -> bool {
-    const PUBLIC_ROUTES: [&str; 6] =
-        ["/", "/health", "/auth", "/auth/", "/security-status", "/qce"];
+    const PUBLIC_ROUTES: [&str; 6] = [
+        "/",
+        "/health",
+        "/auth",
+        "/auth/",
+        "/security-status",
+        "/qce",
+    ];
     const STATIC_EXTENSIONS: [&str; 11] = [
         ".png", ".jpg", ".jpeg", ".svg", ".gif", ".ico", ".css", ".js", ".woff", ".woff2", ".ttf",
     ];
 
     let lower = path.to_lowercase();
-    let is_static_file = STATIC_EXTENSIONS.iter().any(|ext| lower.ends_with(ext));
-
-    let preview_like = || {
-        let Some(rest) = path.strip_prefix("/api/exports/files/") else {
-            return false;
-        };
-        if let Some((name, tail)) = rest.split_once('/') {
-            if name.is_empty() {
-                return false;
-            }
-            return tail == "preview" || tail == "info" || tail.starts_with("resources/");
-        }
-        false
-    };
+    let is_root_static_file = !path.starts_with("/api/")
+        && !path.starts_with("/resources/")
+        && !path.starts_with("/downloads/")
+        && !path.starts_with("/scheduled-downloads/")
+        && STATIC_EXTENSIONS.iter().any(|ext| lower.ends_with(ext));
 
     PUBLIC_ROUTES.contains(&path)
         || path.starts_with("/static/")
         || path.starts_with("/qce/")
-        || is_static_file
-        || path == "/api/exports/files"
-        || preview_like()
-        || path.starts_with("/resources/")
-        || path.starts_with("/downloads/")
-        || path.starts_with("/scheduled-downloads/")
-        || path == "/download"
+        || is_root_static_file
     // 注意：/api/download-file 需要认证（Issue #192 安全修复）
+}
+
+fn is_websocket_upgrade(request: &Request<Body>) -> bool {
+    request
+        .headers()
+        .get("upgrade")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.eq_ignore_ascii_case("websocket"))
 }
 
 /// 安全认证中间件。
@@ -117,7 +104,8 @@ pub async fn auth_middleware(
     next: Next,
 ) -> Response {
     let path = request.uri().path().to_string();
-    if is_public_route(&path) {
+    let root_websocket_upgrade = path == "/" && is_websocket_upgrade(&request);
+    if is_public_route(&path) && !root_websocket_upgrade {
         return next.run(request).await;
     }
 
@@ -131,11 +119,13 @@ pub async fn auth_middleware(
         .headers()
         .get("authorization")
         .and_then(|value| value.to_str().ok())
-        .map(|value| value.trim_start_matches("Bearer ").to_string())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(ToString::to_string)
         .or_else(|| {
-            request.uri().query().and_then(|query| {
-                url_query_param(query, "token")
-            })
+            request
+                .uri()
+                .query()
+                .and_then(|query| url_query_param(query, "token"))
         })
         .or_else(|| {
             request
@@ -172,7 +162,9 @@ pub async fn auth_middleware(
 /// 从 query string 中提取参数（URL 解码）。
 fn url_query_param(query: &str, key: &str) -> Option<String> {
     for pair in query.split('&') {
-        let (k, v) = pair.split_once('=')?;
+        let Some((k, v)) = pair.split_once('=') else {
+            continue;
+        };
         if k == key {
             return percent_encoding::percent_decode_str(v)
                 .decode_utf8()
@@ -193,11 +185,51 @@ mod tests {
         assert!(is_public_route("/health"));
         assert!(is_public_route("/qce/index.html"));
         assert!(is_public_route("/static/app.css"));
-        assert!(is_public_route("/api/exports/files"));
-        assert!(is_public_route("/api/exports/files/abc.html/preview"));
-        assert!(is_public_route("/api/exports/files/abc.html/info"));
-        assert!(is_public_route("/api/exports/files/abc/resources/images/x.bin"));
+        assert!(!is_public_route("/api/exports/files"));
+        assert!(!is_public_route("/api/exports/files/abc.html/preview"));
+        assert!(!is_public_route("/api/exports/files/abc.html/info"));
+        assert!(!is_public_route(
+            "/api/exports/files/abc/resources/images/x.bin"
+        ));
+        assert!(!is_public_route(
+            "/api/exports/files/abc/resources/images/x.png"
+        ));
+        assert!(!is_public_route("/downloads/abc.html"));
+        assert!(!is_public_route("/resources/avatar.png"));
         assert!(!is_public_route("/api/download-file"));
         assert!(!is_public_route("/api/groups"));
+    }
+
+    #[test]
+    fn root_websocket_upgrade_is_not_treated_as_public_http() {
+        let request = Request::builder()
+            .header("upgrade", "websocket")
+            .body(Body::empty())
+            .expect("request");
+        assert!(is_public_route("/"));
+        assert!(is_websocket_upgrade(&request));
+    }
+
+    #[test]
+    fn client_ip_ignores_forwarding_headers() {
+        let mut request = Request::builder()
+            .header("x-forwarded-for", "127.0.0.1")
+            .header("x-real-ip", "127.0.0.1")
+            .body(Body::empty())
+            .expect("request");
+        request.extensions_mut().insert(axum::extract::ConnectInfo(
+            "192.0.2.25:40653"
+                .parse::<std::net::SocketAddr>()
+                .expect("socket address"),
+        ));
+        assert_eq!(client_ip(&request).as_deref(), Some("192.0.2.25"));
+    }
+
+    #[test]
+    fn query_parser_skips_malformed_pairs() {
+        assert_eq!(
+            url_query_param("broken&token=abc%20123", "token").as_deref(),
+            Some("abc 123")
+        );
     }
 }

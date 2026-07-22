@@ -2,6 +2,7 @@ use axum::extract::{Extension, Path, State};
 use axum::response::Response;
 use serde_json::{json, Value};
 
+use crate::api::path_security::resolve_existing_descendant_within;
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
 
@@ -219,14 +220,16 @@ pub async fn delete_original_files(
         return response::error(&err, &request_id);
     };
 
-    let path = std::path::PathBuf::from(&original_dir);
-    // 安全约束：只允许删除导出目录内的路径。
-    let exports_dir = state.path_manager.exports_dir();
-    let scheduled_dir = state.path_manager.scheduled_exports_dir();
-    if !(path.starts_with(&exports_dir) || path.starts_with(&scheduled_dir)) {
+    let roots = [
+        state.path_manager.exports_dir(),
+        state.path_manager.scheduled_exports_dir(),
+    ];
+    let Some(path) =
+        resolve_existing_descendant_within(&std::path::PathBuf::from(&original_dir), &roots)
+    else {
         let err = ApiError::validation("路径不在导出目录内", "INVALID_PATH");
         return response::error(&err, &request_id);
-    }
+    };
 
     if path.exists() {
         if let Err(error) = tokio::fs::remove_dir_all(&path).await {

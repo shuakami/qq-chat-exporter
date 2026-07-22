@@ -22,8 +22,12 @@ use qce_exporter::{ChatInfo, CleanMessage, ExportOptions};
 use crate::api::helpers::{
     chat_avatar_url, resolve_peer_uid, resolve_peer_uin, resolve_session_name,
 };
-use crate::api::response::{self, ApiError, RequestId};
+use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::{MessageCacheEntry, SharedState, CACHE_EXPIRE_TIME_MS};
+
+const MAX_ACTIVE_EXPORT_TASKS: usize = 32;
+const MAX_MESSAGE_CACHE_ENTRIES: usize = 64;
+const MAX_CACHED_MESSAGES_PER_ENTRY: usize = 20_000;
 use crate::export_debug::ExportDebugSession;
 use crate::fetcher::{
     chat_type_prefix, classify_chat_type_binary, repair_group_message_sequence, BatchFetchConfig,
@@ -434,9 +438,11 @@ pub async fn fetch_messages(
         return response::error(&err, &request_id);
     };
     let filter = body.get("filter").cloned().unwrap_or(Value::Null);
-    let batch_size = loose_i64(body.get("batchSize")).unwrap_or(5000);
-    let page = loose_i64(body.get("page")).unwrap_or(1).max(1);
-    let limit = loose_i64(body.get("limit")).unwrap_or(50).max(1);
+    let batch_size = loose_i64(body.get("batchSize"))
+        .unwrap_or(5000)
+        .clamp(1, 5000);
+    let page = loose_i64(body.get("page")).unwrap_or(1).clamp(1, 1_000_000);
+    let limit = loose_i64(body.get("limit")).unwrap_or(50).clamp(1, 2000);
     let force_refresh = loose_bool(body.get("forceRefresh")) || loose_bool(body.get("bypassCache"));
 
     let start_time = loose_i64(filter.get("startTime"));
@@ -519,8 +525,8 @@ pub async fn fetch_messages(
         }
     }
 
-    let start_index = usize::try_from((page - 1) * limit).unwrap_or(0);
-    let end_index = usize::try_from(page * limit).unwrap_or(usize::MAX);
+    let start_index = usize::try_from((page - 1).saturating_mul(limit)).unwrap_or(0);
+    let end_index = usize::try_from(page.saturating_mul(limit)).unwrap_or(usize::MAX);
 
     let paginate_response = |messages: &[Value], has_next: bool, hit: bool| -> Response {
         let total = messages.len();
@@ -645,8 +651,17 @@ pub async fn fetch_messages(
 
     let has_next = all_messages.len() > end_index || has_more;
     let paginated = paginate_response(&all_messages, has_next, cache_hit);
-    {
+    if all_messages.len() <= MAX_CACHED_MESSAGES_PER_ENTRY {
         let mut cache = state.message_cache.lock().await;
+        if cache.len() >= MAX_MESSAGE_CACHE_ENTRIES && !cache.contains_key(&cache_key) {
+            if let Some(oldest_key) = cache
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_update)
+                .map(|(key, _)| key.clone())
+            {
+                cache.remove(&oldest_key);
+            }
+        }
         cache.insert(
             cache_key,
             MessageCacheEntry {
@@ -718,11 +733,20 @@ async fn prepare_export_request(
             .and_then(Value::as_str)
             .unwrap_or(""),
     );
-    let output_dir = if custom_output_dir.trim().is_empty() {
+    let requested_output_dir = if custom_output_dir.trim().is_empty() {
         state.path_manager.exports_dir()
     } else {
         PathBuf::from(&custom_output_dir)
     };
+    let output_roots = [
+        state.path_manager.exports_dir(),
+        state.path_manager.scheduled_exports_dir(),
+    ];
+    let output_dir = crate::api::path_security::resolve_for_creation_within(
+        &requested_output_dir,
+        &output_roots,
+    )
+    .ok_or_else(|| ApiError::validation("导出目录必须位于允许的导出目录内", "INVALID_PATH"))?;
 
     // 会话名：优先用户输入（issue #365）。
     let user_session_name = body
@@ -756,7 +780,7 @@ async fn prepare_export_request(
 }
 
 /// 创建任务记录、入表并持久化。
-async fn register_task(state: &SharedState, task: &Value) {
+async fn register_task(state: &SharedState, task: &Value) -> bool {
     let task_id = task
         .get("taskId")
         .and_then(Value::as_str)
@@ -764,11 +788,24 @@ async fn register_task(state: &SharedState, task: &Value) {
         .to_string();
     {
         let mut tasks = state.export_tasks.lock().await;
+        let active_count = tasks
+            .values()
+            .filter(|value| {
+                matches!(
+                    value.get("status").and_then(Value::as_str),
+                    Some("pending" | "running")
+                )
+            })
+            .count();
+        if active_count >= MAX_ACTIVE_EXPORT_TASKS {
+            return false;
+        }
         tasks.insert(task_id, task.clone());
     }
     if let Err(error) = state.db.save_task(task, task, true).await {
         tracing::warn!("[ApiServer] 保存新任务到数据库失败: {error}");
     }
+    true
 }
 
 /// `POST /api/messages/export` — 创建异步导出任务。
@@ -828,7 +865,15 @@ pub async fn export_messages(
         "filter": req.filter,
         "options": req.options,
     });
-    register_task(&state, &task).await;
+    if !register_task(&state, &task).await {
+        let err = ApiError::new(
+            ErrorType::Api,
+            "运行中的导出任务已达到上限",
+            "EXPORT_TASK_LIMIT_REACHED",
+        )
+        .with_status(axum::http::StatusCode::TOO_MANY_REQUESTS);
+        return response::error(&err, &request_id);
+    }
 
     let reply = json!({
         "taskId": task_id,
@@ -913,7 +958,15 @@ pub async fn export_streaming_zip(
         "filter": req.filter,
         "options": options,
     });
-    register_task(&state, &task).await;
+    if !register_task(&state, &task).await {
+        let err = ApiError::new(
+            ErrorType::Api,
+            "运行中的导出任务已达到上限",
+            "EXPORT_TASK_LIMIT_REACHED",
+        )
+        .with_status(axum::http::StatusCode::TOO_MANY_REQUESTS);
+        return response::error(&err, &request_id);
+    }
 
     let reply = json!({
         "taskId": task_id,
@@ -994,7 +1047,15 @@ pub async fn export_streaming_jsonl(
         "filter": req.filter,
         "options": options,
     });
-    register_task(&state, &task).await;
+    if !register_task(&state, &task).await {
+        let err = ApiError::new(
+            ErrorType::Api,
+            "运行中的导出任务已达到上限",
+            "EXPORT_TASK_LIMIT_REACHED",
+        )
+        .with_status(axum::http::StatusCode::TOO_MANY_REQUESTS);
+        return response::error(&err, &request_id);
+    }
 
     let reply = json!({
         "taskId": task_id,

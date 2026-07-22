@@ -205,7 +205,10 @@ async fn handle_stream_search(state: &SharedState, sender: WsSender, data: Value
         .get("searchQuery")
         .and_then(Value::as_str)
         .unwrap_or("")
-        .to_string();
+        .trim()
+        .chars()
+        .take(200)
+        .collect::<String>();
     let peer_value = data.get("peer").cloned().unwrap_or(Value::Null);
     let Ok(peer) = serde_json::from_value::<Peer>(peer_value) else {
         send_json(
@@ -218,7 +221,7 @@ async fn handle_stream_search(state: &SharedState, sender: WsSender, data: Value
         .await;
         return;
     };
-    if query.is_empty() {
+    if search_id.is_empty() || search_id.len() > 128 || query.is_empty() {
         send_json(
             &sender,
             &json!({
@@ -250,6 +253,17 @@ async fn handle_stream_search(state: &SharedState, sender: WsSender, data: Value
     let cancel_flag = Arc::new(AtomicBool::new(false));
     {
         let mut searches = active_searches().lock().await;
+        if searches.len() >= 64 || searches.contains_key(&search_id) {
+            send_json(
+                &sender,
+                &json!({
+                    "type": "search_error",
+                    "data": { "searchId": search_id, "message": "搜索任务数量已达上限或ID重复" },
+                }),
+            )
+            .await;
+            return;
+        }
         searches.insert(search_id.clone(), Arc::clone(&cancel_flag));
     }
 
@@ -280,7 +294,10 @@ async fn handle_stream_search(state: &SharedState, sender: WsSender, data: Value
                 .await;
                 break;
             }
-            let batch = match fetcher.fetch_next_batch(&peer, &filter, previous.as_ref()).await {
+            let batch = match fetcher
+                .fetch_next_batch(&peer, &filter, previous.as_ref())
+                .await
+            {
                 Ok(Some(batch)) => batch,
                 Ok(None) => {
                     send_json(

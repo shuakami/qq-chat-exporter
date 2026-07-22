@@ -1,6 +1,5 @@
-use std::time::Duration;
-
 use serde_json::{json, Value};
+use std::time::Duration;
 
 use qce_exporter::CleanMessage;
 
@@ -9,22 +8,6 @@ use crate::napcat::NapCatBridgeClient;
 
 /// 单步查询超时，单位为毫秒。
 const SESSION_NAME_TIMEOUT_MS: u64 = 2000;
-
-/// 下载 URL 到内存（30 秒超时，跟随重定向；失败返回 `None`）。
-pub async fn http_get_bytes(url: &str) -> Option<bytes::Bytes> {
-    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
-    let client = CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap_or_default()
-    });
-    let response = client.get(url).send().await.ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    response.bytes().await.ok()
-}
 
 /// 宽松转数字。
 fn to_number(value: Option<&Value>) -> i64 {
@@ -80,7 +63,10 @@ pub fn normalize_group_system_notify(raw: &Value) -> Value {
         .or_else(|| raw.get("InvitedRequest").and_then(Value::as_array))
         .unwrap_or(&empty);
 
-    let join_requests: Vec<Value> = join.iter().map(|item| map_notify_item(item, "join")).collect();
+    let join_requests: Vec<Value> = join
+        .iter()
+        .map(|item| map_notify_item(item, "join"))
+        .collect();
     let invited_requests: Vec<Value> = invited
         .iter()
         .map(|item| map_notify_item(item, "invited"))
@@ -196,9 +182,8 @@ pub fn resolve_peer_uin(
     self_uin: Option<&str>,
     messages: &[CleanMessage],
 ) -> Option<String> {
-    let valid_uin = |uin: &&str| {
-        !uin.is_empty() && uin.chars().all(|c| c.is_ascii_digit()) && *uin != "0"
-    };
+    let valid_uin =
+        |uin: &&str| !uin.is_empty() && uin.chars().all(|c| c.is_ascii_digit()) && *uin != "0";
     messages
         .iter()
         .find(|message| message.sender.uid == peer_uid)
@@ -318,7 +303,9 @@ mod tests {
     fn normalize_empty_payload() {
         let normalized = normalize_group_system_notify(&Value::Null);
         assert_eq!(normalized["totalCount"], 0);
-        assert!(normalized["joinRequests"].as_array().is_some_and(Vec::is_empty));
+        assert!(normalized["joinRequests"]
+            .as_array()
+            .is_some_and(Vec::is_empty));
     }
 
     #[test]

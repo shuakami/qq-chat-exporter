@@ -13,6 +13,7 @@ use qce_exporter::types::MessageResource;
 use qce_exporter::{ChatInfo, CleanMessage, ExportOptions};
 
 use qce_server::api::helpers::{chat_avatar_url, resolve_peer_uin};
+use qce_server::api::path_security::resolve_for_creation_within;
 use qce_server::export_debug::ExportDebugSession;
 use qce_server::fetcher::{
     classify_chat_type_binary, BatchFetchConfig, BatchMessageFetcher, MessageFilter, Peer,
@@ -86,12 +87,18 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             .unwrap_or("HTML")
             .to_uppercase();
         let options = task.get("options").cloned().unwrap_or(Value::Null);
-        let output_dir = task
+        let requested_output_dir = task
             .get("outputDir")
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map_or_else(|| self.path_manager.scheduled_exports_dir(), PathBuf::from);
+        let output_roots = [
+            self.path_manager.exports_dir(),
+            self.path_manager.scheduled_exports_dir(),
+        ];
+        let output_dir = resolve_for_creation_within(&requested_output_dir, &output_roots)
+            .ok_or_else(|| "定时导出目录不在允许的导出目录内".to_string())?;
         let debug_session = if options.get("debugExport").and_then(Value::as_bool) == Some(true) {
             let export_name = format!(
                 "scheduled-{}-{}",
