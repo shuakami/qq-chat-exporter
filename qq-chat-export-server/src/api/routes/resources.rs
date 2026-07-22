@@ -98,6 +98,47 @@ fn ext_of(name: &str) -> String {
         .unwrap_or_default()
 }
 
+fn valid_export_file_name(file_name: &str) -> bool {
+    let mut components = FsPath::new(file_name).components();
+    matches!(components.next(), Some(std::path::Component::Normal(_)))
+        && components.next().is_none()
+        && !file_name.contains('\0')
+}
+
+struct ResolvedExportFile {
+    path: PathBuf,
+    base_dir: PathBuf,
+    is_scheduled: bool,
+}
+
+/// Resolves an existing top-level export file without permitting traversal or symlink escape.
+fn resolve_export_file(state: &SharedState, file_name: &str) -> Option<ResolvedExportFile> {
+    if !valid_export_file_name(file_name) {
+        return None;
+    }
+
+    for (base_dir, is_scheduled) in [
+        (state.path_manager.exports_dir(), false),
+        (state.path_manager.scheduled_exports_dir(), true),
+    ] {
+        let candidate = base_dir.join(file_name);
+        if !candidate.is_file() {
+            continue;
+        }
+        let (Ok(path), Ok(canonical_base)) = (candidate.canonicalize(), base_dir.canonicalize()) else {
+            continue;
+        };
+        if path.starts_with(&canonical_base) {
+            return Some(ResolvedExportFile {
+                path,
+                base_dir,
+                is_scheduled,
+            });
+        }
+    }
+    None
+}
+
 
 // 导出文件名解析（Issue #216 新旧格式兼容）
 
@@ -607,19 +648,12 @@ pub async fn export_file_info(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(file_name): Path<String>,
 ) -> Response {
-    let export_dir = state.path_manager.exports_dir();
-    let scheduled_dir = state.path_manager.scheduled_exports_dir();
-
-    let mut file_path = export_dir.join(&file_name);
-    let mut is_scheduled = false;
-    if !file_path.exists() {
-        file_path = scheduled_dir.join(&file_name);
-        is_scheduled = true;
-    }
-    if !file_path.exists() {
+    let Some(resolved) = resolve_export_file(&state, &file_name) else {
         let err = ApiError::validation("导出文件不存在", "FILE_NOT_FOUND");
         return response::error(&err, &request_id);
-    }
+    };
+    let file_path = resolved.path;
+    let is_scheduled = resolved.is_scheduled;
     let Some(basic_info) = parse_export_file_name(&file_name) else {
         let err = ApiError::validation("无效的文件名格式", "INVALID_FILENAME");
         return response::error(&err, &request_id);
@@ -731,19 +765,11 @@ pub async fn delete_export_file(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(file_name): Path<String>,
 ) -> Response {
-    let export_dir = state.path_manager.exports_dir();
-    let scheduled_dir = state.path_manager.scheduled_exports_dir();
-
-    let mut target = export_dir.join(&file_name);
-    let mut base_dir = export_dir;
-    if !target.exists() {
-        target = scheduled_dir.join(&file_name);
-        base_dir = scheduled_dir;
-    }
-    if !target.exists() {
+    let Some(resolved) = resolve_export_file(&state, &file_name) else {
         let err = ApiError::validation("文件不存在", "FILE_NOT_FOUND");
         return response::error(&err, &request_id);
-    }
+    };
+    let base_dir = resolved.base_dir;
 
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| regex::Regex::new(r"\.(html|json)$").expect("valid regex"));
@@ -827,17 +853,11 @@ pub async fn preview_export_file(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(file_name): Path<String>,
 ) -> Response {
-    let export_dir = state.path_manager.exports_dir();
-    let scheduled_dir = state.path_manager.scheduled_exports_dir();
-
-    let mut file_path = export_dir.join(&file_name);
-    if !file_path.exists() {
-        file_path = scheduled_dir.join(&file_name);
-    }
-    if !file_path.exists() {
-        let err = ApiError::validation(format!("文件不存在: {file_name}"), "FILE_NOT_FOUND");
+    let Some(resolved) = resolve_export_file(&state, &file_name) else {
+        let err = ApiError::validation("导出文件不存在", "FILE_NOT_FOUND");
         return response::error(&err, &request_id);
-    }
+    };
+    let file_path = resolved.path;
 
     let is_json = ext_of(&file_name) == ".json";
     let html = if is_json {
@@ -971,6 +991,10 @@ pub async fn export_file_resource(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path((file_name, resource_path)): Path<(String, String)>,
 ) -> Response {
+    if !valid_export_file_name(&file_name) {
+        let err = ApiError::validation("非法的导出文件名", "INVALID_FILENAME");
+        return response::error(&err, &request_id);
+    }
     if resource_path.contains("..")
         || resource_path.starts_with('/')
         || resource_path.starts_with('\\')
@@ -1254,6 +1278,10 @@ pub async fn export_file_resources(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(file_name): Path<String>,
 ) -> Response {
+    if !valid_export_file_name(&file_name) {
+        let err = ApiError::validation("非法的导出文件名", "INVALID_FILENAME");
+        return response::error(&err, &request_id);
+    }
     let exports_dir = state.path_manager.exports_dir();
     let scheduled_dir = state.path_manager.scheduled_exports_dir();
 
@@ -2194,7 +2222,7 @@ mod metadata_tests {
     use super::{
         apply_file_metadata, avatar_url, extract_html_time_range, parse_export_file_name,
         parse_manifest_metadata, parse_manual_export_file_name, should_select_in_file_manager,
-        windows_explorer_args,
+        valid_export_file_name, windows_explorer_args,
     };
     use serde_json::json;
     use std::fs;
@@ -2204,6 +2232,22 @@ mod metadata_tests {
         assert!(avatar_url("friend", "u_peer").is_none());
         assert!(avatar_url("friend", "0").is_none());
         assert!(avatar_url("friend", "1687657986").is_some());
+    }
+
+    #[test]
+    fn export_file_name_rejects_traversal_and_absolute_paths() {
+        assert!(valid_export_file_name("friend_123_20260713_002703.html"));
+        for invalid in [
+            "../etc/passwd",
+            "..\\Windows\\win.ini",
+            "/etc/passwd",
+            "C:\\Windows\\win.ini",
+            "nested/file.html",
+            "nested\\file.html",
+            "",
+        ] {
+            assert!(!valid_export_file_name(invalid), "{invalid}");
+        }
     }
 
     #[test]
