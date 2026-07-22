@@ -852,6 +852,7 @@ pub async fn preview_export_file(
     State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(file_name): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Response {
     let Some(resolved) = resolve_export_file(&state, &file_name) else {
         let err = ApiError::validation("导出文件不存在", "FILE_NOT_FOUND");
@@ -905,15 +906,23 @@ pub async fn preview_export_file(
         let mut content = std::fs::read_to_string(&file_path).unwrap_or_default();
         let encoded = encode_uri_component(&file_name);
         let api_prefix = format!("/api/exports/files/{encoded}/resources/");
-        for pattern in [
-            "src=\"./resources/",
-            "href=\"./resources/",
-            "src=\"../resources/",
-            "href=\"../resources/",
-        ] {
-            let attr = &pattern[..=pattern.find('"').unwrap_or(0)];
-            content = content.replace(pattern, &format!("{attr}{api_prefix}"));
-        }
+        let token_suffix = params
+            .get("token")
+            .filter(|token| !token.is_empty())
+            .map(|token| format!("?token={}", encode_uri_component(token)))
+            .unwrap_or_default();
+        let resource_re = regex::Regex::new(
+            r#"(?P<attr>src|href)=\"(?:\./|\.\./)resources/(?P<path>[^\"]*)\""#,
+        )
+        .expect("valid resource URL regex");
+        content = resource_re
+            .replace_all(&content, |captures: &regex::Captures<'_>| {
+                format!(
+                    "{}=\"{api_prefix}{}{}\"",
+                    &captures["attr"], &captures["path"], token_suffix
+                )
+            })
+            .into_owned();
         content
     };
 

@@ -82,31 +82,16 @@ fn is_public_route(path: &str) -> bool {
     ];
 
     let lower = path.to_lowercase();
-    let is_static_file = STATIC_EXTENSIONS.iter().any(|ext| lower.ends_with(ext));
-
-    let preview_like = || {
-        let Some(rest) = path.strip_prefix("/api/exports/files/") else {
-            return false;
-        };
-        if let Some((name, tail)) = rest.split_once('/') {
-            if name.is_empty() {
-                return false;
-            }
-            return tail == "preview" || tail == "info" || tail.starts_with("resources/");
-        }
-        false
-    };
+    let is_root_static_file = !path.starts_with("/api/")
+        && !path.starts_with("/resources/")
+        && !path.starts_with("/downloads/")
+        && !path.starts_with("/scheduled-downloads/")
+        && STATIC_EXTENSIONS.iter().any(|ext| lower.ends_with(ext));
 
     PUBLIC_ROUTES.contains(&path)
         || path.starts_with("/static/")
         || path.starts_with("/qce/")
-        || is_static_file
-        || path == "/api/exports/files"
-        || preview_like()
-        || path.starts_with("/resources/")
-        || path.starts_with("/downloads/")
-        || path.starts_with("/scheduled-downloads/")
-        || path == "/download"
+        || is_root_static_file
     // 注意：/api/download-file 需要认证（Issue #192 安全修复）
 }
 
@@ -193,10 +178,13 @@ mod tests {
         assert!(is_public_route("/health"));
         assert!(is_public_route("/qce/index.html"));
         assert!(is_public_route("/static/app.css"));
-        assert!(is_public_route("/api/exports/files"));
-        assert!(is_public_route("/api/exports/files/abc.html/preview"));
-        assert!(is_public_route("/api/exports/files/abc.html/info"));
-        assert!(is_public_route("/api/exports/files/abc/resources/images/x.bin"));
+        assert!(!is_public_route("/api/exports/files"));
+        assert!(!is_public_route("/api/exports/files/abc.html/preview"));
+        assert!(!is_public_route("/api/exports/files/abc.html/info"));
+        assert!(!is_public_route("/api/exports/files/abc/resources/images/x.bin"));
+        assert!(!is_public_route("/api/exports/files/abc/resources/images/x.png"));
+        assert!(!is_public_route("/downloads/abc.html"));
+        assert!(!is_public_route("/resources/avatar.png"));
         assert!(!is_public_route("/api/download-file"));
         assert!(!is_public_route("/api/groups"));
     }

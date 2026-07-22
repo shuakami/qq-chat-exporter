@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import AuthManager from '@/lib/auth';
 
 export interface ExportFile {
   fileName: string;
@@ -107,7 +108,8 @@ export function useChatHistory() {
   const downloadFile = useCallback((file: ExportFile) => {
     // 创建下载链接
     const link = document.createElement('a');
-    link.href = file.relativePath;
+    const token = AuthManager.getInstance().getToken() || '';
+    link.href = `${file.relativePath}?token=${encodeURIComponent(token)}`;
     link.download = file.fileName;
     document.body.appendChild(link);
     link.click();
