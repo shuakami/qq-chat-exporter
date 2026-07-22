@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docker NapCat 部署 · QQ Chat Exporter</title>
+<meta name="description" content="QQ Chat Exporter (QCE) 文档：Docker NapCat 部署。免费开源的 QQ 聊天记录导出工具，导出 HTML、JSON、TXT、Excel，支持定时备份、批量导出。">
+<meta name="keywords" content="QQ聊天记录导出,QQ Chat Exporter,QCE,QQ备份,QQNT,NapCat,Docker NapCat 部署">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="../favicon.ico">
+<link rel="canonical" href="https://shuakami.github.io/qq-chat-exporter/docs/docker-napcat-deployment.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="QQ Chat Exporter">
+<meta property="og:title" content="Docker NapCat 部署 · QQ Chat Exporter">
+<meta property="og:description" content="QQ Chat Exporter (QCE) 文档：Docker NapCat 部署">
+<meta property="og:url" content="https://shuakami.github.io/qq-chat-exporter/docs/docker-napcat-deployment.html">
+<meta property="og:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Docker NapCat 部署 · QQ Chat Exporter">
+<meta name="twitter:description" content="QQ Chat Exporter (QCE) 文档：Docker NapCat 部署">
+<meta name="twitter:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<link rel="preconnect" href="https://fonts.loli.net">
+<link rel="preconnect" href="https://gstatic.loli.net" crossorigin>
+<link href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
+  <span class="right">
+    <a href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </span>
+  <button class="menu-btn" aria-label="菜单" onclick="document.body.classList.add('nav-open')">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+</header>
+<div class="mnav" aria-hidden="true">
+  <div class="mnav-head">
+    <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
+    <button class="mnav-close" aria-label="关闭" onclick="document.body.classList.remove('nav-open')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <nav class="mnav-body">
+    <a href="index.html">介绍</a>
+<a href="guide.html">使用手册</a>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="docker-napcat-deployment.html" class="active">Docker NapCat 部署</a>
+<a href="feedback.html">如何反馈问题</a>
+<a href="contributing.html">如何贡献</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </nav>
+</div>
+<div class="shell">
+  <nav class="sidebar"><div class="sec">指南</div>
+<a href="index.html">介绍</a>
+<a href="guide.html">使用手册</a>
+<div class="sec">部署</div>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="docker-napcat-deployment.html" class="active">Docker NapCat 部署</a>
+<div class="sec">参与</div>
+<a href="feedback.html">如何反馈问题</a>
+<a href="contributing.html">如何贡献</a></nav>
+  <div class="main"><article class="content">
+    <h1>Docker NapCat 部署</h1>
+    <p>如果你喜欢容器化部署，可以通过 Docker 来运行 QCE。本文档提供两种方案：<strong>一体化快捷部署（推荐）</strong> 以及 <strong>手动挂载到现有 NapCat 容器（进阶）</strong>。</p>
+<h2 id="一键-docker-部署"><a class="h-a" href="#一键-docker-部署">一键 Docker 部署</a></h2>
+<p>这种方式使用自包含的 Docker 镜像，将 NapCat、QCE 插件以及前端网页全部打包进一个一体化的容器中，支持全平台运行（包括 Linux、Windows 以及搭载 Apple Silicon 芯片的 Mac）。</p>
+<h3 id="前提条件"><a class="h-a" href="#前提条件">前提条件</a></h3>
+<ul>
+<li>电脑上已安装并运行 Docker Desktop（macOS / Windows）或 Docker Engine（Linux）。</li>
+<li>拥有约 2GB 的可用磁盘空间。</li>
+</ul>
+<hr />
+<h3 id="快速启动步骤"><a class="h-a" href="#快速启动步骤">快速启动步骤</a></h3>
+<ol>
+<li>克隆项目仓库并进入 docker 目录：</li>
+</ol>
+<pre class="highlight"><code class="language-bash">git clone https://github.com/shuakami/qq-chat-exporter.git
+cd qq-chat-exporter/docker</code></pre>
+<ol>
+<li>启动容器：</li>
+</ol>
+<pre class="highlight"><code class="language-bash">docker compose up -d</code></pre>
+<ol>
+<li>查看登录二维码：</li>
+</ol>
+<pre class="highlight"><code class="language-bash">docker logs -f napcat-qce</code></pre>
+<p>运行后，控制台会打印出登录二维码。用手机 QQ 扫描该二维码完成账号登录。登录成功后，按下键盘的 <code>Ctrl + C</code> 键即可退出日志查看。</p>
+<hr />
+<h3 id="获取网页访问令牌"><a class="h-a" href="#获取网页访问令牌">获取网页访问令牌</a></h3>
+<p>打开操作网页需要安全令牌（Access Token），你可以通过以下两种方式获取：</p>
+<h4 id="方式一从容器日志中过滤"><a class="h-a" href="#方式一从容器日志中过滤">方式一：从容器日志中过滤</a></h4>
+<pre class="highlight"><code class="language-bash">docker logs napcat-qce 2&gt;&amp;1 | grep -i token</code></pre>
+<h4 id="方式二直接读取容器内的配置文件最可靠"><a class="h-a" href="#方式二直接读取容器内的配置文件最可靠">方式二：直接读取容器内的配置文件（最可靠）</a></h4>
+<pre class="highlight"><code class="language-bash">docker exec napcat-qce cat /root/.qq-chat-exporter/security.json</code></pre>
+<p>用文本编辑器查看输出的内容，其中 <code>accessToken</code> 字段对应的那串字符就是你的登录令牌。</p>
+<hr />
+<h3 id="访问前端管理界面"><a class="h-a" href="#访问前端管理界面">访问前端管理界面</a></h3>
+<p>打开浏览器，访问：</p>
+<pre class="highlight"><code>http://localhost:40653/qce</code></pre>
+<p>在弹出的访问验证页面中，将上一步获取到的 <code>accessToken</code> 令牌复制并粘贴进去，点击验证即可进入。</p>
+<hr />
+<h3 id="使用预构建镜像"><a class="h-a" href="#使用预构建镜像">使用预构建镜像</a></h3>
+<p>默认的 Compose 文件是在本地实时构建镜像。如果你不想在本地花费时间编译，可以直接使用官方提供的预构建镜像。</p>
+<p>用文本编辑器打开 <code>docker/docker-compose.yml</code>，<strong>取消注释</strong> <code>image</code> 行，并<strong>注释掉</strong> <code>build</code> 相关的代码块：</p>
+<pre class="highlight"><code class="language-yaml">services:
+  napcat-qce:
+    image: ghcr.io/shuakami/napcat-qce:latest
+    # build:
+    #   context: ..
+    #   dockerfile: docker/Dockerfile</code></pre>
+<hr />
+<h3 id="数据持久化说明"><a class="h-a" href="#数据持久化说明">数据持久化说明</a></h3>
+<p>为了确保容器重启或更新后账号登录状态和导出的数据不丢失，建议关注以下持久化挂载卷：</p>
+<table>
+<thead>
+<tr>
+<th>挂载卷名称 / 宿主机路径</th>
+<th>容器内对应路径</th>
+<th>具体用途说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>qq-session</code></td>
+<td><code>/app/.config/QQ</code></td>
+<td>存放 QQ 客户端的本地登录会话与缓存，避免重复扫码。</td>
+</tr>
+<tr>
+<td><code>qce-data</code></td>
+<td><code>/root/.qq-chat-exporter</code></td>
+<td>存放你导出的聊天记录和下载的媒体附件。</td>
+</tr>
+<tr>
+<td><code>./config</code></td>
+<td><code>/app/napcat/config</code></td>
+<td>存放 NapCat 自身的运行配置文件。</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="macos-apple-silicon-m1m2m3-特别说明"><a class="h-a" href="#macos-apple-silicon-m1m2m3-特别说明">macOS / Apple Silicon (M1/M2/M3) 特别说明</a></h3>
+<p>在 Docker Compose 配置文件中，我们默认指定了 <code>platform: linux/amd64</code>。这可以确保镜像在 Apple Silicon 芯片的 Mac 上能够通过系统的 Rosetta 2 虚拟化技术正常模拟运行 x86_64 架构的容器。</p>
+<p><em>提示：由于存在架构模拟转换，首次拉起容器并启动环境可能需要等待 1-2 分钟，请耐心观察日志输出。</em></p>
+<hr />
+<h2 id="进阶方式手动挂载到现有-napcat-docker"><a class="h-a" href="#进阶方式手动挂载到现有-napcat-docker">进阶方式：手动挂载到现有 NapCat Docker</a></h2>
+<p>如果你原本就已经在服务器上部署并运行了现成的 NapCat 容器，可以选择只将 QCE 作为插件和前端静态资源手动挂载进去。</p>
+<h3 id="前提条件_1"><a class="h-a" href="#前提条件_1">前提条件</a></h3>
+<ul>
+<li>已经有正在运行的 NapCat Docker 容器（基于官方 <code>mlikiowa/napcat-docker:latest</code> 镜像部署）。</li>
+<li>你的 NapCat 核心版本必须大于或等于 <code>v4.17</code>（需要利用插件上下文的 <code>oneBot</code> 属性）。</li>
+</ul>
+<hr />
+<h3 id="期望的目录结构"><a class="h-a" href="#期望的目录结构">期望的目录结构</a></h3>
+<p>在宿主机上，你需要调整并准备好如下所示的目录结构：</p>
+<pre class="highlight"><code>napcat/
+├── docker-compose.yml
+├── config/
+│   ├── napcat_&lt;你的QQ号&gt;.json
+│   └── plugins.json           ← 必须手动创建，用于启用插件
+├── plugins/
+│   ├── napcat-plugin-builtin/ ← 必须先从容器内部复制出来
+│   └── napcat-plugin-qce/     ← 存放 QCE 插件核心文件
+└── qce/                       ← 存放前端静态网页文件</code></pre>
+<hr />
+<h3 id="部署具体步骤"><a class="h-a" href="#部署具体步骤">部署具体步骤</a></h3>
+<h4 id="1-备份并复制内置插件"><a class="h-a" href="#1-备份并复制内置插件">1. 备份并复制内置插件</a></h4>
+<p>由于后续要直接挂载宿主机的 <code>plugins/</code> 目录，这会完全覆盖掉容器内部自带的插件。因此，你必须先将容器内原有的内置插件复制到宿主机本地：</p>
+<pre class="highlight"><code class="language-bash"># 创建本地插件文件夹
+mkdir -p plugins
+
+# 将容器内自带的内置插件复制出来（假设你的容器名叫 napcat）
+docker cp napcat:/app/napcat/plugins/napcat-plugin-builtin plugins/napcat-plugin-builtin</code></pre>
+<h4 id="2-解压并提取-qce-插件与前端资源"><a class="h-a" href="#2-解压并提取-qce-插件与前端资源">2. 解压并提取 QCE 插件与前端资源</a></h4>
+<p>前往 <a href="https://github.com/shuakami/qq-chat-exporter/releases">GitHub Releases</a> 页面下载最新的 Linux Shell 模式包（<code>.tar.gz</code> 压缩包），解压后将其中的插件和前端提取出来：</p>
+<pre class="highlight"><code class="language-bash"># 解压 Release 包到临时目录
+tar -xzf NapCat-QCE-*.tar.gz -C /tmp/qce-release
+
+# 将 QCE 插件目录复制到本地的 plugins 文件夹中
+cp -r /tmp/qce-release/plugins/napcat-plugin-qce plugins/
+
+# 将前端静态网页文件复制到本地的 qce 文件夹中
+cp -r /tmp/qce-release/static/qce ./qce</code></pre>
+<h4 id="3-arm64-架构适配提示"><a class="h-a" href="#3-arm64-架构适配提示">3. ARM64 架构适配提示</a></h4>
+<p>QCE 核心运行依赖一个原生的 Rust 二进制服务端文件（<code>qce-server</code>）。插件在启动时，会自动调用与当前系统架构相匹配的二进制文件。</p>
+<ul>
+<li><strong>重要限制</strong>：官方编译包目前仅直接提供 x64 架构的二进制文件。如果你使用的是 ARM64（树莓派等）宿主机环境，请勿直接使用 Release 的打包文件。请直接使用本仓库自带的 Dockerfile 在你的目标机器上执行本地编译构建，Rust 构建阶段会自动产出对应你机器架构的 ARM64 二进制文件。</li>
+</ul>
+<h4 id="4-在配置中启用插件"><a class="h-a" href="#4-在配置中启用插件">4. 在配置中启用插件</a></h4>
+<p>NapCat 默认只会加载内置插件。你需要手动编辑宿主机上的 <code>config/plugins.json</code> 文件（如果没有则新建），显式将 QCE 插件声明为启用状态：</p>
+<pre class="highlight"><code class="language-json">{
+  "napcat-plugin-builtin": true,
+  "napcat-plugin-qce": true
+}</code></pre>
+<h4 id="5-修改-docker-composeyml-配置文件"><a class="h-a" href="#5-修改-docker-composeyml-配置文件">5. 修改 <code>docker-compose.yml</code> 配置文件</a></h4>
+<p>更新你的 Docker Compose 配置文件，将本地准备好的插件目录和前端静态资源挂载路径追加进去：</p>
+<pre class="highlight"><code class="language-yaml">services:
+  app:
+    image: 'mlikiowa/napcat-docker:latest'
+    container_name: napcat
+    restart: unless-stopped
+    volumes:
+      - ./config:/app/napcat/config
+      - /app/.config/QQ:/app/.config/QQ
+      - ./plugins:/app/napcat/plugins          # 挂载合并后的插件目录
+      - ./qce:/app/napcat/static/qce           # 挂载前端静态网页资源
+    networks:
+      - web-internal
+
+networks:
+  web-internal:
+    external: true</code></pre>
+<h4 id="6-启动容器并验证日志"><a class="h-a" href="#6-启动容器并验证日志">6. 启动容器并验证日志</a></h4>
+<pre class="highlight"><code class="language-bash"># 重新拉起容器
+docker compose up -d
+
+# 过滤并检查关键插件日志
+docker logs -f napcat 2&gt;&amp;1 | grep -i "plugin\|qce\|chat-exporter"</code></pre>
+<p>当你在实时日志中观察到以下输出，表明挂载完全成功：</p>
+<pre class="highlight"><code>[Plugins] 加载插件: napcat-plugin-builtin
+[Plugins] 加载插件: napcat-plugin-qce
+[QQChatExporter] API server started (Rust). Web UI: http://127.0.0.1:40653/qce</code></pre>
+<hr />
+<h3 id="7-配置反向代理与-https可选进阶"><a class="h-a" href="#7-配置反向代理与-https可选进阶">7. 配置反向代理与 HTTPS（可选进阶）</a></h3>
+<p>QCE 的底层 API 服务默认在容器内的 <code>40653</code> 端口监听。如果你需要将该界面发布到外网并使用安全域名的 HTTPS 形式访问，可以采用以下反向代理配置：</p>
+<h4 id="nginx-proxy-manager-图形化管理面板-配置方法"><a class="h-a" href="#nginx-proxy-manager-图形化管理面板-配置方法">Nginx Proxy Manager (图形化管理面板) 配置方法：</a></h4>
+<ul>
+<li><strong>Domain Names</strong>: <code>qce.yourdomain.com</code></li>
+<li><strong>Forward Scheme</strong>: <code>http</code></li>
+<li><strong>Forward Host/IP</strong>: <code>napcat</code> (如果二者在同一个 Docker 自定义网络下，直接填容器名；否则填宿主机局域网 IP)</li>
+<li><strong>Forward Port</strong>: <code>40653</code></li>
+<li><strong>Websockets Support</strong>: <strong>必须开启</strong>（QCE 依靠 WebSocket 实时向前端推送聊天记录的导出任务进度）。</li>
+<li><strong>SSL</strong>: 正常申请或选择你的 SSL 证书，并勾选 Force SSL。</li>
+</ul>
+<h4 id="传统-nginx-手动配置文件示例"><a class="h-a" href="#传统-nginx-手动配置文件示例">传统 Nginx 手动配置文件示例：</a></h4>
+<pre class="highlight"><code class="language-nginx">server {
+    listen 443 ssl;
+    server_name qce.yourdomain.com;
+
+    # 请根据实际情况配置文件路径
+    ssl_certificate /etc/nginx/ssl/qce.crt;
+    ssl_certificate_key /etc/nginx/ssl/qce.key;
+
+    location / {
+        proxy_pass http://napcat:40653;
+        proxy_http_version 1.1;
+
+        # 必须配置以下三行以完美支持 WebSocket 进度推送
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}</code></pre>
+<hr />
+<h2 id="常见问题"><a class="h-a" href="#常见问题">常见问题</a></h2>
+<h3 id="提示-qce-server-启动失败或者报错-exec-format-error格式错误"><a class="h-a" href="#提示-qce-server-启动失败或者报错-exec-format-error格式错误">提示 <code>qce-server</code> 启动失败，或者报错 <code>exec format error</code>（格式错误）</a></h3>
+<ul>
+<li><strong>原因</strong>：宿主机架构与二进制文件不匹配。通常是因为你在 ARM64 架构的机器上直接挂载了官方 Release 包中预编译的 x64 二进制文件。请参考步骤 3，在你的机器上通过本地 Dockerfile 重新构建镜像。</li>
+</ul>
+<h3 id="插件未加载查看日志完全没有加载-qce-的相关输出"><a class="h-a" href="#插件未加载查看日志完全没有加载-qce-的相关输出">插件未加载（查看日志完全没有加载 QCE 的相关输出）</a></h3>
+<ul>
+<li><strong>原因</strong>：NapCat 没有识别到插件开关。请检查你宿主机挂载的 <code>config/plugins.json</code> 文件，确认该文件内容格式正确，且已经包含了 <code>"napcat-plugin-qce": true</code> 配置。</li>
+</ul>
+<h3 id="网页打开后提示-404-错误"><a class="h-a" href="#网页打开后提示-404-错误">网页打开后提示 404 错误</a></h3>
+<ul>
+<li><strong>原因</strong>：前端静态资源未正确识别。请检查你宿主机本地的 <code>qce/</code> 目录下是否包含 <code>index.html</code> 以及 <code>_next/</code> 文件夹。同时，核对 <code>docker-compose.yml</code> 中的挂载右侧路径，必须精确挂载到容器内部的 <code>/app/napcat/static/qce</code> 路径下。</li>
+</ul>
+<h3 id="导出的聊天记录文件保存在哪里"><a class="h-a" href="#导出的聊天记录文件保存在哪里">导出的聊天记录文件保存在哪里？</a></h3>
+<ul>
+<li><strong>原因</strong>：所有通过网页前端成功创建并执行完的导出任务，其生成的文件默认都存放在容器内部的 <code>/root/.qq-chat-exporter/exports/</code> 目录下。你不需要去容器底层翻找，直接在已经登录的 QCE 网页操作界面上的“任务”板块中，即可直接点击下载到你的本地电脑上。</li>
+</ul>
+    <div class="pagenav"><a class="prev" href="linux-deploy.html"><span class="dir">上一篇</span><span class="lbl">Linux 部署</span></a><a class="next" href="feedback.html"><span class="dir">下一篇</span><span class="lbl">如何反馈问题</span></a></div>
+  </article></div>
+  <nav class="toc"><div class="t">本页目录</div><a class="" href="#一键-docker-部署">一键 Docker 部署</a>
+<a class="d3" href="#前提条件">前提条件</a>
+<a class="d3" href="#快速启动步骤">快速启动步骤</a>
+<a class="d3" href="#获取网页访问令牌">获取网页访问令牌</a>
+<a class="d3" href="#访问前端管理界面">访问前端管理界面</a>
+<a class="d3" href="#使用预构建镜像">使用预构建镜像</a>
+<a class="d3" href="#数据持久化说明">数据持久化说明</a>
+<a class="d3" href="#macos-apple-silicon-m1m2m3-特别说明">macOS / Apple Silicon (M1/M2/M3) 特别说明</a>
+<a class="" href="#进阶方式手动挂载到现有-napcat-docker">进阶方式：手动挂载到现有 NapCat Docker</a>
+<a class="d3" href="#前提条件_1">前提条件</a>
+<a class="d3" href="#期望的目录结构">期望的目录结构</a>
+<a class="d3" href="#部署具体步骤">部署具体步骤</a>
+<a class="d3" href="#7-配置反向代理与-https可选进阶">7. 配置反向代理与 HTTPS（可选进阶）</a>
+<a class="" href="#常见问题">常见问题</a>
+<a class="d3" href="#提示-qce-server-启动失败或者报错-exec-format-error格式错误">提示 qce-server 启动失败，或者报错 exec format error（格式错误）</a>
+<a class="d3" href="#插件未加载查看日志完全没有加载-qce-的相关输出">插件未加载（查看日志完全没有加载 QCE 的相关输出）</a>
+<a class="d3" href="#网页打开后提示-404-错误">网页打开后提示 404 错误</a>
+<a class="d3" href="#导出的聊天记录文件保存在哪里">导出的聊天记录文件保存在哪里？</a></nav>
+</div>
+<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('.toc a'));
+  if(!links.length)return;
+  var hs=links.map(function(a){return document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1)))});
+  function on(){
+    var i=0;
+    for(var j=0;j<hs.length;j++){if(hs[j]&&hs[j].getBoundingClientRect().top<90)i=j;}
+    links.forEach(function(a,j){a.classList.toggle('active',j===i)});
+  }
+  addEventListener('scroll',on,{passive:true});on();
+})();
+(function(){
+  var box=document.createElement('div');box.className='lightbox';
+  var big=document.createElement('img');box.appendChild(big);
+  var x=document.createElement('button');x.className='lb-close';x.innerHTML='✕';x.setAttribute('aria-label','关闭');box.appendChild(x);
+  document.body.appendChild(box);
+  function close(){box.classList.remove('open');setTimeout(function(){if(!box.classList.contains('open'))big.src='';},240);}
+  box.addEventListener('click',close);x.addEventListener('click',close);
+  big.addEventListener('click',function(e){e.stopPropagation();});
+  addEventListener('keydown',function(e){if(e.key==='Escape')close();});
+  [].forEach.call(document.querySelectorAll('.content img'),function(img){
+    img.addEventListener('click',function(){big.src=img.src;box.classList.add('open');});
+  });
+})();
+(function(){
+  var COPY='<svg class="ic ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+  var CHECK='<svg class="ic ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  [].forEach.call(document.querySelectorAll('.content pre'),function(pre){
+    var btn=document.createElement('button');
+    btn.className='copy-btn';btn.type='button';btn.setAttribute('aria-label','复制代码');
+    btn.innerHTML=COPY+CHECK;
+    btn.addEventListener('click',function(){
+      var code=pre.querySelector('code');
+      var text=(code?code.textContent:pre.textContent).replace(/\n$/,'');
+      (navigator.clipboard?navigator.clipboard.writeText(text):Promise.reject()).catch(function(){
+        var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);
+        ta.select();document.execCommand('copy');document.body.removeChild(ta);
+      }).then(function(){
+        btn.classList.add('copied');
+        clearTimeout(btn._t);
+        btn._t=setTimeout(function(){btn.classList.remove('copied');},1600);
+      });
+    });
+    pre.appendChild(btn);
+  });
+})();
+</script>
+</body>
+</html>

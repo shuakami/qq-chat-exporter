@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QQ Chat Exporter 文档 · QQ Chat Exporter</title>
+<meta name="description" content="QQ Chat Exporter (QCE) 文档：QQ Chat Exporter 文档。免费开源的 QQ 聊天记录导出工具，导出 HTML、JSON、TXT、Excel，支持定时备份、批量导出。">
+<meta name="keywords" content="QQ聊天记录导出,QQ Chat Exporter,QCE,QQ备份,QQNT,NapCat,QQ Chat Exporter 文档">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="../favicon.ico">
+<link rel="canonical" href="https://shuakami.github.io/qq-chat-exporter/docs/index.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="QQ Chat Exporter">
+<meta property="og:title" content="QQ Chat Exporter 文档 · QQ Chat Exporter">
+<meta property="og:description" content="QQ Chat Exporter (QCE) 文档：QQ Chat Exporter 文档">
+<meta property="og:url" content="https://shuakami.github.io/qq-chat-exporter/docs/index.html">
+<meta property="og:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="QQ Chat Exporter 文档 · QQ Chat Exporter">
+<meta name="twitter:description" content="QQ Chat Exporter (QCE) 文档：QQ Chat Exporter 文档">
+<meta name="twitter:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<link rel="preconnect" href="https://fonts.loli.net">
+<link rel="preconnect" href="https://gstatic.loli.net" crossorigin>
+<link href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
+  <span class="right">
+    <a href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </span>
+  <button class="menu-btn" aria-label="菜单" onclick="document.body.classList.add('nav-open')">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+</header>
+<div class="mnav" aria-hidden="true">
+  <div class="mnav-head">
+    <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
+    <button class="mnav-close" aria-label="关闭" onclick="document.body.classList.remove('nav-open')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <nav class="mnav-body">
+    <a href="index.html" class="active">介绍</a>
+<a href="guide.html">使用手册</a>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="docker-napcat-deployment.html">Docker NapCat 部署</a>
+<a href="feedback.html">如何反馈问题</a>
+<a href="contributing.html">如何贡献</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </nav>
+</div>
+<div class="shell">
+  <nav class="sidebar"><div class="sec">指南</div>
+<a href="index.html" class="active">介绍</a>
+<a href="guide.html">使用手册</a>
+<div class="sec">部署</div>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="docker-napcat-deployment.html">Docker NapCat 部署</a>
+<div class="sec">参与</div>
+<a href="feedback.html">如何反馈问题</a>
+<a href="contributing.html">如何贡献</a></nav>
+  <div class="main"><article class="content">
+    <h1>QQ Chat Exporter 文档</h1>
+    <p>欢迎使用 QCE！这是一个帮你把 QQ 聊天记录导出到本地的工具。把它下载到你自己的电脑上，就能直接读取并保存好友和群聊的记录。</p>
+<p>它不仅可以导出 HTML、JSON、TXT 和 Excel 等各种你需要的格式，还可以把聊天里发过的图片、视频和表情文件一并下载到本地保存。最最最重要的是，所有读取和解析都在你自己的电脑上完成，项目没有服务器，绝对不会把你的聊天记录上传到任何地方。</p>
+<p><img alt="QQ Chat Exporter" src="images/banner.png" /></p>
+<ul>
+<li>如果你是第一次用，可以先看 <a href="guide.html">使用手册</a>，它会带你从下载、启动到登录导出，一步一步教学。</li>
+<li>如果你想在 Linux 服务器上跑 QCE，可以参考 <a href="linux-deploy.html">Linux 部署</a>；喜欢容器化管理的同学，这里也准备了 <a href="docker-napcat-deployment.html">Docker NapCat 部署</a> 方案。</li>
+<li>碰到了 Bug 或者程序运行报错？先别急，可以看看 <a href="feedback.html">如何反馈问题</a> 来帮我们一起抓出问题；要是你想给项目加新功能或改代码，欢迎查看 <a href="contributing.html">如何贡献</a> 指南。你也可以直接去 <a href="https://github.com/shuakami/qq-chat-exporter/issues">GitHub Issues</a> 看看别人遇到了什么，或者直接提个新 Bug。</li>
+<li>你可以在这里 <a href="https://github.com/shuakami/qq-chat-exporter/releases">下载最新版本 (GitHub Releases)</a>，如果需要开发对接，也可以随时 <a href="https://deepwiki.com/shuakami/qq-chat-exporter">查看 API 文档</a>。</li>
+</ul>
+<p>总之！祝你使用愉快！</p>
+    <div class="pagenav"><a class="next" href="guide.html"><span class="dir">下一篇</span><span class="lbl">使用手册</span></a></div>
+  </article></div>
+  <nav class="toc"></nav>
+</div>
+<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('.toc a'));
+  if(!links.length)return;
+  var hs=links.map(function(a){return document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1)))});
+  function on(){
+    var i=0;
+    for(var j=0;j<hs.length;j++){if(hs[j]&&hs[j].getBoundingClientRect().top<90)i=j;}
+    links.forEach(function(a,j){a.classList.toggle('active',j===i)});
+  }
+  addEventListener('scroll',on,{passive:true});on();
+})();
+(function(){
+  var box=document.createElement('div');box.className='lightbox';
+  var big=document.createElement('img');box.appendChild(big);
+  var x=document.createElement('button');x.className='lb-close';x.innerHTML='✕';x.setAttribute('aria-label','关闭');box.appendChild(x);
+  document.body.appendChild(box);
+  function close(){box.classList.remove('open');setTimeout(function(){if(!box.classList.contains('open'))big.src='';},240);}
+  box.addEventListener('click',close);x.addEventListener('click',close);
+  big.addEventListener('click',function(e){e.stopPropagation();});
+  addEventListener('keydown',function(e){if(e.key==='Escape')close();});
+  [].forEach.call(document.querySelectorAll('.content img'),function(img){
+    img.addEventListener('click',function(){big.src=img.src;box.classList.add('open');});
+  });
+})();
+(function(){
+  var COPY='<svg class="ic ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+  var CHECK='<svg class="ic ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  [].forEach.call(document.querySelectorAll('.content pre'),function(pre){
+    var btn=document.createElement('button');
+    btn.className='copy-btn';btn.type='button';btn.setAttribute('aria-label','复制代码');
+    btn.innerHTML=COPY+CHECK;
+    btn.addEventListener('click',function(){
+      var code=pre.querySelector('code');
+      var text=(code?code.textContent:pre.textContent).replace(/\n$/,'');
+      (navigator.clipboard?navigator.clipboard.writeText(text):Promise.reject()).catch(function(){
+        var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);
+        ta.select();document.execCommand('copy');document.body.removeChild(ta);
+      }).then(function(){
+        btn.classList.add('copied');
+        clearTimeout(btn._t);
+        btn._t=setTimeout(function(){btn.classList.remove('copied');},1600);
+      });
+    });
+    pre.appendChild(btn);
+  });
+})();
+</script>
+</body>
+</html>

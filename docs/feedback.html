@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>如何反馈问题 · QQ Chat Exporter</title>
+<meta name="description" content="QQ Chat Exporter (QCE) 文档：如何反馈问题。免费开源的 QQ 聊天记录导出工具，导出 HTML、JSON、TXT、Excel，支持定时备份、批量导出。">
+<meta name="keywords" content="QQ聊天记录导出,QQ Chat Exporter,QCE,QQ备份,QQNT,NapCat,如何反馈问题">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="../favicon.ico">
+<link rel="canonical" href="https://shuakami.github.io/qq-chat-exporter/docs/feedback.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="QQ Chat Exporter">
+<meta property="og:title" content="如何反馈问题 · QQ Chat Exporter">
+<meta property="og:description" content="QQ Chat Exporter (QCE) 文档：如何反馈问题">
+<meta property="og:url" content="https://shuakami.github.io/qq-chat-exporter/docs/feedback.html">
+<meta property="og:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="如何反馈问题 · QQ Chat Exporter">
+<meta name="twitter:description" content="QQ Chat Exporter (QCE) 文档：如何反馈问题">
+<meta name="twitter:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<link rel="preconnect" href="https://fonts.loli.net">
+<link rel="preconnect" href="https://gstatic.loli.net" crossorigin>
+<link href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
+  <span class="right">
+    <a href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </span>
+  <button class="menu-btn" aria-label="菜单" onclick="document.body.classList.add('nav-open')">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+</header>
+<div class="mnav" aria-hidden="true">
+  <div class="mnav-head">
+    <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
+    <button class="mnav-close" aria-label="关闭" onclick="document.body.classList.remove('nav-open')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <nav class="mnav-body">
+    <a href="index.html">介绍</a>
+<a href="guide.html">使用手册</a>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="docker-napcat-deployment.html">Docker NapCat 部署</a>
+<a href="feedback.html" class="active">如何反馈问题</a>
+<a href="contributing.html">如何贡献</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </nav>
+</div>
+<div class="shell">
+  <nav class="sidebar"><div class="sec">指南</div>
+<a href="index.html">介绍</a>
+<a href="guide.html">使用手册</a>
+<div class="sec">部署</div>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="docker-napcat-deployment.html">Docker NapCat 部署</a>
+<div class="sec">参与</div>
+<a href="feedback.html" class="active">如何反馈问题</a>
+<a href="contributing.html">如何贡献</a></nav>
+  <div class="main"><article class="content">
+    <h1>如何反馈问题</h1>
+    <p>如果你在使用过程中遇到了问题，或者有什么功能上的想法，可以到 <a href="https://github.com/shuakami/qq-chat-exporter/issues">Issues</a> 页面提交。</p>
+<h2 id="提交之前"><a class="h-a" href="#提交之前">提交之前</a></h2>
+<p>建议先确认一下你用的是不是<a href="https://github.com/shuakami/qq-chat-exporter/releases">最新版本</a>，有些问题可能已经在新版里修复了。另外也可以先搜索一下，看看有没有人遇到过类似的情况。</p>
+<h2 id="报告-bug"><a class="h-a" href="#报告-bug">报告 Bug</a></h2>
+<p>描述问题的时候，尽量说清楚这些信息：</p>
+<ul>
+<li>你使用的 QCE 版本号（界面右下角或控制台能看到）</li>
+<li>安装方式：一键安装包、Shell 模式还是 Framework 模式</li>
+<li>操作系统是什么</li>
+<li>具体做了什么操作，然后发生了什么</li>
+<li>如果有报错信息，贴上来会很有帮助</li>
+<li>还有控制台的完整日志</li>
+</ul>
+<blockquote>
+<p><strong>注意隐私</strong>：贴日志前先检查一遍，删掉里面的访问令牌（<code>[QCE] Token:</code> 那一行）、QQ 号和聊天内容等敏感信息。</p>
+</blockquote>
+<p>然后在<a href="https://github.com/shuakami/qq-chat-exporter/issues/new?template=bug_report.yml">这里</a>提交。</p>
+<h2 id="功能建议"><a class="h-a" href="#功能建议">功能建议</a></h2>
+<p>如果你有想要的功能，可以描述一下你的使用场景和期望的效果。如果有其他软件做过类似的功能，也可以附上作为参考。</p>
+    <div class="pagenav"><a class="prev" href="docker-napcat-deployment.html"><span class="dir">上一篇</span><span class="lbl">Docker NapCat 部署</span></a><a class="next" href="contributing.html"><span class="dir">下一篇</span><span class="lbl">如何贡献</span></a></div>
+  </article></div>
+  <nav class="toc"><div class="t">本页目录</div><a class="" href="#提交之前">提交之前</a>
+<a class="" href="#报告-bug">报告 Bug</a>
+<a class="" href="#功能建议">功能建议</a></nav>
+</div>
+<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('.toc a'));
+  if(!links.length)return;
+  var hs=links.map(function(a){return document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1)))});
+  function on(){
+    var i=0;
+    for(var j=0;j<hs.length;j++){if(hs[j]&&hs[j].getBoundingClientRect().top<90)i=j;}
+    links.forEach(function(a,j){a.classList.toggle('active',j===i)});
+  }
+  addEventListener('scroll',on,{passive:true});on();
+})();
+(function(){
+  var box=document.createElement('div');box.className='lightbox';
+  var big=document.createElement('img');box.appendChild(big);
+  var x=document.createElement('button');x.className='lb-close';x.innerHTML='✕';x.setAttribute('aria-label','关闭');box.appendChild(x);
+  document.body.appendChild(box);
+  function close(){box.classList.remove('open');setTimeout(function(){if(!box.classList.contains('open'))big.src='';},240);}
+  box.addEventListener('click',close);x.addEventListener('click',close);
+  big.addEventListener('click',function(e){e.stopPropagation();});
+  addEventListener('keydown',function(e){if(e.key==='Escape')close();});
+  [].forEach.call(document.querySelectorAll('.content img'),function(img){
+    img.addEventListener('click',function(){big.src=img.src;box.classList.add('open');});
+  });
+})();
+(function(){
+  var COPY='<svg class="ic ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+  var CHECK='<svg class="ic ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  [].forEach.call(document.querySelectorAll('.content pre'),function(pre){
+    var btn=document.createElement('button');
+    btn.className='copy-btn';btn.type='button';btn.setAttribute('aria-label','复制代码');
+    btn.innerHTML=COPY+CHECK;
+    btn.addEventListener('click',function(){
+      var code=pre.querySelector('code');
+      var text=(code?code.textContent:pre.textContent).replace(/\n$/,'');
+      (navigator.clipboard?navigator.clipboard.writeText(text):Promise.reject()).catch(function(){
+        var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);
+        ta.select();document.execCommand('copy');document.body.removeChild(ta);
+      }).then(function(){
+        btn.classList.add('copied');
+        clearTimeout(btn._t);
+        btn._t=setTimeout(function(){btn.classList.remove('copied');},1600);
+      });
+    });
+    pre.appendChild(btn);
+  });
+})();
+</script>
+</body>
+</html>

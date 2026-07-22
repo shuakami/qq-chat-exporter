@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>使用手册 · QQ Chat Exporter</title>
+<meta name="description" content="QQ Chat Exporter (QCE) 文档：使用手册。免费开源的 QQ 聊天记录导出工具，导出 HTML、JSON、TXT、Excel，支持定时备份、批量导出。">
+<meta name="keywords" content="QQ聊天记录导出,QQ Chat Exporter,QCE,QQ备份,QQNT,NapCat,使用手册">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="../favicon.ico">
+<link rel="canonical" href="https://shuakami.github.io/qq-chat-exporter/docs/guide.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="QQ Chat Exporter">
+<meta property="og:title" content="使用手册 · QQ Chat Exporter">
+<meta property="og:description" content="QQ Chat Exporter (QCE) 文档：使用手册">
+<meta property="og:url" content="https://shuakami.github.io/qq-chat-exporter/docs/guide.html">
+<meta property="og:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="使用手册 · QQ Chat Exporter">
+<meta name="twitter:description" content="QQ Chat Exporter (QCE) 文档：使用手册">
+<meta name="twitter:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<link rel="preconnect" href="https://fonts.loli.net">
+<link rel="preconnect" href="https://gstatic.loli.net" crossorigin>
+<link href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
+  <span class="right">
+    <a href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </span>
+  <button class="menu-btn" aria-label="菜单" onclick="document.body.classList.add('nav-open')">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+</header>
+<div class="mnav" aria-hidden="true">
+  <div class="mnav-head">
+    <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
+    <button class="mnav-close" aria-label="关闭" onclick="document.body.classList.remove('nav-open')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <nav class="mnav-body">
+    <a href="index.html">介绍</a>
+<a href="guide.html" class="active">使用手册</a>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="docker-napcat-deployment.html">Docker NapCat 部署</a>
+<a href="feedback.html">如何反馈问题</a>
+<a href="contributing.html">如何贡献</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </nav>
+</div>
+<div class="shell">
+  <nav class="sidebar"><div class="sec">指南</div>
+<a href="index.html">介绍</a>
+<a href="guide.html" class="active">使用手册</a>
+<div class="sec">部署</div>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="docker-napcat-deployment.html">Docker NapCat 部署</a>
+<div class="sec">参与</div>
+<a href="feedback.html">如何反馈问题</a>
+<a href="contributing.html">如何贡献</a></nav>
+  <div class="main"><article class="content">
+    <h1>使用手册</h1>
+    <p>你可以在 <a href="https://github.com/shuakami/qq-chat-exporter/releases">GitHub Releases</a> 页面获取以下不同版本的程序包：</p>
+<table>
+<thead>
+<tr>
+<th>包类型</th>
+<th>适用平台</th>
+<th>说明</th>
+<th>对应文件名</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><mark data-tip="推荐！">一键安装包</mark></td>
+<td>Windows 7+ x64</td>
+<td>自带运行环境，双击自动安装，支持快捷登录并自动打开操作网页。</td>
+<td><code>QQChatExporter-Installer-vxxx.exe</code></td>
+</tr>
+<tr>
+<td>Shell 模式</td>
+<td>Windows x64</td>
+<td>独立在后台运行的无界面 QQ，适合服务器运行或自动化备份。</td>
+<td><code>NapCat-QCE-Windows-x64-vxxx.zip</code></td>
+</tr>
+<tr>
+<td>Shell 模式</td>
+<td>Linux x64</td>
+<td>独立的无界面 Linux QQ 运行包，适合服务器部署或 Docker 环境。</td>
+<td><code>NapCat-QCE-Linux-x64-vxxx.tar.gz</code></td>
+</tr>
+<tr>
+<td>Framework 模式</td>
+<td>Windows</td>
+<td>桌面 QQ 的插件版本，可以与你平时聊天的 QQ 客户端共存。</td>
+<td><code>NapCat-Framework-QCE-vxxx.zip</code></td>
+</tr>
+<tr>
+<td>NapCat 插件商店包</td>
+<td>跨平台</td>
+<td>专给已经配置好 NapCat 环境的用户使用，可在插件商店直接装。</td>
+<td><code>napcat-plugin-qce.zip</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="windows-用户"><a class="h-a" href="#windows-用户">Windows 用户</a></h3>
+<ul>
+<li><strong>绝大多数用户</strong>：直接下载<a href="https://github.com/shuakami/qq-chat-exporter/releases/latest">当前最新版本</a>下的一键安装包。双击安装后软件会自动提示扫码或快捷登录，然后弹出网页界面。</li>
+<li><strong>需要与日常 QQ 共存</strong>（比如说想一边照常挂着 QQ 聊天，一边让工具在后台跑定时备份）：下载 <code>NapCat-Framework-QCE-vxxx.zip</code>，并参考下文的 <a href="#framework-usage">Framework 模式使用方法</a>。</li>
+</ul>
+<hr />
+<h3 id="各个版本"><a class="h-a" href="#各个版本">各个版本</a></h3>
+<h4 id="一键安装包"><a class="h-a" href="#一键安装包">一键安装包</a></h4>
+<p>安装程序会自动配置好后台环境和登录逻辑，安装完毕后自动在浏览器中打开 Web 操作界面。如果以后不需要了，运行安装目录里的 <code>Uninstall QQ Chat Exporter.exe</code> 即可完全卸载。或者在设置里面找到 QCE 应用卸载。</p>
+<h4 id="shell-模式"><a class="h-a" href="#shell-模式">Shell 模式</a></h4>
+<p>在后台启动一个没有图形界面的 QQ 进程，需要你使用手机 QQ 扫码登录。由于没有桌面客户端，它全程在控制台（黑底白字的命令行窗口）里运行。</p>
+<blockquote>
+<p>具体运行步骤见下文<a href="#start-guide">启动引导</a>中的 <a href="#full-mode">A. 完整模式</a>。</p>
+</blockquote>
+<h4 id="framework-模式"><a class="h-a" href="#framework-模式">Framework 模式</a></h4>
+<p>作为插件注入到电脑上现有的桌面版 QQ 中，直接共享你已经在桌面 QQ 上登录的账号。适合不想重复扫码登录、想让工具在后台静默跑定时任务的场景。</p>
+<hr />
+<h3 id="framework-usage"><a class="h-a" href="#framework-usage">Framework 模式使用方法</a></h3>
+<p>根据你的实际情况选择以下一种方式安装，切勿将两种方法混在一起操作：</p>
+<h4 id="方式-a直接运行-napiloaderbat推荐普通用户使用"><a class="h-a" href="#方式-a直接运行-napiloaderbat推荐普通用户使用">方式 A：直接运行 <code>napiLoader.bat</code>（推荐普通用户使用）</a></h4>
+<p><em>此方式不需要你提前安装 LiteLoaderQQNT 插件框架。</em></p>
+<ol>
+<li>下载 <code>NapCat-Framework-QCE-vxxx.zip</code> 并解压到一个固定的文件夹（例如你的文档目录）。</li>
+<li><strong>必须先完全退出电脑上已经打开的 QQ 客户端</strong>。</li>
+<li>进入解压后的文件夹，双击运行 <code>napiLoader.bat</code>。</li>
+<li>此时 QQ 会自动启动并弹出登录页，按照平时的方式登录你的账号即可。</li>
+<li>打开浏览器，访问 <code>http://localhost:40653/qce</code>，按照下文<a href="#login">登录 Web 界面</a>的方法找到安全令牌并输入。</li>
+</ol>
+<h4 id="方式-bliteloaderqqnt-插件方式"><a class="h-a" href="#方式-bliteloaderqqnt-插件方式">方式 B：LiteLoaderQQNT 插件方式</a></h4>
+<p><em>仅在你本来就在使用 LiteLoaderQQNT，或者明确想通过插件目录来管理 NapCat 时才用。</em></p>
+<ol>
+<li>确保你已经按照 LiteLoaderQQNT 官方文档装好了框架，并在 QQ 设置左侧能看到 LiteLoaderQQNT 选项。</li>
+<li>将 Framework 包解压，并按照 LiteLoaderQQNT / NapCat 的常规插件部署要求放入对应的 plugins 目录。</li>
+</ol>
+<hr />
+<h2 id="start-guide"><a class="h-a" href="#start-guide">启动引导</a></h2>
+<p>Shell 模式和 Framework 模式下载解压后即可直接运行，无需在电脑上配置其他复杂的系统环境。</p>
+<h3 id="第一步解压文件"><a class="h-a" href="#第一步解压文件">第一步：解压文件</a></h3>
+<p>去 Releases 页面下载对应的压缩包并完整解压。再次提醒，<strong>不要下载 Source code 源码包</strong>。</p>
+<h3 id="第二步选择模式启动"><a class="h-a" href="#第二步选择模式启动">第二步：选择模式启动</a></h3>
+<p>Shell 包有两种启动方式，根据你的实际需求选择：</p>
+<h4 id="full-mode"><a class="h-a" href="#full-mode">A. 完整模式（需要登录 QQ，用于导出新记录）</a></h4>
+<ul>
+<li><strong>Windows</strong>：双击运行 <code>launcher-user.bat</code></li>
+<li><strong>Linux</strong>：运行 <code>./launcher-user.sh</code>（首次在服务器部署请参考 <a href="linux-deploy.html">Linux 部署指南</a>）</li>
+<li><strong>操作</strong>：运行后留在黑色的控制台窗口中，用手机 QQ 扫描里面打印出来的二维码登录。</li>
+<li><strong>进入界面</strong>：看到控制台打印出 <code>Web界面: http://127.0.0.1:40653/qce</code> 这行字后，说明启动成功，此时可以用浏览器访问该地址。如果没看到这行字，先不要刷新网页。</li>
+</ul>
+<h4 id="b-独立模式不需要登录-qq只看以前导出的本地文件"><a class="h-a" href="#b-独立模式不需要登录-qq只看以前导出的本地文件">B. 独立模式（不需要登录 QQ，只看以前导出的本地文件）</a></h4>
+<ul>
+<li><strong>Windows</strong>：双击运行 <code>start-standalone.bat</code></li>
+<li><strong>Linux</strong>：运行 <code>./start-standalone.sh</code></li>
+<li><strong>操作</strong>：直接在浏览器访问 <code>http://localhost:40653/qce</code>，该模式不需要输入安全令牌。</li>
+</ul>
+<hr />
+<h3 id="login"><a class="h-a" href="#login">第三步：登录 Web 界面</a></h3>
+<p>在完整模式下，首次打开 <code>http://localhost:40653/qce</code> 会看到一个需要输入访问令牌（Access Token）的验证页面：</p>
+<p><img alt="访问验证页" src="images/auth-page.png" /></p>
+<p>你可以通过以下几种方法找到这串令牌：</p>
+<h4 id="方法-1从-securityjson-配置文件中查找最稳妥"><a class="h-a" href="#方法-1从-securityjson-配置文件中查找最稳妥">方法 1：从 <code>security.json</code> 配置文件中查找（最稳妥）</a></h4>
+<p>Windows 用户按下键盘上的 <code>Win + R</code> 键，输入 <code>%USERPROFILE%\.qq-chat-exporter</code> 并回车；Linux 用户查看 <code>~/.qq-chat-exporter/</code> 目录。
+用记事本打开该目录下的 <code>security.json</code>，找到 <code>accessToken</code> 字段：</p>
+<pre class="highlight"><code class="language-json">{
+  "accessToken": "&lt;复制这一串字符，这就是你的访问令牌&gt;",
+  "createdAt": "2026-07-14T00:00:00.000Z",
+  "allowedIPs": ["127.0.0.1", "::1"],
+  "tokenExpired": "..."
+}</code></pre>
+<p>把那一串长字符复制并粘贴到网页的输入框里，点击验证即可进入。</p>
+<h4 id="方法-2从控制台日志复制"><a class="h-a" href="#方法-2从控制台日志复制">方法 2：从控制台日志复制</a></h4>
+<p>部分版本启动时，黑色的控制台窗口里会直接打印出 <code>[QCE] Token: xxx</code> 这一行，后面的字符就是令牌；如果打印了类似 <code>http://127.0.0.1:40653/qce/auth?token=...</code> 的链接，直接复制到浏览器打开就能自动跳过验证。新版本由于安全考虑可能会隐藏此打印，若没看到，请统一使用方法 1。</p>
+<h4 id="方法-3一键安装包用户"><a class="h-a" href="#方法-3一键安装包用户">方法 3：一键安装包用户</a></h4>
+<p>安装程序会自动处理验证逻辑并开启网页，通常不需要你手动查找令牌。</p>
+<p>提示：在令牌有效期内，重启软件令牌是不会变的。如果提示登录失败，请确认你复制的是当前最新生成的 <code>security.json</code> 里的内容。登录页上的「找不到令牌？」按钮也附带了相同的图文引导：</p>
+<p><img alt="找不到令牌帮助" src="images/token-help.png" /></p>
+<h4 id="浏览器打不开-httplocalhost40653qce-怎么办"><a class="h-a" href="#浏览器打不开-httplocalhost40653qce-怎么办">浏览器打不开 <code>http://localhost:40653/qce</code> 怎么办？</a></h4>
+<p>如果浏览器提示 <code>ERR_CONNECTION_REFUSED</code>（连接被拒绝），通常不是浏览器的问题，而是 <strong>QCE 后台程序根本没有运行成功</strong>。</p>
+<p>请按照以下顺序检查：</p>
+<ol>
+<li>检查黑色的控制台命令行窗口是否还在，有没有被误关闭。</li>
+<li>观察控制台里是否有红色的报错文本。如果没有看到 <code>Web界面: http://127.0.0.1:40653/qce</code> 这行字，说明程序还没跑起来，此时刷新网页没有任何作用。</li>
+<li>检查自己运行的文件对不对：完整模式必须运行 <code>launcher-user.bat</code>，独立模式运行 <code>start-standalone.bat</code>。</li>
+<li><strong>不要直接双击运行 <code>napcat.mjs</code>，也不要把 GitHub 上的 <code>Source code</code> 源码包当作安装包来双击哟</strong></li>
+<li>退出了已有的、已登录的 QQ 吗</li>
+<li>如果反复失败，建议回到 Release 页面重新下载官方发布包，找个干净的目录完整解压后再试。这可以解决一半的问题！</li>
+</ol>
+<hr />
+<h2 id="导出聊天记录"><a class="h-a" href="#导出聊天记录">导出聊天记录</a></h2>
+<p>成功进入网页界面后，点击左侧菜单的 <strong>“会话”</strong>，这里会列出你的所有双人好友和加入的群聊。</p>
+<p><img alt="会话列表与导出按钮" src="images/export-button.png" /></p>
+<h3 id="基础操作步骤"><a class="h-a" href="#基础操作步骤">基础操作步骤</a></h3>
+<ol>
+<li>你可以在列表中找到你要备份的好友或群聊</li>
+<li>点击该行右侧的 <strong>“导出”</strong> 按钮。</li>
+<li>在弹出的窗口中选择你需要的格式和时间范围，点击 <strong>“创建任务”</strong>。</li>
+<li>页面会自动切换到左侧的 <strong>“任务”</strong> 页面查看进度，等待状态变成完成后，可以直接点击下载，或者打开文件在电脑上的存放位置。</li>
+</ol>
+<h3 id="设置项"><a class="h-a" href="#设置项">设置项</a></h3>
+<p>创建导出任务时的弹窗界面如下：</p>
+<p><img alt="创建导出任务" src="images/export-settings.png" /></p>
+<ul>
+<li><strong>格式选择</strong>：<ul>
+<li><mark><code>HTML</code>：导出为标准网页文件。排版样式与手机 QQ 聊天界面一致，适合日常直接双击打开阅读。</mark></li>
+<li><code>JSON</code>：纯结构化数据文件，适合有编程基础、需要自己写脚本分析数据的用户。</li>
+<li><code>TXT</code>：纯文本文件，不包含任何图片、视频和表情包，文件体积非常小。</li>
+<li><code>Excel</code>：表格文件，方便后续通过表格软件进行关键词筛选、数据统计或排序。</li>
+</ul>
+</li>
+<li><strong>媒体资源（图片/视频/表情）</strong>：
+默认会同步下载。需要特别注意：导出 HTML 格式时，会同时生成一个 <code>.html</code> 文件和一个 <code>resources</code> 文件夹。<strong>这两者是一个整体，千万不要把它们分开存放或重命名</strong>，否则打开网页时里面的图片和视频会变成空白。如果需要发给别人，建议勾选“导出为 ZIP”打包输出。</li>
+<li><strong>时间范围</strong>：
+选“全部消息”会抓取该会话在当前电脑上的所有历史记录；如果消息太多，可以选“最近 3 个月”或通过日历自定义时间区间。</li>
+<li><strong>过滤条件</strong>：
+支持输入特定的关键词过滤消息，也可以勾选或取消勾选入群通知、撤回提示等系统日志。</li>
+</ul>
+<hr />
+<h2 id="进阶功能"><a class="h-a" href="#进阶功能">进阶功能</a></h2>
+<h3 id="1-批量导出"><a class="h-a" href="#1-批量导出">1. 批量导出</a></h3>
+<p>如果你想把号上的几十个群全部存下来，不需要一个个点。在“会话”页面点击右上角的 <strong>“批量导出”</strong> 按钮，勾选“全选”或者手动勾选某几个群，点击“导出选中”，统一设置好格式后，让电脑挂机等待任务全部跑完即可。</p>
+<h3 id="2-定时自动备份"><a class="h-a" href="#2-定时自动备份">2. 定时自动备份</a></h3>
+<p>在“定时导出”页面点击 <strong>“新建定时任务”</strong>。你可以把调度策略设为“每天”。</p>
+<p><strong>一个高效的备份技巧是：将时间范围设为“昨天”</strong>。这样工具每天半夜只会自动增量抓取过去 24 小时产生的新消息，耗时极短。月底时，你可以利用 <strong>“合并备份”</strong> 功能，把每天生成的零碎文件拼接成一个完整的大文件。</p>
+<h3 id="3-导出已删除好友或临时对话"><a class="h-a" href="#3-导出已删除好友或临时对话">3. 导出已删除好友或临时对话</a></h3>
+<p>如果你想导出的人已经不是你的好友，或者属于没有保存的临时群会话，可以到 <strong>“概览”</strong> 页面点击 <strong>“新建任务”</strong>，选择 <strong>“手动输入QQ号”</strong>，直接输入对方的 QQ 号或群号即可强制建立导出任务。不过具体能不能导出还是取决于本地有没有历史记录QAQ！</p>
+<h3 id="4-百万级超大群流式导出"><a class="h-a" href="#4-百万级超大群流式导出">4. 百万级超大群流式导出</a></h3>
+<p>如果是积累了多年的高活跃度大群，消息量可能达到几十万甚至上百万条，普通导出方式有可能会吃满电脑内存！这个时候，你可以在导出弹窗中点开 <strong>“高级选项”</strong>，勾选 <strong>“流式导出”</strong>。开启后，程序会将数据切块分段处理，最终输出一个特殊的 ZIP 包。</p>
+<p>解压后打开 <code>index.html</code>，网页会采用动态加载机制（也就是，鼠标滚轮滚到哪里，数据就加载到哪里），确保低配电脑和浏览器也能流畅查看百万条记录！</p>
+<p>说到这里，你应该学会使用 QCE 了！如果有问题，随时都可以到 <a href="https://github.com/shuakami/qq-chat-exporter/issues">GitHub</a> 里面找我们哟！</p>
+    <div class="pagenav"><a class="prev" href="index.html"><span class="dir">上一篇</span><span class="lbl">介绍</span></a><a class="next" href="linux-deploy.html"><span class="dir">下一篇</span><span class="lbl">Linux 部署</span></a></div>
+  </article></div>
+  <nav class="toc"><div class="t">本页目录</div><a class="d3" href="#windows-用户">Windows 用户</a>
+<a class="d3" href="#各个版本">各个版本</a>
+<a class="d3" href="#framework-usage">Framework 模式使用方法</a>
+<a class="" href="#start-guide">启动引导</a>
+<a class="d3" href="#第一步解压文件">第一步：解压文件</a>
+<a class="d3" href="#第二步选择模式启动">第二步：选择模式启动</a>
+<a class="d3" href="#login">第三步：登录 Web 界面</a>
+<a class="" href="#导出聊天记录">导出聊天记录</a>
+<a class="d3" href="#基础操作步骤">基础操作步骤</a>
+<a class="d3" href="#设置项">设置项</a>
+<a class="" href="#进阶功能">进阶功能</a>
+<a class="d3" href="#1-批量导出">1. 批量导出</a>
+<a class="d3" href="#2-定时自动备份">2. 定时自动备份</a>
+<a class="d3" href="#3-导出已删除好友或临时对话">3. 导出已删除好友或临时对话</a>
+<a class="d3" href="#4-百万级超大群流式导出">4. 百万级超大群流式导出</a></nav>
+</div>
+<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('.toc a'));
+  if(!links.length)return;
+  var hs=links.map(function(a){return document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1)))});
+  function on(){
+    var i=0;
+    for(var j=0;j<hs.length;j++){if(hs[j]&&hs[j].getBoundingClientRect().top<90)i=j;}
+    links.forEach(function(a,j){a.classList.toggle('active',j===i)});
+  }
+  addEventListener('scroll',on,{passive:true});on();
+})();
+(function(){
+  var box=document.createElement('div');box.className='lightbox';
+  var big=document.createElement('img');box.appendChild(big);
+  var x=document.createElement('button');x.className='lb-close';x.innerHTML='✕';x.setAttribute('aria-label','关闭');box.appendChild(x);
+  document.body.appendChild(box);
+  function close(){box.classList.remove('open');setTimeout(function(){if(!box.classList.contains('open'))big.src='';},240);}
+  box.addEventListener('click',close);x.addEventListener('click',close);
+  big.addEventListener('click',function(e){e.stopPropagation();});
+  addEventListener('keydown',function(e){if(e.key==='Escape')close();});
+  [].forEach.call(document.querySelectorAll('.content img'),function(img){
+    img.addEventListener('click',function(){big.src=img.src;box.classList.add('open');});
+  });
+})();
+(function(){
+  var COPY='<svg class="ic ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+  var CHECK='<svg class="ic ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  [].forEach.call(document.querySelectorAll('.content pre'),function(pre){
+    var btn=document.createElement('button');
+    btn.className='copy-btn';btn.type='button';btn.setAttribute('aria-label','复制代码');
+    btn.innerHTML=COPY+CHECK;
+    btn.addEventListener('click',function(){
+      var code=pre.querySelector('code');
+      var text=(code?code.textContent:pre.textContent).replace(/\n$/,'');
+      (navigator.clipboard?navigator.clipboard.writeText(text):Promise.reject()).catch(function(){
+        var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);
+        ta.select();document.execCommand('copy');document.body.removeChild(ta);
+      }).then(function(){
+        btn.classList.add('copied');
+        clearTimeout(btn._t);
+        btn._t=setTimeout(function(){btn.classList.remove('copied');},1600);
+      });
+    });
+    pre.appendChild(btn);
+  });
+})();
+</script>
+</body>
+</html>
