@@ -2,8 +2,30 @@ use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 use std::time::Duration;
 
+#[cfg(unix)]
+use std::io::Write;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+#[cfg(unix)]
+fn write_security_config(path: &Path, data: &str) -> std::io::Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .mode(0o600)
+        .open(path)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    file.write_all(data.as_bytes())
+}
+
+#[cfg(not(unix))]
+fn write_security_config(path: &Path, data: &str) -> std::io::Result<()> {
+    std::fs::write(path, data)
+}
 
 /// `security.json` 结构，字段序列化为 camelCase。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -427,16 +449,8 @@ impl SecurityManager {
     /// 保存安全配置快照到磁盘。
     fn save_config_snapshot(&self, config: &SecurityConfig) {
         if let Ok(data) = serde_json::to_string_pretty(config) {
-            if std::fs::write(&self.config_path, data).is_err() {
+            if write_security_config(&self.config_path, &data).is_err() {
                 tracing::warn!("[QCE][SecurityManager] security.json 写入失败");
-            }
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let permissions = std::fs::Permissions::from_mode(0o600);
-                if std::fs::set_permissions(&self.config_path, permissions).is_err() {
-                    tracing::warn!("[QCE][SecurityManager] security.json 权限设置失败");
-                }
             }
         }
         self.record_mtime();
