@@ -102,6 +102,7 @@ fn valid_export_file_name(file_name: &str) -> bool {
     let mut components = FsPath::new(file_name).components();
     matches!(components.next(), Some(std::path::Component::Normal(_)))
         && components.next().is_none()
+        && !file_name.contains(['/', '\\'])
         && !file_name.contains('\0')
 }
 
