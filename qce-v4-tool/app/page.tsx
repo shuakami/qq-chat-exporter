@@ -85,6 +85,7 @@ import {
 import type { CreateTaskForm, CreateScheduledExportForm } from "@/types/api"
 import { useQCE } from "@/hooks/use-qce"
 import { BUILD_VERSION, isNewerVersion } from "@/lib/version"
+import AuthManager from "@/lib/auth"
 import { useScheduledExports } from "@/hooks/use-scheduled-exports"
 import { useChatHistory } from "@/hooks/use-chat-history"
 import { useStickerPacks } from "@/hooks/use-sticker-packs"
@@ -3014,7 +3015,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                         className="rounded-full text-[13px]"
                         onClick={() => {
                           const link = document.createElement('a')
-                          link.href = `/api/exports/files/${selectedFile.fileName}`
+                          link.href = `/api/download-file?path=${encodeURIComponent(selectedFile.filePath)}&token=${encodeURIComponent(AuthManager.getInstance().getToken() || "")}`
                           link.download = selectedFile.fileName
                           link.click()
                         }}
@@ -3031,7 +3032,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                   </div>
                   <div className="flex-1 overflow-hidden">
                     <iframe
-                      src={`/api/exports/files/${selectedFile.fileName}/preview`}
+                      src={`/api/exports/files/${encodeURIComponent(selectedFile.fileName)}/preview?token=${encodeURIComponent(AuthManager.getInstance().getToken() || "")}`}
                       className="w-full h-full border-0"
                       title={`预览 ${selectedFile.sessionName}`}
                     />
@@ -3078,7 +3079,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                         className="w-full rounded-xl"
                         onClick={() => {
                           const link = document.createElement('a')
-                          link.href = `/api/exports/files/${selectedFile.fileName}`
+                          link.href = `/api/download-file?path=${encodeURIComponent(selectedFile.filePath)}&token=${encodeURIComponent(AuthManager.getInstance().getToken() || "")}`
                           link.download = selectedFile.fileName
                           link.click()
                         }}
