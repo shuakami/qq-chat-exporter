@@ -101,7 +101,7 @@ npm test
 我们非常欢迎社区提交 Pull Request 来共同完善项目！以下是一些教程：
 
 1. 将本仓库 Fork 到你个人的 GitHub 账号下。
-2. 从你的 Fork 仓库中基于 `main` 分支切出一个语义明确的新特性或修复分支（例如 `feat/stream-export` 或 `fix/token-refresh`）。
+2. 从你的 Fork 仓库中基于 `master` 分支切出一个语义明确的新特性或修复分支（例如 `feat/stream-export` 或 `fix/token-refresh`）。
 3. 进行代码编写与本地完整验证。
 4. 提交 Commit 时，请严格遵循 Angular 规范，使用标准的约定式提交格式（Conventional Commits）：
     * `feat: 添加了某项新功能`
