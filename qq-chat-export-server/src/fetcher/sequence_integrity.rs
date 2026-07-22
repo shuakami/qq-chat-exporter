@@ -8,6 +8,7 @@ use super::{FetchError, MessageFetchApi, Peer};
 pub struct SequenceRepairConfig {
     pub max_delta: i64,
     pub chunk_size: i64,
+    pub round_budget: i64,
     pub total_budget: i64,
     pub max_rounds: u32,
 }
@@ -17,7 +18,8 @@ impl Default for SequenceRepairConfig {
         Self {
             max_delta: 5,
             chunk_size: 100,
-            total_budget: 2000,
+            round_budget: 2000,
+            total_budget: 6000,
             max_rounds: 3,
         }
     }
@@ -74,7 +76,7 @@ pub async fn repair_group_message_sequence(
     }
 
     let initial_len = messages.len();
-    let mut remaining_budget = config.total_budget.max(0);
+    let mut remaining_total_budget = config.total_budget.max(0);
     let mut previous_missing = initial_missing_positions;
     let mut rounds = 0;
 
@@ -89,7 +91,7 @@ pub async fn repair_group_message_sequence(
                 rounds,
             ));
         }
-        if remaining_budget == 0 {
+        if remaining_total_budget == 0 {
             return Err(FetchError::SequenceRepairBudgetExhausted {
                 gap_count: gaps.len(),
                 missing_positions: total_missing_positions(&gaps),
@@ -97,14 +99,16 @@ pub async fn repair_group_message_sequence(
         }
 
         rounds += 1;
+        let mut remaining_round_budget = config.round_budget.min(remaining_total_budget).max(0);
         for gap in gaps.iter().rev() {
             let mut anchor = gap.upper - 1;
             let mut remaining = gap.missing_positions;
-            while remaining > 0 && remaining_budget > 0 {
+            while remaining > 0 && remaining_round_budget > 0 {
                 let count = config
                     .chunk_size
                     .min(remaining)
-                    .min(remaining_budget)
+                    .min(remaining_round_budget)
+                    .min(remaining_total_budget)
                     .max(1);
                 let lower = (anchor - count + 1).max(gap.lower + 1);
                 let range_messages = api
@@ -118,11 +122,12 @@ pub async fn repair_group_message_sequence(
                         .await
                         .map_err(FetchError::Api)?;
                 }
-                remaining_budget -= count;
+                remaining_round_budget -= count;
+                remaining_total_budget -= count;
                 remaining -= count;
                 anchor = lower - 1;
             }
-            if remaining_budget == 0 {
+            if remaining_round_budget == 0 {
                 break;
             }
         }
@@ -485,6 +490,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn continues_with_a_new_round_after_progress() {
+        let api = MockApi::new(
+            vec![
+                Ok(json!({ "msgList": [{ "msgId": "loaded-first", "msgSeq": 5 }] })),
+                Ok(json!({ "msgList": [{ "msgId": "loaded-second", "msgSeq": 8 }] })),
+            ],
+            vec![],
+            vec![
+                Ok(json!({ "msgList": [
+                    { "msgId": "one", "msgSeq": 1 },
+                    { "msgId": "four", "msgSeq": 4 },
+                    { "msgId": "ten", "msgSeq": 10 }
+                ] })),
+                Ok(repaired_history()),
+            ],
+        );
+        let mut messages = endpoints();
+        let report = repair_group_message_sequence(
+            &api,
+            &peer(),
+            &mut messages,
+            SequenceRepairConfig {
+                max_delta: 5,
+                chunk_size: 5,
+                round_budget: 5,
+                total_budget: 10,
+                max_rounds: 3,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(report.rounds, 2);
+        assert!(detect_large_seq_gaps(&messages, 5).is_empty());
+    }
+
+    #[tokio::test]
     async fn reports_budget_exhaustion_after_partial_progress() {
         let api = MockApi::new(
             vec![Ok(
@@ -508,6 +550,7 @@ mod tests {
             SequenceRepairConfig {
                 max_delta: 5,
                 chunk_size: 5,
+                round_budget: 5,
                 total_budget: 5,
                 max_rounds: 3,
             },
@@ -545,6 +588,7 @@ mod tests {
             SequenceRepairConfig {
                 max_delta: 5,
                 chunk_size: 5,
+                round_budget: 5,
                 total_budget: 100,
                 max_rounds: 1,
             },
@@ -574,6 +618,7 @@ mod tests {
             SequenceRepairConfig {
                 max_delta: 5,
                 chunk_size: 100,
+                round_budget: 100,
                 total_budget: 100,
                 max_rounds: 1,
             },
