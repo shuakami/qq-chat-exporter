@@ -7,7 +7,7 @@ use axum::Json;
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use serde_json::{json, Value};
 
-use crate::api::helpers::http_get_bytes;
+use crate::api::http_security::http_get_bytes;
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
 
@@ -830,7 +830,7 @@ pub async fn sticker_export_records(
         .get("limit")
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|l| *l >= 1)
-        .unwrap_or(50);
+        .map_or(50, |l| l.min(100));
     let mut records = load_records(&state).await;
     records.truncate(limit);
     response::success(

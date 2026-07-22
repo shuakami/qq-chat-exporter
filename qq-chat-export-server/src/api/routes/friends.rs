@@ -15,12 +15,14 @@ fn page_and_limit(params: &HashMap<String, String>) -> (usize, usize) {
         .get("page")
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|p| *p >= 1)
-        .unwrap_or(1);
+        .unwrap_or(1)
+        .min(1_000_000);
     let limit = params
         .get("limit")
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|l| *l >= 1)
-        .unwrap_or(999);
+        .unwrap_or(999)
+        .min(2_000);
     (page, limit)
 }
 
@@ -266,15 +268,27 @@ fn map_friend(friend: &Value, category_id: &Value) -> Value {
     let uid = str_of(core, "uid");
     let uin = {
         let u = str_of(core, "uin");
-        if u.is_empty() { str_of(friend, "uin") } else { u }
+        if u.is_empty() {
+            str_of(friend, "uin")
+        } else {
+            u
+        }
     };
     let nick = {
         let n = str_of(core, "nick");
-        if n.is_empty() { str_of(friend, "nick") } else { n }
+        if n.is_empty() {
+            str_of(friend, "nick")
+        } else {
+            n
+        }
     };
     let remark = {
         let r = str_of(core, "remark");
-        if r.is_empty() { str_of(friend, "remark") } else { r }
+        if r.is_empty() {
+            str_of(friend, "remark")
+        } else {
+            r
+        }
     };
     let is_online = base
         .get("isOnline")
@@ -314,10 +328,7 @@ pub async fn list_friends(
     let cats = categories.as_array().unwrap_or(&empty);
     let mut friends: Vec<Value> = Vec::new();
     for cat in cats {
-        let category_id = cat
-            .get("categoryId")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let category_id = cat.get("categoryId").cloned().unwrap_or(Value::Null);
         if let Some(list) = cat.get("buddyList").and_then(Value::as_array) {
             for friend in list {
                 friends.push(map_friend(friend, &category_id));
@@ -326,9 +337,14 @@ pub async fn list_friends(
     }
 
     let total = friends.len();
-    let start_index = (page - 1) * limit;
-    let end_index = start_index + limit;
-    let paginated: Vec<Value> = friends.iter().skip(start_index).take(limit).cloned().collect();
+    let start_index = (page - 1).saturating_mul(limit);
+    let end_index = start_index.saturating_add(limit);
+    let paginated: Vec<Value> = friends
+        .iter()
+        .skip(start_index)
+        .take(limit)
+        .cloned()
+        .collect();
 
     response::success(
         json!({

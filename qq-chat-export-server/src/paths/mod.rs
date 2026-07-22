@@ -53,7 +53,7 @@ impl PathManager {
     }
 
     /// 校验路径：只禁止系统关键目录，允许任意其他位置。
-    fn validate_path(input: &str) -> Result<PathBuf, PathError> {
+    pub(crate) fn validate_path(input: &str) -> Result<PathBuf, PathError> {
         let sanitized = Self::sanitize_path(input);
         let normalized_input = sanitized.replace('\\', "/").to_lowercase();
         let resolved = if Path::new(&sanitized).is_absolute() {
