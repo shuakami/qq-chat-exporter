@@ -140,6 +140,30 @@ pub enum FetchError {
     /// 底层 API 错误。
     #[error("{0}")]
     Api(String),
+    /// 主动修复未取得进展。
+    #[error(
+        "MESSAGE_SEQUENCE_REPAIR_NO_PROGRESS: 群聊历史仍有 {gap_count} 个大序列缺口（估算缺失 {missing_positions} 个序号）"
+    )]
+    SequenceRepairNoProgress {
+        gap_count: usize,
+        missing_positions: i64,
+    },
+    /// 主动修复达到请求预算。
+    #[error(
+        "MESSAGE_SEQUENCE_REPAIR_BUDGET_EXHAUSTED: 群聊历史仍有 {gap_count} 个大序列缺口（估算缺失 {missing_positions} 个序号）"
+    )]
+    SequenceRepairBudgetExhausted {
+        gap_count: usize,
+        missing_positions: i64,
+    },
+    /// 主动修复达到轮次限制后仍未收敛。
+    #[error(
+        "MESSAGE_SEQUENCE_GAPS_UNRESOLVED: 群聊历史仍有 {gap_count} 个大序列缺口（估算缺失 {missing_positions} 个序号）"
+    )]
+    SequenceGapsUnresolved {
+        gap_count: usize,
+        missing_positions: i64,
+    },
 }
 
 impl FetchError {
@@ -177,6 +201,14 @@ pub trait MessageFetchApi: Send + Sync {
         peer: &Peer,
         start_seq: &str,
         end_seq: &str,
+    ) -> Result<Value, String>;
+
+    /// 从指定序列号向前获取固定数量消息。
+    async fn get_msgs_by_seq_and_count(
+        &self,
+        peer: &Peer,
+        anchor_seq: i64,
+        count: i64,
     ) -> Result<Value, String>;
 }
 
@@ -899,6 +931,15 @@ mod tests {
             _peer: &Peer,
             _start_seq: &str,
             _end_seq: &str,
+        ) -> Result<Value, String> {
+            Ok(json!({ "msgList": [] }))
+        }
+
+        async fn get_msgs_by_seq_and_count(
+            &self,
+            _peer: &Peer,
+            _anchor_seq: i64,
+            _count: i64,
         ) -> Result<Value, String> {
             Ok(json!({ "msgList": [] }))
         }

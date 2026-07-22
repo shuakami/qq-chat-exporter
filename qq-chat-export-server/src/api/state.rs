@@ -104,6 +104,14 @@ impl AppState {
             Err(_) => tracing::debug!("[WS] 广播 {msg_type} 无订阅者 (receivers={receivers})"),
         }
     }
+
+    pub async fn invalidate_message_cache_for_peer(&self, chat_type: i64, peer_uid: &str) -> usize {
+        let prefix = format!("{chat_type}_{peer_uid}_");
+        let mut cache = self.message_cache.lock().await;
+        let before = cache.len();
+        cache.retain(|key, _| !key.starts_with(&prefix));
+        before.saturating_sub(cache.len())
+    }
 }
 
 #[cfg(test)]
