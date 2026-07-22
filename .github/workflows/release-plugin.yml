@@ -68,7 +68,7 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
-            binary_path: qq-chat-export-server/target/release/qce-server
+            binary_path: qq-chat-export-server/target/x86_64-unknown-linux-musl/release/qce-server
           - os: windows-latest
             platform: windows
             arch: x64
@@ -83,6 +83,13 @@ jobs:
       - name: "Setup Rust"
         uses: dtolnay/rust-toolchain@stable
 
+      - name: "Install musl build toolchain"
+        if: matrix.platform == 'linux'
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
       - name: "Restore Rust cache"
         uses: swatinem/rust-cache@v2
         with:
@@ -90,10 +97,26 @@ jobs:
           shared-key: qce-server-${{ matrix.platform }}-${{ matrix.arch }}
 
       - name: "Build Rust server"
-        run: cargo build --release
+        run: cargo build --release ${{ matrix.platform == 'linux' && '--target x86_64-unknown-linux-musl' || '' }}
         working-directory: qq-chat-export-server
         env:
           QCE_VERSION: ${{ github.ref_name }}
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+
+      - name: "Verify Linux server is statically linked"
+        if: matrix.platform == 'linux'
+        run: |
+          BINARY="${{ matrix.binary_path }}"
+          file "$BINARY"
+          if readelf -l "$BINARY" | grep -q 'Requesting program interpreter'; then
+            echo "FAIL: qce-server has a dynamic loader"
+            exit 1
+          fi
+          if readelf -d "$BINARY" | grep -q '(NEEDED)'; then
+            echo "FAIL: qce-server has dynamic library dependencies"
+            exit 1
+          fi
 
       - name: "Upload Rust server artifact"
         uses: actions/upload-artifact@v4
@@ -606,7 +629,7 @@ jobs:
           需配合 QQ 客户端版本 34606 及以上使用（推荐版本 9.9.19-34740），[前往下载](https://im.qq.com/)。
 
           - **Windows**：支持 Windows 10/11 x64。如运行报错提示缺少 DLL 文件，请安装 [Visual C++ 运行库](https://aka.ms/vs/17/release/vc_redist.x64.exe)。
-          - **Linux**：支持 Ubuntu 20.04+ / Debian 11+ / CentOS 8+，需满足 glibc 2.31+。
+          - **Linux**：支持 Ubuntu 20.04+ / Debian 11+ / CentOS 8+。内置 `qce-server` 使用静态 musl 构建，不要求特定 glibc 版本；QQ、NapCat 和注入模块仍需满足各自的系统依赖。
           - **macOS**：⚠️ 受限于兼容性问题，暂不支持。
 
           </details>

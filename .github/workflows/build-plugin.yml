@@ -30,6 +30,13 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install musl build toolchain
+        if: matrix.platform == 'Linux'
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
       - name: Restore Rust cache
         uses: swatinem/rust-cache@v2
         with:
@@ -60,6 +67,25 @@ jobs:
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Generated version: ${VERSION}"
 
+      - name: Build static Linux Rust server
+        if: matrix.platform == 'Linux'
+        working-directory: qq-chat-export-server
+        run: |
+          cargo build --release --target x86_64-unknown-linux-musl
+          BINARY=target/x86_64-unknown-linux-musl/release/qce-server
+          file "$BINARY"
+          if readelf -l "$BINARY" | grep -q 'Requesting program interpreter'; then
+            echo "FAIL: qce-server has a dynamic loader"
+            exit 1
+          fi
+          if readelf -d "$BINARY" | grep -q '(NEEDED)'; then
+            echo "FAIL: qce-server has dynamic library dependencies"
+            exit 1
+          fi
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+
       - name: Build complete package (Windows)
         if: matrix.platform == 'Windows'
         run: python scripts/quick-pack.py
@@ -75,6 +101,7 @@ jobs:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=4096
           QCE_VERSION: ${{ steps.version.outputs.version }}
+          QCE_SERVER_BINARY: qq-chat-export-server/target/x86_64-unknown-linux-musl/release/qce-server
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
