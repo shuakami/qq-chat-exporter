@@ -56,6 +56,53 @@ export function isNewerVersion(latest: string, current: string): boolean {
     return false;
 }
 
+/**
+ * 判断是否为“重大更新”。仅重大更新才自动弹出更新 popover：
+ * - 大版本号（major）提升，或
+ * - 同一大版本内，小版本号（minor）距离当前 > 阈值（默认 5）。
+ * 普通小更新（补丁 / 少量小版本）不弹窗。
+ */
+export function isMajorUpdate(latest: string, current: string, minorThreshold = 5): boolean {
+    if (!isNewerVersion(latest, current)) {
+        return false;
+    }
+    const latestParts = parseVersion(latest);
+    const currentParts = parseVersion(current);
+    if (!latestParts || !currentParts) {
+        return false;
+    }
+    const [latestMajor, latestMinor] = latestParts;
+    const [currentMajor, currentMinor] = currentParts;
+    if (latestMajor > currentMajor) {
+        return true;
+    }
+    if (latestMajor === currentMajor) {
+        return latestMinor - currentMinor > minorThreshold;
+    }
+    return false;
+}
+
+/**
+ * 从 Release 正文（Markdown/HTML）中提取第一张图片地址，
+ * 用于在更新弹窗中直接展示更新图片。
+ */
+export function extractReleaseImage(body?: string): string | null {
+    if (!body) {
+        return null;
+    }
+    // Markdown 图片：![alt](url)
+    const markdownMatch = body.match(/!\[[^\]]*\]\((\S+?)(?:\s+"[^"]*")?\)/);
+    if (markdownMatch?.[1]) {
+        return markdownMatch[1];
+    }
+    // HTML 图片：<img src="url">
+    const htmlMatch = body.match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (htmlMatch?.[1]) {
+        return htmlMatch[1];
+    }
+    return null;
+}
+
 /** 检查版本是否匹配 */
 export function checkVersionMatch(apiVersion?: string): {
     match: boolean;
