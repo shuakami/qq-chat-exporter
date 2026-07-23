@@ -84,7 +84,9 @@ import {
 } from "lucide-react"
 import type { CreateTaskForm, CreateScheduledExportForm } from "@/types/api"
 import { useQCE } from "@/hooks/use-qce"
-import { BUILD_VERSION, isNewerVersion } from "@/lib/version"
+import { BUILD_VERSION, isNewerVersion, isMajorUpdate, extractReleaseImage } from "@/lib/version"
+import { UpdatePopover, type UpdateBannerInfo } from "@/components/ui/update-banner"
+import { SecurityExposureBanner } from "@/components/ui/security-exposure-banner"
 import AuthManager from "@/lib/auth"
 import { useScheduledExports } from "@/hooks/use-scheduled-exports"
 import { useChatHistory } from "@/hooks/use-chat-history"
@@ -200,7 +202,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   
   // GitHub stars
   const [githubStars, setGithubStars] = useState<number | null>(null)
-  const [updateInfo, setUpdateInfo] = useState<{ tag: string; url: string } | null>(null)
+  const [updateInfo, setUpdateInfo] = useState<UpdateBannerInfo | null>(null)
   
   // 定时导出筛选状态
   const [scheduledFilter, setScheduledFilter] = useState<'all' | 'enabled' | 'disabled'>('all')
@@ -437,7 +439,13 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
         const releases = await res.json()
         const latest = releases?.[0]
         if (latest?.tag_name && latest?.html_url && isNewerVersion(latest.tag_name, currentVersion)) {
-          setUpdateInfo({ tag: latest.tag_name, url: latest.html_url })
+          setUpdateInfo({
+            tag: latest.tag_name,
+            url: latest.html_url,
+            name: typeof latest.name === 'string' ? latest.name : undefined,
+            image: extractReleaseImage(latest.body) ?? undefined,
+            major: isMajorUpdate(latest.tag_name, currentVersion),
+          })
         } else {
           setUpdateInfo(null)
         }
@@ -1441,8 +1449,9 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                 </div>
               </motion.div>
 
-              {/* Sidebar footer */}
+              {/* Sidebar footer + 新版本更新卡片（锚定该行正上方，检测到新版本自动弹出） */}
               <div className="flex-shrink-0 px-2 pb-2 space-y-1">
+                <UpdatePopover update={updateInfo}>
                 <div className="flex items-center justify-between px-2 py-1">
                   {/* GitHub + star count */}
                   <a
@@ -1524,6 +1533,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                     <ThemeToggle />
                   </div>
                 </div>
+                </UpdatePopover>
               </div>
             </motion.div>
           </motion.div>
@@ -1680,6 +1690,9 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
             )}
           </div>
         </div>
+
+        {/* Public-exposure security warning (shown above all tabs) */}
+        <SecurityExposureBanner />
 
         {/* Content area */}
         <div className="flex-1 overflow-auto">
