@@ -25,6 +25,7 @@ const ScheduledBackupMergeDialog = lazy(() => import("@/components/ui/scheduled-
 const GroupEssenceModal = lazy(() => import("@/components/ui/group-essence-modal").then(m => ({ default: m.GroupEssenceModal })))
 const GroupFilesModal = lazy(() => import("@/components/ui/group-files-modal").then(m => ({ default: m.GroupFilesModal })))
 const SettingsPanel = lazy(() => import("@/components/ui/settings-panel").then(m => ({ default: m.SettingsPanel })))
+const AboutPanel = lazy(() => import("@/components/ui/about-panel").then(m => ({ default: m.AboutPanel })))
 import {
   Dialog,
   DialogContent,
@@ -2814,66 +2815,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
 
             {/* ==================== ABOUT ==================== */}
             {activeTab === "about" && (
-              <div className="p-6 max-w-2xl space-y-8">
-                <div className="space-y-4">
-                  <div>
-                    <h1 className="text-xl font-semibold tracking-tight text-foreground">QQ 聊天记录导出工具</h1>
-                  </div>
-                  <p className="text-sm leading-relaxed text-muted-foreground">
-                    简单高效的聊天记录导出解决方案
-                  </p>
-                </div>
-
-                {/* NapCat Tribute */}
-                <div className="rounded-xl p-5 flex items-start gap-6">
-                  <div className="space-y-3 flex-1">
-                    <h2 className="text-base font-medium text-foreground">致谢 NapCat</h2>
-                    <p className="text-sm leading-relaxed text-muted-foreground">
-                      感谢 NapCat 提供了访问 QQ 客户端数据的能力，让我们能够读取和导出聊天记录。
-                    </p>
-                  </div>
-                  <img 
-                    src="https://napneko.github.io/assets/logos/napcat_8.png" 
-                    alt="NapCat" 
-                    className="w-24 h-36 object-contain flex-shrink-0"
-                  />
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-3">
-                  <Button 
-                    onClick={() => window.open('https://github.com/shuakami/qq-chat-exporter', '_blank')}
-                    className="rounded-full"
-                  >
-                    <Star className="w-4 h-4 mr-1.5" />
-                    Star on GitHub
-                  </Button>
-                  <Button 
-                    onClick={() => window.open('https://napneko.github.io/', '_blank')}
-                    variant="outline"
-                    className="rounded-full"
-                  >
-                    <ExternalLink className="w-4 h-4 mr-1.5" />
-                    了解 NapCat
-                  </Button>
-                </div>
-
-                {/* Legal */}
-                <div className="space-y-3 pt-5 border-t border-black/[0.06] dark:border-white/[0.06]">
-                  <h3 className="text-base font-medium text-foreground">使用声明</h3>
-                  <div className="space-y-2.5 text-sm leading-relaxed text-muted-foreground">
-                    <p>
-                      本工具仅供学习和个人使用，请勿用于商业用途。请遵守相关法律法规和平台服务条款。
-                    </p>
-                    <p>
-                      <strong>反倒卖声明：</strong>本项目完全开源免费，任何个人或组织不得将此工具进行商业销售或倒卖。
-                    </p>
-                    <p className="text-muted-foreground/60">
-                      如果这个工具对你有帮助，请在 GitHub 上给我们一个 Star ⭐
-                    </p>
-                  </div>
-                </div>
-              </div>
+              <Suspense><AboutPanel /></Suspense>
             )}
           </>
         </div>
