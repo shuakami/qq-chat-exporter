@@ -26,7 +26,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // 在客户端初始化认证
     const authManager = AuthManager.getInstance()
-    
+
+    // 先消费 URL 中的 ?token=，再判断登录态：
+    // 后端会用 `?token=` 把访问令牌带进前端，必须在鉴权检查之前吃掉，
+    // 否则携带 token 的新会话会被误判为未登录、反复跳回 /qce/auth。
+    authManager.initialize()
+
     // 检查是否已认证
     if (!authManager.isAuthenticated()) {
       // 未认证，显示重定向状态后跳转

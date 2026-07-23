@@ -9,9 +9,24 @@ import { InterFontLoader } from '@/components/inter-font-loader'
 import '@/styles/globals.css'
 
 export const metadata: Metadata = {
-  title: 'QCE v5 - QQ Chat Export Tool',
-  description: 'QQ聊天记录导出工具 v5.0.0 - 高效导出和管理QQ聊天记录',
-  generator: 'QCE v5',
+  title: 'QQ Chat Export',
+  description: 'QQ聊天记录导出工具 - 高效导出和管理QQ聊天记录',
+  generator: 'QQ Chat Export',
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: {
+      index: false,
+      follow: false,
+      noimageindex: true,
+      'max-snippet': -1,
+      'max-image-preview': 'none',
+      'max-video-preview': -1,
+    },
+  },
+  referrer: 'no-referrer',
+  formatDetection: { telephone: false, email: false, address: false },
 }
 
 export default function RootLayout({
