@@ -199,6 +199,40 @@ pub fn resolve_peer_uin(
         .map(str::to_string)
 }
 
+/// 设备会话（我的电脑 / 我的手机）等场景下，自己发送的消息往往拿不到昵称，
+/// 解析后 `sender.name` 会兜底成一串 QQ 号。这里用登录账号昵称把这些「自己」
+/// 的消息显示名补回来，避免导出的 HTML 把「我」显示成数字。
+pub fn backfill_self_sender_names(
+    messages: &mut [CleanMessage],
+    self_uid: Option<&str>,
+    self_uin: Option<&str>,
+    self_name: Option<&str>,
+) {
+    let Some(self_name) = self_name.filter(|s| !s.is_empty()) else {
+        return;
+    };
+    let self_uid = self_uid.filter(|s| !s.is_empty());
+    let self_uin = self_uin.filter(|s| !s.is_empty());
+    for message in messages {
+        let sender = &mut message.sender;
+        let is_self = self_uid.is_some_and(|u| sender.uid == u)
+            || (self_uin.is_some() && sender.uin.as_deref() == self_uin);
+        if !is_self {
+            continue;
+        }
+        // 只修复兜底成 uid / uin 的情况；已经有真实昵称 / 备注就不动。
+        let name_is_fallback = sender.name.is_empty()
+            || Some(sender.name.as_str()) == sender.uin.as_deref()
+            || sender.name == sender.uid;
+        if name_is_fallback {
+            sender.name = self_name.to_string();
+        }
+        if sender.nickname.as_deref().is_none_or(str::is_empty) {
+            sender.nickname = Some(self_name.to_string());
+        }
+    }
+}
+
 #[must_use]
 pub fn chat_avatar_url(chat_type: &str, peer_uid: &str, peer_uin: Option<&str>) -> Option<String> {
     if chat_type == "group" {
@@ -360,5 +394,45 @@ mod tests {
         assert!(!should_resolve_peer_uid(2, "987654321"));
         assert!(!should_resolve_peer_uid(100, "u_existing"));
         assert!(!should_resolve_peer_uid(118, ""));
+    }
+
+    fn message_with_sender(uid: &str, uin: &str, name: &str) -> CleanMessage {
+        serde_json::from_value(json!({
+            "id": "1",
+            "sender": { "uid": uid, "uin": uin, "name": name },
+        }))
+        .expect("valid CleanMessage")
+    }
+
+    #[test]
+    fn backfills_self_name_when_it_fell_back_to_uin() {
+        // 设备会话里自己发的消息拿不到昵称，name 兜底成了 QQ 号。
+        let mut messages = vec![message_with_sender("", "3659594095", "3659594095")];
+        backfill_self_sender_names(
+            &mut messages,
+            Some("u_self"),
+            Some("3659594095"),
+            Some("PAW"),
+        );
+        assert_eq!(messages[0].sender.name, "PAW");
+        assert_eq!(messages[0].sender.nickname.as_deref(), Some("PAW"));
+    }
+
+    #[test]
+    fn keeps_real_names_and_other_senders_untouched() {
+        let mut messages = vec![
+            // 自己但已有真实昵称，不动。
+            message_with_sender("u_self", "3659594095", "阿喵"),
+            // 对端消息，不动。
+            message_with_sender("u_peer", "1058901083", "1058901083"),
+        ];
+        backfill_self_sender_names(
+            &mut messages,
+            Some("u_self"),
+            Some("3659594095"),
+            Some("PAW"),
+        );
+        assert_eq!(messages[0].sender.name, "阿喵");
+        assert_eq!(messages[1].sender.name, "1058901083");
     }
 }

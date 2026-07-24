@@ -804,6 +804,20 @@ export function useExportTasks(_props?: UseExportTasksProps) {
 
   const hasRunningTasks = taskStats.running > 0
 
+  // WebSocket 断线时进度只能靠轮询 /api/tasks 兜底，而轮询只更新任务列表、
+  // 不碰 toast。这会导致任务实际早已完成，但「正在导出」toast 一直不消失。
+  // 这里让 toast 状态跟随任务状态收敛：凡是还挂着 toast 且已进入终态的任务，
+  // 补一次 syncTaskToast 把它更新为完成 / 失败 / 已停止。
+  useEffect(() => {
+    for (const task of tasks) {
+      if (!taskToastIdsRef.current.has(task.id)) continue
+      if (completedToastIdsRef.current.has(task.id)) continue
+      if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
+        syncTaskToast(task)
+      }
+    }
+  }, [tasks, syncTaskToast])
+
   useEffect(() => {
     if (pollingTimerRef.current) {
       clearInterval(pollingTimerRef.current)
