@@ -406,7 +406,6 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   const {
     systemInfo,
     refreshSystemInfo,
-    wsConnected,
     groups,
     friends,
     recentActivityMap,
@@ -1712,16 +1711,6 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                       <h2 className="text-lg font-semibold text-foreground">{systemInfo.napcat.selfInfo.nick}</h2>
                       <div className="flex items-center gap-2 mt-0.5 text-sm text-muted-foreground">
                         <span>QQ {systemInfo.napcat.selfInfo.uin}</span>
-                        <span className="text-muted-foreground/30">·</span>
-                        {systemInfo?.napcat.workingEnv && (
-                          <>
-                            <span>{systemInfo.napcat.workingEnv === 'framework' ? 'Framework' : systemInfo.napcat.workingEnv === 'shell' ? 'Shell' : '未知'}</span>
-                            <span className="text-muted-foreground/30">·</span>
-                          </>
-                        )}
-                        <span>{wsConnected ? "已连接" : "未连接"}</span>
-                        <span className="text-muted-foreground/30">·</span>
-                        <span>{systemInfo?.napcat.online ? "QQ在线" : "QQ离线"}</span>
                       </div>
                     </div>
                   </div>

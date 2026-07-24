@@ -198,6 +198,7 @@ const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, message: string
 
 export default function App() {
   const [step, setStep] = useState<InstallStep>('welcome');
+  const [appVersion, setAppVersion] = useState('');
   const [setupStep, setSetupStep] = useState<SetupStep>('intro');
   const [loginMethod, setLoginMethod] = useState<'quick' | 'qrcode'>('quick');
   const [setupProgress, setSetupProgress] = useState(0);
@@ -243,6 +244,10 @@ export default function App() {
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    api.getVersion().then(setAppVersion).catch(() => {});
   }, []);
 
   // Detect an existing installation (launched from the desktop shortcut or
@@ -632,7 +637,7 @@ export default function App() {
                 本软件为完全免费的开源项目，严禁用于任何商业牟利
               </span>
               <div className="flex items-center justify-center gap-6 w-full text-[11px] font-medium text-[var(--color-text-tertiary)]">
-                <span>v6.0.0 beta</span>
+                <span>{appVersion ? `v${appVersion}` : ''}</span>
                 <button
                   onClick={() => setShowAdvanced(true)}
                   className="hover:text-[var(--color-text)] transition-colors underline decoration-dotted underline-offset-2"
