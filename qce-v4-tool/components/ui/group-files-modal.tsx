@@ -379,7 +379,9 @@ export function GroupFilesModal({ isOpen, onClose, groupCode, groupName, onNotif
                           <div className="flex-1 min-w-0">
                             <div className="font-medium truncate">{file.fileName}</div>
                             <div className="text-xs text-muted-foreground">
-                              {formatFileSize(file.fileSize)} · {formatTime(file.uploadTime)}
+                              {formatFileSize(file.fileSize)}
+                              <span aria-hidden className="mx-1 inline-block h-2.5 w-px translate-y-[1px] bg-current opacity-25" />
+                              {formatTime(file.uploadTime)}
                             </div>
                           </div>
                           <Button

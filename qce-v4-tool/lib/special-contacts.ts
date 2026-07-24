@@ -34,6 +34,24 @@ export function classifySpecialChatType(chatType: number): string {
   }
 }
 
+/** 特殊会话细分类别 → 用户可读标签（Issue #364 / #609）。 */
+export function specialKindLabel(kind?: string): string {
+  switch (kind) {
+    case "device":
+      return "我的设备"
+    case "service":
+      return "服务号"
+    case "temp":
+      return "临时会话"
+    case "notify":
+      return "通知"
+    case "guild":
+      return "频道"
+    default:
+      return "其他"
+  }
+}
+
 /** 生产环境下前端静态资源前缀（与 next.config 的 basePath 一致）。 */
 const ASSET_BASE = process.env.NODE_ENV === "production" ? "/static/qce" : ""
 

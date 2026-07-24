@@ -1,7 +1,6 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState } from "react"
-import { LoadingScreen } from "./ui/loading-screen"
+import { createContext, useContext, useState } from "react"
 
 interface LoadingContextType {
   isLoading: boolean
@@ -18,39 +17,16 @@ export function useLoading() {
   return context
 }
 
+/**
+ * 加载态上下文。启动遮罩由 `AuthProvider` 统一负责（认证校验期间显示，
+ * 校验完成即淡出）；这里不再渲染第二个首访 splash，避免出现「大 / 小两个
+ * 遮罩、跳动两次」。
+ */
 export function LoadingProvider({ children }: { children: React.ReactNode }) {
-  const [isLoading, setIsLoading] = useState(true)
-  const [isMounted, setIsMounted] = useState(false)
-
-  useEffect(() => {
-    setIsMounted(true)
-    
-    // Check if this is the first visit
-    const hasVisited = localStorage.getItem('qce-has-visited')
-    
-    if (!hasVisited) {
-      // First time - show loading
-      setIsLoading(true)
-      localStorage.setItem('qce-has-visited', 'true')
-    } else {
-      // Not first time - skip loading
-      setIsLoading(false)
-    }
-  }, [])
-
-  const setLoading = (loading: boolean) => {
-    setIsLoading(loading)
-  }
-
-  const handleLoadingComplete = () => {
-    setIsLoading(false)
-  }
+  const [isLoading, setIsLoading] = useState(false)
 
   return (
-    <LoadingContext.Provider value={{ isLoading, setLoading }}>
-      {isMounted && (
-        <LoadingScreen isLoading={isLoading} onComplete={handleLoadingComplete} />
-      )}
+    <LoadingContext.Provider value={{ isLoading, setLoading: setIsLoading }}>
       {children}
     </LoadingContext.Provider>
   )

@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useCallback, useEffect, useRef } from "react"
+import { Fragment, memo, useCallback, useEffect, useRef, type ReactNode } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Button } from "./button"
 import { Input } from "./input"
@@ -40,9 +40,66 @@ import {
   type SessionTaskStats,
 } from "@/lib/session-sort"
 import { QqLookupCard } from "./qq-lookup-card"
+import { specialKindLabel } from "@/lib/special-contacts"
 
 const UIN_PATTERN = /^\d{4,12}$/
 const EMPTY_SELECTED_ITEMS = new Set<string>()
+
+/** 会话元信息之间的细分隔线（取代旧的中点分隔符，统一列表分隔样式）。 */
+const META_DIVIDER = <span aria-hidden className="h-2.5 w-px shrink-0 bg-current opacity-20" />
+
+/**
+ * 渲染会话行的元信息（成员数 / 标识 / 备注 / 最近活跃 / 已导出），用细分隔线连接。
+ * 标识优先显示 QQ 号；设备 / 临时会话等没有 QQ 号时用灰色标签，避免暴露 uid 或裸露的 0。
+ */
+function renderMetaParts(item: SessionItem, group: Group | null, friend: Friend | null): ReactNode {
+  const parts: ReactNode[] = []
+
+  if (group) {
+    parts.push(<span key="members">{group.memberCount} 成员</span>)
+    parts.push(<span key="id" className="font-mono truncate">{group.groupCode}</span>)
+  } else if (friend) {
+    const uin = friend.uin > 0 ? String(friend.uin) : ""
+    if (uin) {
+      parts.push(<span key="id" className="font-mono truncate">{uin}</span>)
+    } else if (friend.isSpecial) {
+      parts.push(
+        <span
+          key="kind"
+          className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70"
+        >
+          {specialKindLabel(friend.specialKind)}
+        </span>,
+      )
+    }
+  }
+
+  if (item.subName) {
+    parts.push(<span key="sub" className="truncate">{item.subName}</span>)
+  }
+  // Issue #344: 最近一条消息时间 / 已导出消息累计；无数据不渲染，避免噪声。
+  if (item.lastMessageTime) {
+    parts.push(
+      <span key="time" title={item.lastMessageTime} className="truncate">
+        {formatRelativeFromNow(item.lastMessageTime)}
+      </span>,
+    )
+  }
+  if (item.exportedMessageCount) {
+    parts.push(
+      <span key="exported" className="truncate">
+        已导出 {formatCompactCount(item.exportedMessageCount)} 条
+      </span>,
+    )
+  }
+
+  return parts.map((part, index) => (
+    <Fragment key={index}>
+      {index > 0 && META_DIVIDER}
+      {part}
+    </Fragment>
+  ))
+}
 
 export interface SessionListProps {
   groups: Group[]
@@ -302,38 +359,8 @@ function SessionListComponent({
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
           </div>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground/50">
-            {isGroup && group && (
-              <>
-                <span>{group.memberCount} 成员</span>
-                <span>·</span>
-              </>
-            )}
-            <span className="font-mono truncate">
-              {isGroup ? group?.groupCode : friend?.uin}
-            </span>
-            {item.subName && (
-              <>
-                <span>·</span>
-                <span className="truncate">{item.subName}</span>
-              </>
-            )}
-            {/* Issue #344: 最近一条消息时间。没有数据时不渲染。 */}
-            {item.lastMessageTime && (
-              <>
-                <span>·</span>
-                <span title={item.lastMessageTime} className="truncate">
-                  {formatRelativeFromNow(item.lastMessageTime)}
-                </span>
-              </>
-            )}
-            {/* Issue #344: 已导出消息累计。0 不渲染，避免噪声。 */}
-            {!!item.exportedMessageCount && (
-              <>
-                <span>·</span>
-                <span className="truncate">已导出 {formatCompactCount(item.exportedMessageCount)} 条</span>
-              </>
-            )}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground/50">
+            {renderMetaParts(item, group, friend)}
           </div>
         </div>
 

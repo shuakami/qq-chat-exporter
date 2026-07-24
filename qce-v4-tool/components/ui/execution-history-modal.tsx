@@ -131,11 +131,11 @@ export function ExecutionHistoryModal({
                                 minute: '2-digit'
                               })}
                             </span>
-                            <span className="text-muted-foreground/60">·</span>
+                            <span aria-hidden className="h-2.5 w-px bg-current opacity-20" />
                             <span className="text-muted-foreground">{formatDuration(item.duration)}</span>
                             {item.messageCount !== undefined && item.messageCount > 0 && (
                               <>
-                                <span className="text-muted-foreground/60">·</span>
+                                <span aria-hidden className="h-2.5 w-px bg-current opacity-20" />
                                 <span className="text-muted-foreground">{item.messageCount.toLocaleString()} 条</span>
                               </>
                             )}

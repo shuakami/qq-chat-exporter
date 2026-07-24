@@ -144,7 +144,7 @@ export function MergeDialog({
                             <div className="font-medium text-[13px] truncate text-foreground">{task.sessionName}</div>
                             <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                               <span>{task.messageCount} 条消息</span>
-                              <span>·</span>
+                              <span aria-hidden className="h-2.5 w-px bg-current opacity-20" />
                               <span className="truncate">{task.fileName}</span>
                             </div>
                           </div>

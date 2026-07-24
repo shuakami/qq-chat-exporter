@@ -283,7 +283,13 @@ export function ScheduledBackupMergeDialog({
                                       {task.backupCount} 个文件
                                     </Badge>
                                     <Badge variant="outline" className="text-xs">
-                                      {task.chatType === 'group' ? '群聊' : '好友'} · {task.peerUid}
+                                      {task.chatType === 'group' ? '群聊' : '好友'}
+                                      {/^\d+$/.test(task.peerUid) && (
+                                        <>
+                                          <span aria-hidden className="mx-1 inline-block h-2.5 w-px translate-y-[1px] bg-current opacity-30" />
+                                          {task.peerUid}
+                                        </>
+                                      )}
                                     </Badge>
                                     <span className="text-xs text-muted-foreground truncate">
                                       {formatTimestamp(task.latestBackup.timestamp)}
