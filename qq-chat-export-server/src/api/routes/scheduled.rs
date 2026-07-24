@@ -68,33 +68,38 @@ fn validate_config(body: &Value, partial: bool) -> Result<(), ApiError> {
     validate_string_field(body, "timeRangeType", !partial, 32)?;
     validate_string_field(body, "format", !partial, 16)?;
 
-    if let Some(schedule_type) = body.get("scheduleType").and_then(Value::as_str) {
+    let schedule_type = body.get("scheduleType").and_then(Value::as_str);
+    if let Some(schedule_type) = schedule_type {
         if !matches!(schedule_type, "daily" | "weekly" | "monthly" | "custom") {
             return Err(ApiError::validation(
                 "scheduleType 无效",
                 "INVALID_SCHEDULE_TYPE",
             ));
         }
-        if schedule_type == "custom" {
+    }
+
+    match body.get("cronExpression") {
+        Some(Value::String(expression))
+            if expression.trim().is_empty()
+                && matches!(schedule_type, Some("daily" | "weekly" | "monthly")) => {}
+        Some(_) => {
             validate_string_field(body, "cronExpression", true, 128)?;
-            let expression = body["cronExpression"].as_str().unwrap_or_default();
-            if expression.split_whitespace().count() != 5 {
+            if body["cronExpression"]
+                .as_str()
+                .unwrap_or_default()
+                .split_whitespace()
+                .count()
+                != 5
+            {
                 return Err(ApiError::validation("cronExpression 无效", "INVALID_CRON"));
             }
         }
-    }
-    if body.get("cronExpression").is_some() {
-        validate_string_field(body, "cronExpression", true, 128)?;
-        if body["cronExpression"]
-            .as_str()
-            .unwrap_or_default()
-            .split_whitespace()
-            .count()
-            != 5
-        {
-            return Err(ApiError::validation("cronExpression 无效", "INVALID_CRON"));
+        None if schedule_type == Some("custom") => {
+            validate_string_field(body, "cronExpression", true, 128)?;
         }
+        None => {}
     }
+
     if let Some(time_range_type) = body.get("timeRangeType").and_then(Value::as_str) {
         if !matches!(
             time_range_type,
@@ -417,14 +422,45 @@ mod tests {
     }
 
     #[test]
+    fn accepts_empty_cron_for_preset_schedule() {
+        let mut config = valid_config();
+        config["cronExpression"] = json!("");
+        assert!(validate_config(&config, false).is_ok());
+    }
+
+    #[test]
+    fn requires_valid_cron_for_custom_schedule() {
+        let mut missing = valid_config();
+        missing["scheduleType"] = json!("custom");
+        assert!(validate_config(&missing, false).is_err());
+
+        let mut empty = valid_config();
+        empty["scheduleType"] = json!("custom");
+        empty["cronExpression"] = json!("");
+        assert!(validate_config(&empty, false).is_err());
+
+        let mut valid = valid_config();
+        valid["scheduleType"] = json!("custom");
+        valid["cronExpression"] = json!("0 2 * * *");
+        assert!(validate_config(&valid, false).is_ok());
+
+        let mut invalid = valid_config();
+        invalid["scheduleType"] = json!("custom");
+        invalid["cronExpression"] = json!("* * *");
+        assert!(validate_config(&invalid, false).is_err());
+    }
+
+    #[test]
+    fn rejects_non_empty_invalid_cron_for_preset_schedule() {
+        let mut config = valid_config();
+        config["cronExpression"] = json!("* * *");
+        assert!(validate_config(&config, false).is_err());
+    }
+
+    #[test]
     fn rejects_invalid_types_enums_and_ranges() {
         let mut config = valid_config();
         config["name"] = json!({});
-        assert!(validate_config(&config, false).is_err());
-
-        let mut config = valid_config();
-        config["scheduleType"] = json!("custom");
-        config["cronExpression"] = json!("* * *");
         assert!(validate_config(&config, false).is_err());
 
         let mut config = valid_config();
