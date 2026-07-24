@@ -35,18 +35,27 @@ function isPrivateOrLoopbackIp(ip: string | null | undefined): boolean {
   return false
 }
 
+/** 命中「放行全部」的通配规则时，白名单形同虚设。 */
+const WILDCARD_RULES = new Set(["*", "0.0.0.0", "0.0.0.0/0", "::/0"])
+
+function hasWildcardRule(allowedIPs: string[]): boolean {
+  return allowedIPs.some((rule) => WILDCARD_RULES.has(rule.trim()))
+}
+
 function computeLevel(data: IpWhitelistData): ExposureLevel {
   const host = typeof window !== "undefined" ? window.location.hostname : ""
   // 只要「页面是通过非回环域名/IP 打开的」，或「后端看到的客户端 IP 是公网」，
   // 都说明这个实例正在被本机以外的网络访问。
   const servedRemotely = !isLoopbackHost(host) || !isPrivateOrLoopbackIp(data.currentClientIP)
 
-  const whitelistOpen =
-    data.disabled === true ||
-    data.allowedIPs.some((rule) => rule === "*" || rule === "0.0.0.0" || rule === "0.0.0.0/0")
+  const wildcard = hasWildcardRule(data.allowedIPs)
+  // 白名单被关闭，或名单里含「放行全部」的通配规则，都等于没有 IP 保护。
+  const whitelistOpen = data.disabled === true || wildcard
 
-  if (servedRemotely && whitelistOpen) return "critical"
-  if (servedRemotely || whitelistOpen) return "warning"
+  // 通配规则最危险：开关看起来是「开」，实际对任何 IP 放行，用户很容易误以为已受保护。
+  // 因此只要存在通配规则、或确实正在被远端访问且无保护，都判为红色严重告警。
+  if (whitelistOpen && (servedRemotely || wildcard)) return "critical"
+  if (whitelistOpen || servedRemotely) return "warning"
   return null
 }
 
@@ -76,8 +85,17 @@ export function SecurityExposureBanner() {
   const handleProtect = useCallback(async () => {
     setProtecting(true)
     try {
-      // 先把当前访问 IP 加入白名单，避免开启后把自己也挡在门外，再开启白名单校验。
+      // 先把当前访问 IP 加入白名单，避免开启后把自己也挡在门外。
       await apiCall("/api/security/ip-whitelist/add-current", { method: "POST" }).catch(() => null)
+      // 去掉「放行全部」的通配规则，否则白名单形同虚设、告警也无法解除。
+      const wildcards = (data?.allowedIPs ?? []).filter((rule) => WILDCARD_RULES.has(rule.trim()))
+      for (const rule of wildcards) {
+        await apiCall("/api/security/ip-whitelist", {
+          method: "DELETE",
+          body: JSON.stringify({ ip: rule }),
+        }).catch(() => null)
+      }
+      // 最后开启白名单校验。
       await apiCall("/api/security/ip-whitelist/toggle", {
         method: "PUT",
         body: JSON.stringify({ disabled: false }),
@@ -86,11 +104,12 @@ export function SecurityExposureBanner() {
     } finally {
       setProtecting(false)
     }
-  }, [apiCall, load])
+  }, [apiCall, data, load])
 
   if (!level || dismissed) return null
 
   const isCritical = level === "critical"
+  const wildcard = !!data && hasWildcardRule(data.allowedIPs)
 
   const showClientIp = !!data?.currentClientIP && !isPrivateOrLoopbackIp(data.currentClientIP)
 
@@ -107,7 +126,9 @@ export function SecurityExposureBanner() {
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold leading-tight">
             {isCritical
-              ? "服务正暴露在公网 / 局域网，且未开启 IP 白名单"
+              ? wildcard
+                ? "IP 白名单里有「放行全部」规则，等于对任何 IP 开放"
+                : "服务正暴露在公网 / 局域网，且未开启 IP 白名单"
               : "服务可能可被本机以外的网络访问"}
           </p>
           <p
@@ -117,7 +138,9 @@ export function SecurityExposureBanner() {
             }
           >
             {isCritical
-              ? "目前只有 Token 在做保护，一旦泄露聊天记录就危险了，强烈建议开启 IP 白名单 QAQ"
+              ? wildcard
+                ? "通配规则让白名单形同虚设，只剩 Token 在守门，聊天记录一旦泄露就危险了，建议改成只放行你自己的 IP QAQ"
+                : "目前只有 Token 在做保护，一旦泄露聊天记录就危险了，强烈建议开启 IP 白名单 QAQ"
               : "要是机器暴露在公网，光靠 Token 守门还是有点慌，最好加个 IP 白名单限制一下~"}
             {showClientIp && (
               <>
@@ -139,7 +162,7 @@ export function SecurityExposureBanner() {
                 : "bg-amber-600 text-white hover:bg-amber-600/90")
             }
           >
-            {protecting ? "处理中…" : "开启白名单保护"}
+            {protecting ? "处理中…" : wildcard ? "收紧白名单" : "开启白名单保护"}
           </button>
           <button
             type="button"
