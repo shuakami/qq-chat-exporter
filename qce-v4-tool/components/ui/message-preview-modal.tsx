@@ -22,6 +22,7 @@ import {
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { useStreamSearch, type SearchProgress } from "@/lib/useStreamSearch"
+import { canLoadNextMessagePage } from "@/lib/message-preview-pagination"
 
 interface MessagePreviewModalProps {
   open: boolean
@@ -598,7 +599,7 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
                 variant="ghost"
                 size="sm"
                 onClick={() => { setCurrentPage(p => p + 1); fetchMessages(currentPage + 1) }}
-                disabled={currentPage >= totalPages || loading}
+                disabled={!canLoadNextMessagePage(currentPage, totalPages, hasNext) || loading}
                 className="rounded-full h-8 w-8 p-0"
               >
                 <ChevronRight className="w-4 h-4" />
