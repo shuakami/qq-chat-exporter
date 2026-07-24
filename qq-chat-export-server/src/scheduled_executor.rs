@@ -12,7 +12,7 @@ use qce_exporter::text_exporter::{TextExporter, TextFormatOptions};
 use qce_exporter::types::MessageResource;
 use qce_exporter::{ChatInfo, CleanMessage, ExportOptions};
 
-use qce_server::api::helpers::{chat_avatar_url, resolve_peer_uin};
+use qce_server::api::helpers::{backfill_self_sender_names, chat_avatar_url, resolve_peer_uin};
 use qce_server::api::path_security::resolve_for_creation_within;
 use qce_server::export_debug::ExportDebugSession;
 use qce_server::fetcher::{
@@ -277,6 +277,16 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             .get("uin")
             .and_then(Value::as_str)
             .map(str::to_string);
+        let self_name = self_info
+            .get("nick")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        backfill_self_sender_names(
+            &mut clean_messages,
+            self_uid.as_deref(),
+            self_uin.as_deref(),
+            self_name.as_deref(),
+        );
         let peer_uin = (chat_type != 2)
             .then(|| {
                 peer_uin
@@ -292,10 +302,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             participant_count: None,
             self_uid,
             self_uin,
-            self_name: self_info
-                .get("nick")
-                .and_then(Value::as_str)
-                .map(str::to_string),
+            self_name,
             peer_uid: Some(peer_uid.clone()),
             peer_uin,
         };

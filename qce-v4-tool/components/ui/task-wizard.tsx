@@ -968,9 +968,6 @@ export function TaskWizard({
                                   ? "通知"
                                   : "其他"}
                         </span>
-                        <span className="text-muted-foreground/70">
-                          chatType={(target as Friend).chatType}
-                        </span>
                       </>
                     ) : (
                       <span className="tabular-nums">{(target as Friend).uin}</span>

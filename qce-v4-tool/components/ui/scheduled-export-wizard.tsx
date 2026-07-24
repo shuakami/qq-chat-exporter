@@ -550,9 +550,6 @@ export function ScheduledExportWizard({
                                           ? "通知"
                                           : "其他"}
                                 </span>
-                                <span className="text-muted-foreground/70">
-                                  chatType={(target as Friend).chatType}
-                                </span>
                               </>
                             ) : (
                               <>

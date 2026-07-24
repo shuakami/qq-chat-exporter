@@ -20,7 +20,8 @@ use qce_exporter::types::MessageResource;
 use qce_exporter::{ChatInfo, CleanMessage, ExportOptions};
 
 use crate::api::helpers::{
-    chat_avatar_url, resolve_peer_uid, resolve_peer_uin, resolve_session_name,
+    backfill_self_sender_names, chat_avatar_url, resolve_peer_uid, resolve_peer_uin,
+    resolve_session_name,
 };
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::{MessageCacheEntry, SharedState, CACHE_EXPIRE_TIME_MS};
@@ -1760,6 +1761,16 @@ async fn process_export_task(
         .get("uin")
         .and_then(Value::as_str)
         .map(str::to_string);
+    let self_name = self_info
+        .get("nick")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    backfill_self_sender_names(
+        &mut clean_messages,
+        self_uid.as_deref(),
+        self_uin.as_deref(),
+        self_name.as_deref(),
+    );
     let peer_uin = if req.chat_type == GROUP_CHAT_TYPE {
         None
     } else {
@@ -1775,10 +1786,7 @@ async fn process_export_task(
         participant_count: None,
         self_uid,
         self_uin,
-        self_name: self_info
-            .get("nick")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        self_name,
         peer_uid: Some(req.peer_uid.clone()),
         peer_uin,
     };
