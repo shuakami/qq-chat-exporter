@@ -8,6 +8,9 @@ use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
 use crate::security::VerifyTokenReason;
 
+/// 导出预览下发的访问令牌 Cookie 名（供 iframe 内运行时渲染的资源请求兜底）。
+pub const PREVIEW_TOKEN_COOKIE: &str = "qce_preview_token";
+
 /// 请求 ID 中间件：读取 `X-Request-ID` 或生成新 ID，注入 extensions 与响应头。
 pub async fn request_id_middleware(mut request: Request<Body>, next: Next) -> Response {
     let request_id = request
@@ -133,6 +136,20 @@ pub async fn auth_middleware(
                 .get("x-access-token")
                 .and_then(|value| value.to_str().ok())
                 .map(ToString::to_string)
+        })
+        .or_else(|| {
+            // 导出预览 iframe 里由前端脚本运行时渲染的图片 / 语音等资源请求带不上
+            // `?token=`，改由 preview 下发的 Cookie 兜底。限定在导出文件资源路径下，
+            // 避免把 Cookie 变成通用 CSRF 凭证。
+            if path.starts_with("/api/exports/files/") {
+                request
+                    .headers()
+                    .get(axum::http::header::COOKIE)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|cookies| cookie_value(cookies, PREVIEW_TOKEN_COOKIE))
+            } else {
+                None
+            }
         });
 
     let Some(token) = token.filter(|t| !t.is_empty()) else {
@@ -157,6 +174,14 @@ pub async fn auth_middleware(
     }
 
     next.run(request).await
+}
+
+/// 从 Cookie 头里提取指定名字的值（不做 URL 解码，令牌本身为 URL 安全字符）。
+fn cookie_value(cookies: &str, name: &str) -> Option<String> {
+    cookies.split(';').find_map(|pair| {
+        let (k, v) = pair.split_once('=')?;
+        (k.trim() == name).then(|| v.trim().to_string())
+    })
 }
 
 /// 从 query string 中提取参数（URL 解码）。
@@ -223,6 +248,16 @@ mod tests {
                 .expect("socket address"),
         ));
         assert_eq!(client_ip(&request).as_deref(), Some("192.0.2.25"));
+    }
+
+    #[test]
+    fn cookie_parser_reads_named_value() {
+        let cookies = "foo=1; qce_preview_token=abc123; bar=2";
+        assert_eq!(
+            cookie_value(cookies, PREVIEW_TOKEN_COOKIE).as_deref(),
+            Some("abc123")
+        );
+        assert_eq!(cookie_value("foo=1", PREVIEW_TOKEN_COOKIE), None);
     }
 
     #[test]

@@ -23,6 +23,9 @@ interface UseWebSocketProps {
   onError?: (error: string | null) => void
 }
 
+const BASE_RECONNECT_MS = 2000
+const MAX_RECONNECT_MS = 30000
+
 export function useWebSocket({
   onMessage,
   onExportProgress,
@@ -34,6 +37,12 @@ export function useWebSocket({
 }: UseWebSocketProps = {}) {
   const [ws, setWs] = useState<WebSocket | null>(null)
   const [connected, setConnected] = useState(false)
+
+  // 重连状态：指数退避 + 断线期间只打一条日志，避免服务未启动时刷屏。
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectAttempts = useRef(0)
+  const failureLogged = useRef(false)
+  const unmounted = useRef(false)
   
   // Use refs to store the latest callback functions to avoid recreating connect function
   const callbacksRef = useRef({
@@ -70,6 +79,8 @@ export function useWebSocket({
 
     websocket.onopen = () => {
       console.log("[QCE] WebSocket connected")
+      reconnectAttempts.current = 0
+      failureLogged.current = false
       setConnected(true)
       callbacksRef.current.onError?.(null)
     }
@@ -77,7 +88,6 @@ export function useWebSocket({
     websocket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
-        console.log("[QCE] WebSocket message:", data)
 
         // Call generic message handler
         callbacksRef.current.onMessage?.(data)
@@ -106,19 +116,32 @@ export function useWebSocket({
       }
     }
 
-    websocket.onerror = (error) => {
-      console.error("[QCE] WebSocket error:", error)
+    websocket.onerror = () => {
       setConnected(false)
       callbacksRef.current.onError?.("WebSocket连接失败")
+      if (!failureLogged.current) {
+        console.warn("[QCE] WebSocket 连接失败，将自动重连")
+        failureLogged.current = true
+      }
     }
 
     websocket.onclose = () => {
-      console.log("[QCE] WebSocket disconnected")
       setConnected(false)
-      // Auto-reconnect after 5 seconds
-      setTimeout(() => {
+      if (unmounted.current) {
+        return
+      }
+      // 指数退避重连（上限 30s），持续断开时不再逐次刷日志。
+      const delay = Math.min(
+        BASE_RECONNECT_MS * 2 ** reconnectAttempts.current,
+        MAX_RECONNECT_MS,
+      )
+      reconnectAttempts.current += 1
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current)
+      }
+      reconnectTimer.current = setTimeout(() => {
         connect()
-      }, 5000)
+      }, delay)
     }
 
     setWs(websocket)
@@ -139,8 +162,13 @@ export function useWebSocket({
   }, [ws, connected])
 
   useEffect(() => {
+    unmounted.current = false
     connect()
     return () => {
+      unmounted.current = true
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current)
+      }
       if (ws) {
         ws.close()
       }

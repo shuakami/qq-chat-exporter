@@ -89,6 +89,7 @@ import { BUILD_VERSION, isNewerVersion, isMajorUpdate, extractReleaseImage } fro
 import { UpdatePopover, type UpdateBannerInfo } from "@/components/ui/update-banner"
 import { SecurityExposureBanner } from "@/components/ui/security-exposure-banner"
 import AuthManager from "@/lib/auth"
+import { classifySpecialChatType, specialKindLabel } from "@/lib/special-contacts"
 import { useScheduledExports } from "@/hooks/use-scheduled-exports"
 import { useChatHistory } from "@/hooks/use-chat-history"
 import { useStickerPacks } from "@/hooks/use-sticker-packs"
@@ -125,6 +126,28 @@ function TaskFormatLabel({ format, className }: { format: string; className?: st
   }
   return <span className={className}>{format}</span>
 }
+
+/**
+ * 任务行的会话标识：优先显示 QQ 号；设备 / 临时会话等无 QQ 号时用友好名称，
+ * 避免暴露 `u_...` 这类内部 uid 或裸露的 0。
+ */
+function formatTaskPeerLabel(peer?: { chatType?: number; peerUid?: string; peerUin?: string }): string {
+  const uin = peer?.peerUin
+  if (uin && /^\d{4,12}$/.test(uin)) {
+    return uin
+  }
+  const kind = classifySpecialChatType(peer?.chatType ?? 0)
+  if (kind !== "other") {
+    return specialKindLabel(kind)
+  }
+  // 无有效 QQ 号且非特殊会话：不暴露 `u_...` 内部 uid（任务名已在标题处展示）。
+  return ""
+}
+
+/** 元信息之间的细分隔线（取代旧的中点分隔符）。 */
+const INLINE_DIVIDER = (
+  <span aria-hidden className="mx-0.5 inline-block h-3 w-px translate-y-[2px] bg-current opacity-20" />
+)
 
 const VALID_TABS = ["overview", "sessions", "tasks", "scheduled", "history", "stickers", "settings", "about"] as const
 type TabId = typeof VALID_TABS[number]
@@ -1722,7 +1745,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                     <div className="text-sm text-muted-foreground">导出任务</div>
                     <div className="text-2xl font-semibold tracking-tight mt-1">{getTaskStats().total}</div>
                     <div className="text-xs text-muted-foreground/60 mt-1">
-                      进行中 {getTaskStats().running} · 完成 {getTaskStats().completed}
+                      进行中 {getTaskStats().running}{INLINE_DIVIDER}完成 {getTaskStats().completed}
                     </div>
                   </div>
                   <div className="rounded-xl p-4">
@@ -1940,7 +1963,9 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                           </Badge>
                         </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground/50">
-                          <span className="font-mono">{task.peer?.peerUid}</span>
+                          {formatTaskPeerLabel(task.peer) && (
+                            <span className="font-mono">{formatTaskPeerLabel(task.peer)}</span>
+                          )}
                           <TaskFormatLabel format={task.format} />
                           <span>{new Date(task.createdAt).toLocaleDateString()}</span>
                           {task.messageCount !== undefined && task.messageCount > 0 && (
@@ -2777,7 +2802,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                             </div>
                             <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground/40">
                               <span>{record.stickerCount} 个表情</span>
-                              <span className="text-muted-foreground/20">·</span>
+                              <span aria-hidden className="h-2.5 w-px bg-current opacity-20" />
                               <span>{new Date(record.exportTime).toLocaleDateString()}</span>
                             </div>
                           </div>

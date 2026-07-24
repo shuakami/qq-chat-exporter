@@ -234,7 +234,7 @@ export default function DemoPage() {
                 </div>
                 <div>
                   <h3 className="text-base font-semibold">Bug 交流群</h3>
-                  <p className="text-xs text-muted-foreground">群聊 · {MOCK_MESSAGES.length} 条消息</p>
+                  <p className="text-xs text-muted-foreground">群聊<span aria-hidden className="mx-1 inline-block h-2.5 w-px translate-y-[1px] bg-current opacity-25" />{MOCK_MESSAGES.length} 条消息</p>
                 </div>
               </div>
             </div>
@@ -421,7 +421,7 @@ export default function DemoPage() {
                 </Avatar>
                 <div>
                   <h3 className="text-base font-semibold text-foreground leading-tight">Bug 交流群</h3>
-                  <p className="text-xs text-muted-foreground">群聊 · 1,234 条消息</p>
+                  <p className="text-xs text-muted-foreground">群聊<span aria-hidden className="mx-1 inline-block h-2.5 w-px translate-y-[1px] bg-current opacity-25" />1,234 条消息</p>
                 </div>
               </div>
               <button className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.06] rounded-full transition-colors">

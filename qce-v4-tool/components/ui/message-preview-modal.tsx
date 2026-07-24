@@ -435,7 +435,9 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
             <div>
               <h2 className="text-base font-semibold text-foreground leading-tight">{chat.name}</h2>
               <p className="text-xs text-muted-foreground">
-                {chat.type === 'group' ? '群聊' : '好友'} · {totalCount.toLocaleString()} 条消息
+                {chat.type === 'group' ? '群聊' : '好友'}
+                <span aria-hidden className="mx-1 inline-block h-3 w-px translate-y-[2px] bg-current opacity-25" />
+                {totalCount.toLocaleString()} 条消息
               </p>
             </div>
           </div>

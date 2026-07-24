@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path as FsPath, PathBuf};
 
 use axum::extract::{Extension, Path, Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::{DateTime, Utc};
@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use qce_exporter::modern_html_exporter::{HtmlExportOptions, ModernHtmlExporter};
 use qce_exporter::types::{ChatInfo, CleanMessage};
 
+use crate::api::middleware::PREVIEW_TOKEN_COOKIE;
 use crate::api::path_security::{
     resolve_existing_within, resolve_for_creation_within, valid_relative_resource_path,
 };
@@ -901,7 +902,7 @@ pub async fn preview_export_file(
             .map(|token| format!("?token={}", encode_uri_component(token)))
             .unwrap_or_default();
         let resource_re =
-            regex::Regex::new(r#"(?P<attr>src|href)=\"(?:\./|\.\./)resources/(?P<path>[^\"]*)\""#)
+            regex::Regex::new(r#"(?P<attr>src|href)=\"(?:\./|\.\./)?resources/(?P<path>[^\"]*)\""#)
                 .expect("valid resource URL regex");
         content = resource_re
             .replace_all(&content, |captures: &regex::Captures<'_>| {
@@ -914,7 +915,7 @@ pub async fn preview_export_file(
         content
     };
 
-    (
+    let mut resp = (
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
@@ -923,7 +924,22 @@ pub async fn preview_export_file(
         ],
         html,
     )
-        .into_response()
+        .into_response();
+
+    // 预览页把访问令牌写入 Cookie，让 iframe 内运行时渲染的资源子请求（带不上
+    // `?token=`）也能通过认证。Path 固定到导出文件读接口前缀（编码无关，稳妥），
+    // 配合 `SameSite=Strict` + `HttpOnly` 防跨站，且中间件只在该前缀下认 Cookie。
+    if let Some(token) = params.get("token").filter(|token| !token.is_empty()) {
+        let cookie = format!(
+            "{PREVIEW_TOKEN_COOKIE}={}; Path=/api/exports/files/; Max-Age=86400; HttpOnly; SameSite=Strict",
+            encode_uri_component(token)
+        );
+        if let Ok(value) = HeaderValue::from_str(&cookie) {
+            resp.headers_mut().append(header::SET_COOKIE, value);
+        }
+    }
+
+    resp
 }
 
 // GET /api/exports/files/:fileName/resources/*path

@@ -223,8 +223,18 @@ export function SettingsPanel() {
               <div className="min-w-0">
                 <div className="text-[14px] font-medium text-foreground">保存位置</div>
                 <div className="mt-2 space-y-1.5">
-                  <PathLine label="手动" value={manualDir} />
-                  <PathLine label="定时" value={scheduledDir} />
+                  {config ? (
+                    <>
+                      <PathLine label="手动" value={manualDir} />
+                      <PathLine label="定时" value={scheduledDir} />
+                    </>
+                  ) : (
+                    // 配置加载完成前用等高骨架占位，避免从默认提示跳变成真实路径。
+                    <>
+                      <div className="h-[18px] w-56 max-w-full rounded bg-muted-foreground/10" />
+                      <div className="h-[18px] w-48 max-w-full rounded bg-muted-foreground/10" />
+                    </>
+                  )}
                 </div>
               </div>
               <EditButton onClick={openEdit} />
