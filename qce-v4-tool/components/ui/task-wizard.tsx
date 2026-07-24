@@ -958,13 +958,15 @@ export function TaskWizard({
                     ) : (target as Friend).isSpecial ? (
                       <>
                         <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                          {(target as Friend).specialKind === "service"
-                            ? "服务号"
-                            : (target as Friend).specialKind === "temp"
-                              ? "临时会话"
-                              : (target as Friend).specialKind === "notify"
-                                ? "通知"
-                                : "其他"}
+                          {(target as Friend).specialKind === "device"
+                            ? "我的设备"
+                            : (target as Friend).specialKind === "service"
+                              ? "服务号"
+                              : (target as Friend).specialKind === "temp"
+                                ? "临时会话"
+                                : (target as Friend).specialKind === "notify"
+                                  ? "通知"
+                                  : "其他"}
                         </span>
                         <span className="text-muted-foreground/70">
                           chatType={(target as Friend).chatType}

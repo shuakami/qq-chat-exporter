@@ -101,12 +101,22 @@ fn contact_classification(
     }
 }
 
-fn contact_name(contact: &Value, peer_uid: &str) -> String {
+/// 数据线 / 设备会话（手机 QQ 的「我的电脑 / 我的手机 / 我的设备」）。
+/// NapCat 的 KCHATTYPEDATALINE(8) / KCHATTYPEDATALINEMQQ(134)。（Issue #609）
+fn is_device_chat_type(chat_type: i64) -> bool {
+    chat_type == 8 || chat_type == 134
+}
+
+fn contact_name(contact: &Value, chat_type: i64, peer_uid: &str) -> String {
     for key in ["peerName", "sendNickName", "sendMemberName", "remark"] {
         let value = str_of(contact, key);
         if !value.is_empty() {
             return value;
         }
+    }
+    // 设备会话往往没有 peerName，用友好兜底而不是暴露原始 peerUid。
+    if is_device_chat_type(chat_type) {
+        return "我的设备".to_string();
     }
     peer_uid.to_string()
 }
@@ -161,7 +171,7 @@ fn map_recent_contact(
         "msgTime": contact.get("msgTime").cloned().unwrap_or(Value::Null),
         "sendNickName": send_nick_name,
         "sendMemberName": send_member_name,
-        "name": contact_name(contact, &peer_uid),
+        "name": contact_name(contact, chat_type, &peer_uid),
         "avatarUrl": format!("https://q1.qlogo.cn/g?b=qq&nk={avatar_key}&s=640"),
         "lastMsgId": str_of(contact, "msgId"),
         "lastMsgTime": contact_time_iso(contact),
@@ -576,6 +586,28 @@ mod tests {
         .unwrap();
         assert_eq!(friend["classification"], "friend");
         assert_eq!(non_friend["classification"], "special");
+    }
+
+    #[test]
+    fn device_sessions_are_special_and_named() {
+        // 数据线设备会话（chatType 8/134）：无 peerName 时兜底「我的设备」，且归类 special。
+        for chat_type in [8, 134] {
+            let contact = json!({
+                "chatType": chat_type,
+                "peerUid": "u_device_peer",
+            });
+            let mapped = map_recent_contact(&contact, &HashSet::new(), true).unwrap();
+            assert_eq!(mapped["classification"], "special");
+            assert_eq!(mapped["name"], "我的设备");
+        }
+        // NapCat 提供了 peerName（如「我的电脑」）时应保留原名。
+        let named = map_recent_contact(
+            &json!({"chatType": 8, "peerUid": "u_device_peer", "peerName": "我的电脑"}),
+            &HashSet::new(),
+            true,
+        )
+        .unwrap();
+        assert_eq!(named["name"], "我的电脑");
     }
 
     #[test]
