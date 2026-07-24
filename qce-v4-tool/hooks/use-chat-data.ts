@@ -8,6 +8,11 @@ import { useApi } from "./use-api"
  */
 function classifySpecialChatType(chatType: number): string {
   switch (chatType) {
+    case 8:
+    case 134:
+      // 数据线会话：手机 QQ 里的「我的电脑 / 我的手机 / 我的设备」（Issue #609）。
+      // NapCat 的 KCHATTYPEDATALINE(8) / KCHATTYPEDATALINEMQQ(134)。
+      return "device"
     case 99:
     case 100:
     case 101:
@@ -22,7 +27,6 @@ function classifySpecialChatType(chatType: number): string {
       return "service"
     case 132:
     case 133:
-    case 134:
       return "notify"
     case 9:
     case 16:
@@ -31,6 +35,9 @@ function classifySpecialChatType(chatType: number): string {
       return "other"
   }
 }
+
+/** 生产环境下前端静态资源前缀（与 next.config 的 basePath 一致）。 */
+const ASSET_BASE = process.env.NODE_ENV === "production" ? "/static/qce" : ""
 
 export interface AvatarExportResult {
   success: boolean
@@ -160,23 +167,30 @@ export function useChatData() {
           const existingUids = new Set(allFriends.map((f) => f.uid))
           const specialFriends: Friend[] = recentResp.data.contacts
             .filter((c) => c.classification === "special" && !existingUids.has(c.peerUid))
-            .map((c) => ({
-              uid: c.peerUid,
-              uin: c.peerUin ? Number(c.peerUin) : 0,
-              nick: c.name,
-              remark: undefined,
-              avatarUrl: c.avatarUrl,
-              isOnline: false,
-              status: 0,
-              categoryId: 0,
-              chatType: c.chatType,
-              isSpecial: true,
-              specialKind: classifySpecialChatType(c.chatType),
-            }))
+            .map((c) => {
+              const specialKind = classifySpecialChatType(c.chatType)
+              const isDevice = specialKind === "device"
+              // 设备会话（我的电脑/我的手机）没有 QQ 号头像，用内置设备图标；
+              // 名字缺失时兜底成「我的设备」。（Issue #609）
+              const nick = c.name && c.name !== c.peerUid ? c.name : isDevice ? "我的设备" : c.name
+              return {
+                uid: c.peerUid,
+                uin: c.peerUin ? Number(c.peerUin) : 0,
+                nick,
+                remark: undefined,
+                avatarUrl: isDevice ? `${ASSET_BASE}/device.png` : c.avatarUrl,
+                isOnline: false,
+                status: 0,
+                categoryId: 0,
+                chatType: c.chatType,
+                isSpecial: true,
+                specialKind,
+              }
+            })
 
           if (specialFriends.length > 0) {
             allFriends.push(...specialFriends)
-            console.log(`[QCE] 合并 ${specialFriends.length} 个特殊会话（Bot / 服务号 / 临时会话）`)
+            console.log(`[QCE] 合并 ${specialFriends.length} 个特殊会话（Bot / 服务号 / 临时会话 / 我的设备）`)
           }
         }
       } catch (recentErr) {
