@@ -16,7 +16,6 @@ import { Switch } from "@/components/ui/switch"
 import { useConfig } from "@/hooks/use-config"
 import { useSecurity } from "@/hooks/use-security"
 import { useThemeMode, type ThemeMode } from "@/hooks/use-theme-mode"
-import { Loader } from "@/components/ui/loader"
 import { CopyButton } from "@/components/ui/copy-button"
 import { X } from "lucide-react"
 
@@ -129,7 +128,7 @@ function Row({
 const DEFAULT_HINT = "默认目录（用户目录下的 .qq-chat-exporter）"
 
 export function SettingsPanel() {
-  const { config, loading, loadConfig, updateConfig } = useConfig()
+  const { config, loadConfig, updateConfig } = useConfig()
   const {
     whitelist,
     busy: securityBusy,
@@ -206,13 +205,7 @@ export function SettingsPanel() {
     <div className="mx-auto w-full max-w-[680px] px-6 py-10">
       <h1 className="px-1 text-[22px] font-semibold tracking-tight text-foreground">设置</h1>
 
-      {loading && !config ? (
-        <div className="flex flex-col items-center justify-center py-24">
-          <Loader size={16} className="mb-2 text-muted-foreground/40" />
-          <p className="text-[13px] text-muted-foreground/60">加载配置中...</p>
-        </div>
-      ) : (
-        <div className="mt-8 space-y-10">
+      <div className="mt-8 space-y-10">
           {/* Appearance */}
           <Section title="外观">
             <Row title="主题" description="跟随系统，或强制使用浅色 / 深色显示">
@@ -248,11 +241,16 @@ export function SettingsPanel() {
                   : "开启后仅允许名单内的 IP 访问，关闭时任何知道地址和令牌的人都能访问"
               }
             >
-              <Switch
-                checked={whitelistEnabled}
-                disabled={securityBusy || !whitelist}
-                onCheckedChange={(v) => setWhitelistEnabled(v)}
-              />
+              {whitelist ? (
+                <Switch
+                  checked={whitelistEnabled}
+                  disabled={securityBusy}
+                  onCheckedChange={(v) => setWhitelistEnabled(v)}
+                />
+              ) : (
+                // 数据加载完成前不渲染开关，避免从默认「关」跳变到实际状态。
+                <div className="h-5 w-9 rounded-full bg-muted-foreground/10" />
+              )}
             </Row>
             <Row
               title="允许的 IP 名单"
@@ -265,8 +263,7 @@ export function SettingsPanel() {
               <EditButton onClick={() => setIpOpen(true)} disabled={!whitelist} />
             </Row>
           </Section>
-        </div>
-      )}
+      </div>
 
       {/* Edit paths modal */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
@@ -356,7 +353,7 @@ export function SettingsPanel() {
                     }
                   }}
                   placeholder="输入 IP 或 CIDR"
-                  className="h-8 flex-1 rounded-none border-0 bg-transparent px-0 font-mono text-[13px] shadow-none focus:border-0 dark:bg-transparent"
+                  className="h-8 flex-1 rounded-none border-0 bg-transparent px-0 text-[13px] shadow-none focus:border-0 dark:bg-transparent"
                 />
                 <Button
                   size="sm"

@@ -5,6 +5,7 @@
 // one file makes it obvious which Rust `#[tauri::command]`s must exist.
 
 import { invoke } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -87,6 +88,8 @@ const api = {
   killQq: () => invoke<void>('kill_qq'),
 
   // --- misc -------------------------------------------------------------
+  /** App version from tauri.conf.json (kept in sync with the release tag by CI). */
+  getVersion: () => getVersion(),
   openLogFile: () => invoke<void>('open_log_file'),
   openUrl: (url: string) => openUrl(url),
   pickDirectory: () => openDialog({ directory: true, multiple: false }),

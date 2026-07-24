@@ -1,9 +1,16 @@
+import { cn } from "@/lib/utils"
+
 const BUILD_HASH = process.env.QCE_BUILD || "unknown"
 const CLIENT_VERSION = process.env.QCE_VERSION || "unknown"
 
-export function BuildFooter() {
+export function BuildFooter({ className }: { className?: string }) {
   return (
-    <footer className="w-full max-w-lg mx-auto px-8 py-8 mt-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-[12px] text-neutral-400 dark:text-neutral-500">
+    <footer
+      className={cn(
+        "flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-[12px] text-neutral-400 dark:text-neutral-500",
+        className ?? "w-full max-w-lg mx-auto px-8 py-8 mt-auto",
+      )}
+    >
       <a
         href="https://github.com/shuakami/qq-chat-exporter"
         target="_blank"

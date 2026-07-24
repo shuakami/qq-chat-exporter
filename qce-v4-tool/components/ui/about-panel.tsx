@@ -4,6 +4,7 @@ import * as React from "react"
 import { motion } from "framer-motion"
 import { ArrowUpRight } from "lucide-react"
 import { GrainGradient } from "@/components/ui/grain-gradient"
+import { BuildFooter } from "@/components/ui/build-footer"
 import { useThemeMode } from "@/hooks/use-theme-mode"
 
 const REPO_URL = "https://github.com/shuakami/qq-chat-exporter"
@@ -36,7 +37,7 @@ export function AboutPanel() {
     : "linear-gradient(to bottom, rgba(49,124,254,0.16), rgba(49,124,254,0.03))"
 
   return (
-    <div className="mx-auto w-full max-w-4xl px-8 py-10">
+    <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-8 py-10">
       {/* ==================== 品牌 banner：与首页 hero 同款，仅淡入 ==================== */}
       <motion.div
         initial={{ opacity: 0 }}
@@ -95,6 +96,9 @@ export function AboutPanel() {
           </div>
         </div>
       </section>
+
+      {/* ==================== 底部构建信息 ==================== */}
+      <BuildFooter className="mt-auto w-full pt-16" />
     </div>
   )
 }

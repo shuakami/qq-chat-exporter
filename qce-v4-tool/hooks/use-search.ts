@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react"
-import type { Group, Friend, GroupsResponse, FriendsResponse } from "@/types/api"
+import type { Group, Friend, GroupsResponse, FriendsResponse, RecentContact } from "@/types/api"
+import { buildSpecialFriends } from "@/lib/special-contacts"
 
 function getApiBase() {
   if (typeof window !== "undefined") {
@@ -47,6 +48,7 @@ export function useSearch() {
   // 用于存储加载函数引用，支持递归调用
   const loadGroupsRef = useRef<((page?: number, limit?: number, append?: boolean) => Promise<void>) | null>(null)
   const loadFriendsRef = useRef<((page?: number, limit?: number, append?: boolean) => Promise<void>) | null>(null)
+  const mergeSpecialFriendsRef = useRef<(() => Promise<void>) | null>(null)
 
   // 前端搜索过滤函数
   const filterGroups = useCallback((groups: Group[], searchTerm: string) => {
@@ -149,6 +151,10 @@ export function useSearch() {
         setTimeout(() => {
           loadFriendsRef.current?.(page + 1, limit, true)
         }, 50)
+      } else {
+        // 普通好友全部加载完后，合并最近联系人里的特殊会话（QQ Bot / 服务号 /
+        // 临时会话 / 我的设备等）。它们不在 /api/friends 里，需要单独拉取。（Issue #364 / #609）
+        void mergeSpecialFriendsRef.current?.()
       }
     } catch (error) {
       setFriendSearchState(prev => ({
@@ -159,10 +165,34 @@ export function useSearch() {
     }
   }, [filterFriends])
 
+  // 合并最近联系人中的特殊会话到好友列表（既不在好友也不在群组的会话）。
+  const mergeSpecialFriends = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/recent-contacts?limit=500&includeAll=true`)
+      if (!response.ok) return
+      const data = await response.json()
+      const contacts = (data.data?.contacts ?? []) as RecentContact[]
+      setFriendSearchState(prev => {
+        const existingUids = new Set(prev.allData.map(f => f.uid))
+        const specials = buildSpecialFriends(contacts, existingUids)
+        if (specials.length === 0) return prev
+        const newAllData = [...prev.allData, ...specials]
+        return {
+          ...prev,
+          allData: newAllData,
+          filteredResults: filterFriends(newAllData, prev.searchTerm),
+        }
+      })
+    } catch {
+      // 静默跳过：特殊会话合并失败不影响普通好友展示。
+    }
+  }, [filterFriends])
+
   useEffect(() => {
     loadGroupsRef.current = loadGroups
     loadFriendsRef.current = loadFriends
-  }, [loadGroups, loadFriends])
+    mergeSpecialFriendsRef.current = mergeSpecialFriends
+  }, [loadGroups, loadFriends, mergeSpecialFriends])
 
   // 搜索群组（前端过滤）
   const searchGroups = useCallback((searchTerm: string) => {
