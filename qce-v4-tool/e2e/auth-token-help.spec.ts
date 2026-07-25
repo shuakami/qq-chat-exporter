@@ -16,9 +16,12 @@ test.describe('Auth token help (issue #349)', () => {
         await expect(page.getByText('请勿使用 NapCat WebUI Token。')).toBeVisible();
         await page.getByRole('button', { name: '找不到令牌？' }).click();
 
-        await expect(page.getByText('NapCat WebUI Token 不能用于这里')).toBeVisible();
-        await expect(page.getByText(/只用于 NapCat 管理页/)).toBeVisible();
-        await expect(page.getByText(/security\.json/)).toBeVisible();
-        await expect(page.getByText(/accessToken/)).toBeVisible();
+        const tokenWarning = page
+            .getByText('NapCat WebUI Token 不能用于这里')
+            .locator('..');
+        await expect(tokenWarning).toBeVisible();
+        await expect(tokenWarning).toContainText('只用于 NapCat 管理页');
+        await expect(tokenWarning).toContainText('security.json');
+        await expect(tokenWarning).toContainText('accessToken');
     });
 });
