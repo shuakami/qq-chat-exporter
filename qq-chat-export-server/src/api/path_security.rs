@@ -6,6 +6,28 @@ fn has_unsafe_components(path: &Path) -> bool {
         .any(|component| matches!(component, Component::ParentDir | Component::CurDir))
 }
 
+fn resolve_for_creation(path: &Path) -> Option<PathBuf> {
+    if !path.is_absolute() || has_unsafe_components(path) {
+        return None;
+    }
+    if path.exists() {
+        return path.canonicalize().ok();
+    }
+
+    let mut cursor = path;
+    let mut missing: Vec<OsString> = Vec::new();
+    while !cursor.exists() {
+        missing.push(cursor.file_name()?.to_os_string());
+        cursor = cursor.parent()?;
+    }
+
+    let mut resolved = cursor.canonicalize().ok()?;
+    for component in missing.into_iter().rev() {
+        resolved.push(component);
+    }
+    Some(resolved)
+}
+
 fn canonical_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
     roots
         .iter()
@@ -36,32 +58,12 @@ pub fn resolve_existing_descendant_within(path: &Path, roots: &[PathBuf]) -> Opt
 
 #[must_use]
 pub fn resolve_for_creation_within(path: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
-    if !path.is_absolute() || has_unsafe_components(path) {
-        return None;
-    }
-    if path.exists() {
-        return resolve_existing_within(path, roots);
-    }
-
-    let mut cursor = path;
-    let mut missing: Vec<OsString> = Vec::new();
-    while !cursor.exists() {
-        missing.push(cursor.file_name()?.to_os_string());
-        cursor = cursor.parent()?;
-    }
-
-    let mut resolved = cursor.canonicalize().ok()?;
-    let canonical_roots = canonical_roots(roots);
-    if !canonical_roots
+    let resolved = resolve_for_creation(path)?;
+    roots
         .iter()
+        .filter_map(|root| resolve_for_creation(root))
         .any(|root| resolved.starts_with(root))
-    {
-        return None;
-    }
-    for component in missing.into_iter().rev() {
-        resolved.push(component);
-    }
-    Some(resolved)
+        .then_some(resolved)
 }
 
 #[must_use]
@@ -130,6 +132,39 @@ mod tests {
             std::slice::from_ref(&allowed)
         )
         .is_none());
+
+        std::fs::remove_dir_all(root).expect("remove test root");
+    }
+
+    #[test]
+    fn creation_paths_allow_missing_allowed_roots() {
+        let root = std::env::temp_dir().join(format!(
+            "qce-missing-path-security-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let allowed = root.join("QQChatExporter/exports");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&root).expect("create test root");
+
+        assert!(!allowed.exists());
+        let canonical_root = root.canonicalize().expect("canonicalize test root");
+        let canonical_allowed = canonical_root.join("QQChatExporter/exports");
+        assert_eq!(
+            resolve_for_creation_within(&allowed, std::slice::from_ref(&allowed)),
+            Some(canonical_allowed.clone())
+        );
+        assert_eq!(
+            resolve_for_creation_within(
+                &allowed.join("group/export.json"),
+                std::slice::from_ref(&allowed)
+            ),
+            Some(canonical_allowed.join("group/export.json"))
+        );
+        assert!(resolve_for_creation_within(&outside, std::slice::from_ref(&allowed)).is_none());
 
         std::fs::remove_dir_all(root).expect("remove test root");
     }
