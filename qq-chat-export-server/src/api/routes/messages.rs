@@ -693,6 +693,46 @@ struct ExportRequest {
     time_str: String,
 }
 
+async fn prepare_output_directory(
+    requested_output_dir: &FsPath,
+    output_roots: &[PathBuf],
+) -> Result<PathBuf, ApiError> {
+    let allowed_roots = output_roots
+        .iter()
+        .map(|root| root.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let output_dir =
+        crate::api::path_security::resolve_for_creation_within(requested_output_dir, output_roots)
+            .ok_or_else(|| {
+                ApiError::validation(
+                    format!(
+                        "导出目录不在允许范围内: {}; 允许的根目录: {allowed_roots}",
+                        requested_output_dir.display()
+                    ),
+                    "INVALID_PATH",
+                )
+            })?;
+    tokio::fs::create_dir_all(&output_dir)
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                ErrorType::FileSystem,
+                format!("无法创建导出目录 {}: {error}", output_dir.display()),
+                "CREATE_EXPORT_DIR_FAILED",
+            )
+        })?;
+    crate::api::path_security::resolve_existing_within(&output_dir, output_roots).ok_or_else(|| {
+        ApiError::validation(
+            format!(
+                "创建后的导出目录不在允许范围内: {}; 允许的根目录: {allowed_roots}",
+                output_dir.display()
+            ),
+            "INVALID_PATH",
+        )
+    })
+}
+
 /// 解析导出请求公共部分（peer 校验 / uid 解析 / 会话名 / 输出目录）。
 async fn prepare_export_request(
     state: &SharedState,
@@ -743,11 +783,7 @@ async fn prepare_export_request(
         state.path_manager.exports_dir(),
         state.path_manager.scheduled_exports_dir(),
     ];
-    let output_dir = crate::api::path_security::resolve_for_creation_within(
-        &requested_output_dir,
-        &output_roots,
-    )
-    .ok_or_else(|| ApiError::validation("导出目录必须位于允许的导出目录内", "INVALID_PATH"))?;
+    let output_dir = prepare_output_directory(&requested_output_dir, &output_roots).await?;
 
     // 会话名：优先用户输入（issue #365）。
     let user_session_name = body
@@ -2124,10 +2160,39 @@ async fn dir_or_file_size(path: &FsPath) -> u64 {
 #[cfg(test)]
 mod file_name_tests {
     use super::{
-        build_export_dir_name, build_export_file_name, release_export_path,
-        reserve_export_file_name, sanitize_chat_name, should_apply_task_patch,
+        build_export_dir_name, build_export_file_name, prepare_output_directory,
+        release_export_path, reserve_export_file_name, sanitize_chat_name, should_apply_task_patch,
     };
     use serde_json::json;
+
+    #[tokio::test]
+    async fn creates_missing_allowed_output_directory_before_task_registration() {
+        let root = std::env::temp_dir().join(format!(
+            "qce-export-request-path-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let allowed = root.join("QQChatExporter/exports");
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&root).expect("create test root");
+
+        let resolved = prepare_output_directory(&allowed, std::slice::from_ref(&allowed))
+            .await
+            .expect("create allowed output directory");
+        assert!(allowed.is_dir());
+        assert_eq!(
+            resolved,
+            allowed.canonicalize().expect("canonicalize allowed")
+        );
+
+        let error = prepare_output_directory(&outside, std::slice::from_ref(&allowed))
+            .await
+            .expect_err("reject output directory outside allowed root");
+        assert!(error.message.contains(&outside.display().to_string()));
+        assert!(error.message.contains(&allowed.display().to_string()));
+        assert!(!outside.exists());
+
+        std::fs::remove_dir_all(root).expect("remove test root");
+    }
 
     #[test]
     fn cancelled_task_rejects_late_non_cancelled_updates() {
