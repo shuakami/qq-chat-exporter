@@ -156,6 +156,8 @@ export default function AuthPage() {
                 请输入访问令牌以继续使用。
                 <br />
                 令牌会在 QCE 启动时打印在控制台里。
+                <br />
+                请勿使用 NapCat WebUI Token。
               </p>
 
               {/* Issue #287: 当 URL 带 ?token= 时显示自动登录条幅，让用户清楚状态 */}
@@ -262,8 +264,18 @@ export default function AuthPage() {
               {/* Modal Content */}
               <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
                 <p className="text-muted-foreground text-[14px] leading-relaxed">
-                  令牌是一串随机字符，用来验证你的身份。每次启动 NapCat / QCE 时会自动生成一个新的。
+                  令牌是一串随机字符，用来验证你的身份。这里需要的是 QCE 自己生成的访问令牌。
                 </p>
+
+                {/* Issue #349: 明确区分 NapCat 管理页令牌与 QCE 访问令牌。 */}
+                <div className="rounded-xl border border-amber-200/80 dark:border-amber-500/20 bg-amber-50/80 dark:bg-amber-500/10 px-4 py-3 space-y-1.5">
+                  <p className="text-[13px] font-medium text-amber-900 dark:text-amber-200">
+                    NapCat WebUI Token 不能用于这里
+                  </p>
+                  <p className="text-[13px] leading-relaxed text-amber-800/90 dark:text-amber-200/80">
+                    控制台中的 <span className="font-mono">[NapCat] [WebUi] WebUi Token</span> 只用于 NapCat 管理页；本页需要 <span className="font-mono">[QCE] Token</span>，或 <span className="font-mono">security.json</span> 中的 <span className="font-mono">accessToken</span>。
+                  </p>
+                </div>
 
                 {/* Issue #287: 一键登录是 Framework 用户最省心的入口，先讲它 */}
                 <div className="space-y-3">
