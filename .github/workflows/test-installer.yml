@@ -1,0 +1,34 @@
+name: 测试 QCE 安装器
+
+on:
+  pull_request:
+    paths:
+      - 'installer/**'
+      - '.github/workflows/test-installer.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  rust-tests:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: installer
+
+    steps:
+      - name: "检出仓库"
+        uses: actions/checkout@v4
+
+      - name: "Setup Rust"
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: "Rust 缓存"
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: installer/src-tauri
+          shared-key: qce-installer-windows-tests
+
+      - name: "运行安装器 Rust 测试"
+        run: cargo test --manifest-path src-tauri/Cargo.toml
