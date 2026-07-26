@@ -172,13 +172,13 @@ jobs:
           NOTES_FILE="$RUNNER_TEMP/release-notes.md"
           gh release view "$TAG" --json body --jq '.body' > "$NOTES_FILE"
           if ! grep -q "NapCat-QCE-macOS-arm64-${TAG}.tar.gz" "$NOTES_FILE"; then
-            cat >> "$NOTES_FILE" <<EOF
-
-### macOS Apple Silicon 预览包
-
-- 适用于 Apple Silicon（arm64）设备：\`NapCat-QCE-macOS-arm64-${TAG}.tar.gz\`
-- 首次运行前请执行 \`xattr -r -d com.apple.quarantine .\` 和 \`chmod +x launcher-user.sh start-standalone.sh qce-server\`
-- 当前为预览支持；CI 已验证 ARM64 服务端、打包结构与启动脚本，真实 QQ 登录兼容性仍需社区反馈
-EOF
+            {
+              echo
+              echo '### macOS Apple Silicon 预览包'
+              echo
+              echo "- 适用于 Apple Silicon（arm64）设备：\`NapCat-QCE-macOS-arm64-${TAG}.tar.gz\`"
+              echo '- 首次运行前请执行 `xattr -r -d com.apple.quarantine .` 和 `chmod +x launcher-user.sh start-standalone.sh qce-server`'
+              echo '- 当前为预览支持；CI 已验证 ARM64 服务端、打包结构与启动脚本，真实 QQ 登录兼容性仍需社区反馈'
+            } >> "$NOTES_FILE"
             gh release edit "$TAG" --notes-file "$NOTES_FILE"
           fi
