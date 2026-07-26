@@ -33,12 +33,15 @@
 2. 用 QQ 扫码登录
 3. 打开 `http://localhost:40653/qce`，开始导出
 
-### Shell 模式（Windows / Linux）
+### Shell 模式（Windows / Linux / macOS Apple Silicon 预览）
 
 1. 从 [Releases][releases-link] 下载对应平台的压缩包
-2. 运行 `launcher-user.bat`（Windows）或 `./launcher-user.sh`（Linux）
+2. 运行 `launcher-user.bat`（Windows）或 `./launcher-user.sh`（Linux / macOS）
 3. 用 QQ 扫码登录，复制控制台输出的 Token
 4. 打开 `http://localhost:40653/qce`
+
+> \[!NOTE]
+> macOS 当前仅提供 Apple Silicon（arm64）预览包。首次运行前需要移除隔离属性并补充执行权限，详见 [macOS 使用指南][macos-doc]。
 
 ### Docker 一键部署
 
@@ -64,7 +67,7 @@ docker logs -f napcat-qce
 
 [![ChatLab](docs/images/bento-chatlab.png)](https://chatlab.fun/cn)
 
-<p><a href="https://github.com/Ruoan-486/QCE2Chatlab"><img src="docs/images/bento-qce2chatlab.png" alt="QCE2ChatLab" width="49%"></a><a href="https://github.com/CutrelyAlex/QQChatAnalyzer"><img src="docs/images/bento-qqchatanalyzer.png" alt="QQChatAnalyzer" width="49%"></a><a href="https://github.com/JUSTMONIKA2022/QQ-Chat-AI-Analyzer"><img src="docs/images/bento-qq-chat-ai-analyzer.png" alt="QQ-Chat-AI-Analyzer" width="49%"></a><a href="https://github.com/streetartist/napcat-qce-python"><img src="docs/images/bento-napcat-qce-python.png" alt="napcat-qce-python" width="49%"></a></p>
+<p><a href="https://github.com/Ruoan-486/QCE2Chatlab"><img src="docs/images/bento-qce2chatlab.png" alt="QCE2ChatLab" width="49%"></a><a href="https://github.com/CutrelyAlex/QQChatAnalyzer"><img src="docs/images/bento-qce2chatlab.png" alt="QCE2ChatLab" width="49%"></a><a href="https://github.com/JUSTMONIKA2022/QQ-Chat-AI-Analyzer"><img src="docs/images/bento-qq-chat-ai-analyzer.png" alt="QQ-Chat-AI-Analyzer" width="49%"></a><a href="https://github.com/streetartist/napcat-qce-python"><img src="docs/images/bento-napcat-qce-python.png" alt="napcat-qce-python" width="49%"></a></p>
 
 我们非常欢迎和 QCE 有关的社区项目！如果需要展示您的项目，可以在[这里](https://github.com/shuakami/qq-chat-exporter/issues/new)提一个 issue。
 
@@ -89,6 +92,7 @@ docker logs -f napcat-qce
 [stars-link]: https://github.com/shuakami/qq-chat-exporter/stargazers
 [license-link]: LICENSE
 [docker-doc]: https://shuakami.github.io/qq-chat-exporter/docs/docker-napcat-deployment.html
+[macos-doc]: https://shuakami.github.io/qq-chat-exporter/docs/macos-deploy.html
 [github-release-shield]: https://img.shields.io/github/v/release/shuakami/qq-chat-exporter?color=317cfe&labelColor=black&logo=github&style=flat-square
 [github-downloads-shield]: https://img.shields.io/github/downloads/shuakami/qq-chat-exporter/total?color=317cfe&labelColor=black&style=flat-square
 [github-stars-shield]: https://img.shields.io/github/stars/shuakami/qq-chat-exporter?color=317cfe&labelColor=black&style=flat-square
