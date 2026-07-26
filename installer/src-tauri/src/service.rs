@@ -87,7 +87,8 @@ pub fn start_service(state: State<'_, AppState>) -> Result<(), String> {
         .ok_or_else(|| "未找到启动脚本（launcher-user.bat）".to_string())?;
     util::installer_log(&dir, &format!("launching {}", launcher.display()));
 
-    // Pre-seed the QQ path so the launcher never blocks on interactive input.
+    // Pre-seed only a verified QQNT path. Old QQ and QQNT can coexist and both
+    // register as QQ.exe; selecting the legacy client makes NapCat fail to boot.
     #[cfg(windows)]
     if let Some(qq) = detect_qq_path() {
         let config = dir.join("config");
@@ -193,19 +194,73 @@ pub fn shutdown(state: &AppState) {
     kill_napcat_only();
 }
 
-/// Best-effort discovery of the desktop QQ executable via the registry,
+#[cfg(any(windows, test))]
+fn normalized_qq_path(path: &std::path::Path) -> String {
+    path.to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase()
+}
+
+#[cfg(any(windows, test))]
+fn has_qqnt_layout(executable: &std::path::Path) -> bool {
+    let Some(dir) = executable.parent() else {
+        return false;
+    };
+
+    if dir.join("resources/app/package.json").is_file() {
+        return true;
+    }
+
+    let Ok(versions) = std::fs::read_dir(dir.join("versions")) else {
+        return false;
+    };
+    versions.flatten().any(|entry| {
+        entry
+            .path()
+            .join("resources/app/package.json")
+            .is_file()
+    })
+}
+
+#[cfg(any(windows, test))]
+fn is_qqnt_executable(path: &std::path::Path) -> bool {
+    if !path.is_file()
+        || !path
+            .file_name()
+            .is_some_and(|name| name.eq_ignore_ascii_case("QQ.exe"))
+    {
+        return false;
+    }
+
+    let normalized = normalized_qq_path(path);
+    if normalized.ends_with("\\qq\\bin\\qq.exe") {
+        return false;
+    }
+
+    normalized.contains("\\qqnt\\") || has_qqnt_layout(path)
+}
+
+#[cfg(any(windows, test))]
+fn select_qqnt_candidate<I>(candidates: I) -> Option<std::path::PathBuf>
+where
+    I: IntoIterator<Item = std::path::PathBuf>,
+{
+    candidates
+        .into_iter()
+        .find(|candidate| is_qqnt_executable(candidate))
+}
+
+/// Best-effort discovery of the desktop QQNT executable via the registry,
 /// App Paths, the tencent:// protocol handler and common install dirs.
 #[cfg(windows)]
 fn detect_qq_path() -> Option<String> {
     use winreg::enums::{HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
     use winreg::RegKey;
 
-    fn existing(path: &std::path::Path) -> Option<String> {
-        path.exists().then(|| path.to_string_lossy().into_owned())
-    }
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
 
-    // QQNT records its install dir under the uninstall key
-    // (64-bit view, 32-bit WOW6432Node view and per-user installs).
+    // Both legacy QQ and QQNT may register under these keys. Collect every
+    // candidate first, then select only a path that looks like QQNT.
     const UNINSTALL_KEYS: [(&str, isize); 3] = [
         (r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\QQ", 0),
         (
@@ -226,23 +281,17 @@ fn detect_qq_path() -> Option<String> {
         if let Ok(icon) = key.get_value::<String, _>("DisplayIcon") {
             // DisplayIcon may carry an icon index suffix like `...\QQ.exe,0`.
             let path = icon.split(',').next().unwrap_or(&icon).trim_matches('"');
-            if let Some(found) = existing(std::path::Path::new(path)) {
-                return Some(found);
-            }
+            candidates.push(std::path::PathBuf::from(path));
         }
         if let Ok(uninst) = key.get_value::<String, _>("UninstallString") {
             // UninstallString points at Uninstall.exe in the QQ dir.
             let uninst = uninst.trim_matches('"');
             if let Some(parent) = std::path::Path::new(uninst).parent() {
-                if let Some(found) = existing(&parent.join("QQ.exe")) {
-                    return Some(found);
-                }
+                candidates.push(parent.join("QQ.exe"));
             }
         }
         if let Ok(dir) = key.get_value::<String, _>("InstallLocation") {
-            if let Some(found) = existing(&std::path::Path::new(&dir).join("QQ.exe")) {
-                return Some(found);
-            }
+            candidates.push(std::path::Path::new(&dir).join("QQ.exe"));
         }
     }
 
@@ -251,9 +300,7 @@ fn detect_qq_path() -> Option<String> {
     for hive in [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER] {
         if let Ok(key) = RegKey::predef(hive).open_subkey(APP_PATHS) {
             if let Ok(path) = key.get_value::<String, _>("") {
-                if let Some(found) = existing(std::path::Path::new(path.trim_matches('"'))) {
-                    return Some(found);
-                }
+                candidates.push(std::path::PathBuf::from(path.trim_matches('"')));
             }
         }
     }
@@ -270,16 +317,13 @@ fn detect_qq_path() -> Option<String> {
             let mut dir = std::path::Path::new(&exe).parent();
             for _ in 0..6 {
                 let Some(current) = dir else { break };
-                if let Some(found) = existing(&current.join("QQ.exe")) {
-                    return Some(found);
-                }
+                candidates.push(current.join("QQ.exe"));
                 dir = current.parent();
             }
         }
     }
 
     // Common default locations.
-    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
     for var in ["ProgramFiles", "ProgramFiles(x86)"] {
         if let Ok(base) = std::env::var(var) {
             candidates.push(std::path::Path::new(&base).join(r"Tencent\QQNT\QQ.exe"));
@@ -294,5 +338,58 @@ fn detect_qq_path() -> Option<String> {
     candidates.push(std::path::PathBuf::from(
         r"D:\Program Files\Tencent\QQNT\QQ.exe",
     ));
-    candidates.into_iter().find_map(|p| existing(&p))
+
+    select_qqnt_candidate(candidates).map(|path| path.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_qqnt_executable, select_qqnt_candidate};
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_root(test_name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "qce-installer-{test_name}-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("create temp root");
+        root
+    }
+
+    fn touch(path: &Path) {
+        std::fs::create_dir_all(path.parent().expect("file parent")).expect("create parent");
+        std::fs::write(path, b"").expect("create file");
+    }
+
+    #[test]
+    fn prefers_qqnt_when_legacy_qq_is_also_installed() {
+        let root = temp_root("coexisting-qq");
+        let legacy = root.join("Tencent/QQ/Bin/QQ.exe");
+        let qqnt = root.join("Tencent/QQNT/QQ.exe");
+        touch(&legacy);
+        touch(&qqnt);
+
+        let selected = select_qqnt_candidate([legacy.clone(), qqnt.clone()]);
+        assert_eq!(selected, Some(qqnt));
+        assert!(!is_qqnt_executable(&legacy));
+
+        std::fs::remove_dir_all(root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn accepts_portable_qqnt_by_layout_instead_of_directory_name() {
+        let root = temp_root("portable-qqnt");
+        let executable = root.join("PortableQQ/QQ.exe");
+        touch(&executable);
+        touch(&root.join("PortableQQ/versions/9.9.0/resources/app/package.json"));
+
+        assert!(is_qqnt_executable(&executable));
+
+        std::fs::remove_dir_all(root).expect("cleanup temp root");
+    }
 }
