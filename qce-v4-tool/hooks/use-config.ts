@@ -7,6 +7,7 @@ export interface ConfigData {
   customScheduledExportDir: string | null
   currentExportsDir: string
   currentScheduledExportsDir: string
+  autoOpenBrowser: boolean
 }
 
 interface ConfigResponse extends ConfigData {
@@ -36,6 +37,7 @@ export function useConfig() {
   const updateConfig = useCallback(async (updates: {
     customOutputDir?: string | null
     customScheduledExportDir?: string | null
+    autoOpenBrowser?: boolean
   }) => {
     try {
       setLoading(true)

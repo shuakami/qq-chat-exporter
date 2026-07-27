@@ -831,7 +831,7 @@ extern "C" void qq_magic_napi_register(void *m) {
  * 无需 NapCat 登录即可运行，用于浏览已导出的聊天记录和资源
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
@@ -857,6 +857,19 @@ function securityConfigPath() {
     return path.join(dir, 'security.json');
 }
 
+function userConfigPath() {
+    return path.join(os.homedir(), '.qq-chat-exporter', 'user-config.json');
+}
+
+function readAutoOpenBrowserSetting(configPath) {
+    try {
+        const value = JSON.parse(readFileSync(configPath, 'utf8'))?.autoOpenBrowser;
+        return typeof value === 'boolean' ? value : true;
+    } catch {
+        return true; // 文件不存在/无法读取时沿用历史默认值（打开）
+    }
+}
+
 function browserOpenCommand(url) {
     if (process.platform === 'darwin') return { cmd: 'open', args: [url] };
     if (process.platform === 'win32') return { cmd: 'cmd', args: ['/c', 'start', '', url] };
@@ -864,9 +877,10 @@ function browserOpenCommand(url) {
 }
 
 // 开关名与完整模式一致（plugins/qq-chat-exporter/runtime/rustBridge.mjs）：
-// QCE_NO_AUTO_OPEN=1 时只打印链接，不弹浏览器。
+// QCE_NO_AUTO_OPEN=1 是硬开关，优先于设置页的开关；未设置时才看持久化设置。
 function tryOpenBrowser(url) {
     if (process.env.QCE_NO_AUTO_OPEN === '1') return;
+    if (!readAutoOpenBrowserSetting(userConfigPath())) return;
     try {
         const { cmd, args } = browserOpenCommand(url);
         const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
