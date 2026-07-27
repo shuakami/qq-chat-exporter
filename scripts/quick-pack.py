@@ -830,12 +830,26 @@ extern "C" void qq_magic_napi_register(void *m) {
  * QCE 独立模式启动脚本
  * 无需 NapCat 登录即可运行，用于浏览已导出的聊天记录和资源
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// macOS: 从浏览器下载并用「访达」解压的包，每个文件都会带上 com.apple.quarantine。
+// Apple Silicon 的 AMFI 会在 execve() 时直接 SIGKILL 这种「被隔离 + 仅临时签名」的
+// 二进制，且不会留下任何日志——表现为网页打不开却查不到任何报错。完整模式的
+// launcher-user.sh 已经做了同样的清理，这里覆盖独立模式自己拉起 qce-server 的路径。
+function clearQuarantine(target) {
+    if (process.platform !== 'darwin') return;
+    try {
+        spawnSync('xattr', ['-cr', target], { stdio: 'ignore' });
+    } catch {
+        // 尽力而为：清不掉时后面的 spawn 会照常报错
+    }
+}
 
 function securityConfigPath() {
     const override = (process.env.QCE_CONFIG_DIR || '').trim();
@@ -843,22 +857,64 @@ function securityConfigPath() {
     return path.join(dir, 'security.json');
 }
 
-// Issue #457: surface the one-click login URL so standalone users are not
-// stuck on the token prompt with no token in sight.
-async function printLoginUrl(port) {
+function browserOpenCommand(url) {
+    if (process.platform === 'darwin') return { cmd: 'open', args: [url] };
+    if (process.platform === 'win32') return { cmd: 'cmd', args: ['/c', 'start', '', url] };
+    return { cmd: 'xdg-open', args: [url] };
+}
+
+// 开关名与完整模式一致（plugins/qq-chat-exporter/runtime/rustBridge.mjs）：
+// QCE_NO_AUTO_OPEN=1 时只打印链接，不弹浏览器。
+function tryOpenBrowser(url) {
+    if (process.env.QCE_NO_AUTO_OPEN === '1') return;
+    try {
+        const { cmd, args } = browserOpenCommand(url);
+        const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+        child.on('error', () => {}); // 无图形界面的机器上没有浏览器可开，忽略即可
+        child.unref();
+    } catch {
+        // 尽力而为：上面打印出来的链接才是真正的兜底
+    }
+}
+
+// 等端口真正开始监听。security.json 在上一次运行后就已存在，所以不能只靠它
+// 判断服务端是否就绪——端口被占用时 qce-server 会直接退出，那时报喜（更别说
+// 自动弹一个必然打不开的浏览器标签）纯属误导。
+async function waitForServer(child, port, timeoutMs = 15_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (child.exitCode !== null) return false;
+        const ready = await new Promise((resolve) => {
+            const socket = net.createConnection({ host: '127.0.0.1', port });
+            socket.once('connect', () => { socket.destroy(); resolve(true); });
+            socket.once('error', () => resolve(false));
+            socket.setTimeout(500, () => { socket.destroy(); resolve(false); });
+        });
+        if (ready) return true;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return false;
+}
+
+// Issue #457: 独立模式原本什么都不打印，用户卡在令牌输入框却无处可查。
+async function announceLoginUrl(child, port) {
+    if (!(await waitForServer(child, port))) return;   // 服务端自己会报错，不再叠加误导信息
     const configFile = securityConfigPath();
     for (let attempt = 0; attempt < 30; attempt++) {
         try {
             const config = JSON.parse(await readFile(configFile, 'utf8'));
             if (config.accessToken) {
+                const url = `http://127.0.0.1:${port}/qce/auth?token=${encodeURIComponent(config.accessToken)}`;
                 console.log('');
-                console.log(`[QCE] 一键登录: http://127.0.0.1:${port}/qce/auth?token=${encodeURIComponent(config.accessToken)}`);
+                console.log(`[QCE] Token: ${config.accessToken}`);
+                console.log(`[QCE] 一键登录: ${url}`);
                 console.log('[QCE] 此链接包含访问令牌，请勿分享给他人');
                 console.log('');
+                tryOpenBrowser(url);
                 return;
             }
         } catch {
-            // security.json not written yet; keep polling.
+            // security.json 还没写出来，继续轮询
         }
         await new Promise((resolve) => setTimeout(resolve, 1000));
     }
@@ -872,6 +928,7 @@ async function main() {
         packageRoot,
         process.platform === 'win32' ? 'qce-server.exe' : 'qce-server'
     );
+    clearQuarantine(binary);
 
     const logDir = process.env.QCE_LOG_DIR || path.join(packageRoot, 'logs');
     mkdirSync(logDir, { recursive: true });
@@ -905,7 +962,7 @@ async function main() {
     const stop = () => child.kill();
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);
-    printLoginUrl(port);
+    announceLoginUrl(child, port);
 }
 
 main();
@@ -1093,8 +1150,6 @@ await import(napcatUrl);
 4. 浏览器访问: http://localhost:40653/qce
    完整模式需输入控制台显示的访问令牌
 
-注意: 首次运行需执行: chmod +x launcher-user.sh start-standalone.sh
-
 独立模式说明:
 - 无需安装或登录QQ
 - 可浏览已导出的聊天记录
@@ -1114,7 +1169,14 @@ Linux 说明:
 - 已预编译 qq_magic.so 解决 qq_magic_napi_register 符号问题
 - 启动脚本会自动加载，无需额外配置"""
         else:  # macOS
-            usage_steps += "\n\nmacOS 用户: 运行 xattr -r -d com.apple.quarantine . 移除系统隔离"
+            usage_steps += """
+
+默认支持的QQ路径: /Applications/QQ.app, ~/Applications/QQ.app
+
+macOS 说明（仅 Apple Silicon）:
+- 首次启动会在本目录生成一份专用的 QQ 运行副本，约需 1 GB 空间
+- 需要 Xcode 命令行工具: xcode-select --install
+- 详见 https://shuakami.github.io/qq-chat-exporter/docs/macos-deploy.html"""
     
     readme_content = f"""{"=" * 50}
 NapCat + QQ Chat Exporter - 完整包

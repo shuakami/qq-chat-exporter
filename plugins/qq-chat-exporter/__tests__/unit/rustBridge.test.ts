@@ -1,12 +1,18 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
     bridgeJsonReplacer,
+    buildAuthUrl,
+    buildBrowserOpenCommand,
     createNapCatBridge,
+    readAccessTokenWithRetry,
+    resolveSecurityConfigPath,
+    shouldAutoOpenBrowser,
     startRustApiServer
 } from '../../runtime/rustBridge.mjs';
 
@@ -133,6 +139,81 @@ test('qce-server spawn failures are written to the configured runtime log', asyn
         else process.env.QCE_RUST_SERVER_PATH = previousBinary;
         if (previousLogFile === undefined) delete process.env.QCE_LOG_FILE;
         else process.env.QCE_LOG_FILE = previousLogFile;
+        tmp.cleanup();
+    }
+});
+
+test('buildAuthUrl builds a one-click login link with the token URL-encoded', () => {
+    assert.equal(
+        buildAuthUrl(40653, 'abc123'),
+        'http://127.0.0.1:40653/qce/auth?token=abc123'
+    );
+    // Tokens are opaque strings; nothing guarantees they never contain
+    // URL-hostile characters, so this must not be a bare string interpolation.
+    assert.equal(
+        buildAuthUrl(40653, 'a+b/c=&d'),
+        'http://127.0.0.1:40653/qce/auth?token=a%2Bb%2Fc%3D%26d'
+    );
+});
+
+test('buildBrowserOpenCommand picks the right opener per platform', () => {
+    const url = 'http://localhost:40653/qce/auth?token=abc';
+    assert.deepEqual(buildBrowserOpenCommand(url, 'darwin'), { cmd: 'open', args: [url] });
+    assert.deepEqual(buildBrowserOpenCommand(url, 'linux'), { cmd: 'xdg-open', args: [url] });
+    assert.deepEqual(buildBrowserOpenCommand(url, 'win32'), { cmd: 'cmd', args: ['/c', 'start', '', url] });
+});
+
+test('QCE_NO_AUTO_OPEN=1 is the documented opt-out for the browser tab', () => {
+    assert.equal(shouldAutoOpenBrowser({}), true, 'unset means open, as documented');
+    assert.equal(shouldAutoOpenBrowser({ QCE_NO_AUTO_OPEN: '1' }), false);
+    // docs/macos-deploy.md documents the value as exactly "1"; anything else
+    // must not silently disable the tab.
+    assert.equal(shouldAutoOpenBrowser({ QCE_NO_AUTO_OPEN: '0' }), true);
+    assert.equal(shouldAutoOpenBrowser({ QCE_NO_AUTO_OPEN: '' }), true);
+});
+
+test('resolveSecurityConfigPath prefers QCE_CONFIG_DIR, falls back to the home dir', () => {
+    const previous = process.env.QCE_CONFIG_DIR;
+    try {
+        process.env.QCE_CONFIG_DIR = '/tmp/qce-config-override';
+        assert.equal(
+            resolveSecurityConfigPath(),
+            path.join('/tmp/qce-config-override', 'security.json')
+        );
+
+        delete process.env.QCE_CONFIG_DIR;
+        assert.equal(
+            resolveSecurityConfigPath(),
+            path.join(os.homedir(), '.qq-chat-exporter', 'security.json')
+        );
+    } finally {
+        if (previous === undefined) delete process.env.QCE_CONFIG_DIR;
+        else process.env.QCE_CONFIG_DIR = previous;
+    }
+});
+
+test('readAccessTokenWithRetry picks up a token that appears after a short delay', async () => {
+    const tmp = createTempDir('rust-bridge-token-');
+    const configPath = path.join(tmp.path, 'security.json');
+    try {
+        setTimeout(() => {
+            fs.writeFileSync(configPath, JSON.stringify({ accessToken: 'late-token' }));
+        }, 20);
+
+        const token = await readAccessTokenWithRetry(configPath, { retries: 5, delayMs: 10 });
+        assert.equal(token, 'late-token');
+    } finally {
+        tmp.cleanup();
+    }
+});
+
+test('readAccessTokenWithRetry gives up and returns null if the file never appears', async () => {
+    const tmp = createTempDir('rust-bridge-token-missing-');
+    const configPath = path.join(tmp.path, 'security.json');
+    try {
+        const token = await readAccessTokenWithRetry(configPath, { retries: 2, delayMs: 5 });
+        assert.equal(token, null);
+    } finally {
         tmp.cleanup();
     }
 });
