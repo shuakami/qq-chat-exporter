@@ -68,3 +68,8 @@ The launcher script (`launcher-user.sh`) recompiles in place if the bundled
 ## Tests
 
 See `plugins/qq-chat-exporter/__tests__/unit/napcatLinuxLauncher.test.ts`.
+
+`launcher-user.sh` also carries the macOS flow, which shares none of this
+shim's mechanism (it patches and re-signs a private copy of `QQ.app`
+instead). Its tests live in
+`plugins/qq-chat-exporter/__tests__/unit/napcatMacosLauncher.test.ts`.

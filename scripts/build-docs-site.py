@@ -14,6 +14,7 @@ PAGES = [
     ('index.md', 'index.html', '介绍', 'QQ Chat Exporter 文档', '指南'),
     ('guide.md', 'guide.html', '使用手册', '使用手册', '指南'),
     ('linux-deploy.md', 'linux-deploy.html', 'Linux 部署', 'Linux 部署', '部署'),
+    ('macos-deploy.md', 'macos-deploy.html', 'macOS 部署', 'macOS 部署', '部署'),
     ('docker-napcat-deployment.md', 'docker-napcat-deployment.html', 'Docker NapCat 部署', 'Docker NapCat 部署', '部署'),
     ('feedback.md', 'feedback.html', '如何反馈问题', '如何反馈问题', '参与'),
     ('contributing.md', 'contributing.html', '如何贡献', '如何贡献', '参与'),

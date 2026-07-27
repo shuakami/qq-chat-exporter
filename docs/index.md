@@ -5,7 +5,7 @@
 ![QQ Chat Exporter](images/banner.png)
 
 - 如果你是第一次用，可以先看 [使用手册](guide.md)，它会带你从下载、启动到登录导出，一步一步教学。
-- 如果你想在 Linux 服务器上跑 QCE，可以参考 [Linux 部署](linux-deploy.md)；喜欢容器化管理的同学，这里也准备了 [Docker NapCat 部署](docker-napcat-deployment.md) 方案。
+- 如果你想在 Linux 服务器上跑 QCE，可以参考 [Linux 部署](linux-deploy.md)；用 Apple Silicon 芯片的 Mac 请看 [macOS 部署](macos-deploy.md)；喜欢容器化管理的同学，这里也准备了 [Docker NapCat 部署](docker-napcat-deployment.md) 方案。
 - 碰到了 Bug 或者程序运行报错？先别急，可以看看 [如何反馈问题](feedback.md) 来帮我们一起抓出问题；要是你想给项目加新功能或改代码，欢迎查看 [如何贡献](contributing.md) 指南。你也可以直接去 [GitHub Issues](https://github.com/shuakami/qq-chat-exporter/issues) 看看别人遇到了什么，或者直接提个新 Bug。
 - 你可以在这里 [下载最新版本 (GitHub Releases)](https://github.com/shuakami/qq-chat-exporter/releases)，如果需要开发对接，也可以随时 [查看 API 文档](https://deepwiki.com/shuakami/qq-chat-exporter)。
 
