@@ -101,9 +101,35 @@ export async function readAccessTokenWithRetry(configPath, { retries = 4, delayM
   return null;
 }
 
-/** Opt-out for headless boxes and for anyone who does not want a tab per start. */
-export function shouldAutoOpenBrowser(env = process.env) {
-  return env.QCE_NO_AUTO_OPEN !== '1';
+// user-config.json is where the settings page's "自动打开浏览器" toggle
+// (qce-v4-tool/components/ui/settings-panel.tsx) persists its choice, via
+// PUT /api/config (qq-chat-export-server/src/api/routes/system.rs). That
+// route resolves the file through PathManager::default_base_dir(), which —
+// unlike resolveSecurityConfigPath() above — does NOT honor QCE_CONFIG_DIR.
+// Matching that exactly here (rather than reusing resolveSecurityConfigPath)
+// is required for the two to ever agree on which file they mean.
+export function resolveUserConfigPath() {
+  return path.join(os.homedir(), '.qq-chat-exporter', 'user-config.json');
+}
+
+export function readAutoOpenBrowserSetting(configPath) {
+  try {
+    const value = JSON.parse(readFileSync(configPath, 'utf8'))?.autoOpenBrowser;
+    return typeof value === 'boolean' ? value : true;
+  } catch {
+    return true; // missing/unreadable config == the historical default (open)
+  }
+}
+
+/**
+ * QCE_NO_AUTO_OPEN=1 is a hard opt-out for headless boxes, documented and
+ * tested independently of the persisted setting below — it always wins.
+ * Otherwise this follows the settings-page toggle, re-read on every start so
+ * a change made in the UI takes effect on the next launch without a rebuild.
+ */
+export function shouldAutoOpenBrowser(env = process.env, configPath = resolveUserConfigPath()) {
+  if (env.QCE_NO_AUTO_OPEN === '1') return false;
+  return readAutoOpenBrowserSetting(configPath);
 }
 
 function tryOpenBrowser(url) {

@@ -130,3 +130,93 @@ test('standalone script stays quiet when the server never comes up', { skip: pos
         tmp.cleanup();
     }
 });
+
+/**
+ * userConfigPath() in the generated script always resolves under the real
+ * home dir (matching qq-chat-export-server's PathManager::default_base_dir(),
+ * which — unlike security.json's path — does not honor QCE_CONFIG_DIR). These
+ * tests therefore override HOME, not QCE_CONFIG_DIR, to land the settings-page
+ * toggle where the script will actually look for it, and shadow the platform
+ * opener (open / xdg-open) in PATH to observe whether it was invoked without
+ * actually popping a real browser window.
+ */
+function stageFakeOpener(binDir: string, logFile: string): void {
+    const openerName = process.platform === 'darwin' ? 'open' : 'xdg-open';
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+        path.join(binDir, openerName),
+        `#!/bin/sh\necho "$@" >> "${logFile}"\n`,
+        { mode: 0o755 },
+    );
+}
+
+test('standalone script suppresses the browser tab when the settings-page toggle is off', { skip: posixOnly ?? false }, () => {
+    const tmp = createTempDir('qce-standalone-auto-open-off-');
+    try {
+        const packDir = path.join(tmp.path, 'pack');
+        const configDir = path.join(tmp.path, 'config');
+        const fakeHome = path.join(tmp.path, 'home');
+        const binDir = path.join(tmp.path, 'bin');
+        const openLog = path.join(tmp.path, 'open.log');
+        fs.mkdirSync(packDir, { recursive: true });
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.mkdirSync(path.join(fakeHome, '.qq-chat-exporter'), { recursive: true });
+        stageFakeOpener(binDir, openLog);
+
+        fs.writeFileSync(
+            path.join(fakeHome, '.qq-chat-exporter', 'user-config.json'),
+            JSON.stringify({ autoOpenBrowser: false }),
+        );
+        fs.writeFileSync(path.join(packDir, 'qce-standalone.mjs'), extractStandaloneScript());
+        fs.writeFileSync(path.join(packDir, 'qce-server'), fakeServer(configDir, 'off-token'), { mode: 0o755 });
+
+        const env = { ...process.env, HOME: fakeHome, QCE_CONFIG_DIR: configDir, PATH: `${binDir}:${process.env.PATH}` };
+        delete env.QCE_NO_AUTO_OPEN; // isolate the persisted-setting path from the env-var override
+
+        const result = spawnSync(
+            process.execPath,
+            [path.join(packDir, 'qce-standalone.mjs'), '23458'],
+            { env, encoding: 'utf8', timeout: 30_000 },
+        );
+
+        assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+        assert.match(result.stdout, /一键登录/, 'the link is still printed even when auto-open is off');
+        assert.ok(!fs.existsSync(openLog), 'the opener must not run while the settings-page toggle is off');
+    } finally {
+        tmp.cleanup();
+    }
+});
+
+test('standalone script opens the browser by default when no settings-page toggle is persisted', { skip: posixOnly ?? false }, () => {
+    const tmp = createTempDir('qce-standalone-auto-open-default-');
+    try {
+        const packDir = path.join(tmp.path, 'pack');
+        const configDir = path.join(tmp.path, 'config');
+        const fakeHome = path.join(tmp.path, 'home'); // no user-config.json written here at all
+        const binDir = path.join(tmp.path, 'bin');
+        const openLog = path.join(tmp.path, 'open.log');
+        fs.mkdirSync(packDir, { recursive: true });
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.mkdirSync(fakeHome, { recursive: true });
+        stageFakeOpener(binDir, openLog);
+
+        fs.writeFileSync(path.join(packDir, 'qce-standalone.mjs'), extractStandaloneScript());
+        const token = 'default-open-token';
+        fs.writeFileSync(path.join(packDir, 'qce-server'), fakeServer(configDir, token), { mode: 0o755 });
+
+        const env = { ...process.env, HOME: fakeHome, QCE_CONFIG_DIR: configDir, PATH: `${binDir}:${process.env.PATH}` };
+        delete env.QCE_NO_AUTO_OPEN;
+
+        const result = spawnSync(
+            process.execPath,
+            [path.join(packDir, 'qce-standalone.mjs'), '23459'],
+            { env, encoding: 'utf8', timeout: 30_000 },
+        );
+
+        assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+        const opened = fs.existsSync(openLog) ? fs.readFileSync(openLog, 'utf8') : '';
+        assert.ok(opened.includes(`token=${encodeURIComponent(token)}`), `opener should have been invoked with the login URL, got: ${JSON.stringify(opened)}`);
+    } finally {
+        tmp.cleanup();
+    }
+});

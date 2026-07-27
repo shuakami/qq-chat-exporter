@@ -57,7 +57,7 @@ cd NapCat-QCE-macOS-arm64
 启动成功后，控制台窗口会出现登录二维码。打开手机 QQ 扫描即可完成登录。
 
 **访问网页：**
-登录成功后，控制台会打印访问令牌和一条一键登录链接，并自动用默认浏览器打开它，直接进入操作界面：
+登录成功后，控制台会打印访问令牌和一条一键登录链接，并自动用默认浏览器打开它，直接进入操作界面（可以在网页的「设置 → 启动」里关闭这个自动打开）：
 
 ```
 [QCE] Token: xxxxxxxx
@@ -123,7 +123,7 @@ macOS 版 `/Applications/QQ.app` 是苹果 Hardened Runtime（强化运行时）
 | --- | --- | --- |
 | `NAPCAT_QQ_PATH` | 自动探测 | 手动指定 QQ.app 内部可执行文件的绝对路径 |
 | `NAPCAT_DISABLE_MULTI_PROCESS` | `1` | 是否禁用 NapCat 的多进程模式（macOS 下默认禁用） |
-| `QCE_NO_AUTO_OPEN` | 未设置 | 设为 `1` 后不再自动打开浏览器，只在控制台打印链接 |
+| `QCE_NO_AUTO_OPEN` | 未设置 | 设为 `1` 后不再自动打开浏览器，只在控制台打印链接；优先级高于设置页里的开关 |
 | `QCE_LOG_DIR` / `QCE_LOG_FILE` | `logs/qce-runtime.log` | 运行日志输出位置 |
 
 ---

@@ -128,7 +128,7 @@ function Row({
 const DEFAULT_HINT = "默认目录（用户目录下的 .qq-chat-exporter）"
 
 export function SettingsPanel() {
-  const { config, loadConfig, updateConfig } = useConfig()
+  const { config, loading: configLoading, loadConfig, updateConfig } = useConfig()
   const {
     whitelist,
     busy: securityBusy,
@@ -239,6 +239,24 @@ export function SettingsPanel() {
               </div>
               <EditButton onClick={openEdit} />
             </div>
+          </Section>
+
+          {/* Startup */}
+          <Section title="启动">
+            <Row
+              title="自动打开浏览器"
+              description="扫码登录成功、或独立模式启动完成后自动打开操作页面；关闭后仍会在控制台打印一键登录链接"
+            >
+              {config ? (
+                <Switch
+                  checked={config.autoOpenBrowser}
+                  disabled={configLoading}
+                  onCheckedChange={(v) => void updateConfig({ autoOpenBrowser: v })}
+                />
+              ) : (
+                <div className="h-5 w-9 rounded-full bg-muted-foreground/10" />
+              )}
+            </Row>
           </Section>
 
           {/* Security */}
