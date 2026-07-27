@@ -12,6 +12,7 @@ permissions: write-all
 jobs:
   build-plugin:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
@@ -20,6 +21,9 @@ jobs:
           - os: ubuntu-latest
             platform: Linux
             arch: x64
+          - os: macos-latest
+            platform: macOS
+            arch: arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -41,7 +45,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: qq-chat-export-server
-          shared-key: qce-server-${{ matrix.platform == 'Windows' && 'windows' || 'linux' }}-${{ matrix.arch }}
+          shared-key: qce-server-${{ matrix.platform == 'Windows' && 'windows' || matrix.platform == 'macOS' && 'macos' || 'linux' }}-${{ matrix.arch }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -102,6 +106,20 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
           QCE_VERSION: ${{ steps.version.outputs.version }}
           QCE_SERVER_BINARY: qq-chat-export-server/target/x86_64-unknown-linux-musl/release/qce-server
+
+      # quick-pack.py builds qce-server itself when no prebuilt binary is
+      # supplied, same as the Windows leg above.
+      - name: Build complete package (macOS)
+        if: matrix.platform == 'macOS'
+        run: python3 scripts/quick-pack.py
+        env:
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=4096
+          QCE_VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Verify macOS package is native arm64
+        if: matrix.platform == 'macOS'
+        run: lipo -archs "NapCat-QCE-macOS-arm64/qce-server" | grep -qw arm64
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
