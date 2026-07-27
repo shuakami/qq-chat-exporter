@@ -88,15 +88,18 @@ static const char *ORIGINAL_MAIN_PLAIN =
 
 // JS injected as the new entry point. NAPCAT_BOOTMAIN is exported by
 // launcher-user.sh and points at the QCE pack directory, where napcat.mjs
-// lives alongside the bundled NapCat runtime. We deliberately do NOT chain
-// through napcat-bootstrap.mjs: the bootstrap only existed to monkey-patch
-// process.execPath when running under plain Node, and under real Electron
-// process.execPath already points at the QQ binary.
+// lives alongside the bundled NapCat runtime. The bootstrap deliberately uses
+// only dynamic import() and process globals, so the same loadNapCat.js works
+// whether QQ's package scope treats .js files as CommonJS or ESM (issue #499).
+// We do NOT chain through napcat-bootstrap.mjs: that bootstrap only existed to
+// monkey-patch process.execPath under plain Node, while real Electron already
+// points process.execPath at the QQ binary.
 static const char *NAPCAT_JS_CONTENT =
-    "const path = require('path');"
-    "const CurrentPath = process.env.NAPCAT_BOOTMAIN || path.dirname(__filename);"
     "(async () => {"
-    "  await import('file://' + path.join(CurrentPath, './napcat.mjs'));"
+    "  const path = await import('node:path');"
+    "  const { pathToFileURL } = await import('node:url');"
+    "  const CurrentPath = process.env.NAPCAT_BOOTMAIN || process.cwd();"
+    "  await import(pathToFileURL(path.join(CurrentPath, 'napcat.mjs')).href);"
     "})();";
 
 // ---------------------------------------------------------------------------
