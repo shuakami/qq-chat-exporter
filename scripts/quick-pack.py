@@ -822,7 +822,10 @@ extern "C" void qq_magic_napi_register(void *m) {
     print("[9.5/11] Creating standalone mode scripts...")
     
     # Create standalone mode launcher
-    standalone_mjs = '''#!/usr/bin/env node
+    # Raw string: every backslash below belongs to the emitted JavaScript.
+    # Without the r prefix Python turns the \n in text.endsWith('\n') into a
+    # real newline, and the shipped qce-standalone.mjs fails to parse at all.
+    standalone_mjs = r'''#!/usr/bin/env node
 /**
  * QCE 独立模式启动脚本
  * 无需 NapCat 登录即可运行，用于浏览已导出的聊天记录和资源

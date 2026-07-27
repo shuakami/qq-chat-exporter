@@ -25,10 +25,17 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const QUICK_PACK = path.join(REPO_ROOT, 'scripts', 'quick-pack.py');
 
+/**
+ * Reads the embedded script verbatim. This is only equivalent to what
+ * quick-pack.py writes out because the literal is a *raw* Python string —
+ * without the r prefix Python expands the \n escapes belonging to the
+ * JavaScript and emits a file that does not parse. The regex therefore
+ * requires the prefix rather than assuming it.
+ */
 function extractStandaloneScript(): string {
     const source = fs.readFileSync(QUICK_PACK, 'utf8');
-    const match = source.match(/standalone_mjs = '''([\s\S]*?)'''/);
-    assert.ok(match, 'quick-pack.py should embed standalone_mjs');
+    const match = source.match(/standalone_mjs = r'''([\s\S]*?)'''/);
+    assert.ok(match, "quick-pack.py should embed standalone_mjs as a raw (r''') string");
     return match[1].replace(/\r\n/g, '\n');
 }
 
