@@ -60,6 +60,13 @@ interface MessagePreviewResponse {
   fetchedAt: string
 }
 
+function marketFaceUrls(emojiId: string): { primary: string, fallback: string } | null {
+  if (!/^[A-Za-z0-9_-]{2,}$/.test(emojiId)) return null
+  const prefix = emojiId.slice(0, 2)
+  const base = `https://gxh.vip.qq.com/club/item/parcel/item/${prefix}/${emojiId}/raw300`
+  return { primary: `${base}.gif`, fallback: `${base}.png` }
+}
+
 export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePreviewModalProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(false)
@@ -262,16 +269,28 @@ export function MessagePreviewModal({ open, onClose, chat, onExport }: MessagePr
       } else if (el.marketFaceElement) {
         const faceName = el.marketFaceElement.faceName || '表情'
         const emojiId = el.marketFaceElement.emojiId || ''
-        const stickerUrl = emojiId ? `https://gxh.vip.qq.com/club/item/parcel/item/${emojiId}/raw300.gif` : ''
-        if (stickerUrl) {
+        const stickerUrls = marketFaceUrls(emojiId)
+        if (stickerUrls) {
           nodes.push(
             <span key={`mface-${i}`} className="inline-block align-middle my-0.5">
               <img
-                src={stickerUrl}
+                src={stickerUrls.primary}
                 alt={faceName}
                 className="w-16 h-16 object-contain"
                 loading="lazy"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).insertAdjacentHTML('afterend', `<span class="text-muted-foreground/70 text-sm">${faceName}</span>`) }}
+                onError={(e) => {
+                  const image = e.currentTarget
+                  if (image.dataset.fallbackTried !== 'true') {
+                    image.dataset.fallbackTried = 'true'
+                    image.src = stickerUrls.fallback
+                    return
+                  }
+                  image.style.display = 'none'
+                  const fallback = document.createElement('span')
+                  fallback.className = 'text-muted-foreground/70 text-sm'
+                  fallback.textContent = faceName
+                  image.insertAdjacentElement('afterend', fallback)
+                }}
               />
             </span>
           )

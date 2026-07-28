@@ -9,6 +9,7 @@ use qce_exporter::types::{
 use serde_json::{json, Map, Value};
 
 use super::multi_forward_xml::parse_multi_forward_xml;
+use crate::market_face;
 
 /// 嵌套合并转发递归深度上限。三层基本足够，再深就不展开避免栈/性能爆炸。
 const MAX_FORWARD_DEPTH: u32 = 3;
@@ -1301,11 +1302,7 @@ impl SimpleMessageParser {
         // 商城表情
         if let Some(mfe) = v_get(element, "marketFaceElement").filter(|v| !v.is_null()) {
             let emoji_id = v_str(mfe, "emojiId").unwrap_or("");
-            let url = if emoji_id.is_empty() {
-                String::new()
-            } else {
-                Self::generate_market_face_url(emoji_id)
-            };
+            let (url, fallback_url) = market_face::urls(emoji_id).unwrap_or_default();
             return Some(MessageElement {
                 element_type: "market_face".to_string(),
                 data: json!({
@@ -1314,7 +1311,8 @@ impl SimpleMessageParser {
                     "key": v_str(mfe, "key").unwrap_or(""),
                     "emojiId": emoji_id,
                     "emojiPackageId": v_get(mfe, "emojiPackageId").cloned().unwrap_or(Value::Null),
-                    "url": url
+                    "url": url,
+                    "fallbackUrl": fallback_url
                 }),
             });
         }
@@ -2912,11 +2910,15 @@ impl SimpleMessageParser {
                             .filter(|s| !s.is_empty())
                             .unwrap_or("超级表情");
                         parts.push(format!("[{face_name}]"));
+                        let (url, fallback_url) =
+                            market_face::urls(v_str(mf, "emojiId").unwrap_or(""))
+                                .unwrap_or_default();
                         preview_elements.push(json!({
                             "type": "marketFace",
                             "text": format!("[{face_name}]"),
                             "faceName": face_name,
-                            "url": Self::generate_market_face_url(v_str(mf, "emojiId").unwrap_or(""))
+                            "url": url,
+                            "fallbackUrl": fallback_url
                         }));
                     }
                 }
@@ -3034,14 +3036,6 @@ impl SimpleMessageParser {
             return uid_str;
         }
         String::new()
-    }
-
-    fn generate_market_face_url(emoji_id: &str) -> String {
-        if emoji_id.chars().count() < 2 {
-            return String::new();
-        }
-        let prefix: String = emoji_id.chars().take(2).collect();
-        format!("https://gxh.vip.qq.com/club/item/parcel/item/{prefix}/{emoji_id}/raw300.gif")
     }
 
     fn gray_tip_name(value: &Value, keys: &[&str]) -> Option<String> {

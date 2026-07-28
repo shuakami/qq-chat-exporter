@@ -2539,8 +2539,18 @@ fn render_market_face_element(data: &Value) -> String {
     let name = str_field(data, "name").unwrap_or_else(|| "商城表情".to_owned());
     let url = str_field(data, "url").unwrap_or_default();
     if !url.is_empty() {
+        let fallback_url = str_field(data, "fallbackUrl")
+            .filter(|value| !value.is_empty())
+            .or_else(|| market_face_alternate_url(&url))
+            .unwrap_or_default();
+        let fallback_attribute = if fallback_url.is_empty() {
+            String::new()
+        } else {
+            format!(" data-fallback-url=\"{}\"", escape_html(&fallback_url))
+        };
         return format!(
-            "<span class=\"sticker-wrap\"><img src=\"{url}\" alt=\"{n}\" class=\"sticker sticker-img market-face\" title=\"{n}\" loading=\"lazy\"></span>",
+            "<span class=\"sticker-wrap\"><img src=\"{url}\" alt=\"{n}\" class=\"sticker sticker-img market-face\" title=\"{n}\" loading=\"lazy\" referrerpolicy=\"no-referrer\"{fallback_attribute} onerror=\"if(!this.dataset.fallbackTried&&this.dataset.fallbackUrl){{this.dataset.fallbackTried='1';this.src=this.dataset.fallbackUrl}}else{{this.replaceWith(document.createTextNode(this.alt))}}\"></span>",
+            url = escape_html(&url),
             n = escape_html(&name)
         );
     }
@@ -2548,6 +2558,20 @@ fn render_market_face_element(data: &Value) -> String {
         "<span class=\"sticker-wrap\">{}</span>",
         render_media_fallback("sticker", "表情不可用", &name)
     )
+}
+
+fn market_face_alternate_url(url: &str) -> Option<String> {
+    let (path, query) = url
+        .split_once('?')
+        .map_or((url, None), |(path, query)| (path, Some(query)));
+    let alternate = if let Some(base) = path.strip_suffix("/raw300.gif") {
+        format!("{base}/raw300.png")
+    } else if let Some(base) = path.strip_suffix("/raw300.png") {
+        format!("{base}/raw300.gif")
+    } else {
+        return None;
+    };
+    Some(query.map_or(alternate.clone(), |query| format!("{alternate}?{query}")))
 }
 
 /// 人类可读文件大小（B/KB/MB/GB）。0 时返回空串。
@@ -3633,7 +3657,7 @@ pub fn get_face_name_by_id(id: &str) -> String {
 mod tests {
     use super::{
         extract_plain_text, generate_avatar_html, media_dimension_attributes, render_face_element,
-        render_media_fallback, render_native_card_element,
+        render_market_face_element, render_media_fallback, render_native_card_element,
     };
     use crate::types::CleanMessage;
     use serde_json::json;
@@ -3675,6 +3699,17 @@ mod tests {
             "[一箱猫猫]",
         );
         assert!(extract_plain_text(&sticker_only).is_empty());
+    }
+
+    #[test]
+    fn market_face_uses_png_fallback_after_gif_failure() {
+        let html = render_market_face_element(&json!({
+            "name": "测试表情",
+            "url": "https://gxh.vip.qq.com/club/item/parcel/item/ab/abcdef/raw300.gif"
+        }));
+        assert!(html.contains("raw300.gif"));
+        assert!(html.contains("data-fallback-url=\"https://gxh.vip.qq.com/club/item/parcel/item/ab/abcdef/raw300.png\""));
+        assert!(html.contains("fallbackTried"));
     }
 
     #[test]
