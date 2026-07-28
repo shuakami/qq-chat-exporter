@@ -23,7 +23,8 @@ body:
         - Windows 10
         - Ubuntu / Debian
         - 其他 Linux
-        - macOS（暂不支持）
+        - macOS（Apple Silicon 预览版）
+        - macOS（Intel，暂不支持）
     validations:
       required: true
 

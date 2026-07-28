@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -46,6 +47,123 @@ function appendRuntimeLog(logFile, prefix, message) {
   } catch (error) {
     console.error(`[QCE] failed to write runtime log: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+// --- one-click WebUI link ---------------------------------------------------
+//
+// Restores behaviour lost in the Rust rewrite. The old TypeScript ApiServer
+// printed the access token and a ready-to-open `/qce/auth?token=…` link on
+// startup (issue #287 — Framework mode has no embedded login entry point, so
+// without it users had to dig the token out of security.json every time). The
+// port to qce-server dropped both, and nothing replaced them on this launch
+// path; the auth page's own help panel still tells users to look for them.
+//
+// Standalone mode re-added the link for its own, separate spawn path (issue
+// #457, scripts/quick-pack.py's embedded qce-standalone.mjs). The wording is
+// kept identical here by hand: the two cannot share code, because standalone
+// mode is deliberately dependency-free and never loads this plugin runtime.
+
+export function resolveSecurityConfigPath() {
+  const override = (process.env.QCE_CONFIG_DIR || '').trim();
+  const dir = override || path.join(os.homedir(), '.qq-chat-exporter');
+  return path.join(dir, 'security.json');
+}
+
+export function buildAuthUrl(port, token) {
+  return `http://127.0.0.1:${port}/qce/auth?token=${encodeURIComponent(token)}`;
+}
+
+export function buildBrowserOpenCommand(url, platform = process.platform) {
+  if (platform === 'darwin') return { cmd: 'open', args: [url] };
+  if (platform === 'win32') return { cmd: 'cmd', args: ['/c', 'start', '', url] };
+  return { cmd: 'xdg-open', args: [url] };
+}
+
+// qce-server writes security.json in SecurityManager::initialize(), which runs
+// before it binds the port — so by the time waitForPort() resolves the file is
+// already there and the first attempt normally succeeds. The retries only cover
+// a slow/contended filesystem catching up, hence the much shorter budget than
+// qce-standalone.mjs (which polls from before the server has even started).
+export async function readAccessTokenWithRetry(configPath, { retries = 4, delayMs = 500 } = {}) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const token = JSON.parse(readFileSync(configPath, 'utf8'))?.accessToken;
+      if (typeof token === 'string' && token.length > 0) {
+        return token;
+      }
+    } catch {
+      // not readable yet — fall through to the retry delay below
+    }
+    if (attempt < retries) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return null;
+}
+
+// user-config.json is where the settings page's "自动打开浏览器" toggle
+// (qce-v4-tool/components/ui/settings-panel.tsx) persists its choice, via
+// PUT /api/config (qq-chat-export-server/src/api/routes/system.rs). That
+// route resolves the file through PathManager::default_base_dir(), which —
+// unlike resolveSecurityConfigPath() above — does NOT honor QCE_CONFIG_DIR.
+// Matching that exactly here (rather than reusing resolveSecurityConfigPath)
+// is required for the two to ever agree on which file they mean.
+export function resolveUserConfigPath() {
+  return path.join(os.homedir(), '.qq-chat-exporter', 'user-config.json');
+}
+
+export function readAutoOpenBrowserSetting(configPath) {
+  try {
+    const value = JSON.parse(readFileSync(configPath, 'utf8'))?.autoOpenBrowser;
+    return typeof value === 'boolean' ? value : true;
+  } catch {
+    return true; // missing/unreadable config == the historical default (open)
+  }
+}
+
+/**
+ * QCE_NO_AUTO_OPEN=1 is a hard opt-out for headless boxes, documented and
+ * tested independently of the persisted setting below — it always wins.
+ * Otherwise this follows the settings-page toggle, re-read on every start so
+ * a change made in the UI takes effect on the next launch without a rebuild.
+ */
+export function shouldAutoOpenBrowser(env = process.env, configPath = resolveUserConfigPath()) {
+  if (env.QCE_NO_AUTO_OPEN === '1') return false;
+  return readAutoOpenBrowserSetting(configPath);
+}
+
+function tryOpenBrowser(url) {
+  if (!shouldAutoOpenBrowser()) return;
+  try {
+    const { cmd, args } = buildBrowserOpenCommand(url);
+    const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+    child.on('error', () => {}); // best-effort: headless boxes have no browser to open
+    child.unref();
+  } catch {
+    // best-effort only — the printed URL below is the real fallback
+  }
+}
+
+async function announceWebUiReady(logFile, port) {
+  const configPath = resolveSecurityConfigPath();
+  const token = await readAccessTokenWithRetry(configPath);
+  if (!token) {
+    console.log(`[QCE] 未能读取访问令牌，请打开 ${configPath} 查看 accessToken 字段`);
+    appendRuntimeLog(logFile, '[qce-plugin]', 'webui url announce: access token not found');
+    return;
+  }
+  const url = buildAuthUrl(port, token);
+  console.log('');
+  // Both lines, in this order, are what the auth page's "找不到令牌？" panel
+  // and docs/guide.md tell users to look for. The bare token is redundant with
+  // the link on purpose: if the one-click page fails for any reason, it can
+  // still be pasted into the token prompt by hand.
+  console.log(`[QCE] Token: ${token}`);
+  console.log(`[QCE] 一键登录: ${url}`);
+  console.log('[QCE] 此链接包含访问令牌，请勿分享给他人');
+  console.log('');
+  appendRuntimeLog(logFile, '[qce-plugin]', 'webui url ready');
+  tryOpenBrowser(url);
 }
 
 function executableName() {
@@ -289,6 +407,9 @@ export async function startRustApiServer(core, frontendPath) {
       new Promise((_, reject) => child.once('error', reject))
     ]);
     appendRuntimeLog(logFile, '[qce-plugin]', `qce-server ready on port ${API_PORT}`);
+    announceWebUiReady(logFile, API_PORT).catch((error) => {
+      appendRuntimeLog(logFile, '[qce-plugin]', `webui url announce failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
   } catch (error) {
     appendRuntimeLog(logFile, '[qce-plugin]', `startup failed: ${error instanceof Error ? error.message : String(error)}`);
     child.kill();

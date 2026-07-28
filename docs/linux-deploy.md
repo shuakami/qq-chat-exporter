@@ -119,7 +119,7 @@ http://<你的服务器IP>:40653/qce/
 
 **这会导致抢登冲突**：如果你在自己的普通电脑上登录了桌面版 QQ，一旦在服务器上启动了 QCE 完整模式，你的桌面 QQ 就会被强制顶下线；反之，在电脑上登录 QQ，服务器上的 QCE 也会断开连接。
 
-如果你希望两边同时保持在线，可以给启动脚本加上参数，强制回退到旧版的启动方式——让程序以独立的 Node 进程直接去跑 `napcat-bootstrap.mjs`。这种机制不占用 PC 登录名额（与 macOS 的处理逻辑一致）：
+如果你希望两边同时保持在线，可以给启动脚本加上参数，强制回退到旧版的启动方式——让程序以独立的 Node 进程直接去跑 `napcat-bootstrap.mjs`。这种机制不占用 PC 登录名额（该参数仅适用于 Linux）：
 
 ```bash
 # 方式一：直接在启动命令后加参数
@@ -241,12 +241,4 @@ journalctl -u qce.service -f
 
 ## 关于 macOS 系统的说明
 
-部署包中的 `launcher-user.sh` 脚本在编写时同时也兼顾了 macOS 的基础路径规则（会自动检索 `/Applications/QQ.app/Contents/MacOS/QQ` 和 `~/Applications/QQ.app/Contents/MacOS/QQ`）。Linux 专用的 `LD_PRELOAD` 环境和多进程禁用开关在检测到 macOS 系统时会自动跳过。
-
-不过！**目前 macOS 的完整运行流程尚未经过全面端到端的验证**：
-
-* macOS 系统下需要将注入机制改为 `DYLD_INSERT_LIBRARIES`，并且通常需要用户手动关闭系统的 SIP（系统完整性保护）功能才能让注入生效。
-* 预编译包中尚未默认打包 `qq_magic.dylib` 模块。
-* macOS QQ 客户端的内部底层模块结构与 Linux 版本存在一定差异。
-
-如果你在 Mac 设备上尝试部署并遇到了问题，欢迎前往 GitHub 的 [Issue 区](https://github.com/shuakami/qq-chat-exporter/issues)提交你的实测反馈与技术日志，帮助我们一起完善 Mac 端的支持~
+macOS（目前仅限 Apple Silicon / arm64）现在有独立的 Shell 完整包和专门的部署文档，机制与本文介绍的 Linux `LD_PRELOAD` 方案完全不同（macOS 上采用的是私有运行副本 + 重新签名的方式）。请查阅 [macOS 部署指南](macos-deploy.md)，不要将本文的 Linux 步骤套用到 macOS 上。

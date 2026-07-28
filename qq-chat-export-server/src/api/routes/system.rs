@@ -267,9 +267,18 @@ pub async fn get_config(
             "customScheduledExportDir": config.get("customScheduledExportDir").cloned().unwrap_or(Value::Null),
             "currentExportsDir": state.path_manager.exports_dir(),
             "currentScheduledExportsDir": state.path_manager.scheduled_exports_dir(),
+            "autoOpenBrowser": read_auto_open_browser(&config),
         }),
         &request_id,
     )
+}
+
+/// 读取 `autoOpenBrowser` 字段，缺失或类型不对时默认为 `true`（沿用登录成功即自动打开浏览器的历史行为）。
+fn read_auto_open_browser(config: &Value) -> bool {
+    config
+        .get("autoOpenBrowser")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
 }
 
 /// `PUT /api/config` — 更新用户配置。
@@ -289,6 +298,17 @@ pub async fn put_config(
     let custom_scheduled_dir = match parse_config_path(&body, "customScheduledExportDir") {
         Ok(value) => value,
         Err(err) => return response::error(&err, &request_id),
+    };
+    let auto_open_browser = match body.get("autoOpenBrowser") {
+        None => None,
+        Some(Value::Bool(value)) => Some(*value),
+        Some(_) => {
+            let err = ApiError::validation(
+                "autoOpenBrowser 必须是布尔值",
+                "INVALID_AUTO_OPEN_BROWSER_TYPE",
+            );
+            return response::error(&err, &request_id);
+        }
     };
     let config_path = state
         .path_manager
@@ -332,6 +352,10 @@ pub async fn put_config(
                 Value::String(value.clone()),
             );
         }
+    }
+
+    if let Some(value) = auto_open_browser {
+        config_obj.insert("autoOpenBrowser".to_string(), Value::Bool(value));
     }
 
     let Ok(serialized) = serde_json::to_string_pretty(&config) else {
@@ -395,6 +419,7 @@ pub async fn put_config(
             "customScheduledExportDir": config.get("customScheduledExportDir").cloned().unwrap_or(Value::Null),
             "currentExportsDir": state.path_manager.exports_dir(),
             "currentScheduledExportsDir": state.path_manager.scheduled_exports_dir(),
+            "autoOpenBrowser": read_auto_open_browser(&config),
         }),
         &request_id,
     )
