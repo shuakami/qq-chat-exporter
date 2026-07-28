@@ -22,7 +22,8 @@ body:
         - "Windows 7/8"
         - "Linux (Ubuntu/Debian)"
         - "Linux (其他发行版)"
-        - "macOS"
+        - "macOS（Apple Silicon）"
+        - "macOS（Intel，暂不支持）"
     validations:
       required: true
 

@@ -7,6 +7,7 @@
 | <mark data-tip="推荐！">一键安装包</mark> | Windows 7+ x64 | 自带运行环境，双击自动安装，支持快捷登录并自动打开操作网页。 | `QQChatExporter-Installer-vxxx.exe` |
 | Shell 模式 | Windows x64 | 独立在后台运行的无界面 QQ，适合服务器运行或自动化备份。 | `NapCat-QCE-Windows-x64-vxxx.zip` |
 | Shell 模式 | Linux x64 | 独立的无界面 Linux QQ 运行包，适合服务器部署或 Docker 环境。 | `NapCat-QCE-Linux-x64-vxxx.tar.gz` |
+| Shell 模式（预览） | macOS Apple Silicon (arm64) | 独立运行环境，首次启动会在本地生成一份专用的 QQ 运行副本，详见 [macOS 部署指南](macos-deploy.md)。 | `NapCat-QCE-macOS-arm64-vxxx.tar.gz` |
 | Framework 模式 | Windows | 桌面 QQ 的插件版本，可以与你平时聊天的 QQ 客户端共存。 | `NapCat-Framework-QCE-vxxx.zip` |
 | NapCat 插件商店包 | 跨平台 | 专给已经配置好 NapCat 环境的用户使用，可在插件商店直接装。 | `napcat-plugin-qce.zip` |
 
@@ -74,6 +75,7 @@ Shell 包有两种启动方式，根据你的实际需求选择：
 
 * **Windows**：双击运行 `launcher-user.bat`
 * **Linux**：运行 `./launcher-user.sh`（首次在服务器部署请参考 [Linux 部署指南](linux-deploy.md)）
+* **macOS**（仅 Apple Silicon，预览支持）：终端运行 `./launcher-user.sh`，详见 [macOS 部署指南](macos-deploy.md)
 * **操作**：运行后留在黑色的控制台窗口中，用手机 QQ 扫描里面打印出来的二维码登录。
 * **进入界面**：看到控制台打印出 `Web界面: http://127.0.0.1:40653/qce` 这行字后，说明启动成功，此时可以用浏览器访问该地址。如果没看到这行字，先不要刷新网页。
 
@@ -81,6 +83,7 @@ Shell 包有两种启动方式，根据你的实际需求选择：
 
 * **Windows**：双击运行 `start-standalone.bat`
 * **Linux**：运行 `./start-standalone.sh`
+* **macOS**：终端运行 `./start-standalone.sh`
 * **操作**：直接在浏览器访问 `http://localhost:40653/qce`，该模式不需要输入安全令牌。
 
 ---
@@ -95,7 +98,7 @@ Shell 包有两种启动方式，根据你的实际需求选择：
 
 #### 方法 1：从 `security.json` 配置文件中查找（最稳妥）
 
-Windows 用户按下键盘上的 `Win + R` 键，输入 `%USERPROFILE%\.qq-chat-exporter` 并回车；Linux 用户查看 `~/.qq-chat-exporter/` 目录。
+Windows 用户按下键盘上的 `Win + R` 键，输入 `%USERPROFILE%\.qq-chat-exporter` 并回车；Linux / macOS 用户查看 `~/.qq-chat-exporter/` 目录。
 用记事本打开该目录下的 `security.json`，找到 `accessToken` 字段：
 
 ```json
@@ -111,7 +114,14 @@ Windows 用户按下键盘上的 `Win + R` 键，输入 `%USERPROFILE%\.qq-chat-
 
 #### 方法 2：从控制台日志复制
 
-部分版本启动时，黑色的控制台窗口里会直接打印出 `[QCE] Token: xxx` 这一行，后面的字符就是令牌；如果打印了类似 `http://127.0.0.1:40653/qce/auth?token=...` 的链接，直接复制到浏览器打开就能自动跳过验证。新版本由于安全考虑可能会隐藏此打印，若没看到，请统一使用方法 1。
+启动完成后，黑色的控制台窗口里会打印出这两行：
+
+```
+[QCE] Token: xxxxxxxx
+[QCE] 一键登录: http://127.0.0.1:40653/qce/auth?token=...
+```
+
+第二行的链接复制到浏览器打开就能自动跳过验证（通常也会自动弹出），第一行后面那串字符就是令牌，可以手动粘贴到验证框里。如果控制台内容已经翻过去太多、找不到这两行了，请使用方法 1。
 
 #### 方法 3：一键安装包用户
 
