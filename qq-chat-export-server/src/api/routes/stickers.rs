@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use crate::api::http_security::http_get_bytes;
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
+use crate::market_face;
 
 /// 内嵌系统表情配置（与解析器共用）。
 static FACE_CONFIG: &str = include_str!("../../../assets/face_config.json");
@@ -196,13 +197,12 @@ fn parse_market_json(pack_data: &Value) -> Vec<Value> {
                     n
                 }
             };
-            let prefix: String = md5.chars().take(2).collect();
-            let url =
-                format!("https://gxh.vip.qq.com/club/item/parcel/item/{prefix}/{md5}/raw300.gif");
+            let (url, fallback_url) = market_face::urls(&md5).unwrap_or_default();
             json!({
                 "stickerId": md5,
                 "name": name,
                 "path": url,
+                "fallbackPath": fallback_url,
                 "downloaded": true,
                 "md5": md5,
                 "fileSize": 0,
@@ -239,10 +239,12 @@ fn parse_market_pack_info(pack_info: &Value) -> Vec<Value> {
                 .map(|key| str_of(emoji, key))
                 .find(|value| !value.is_empty())
                 .unwrap_or_default();
+            let fallback_path = market_face::alternate_url(&path).unwrap_or_default();
             json!({
                 "stickerId": sticker_id,
                 "name": name,
                 "path": path,
+                "fallbackPath": fallback_path,
                 "downloaded": emoji.get("isExist").and_then(Value::as_bool).unwrap_or(false),
                 "md5": str_of(emoji, "md5"),
                 "fileSize": emoji.get("size").and_then(Value::as_u64).unwrap_or(0),
@@ -523,10 +525,26 @@ async fn save_sticker(sticker: &Value, stickers_dir: &FsPath) -> bool {
     );
     let dest = stickers_dir.join(file_name);
     let ok = if source.starts_with("http://") || source.starts_with("https://") {
-        match http_get_bytes(&source).await {
-            Some(bytes) => tokio::fs::write(&dest, bytes).await.is_ok(),
-            None => false,
+        let mut candidates = vec![source.clone()];
+        let configured_fallback = str_of(sticker, "fallbackPath");
+        if !configured_fallback.is_empty() && !candidates.contains(&configured_fallback) {
+            candidates.push(configured_fallback);
         }
+        if let Some(derived_fallback) = market_face::alternate_url(&source) {
+            if !candidates.contains(&derived_fallback) {
+                candidates.push(derived_fallback);
+            }
+        }
+        let mut saved = false;
+        for candidate in candidates {
+            if let Some(bytes) = http_get_bytes(&candidate).await {
+                if tokio::fs::write(&dest, bytes).await.is_ok() {
+                    saved = true;
+                    break;
+                }
+            }
+        }
+        saved
     } else {
         tokio::fs::copy(&source, &dest).await.is_ok()
     };
@@ -873,6 +891,10 @@ mod tests {
             json_stickers[0]["path"],
             "https://gxh.vip.qq.com/club/item/parcel/item/ab/abcdef/raw300.gif"
         );
+        assert_eq!(
+            json_stickers[0]["fallbackPath"],
+            "https://gxh.vip.qq.com/club/item/parcel/item/ab/abcdef/raw300.png"
+        );
 
         let api_stickers = parse_market_pack_info(&json!({
             "result": {
@@ -887,6 +909,7 @@ mod tests {
         assert_eq!(api_stickers.len(), 1);
         assert_eq!(api_stickers[0]["stickerId"], "emoji_1");
         assert_eq!(api_stickers[0]["path"], "C:/emoji.gif");
+        assert_eq!(api_stickers[0]["fallbackPath"], "");
     }
 
     #[test]

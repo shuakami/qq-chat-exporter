@@ -1,6 +1,7 @@
 pub mod api;
 pub mod export_debug;
 pub mod fetcher;
+pub mod market_face;
 pub mod napcat;
 pub mod parser;
 pub mod paths;
