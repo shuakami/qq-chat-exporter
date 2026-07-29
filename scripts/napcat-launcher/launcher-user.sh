@@ -311,10 +311,13 @@ if [[ "${OSTYPE:-}" == darwin* ]]; then
     # binary gets silently SIGKILLed the instant it's spawned, before it can
     # log anything (confirmed on real hardware: qce-server died on launch,
     # QQ/NapCat kept running fine, and the web UI was simply unreachable with
-    # no error dialog at all). The docs also tell users to run
-    # `xattr -r -d com.apple.quarantine .` themselves before first launch, but
-    # that step is easy to get wrong (wrong cwd, extracting via Finder after
-    # already having run it, etc.), so don't rely on it having worked.
+    # no error dialog at all). Nothing in the docs asks users to clear the
+    # attribute themselves, and extracting from Terminal does not avoid it
+    # either: macOS propagates the archive's own quarantine to every extracted
+    # file whatever the tool -- verified with `tar -xf` on a Safari-downloaded
+    # release tarball, where qce-server came out quarantined just as it does
+    # via Finder. This strip is therefore the only thing that keeps a
+    # browser-downloaded package runnable; do not drop it as redundant.
     [ -e "$SCRIPT_DIR/qce-server" ] && xattr -cr "$SCRIPT_DIR/qce-server" 2>/dev/null
     [ -d "$SCRIPT_DIR/native" ] && xattr -cr "$SCRIPT_DIR/native" 2>/dev/null
 
