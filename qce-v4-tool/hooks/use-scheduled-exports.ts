@@ -21,7 +21,7 @@ export interface ScheduledExportConfig {
         startTime: number;
         endTime: number;
     };
-    format: 'JSON' | 'HTML' | 'TXT';
+    format: 'JSON' | 'HTML' | 'TXT' | 'EXCEL';
     options: {
         includeResourceLinks?: boolean;
         includeSystemMessages?: boolean;
@@ -29,11 +29,69 @@ export interface ScheduledExportConfig {
         prettyFormat?: boolean;
         preferGroupMemberName?: boolean;
         debugExport?: boolean;
+        skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>;
     };
+    outputDir?: string;
     enabled: boolean;
     createdAt?: string;
     lastRun?: string;
     nextRun?: string;
+}
+
+export function scheduledExportFormToConfig(formData: CreateScheduledExportForm): ScheduledExportConfig {
+    return {
+        name: formData.name.trim(),
+        peer: {
+            chatType: formData.chatType,
+            peerUid: formData.peerUid,
+            ...(formData.peerUin && { peerUin: formData.peerUin }),
+            guildId: "",
+        },
+        sessionName: formData.sessionName,
+        scheduleType: formData.scheduleType,
+        executeTime: formData.executeTime,
+        cronExpression: formData.cronExpression,
+        timeRangeType: formData.timeRangeType,
+        customTimeRange: formData.customTimeRange,
+        format: formData.format as ScheduledExportConfig['format'],
+        options: {
+            includeResourceLinks: formData.includeResourceLinks ?? true,
+            includeSystemMessages: formData.includeSystemMessages ?? true,
+            filterPureImageMessages: formData.filterPureImageMessages ?? false,
+            prettyFormat: true,
+            preferGroupMemberName: formData.preferGroupMemberName ?? true,
+            debugExport: formData.debugExport ?? false,
+            ...(Array.isArray(formData.skipDownloadResourceTypes) && formData.skipDownloadResourceTypes.length > 0 && {
+                skipDownloadResourceTypes: formData.skipDownloadResourceTypes,
+            }),
+        },
+        outputDir: formData.outputDir?.trim() || "",
+        enabled: formData.enabled,
+    };
+}
+
+export function scheduledExportConfigToForm(task: ScheduledExportConfig): CreateScheduledExportForm {
+    return {
+        name: task.name,
+        chatType: task.peer.chatType,
+        peerUid: task.peer.peerUid,
+        peerUin: task.peer.peerUin,
+        sessionName: task.sessionName || task.name,
+        scheduleType: task.scheduleType,
+        cronExpression: task.cronExpression,
+        executeTime: task.executeTime,
+        timeRangeType: task.timeRangeType,
+        customTimeRange: task.customTimeRange,
+        format: task.format,
+        enabled: task.enabled,
+        outputDir: task.outputDir,
+        includeResourceLinks: task.options.includeResourceLinks ?? true,
+        includeSystemMessages: task.options.includeSystemMessages ?? true,
+        filterPureImageMessages: task.options.filterPureImageMessages ?? false,
+        preferGroupMemberName: task.options.preferGroupMemberName ?? true,
+        debugExport: task.options.debugExport ?? false,
+        skipDownloadResourceTypes: task.options.skipDownloadResourceTypes,
+    };
 }
 
 export interface ExecutionHistory {
@@ -87,35 +145,7 @@ export function useScheduledExports() {
         try {
             setLoading(true);
             
-            const config: ScheduledExportConfig = {
-                name: formData.name,
-                peer: {
-                    chatType: formData.chatType,
-                    peerUid: formData.peerUid,
-                    ...(formData.peerUin && { peerUin: formData.peerUin }),
-                    guildId: "",
-                },
-                sessionName: formData.sessionName,
-                scheduleType: formData.scheduleType,
-                executeTime: formData.executeTime,
-                cronExpression: formData.cronExpression,
-                timeRangeType: formData.timeRangeType,
-                customTimeRange: formData.customTimeRange,
-                format: formData.format as 'JSON' | 'HTML' | 'TXT',
-                options: {
-                    includeResourceLinks: formData.includeResourceLinks ?? true,
-                    includeSystemMessages: formData.includeSystemMessages ?? true,
-                    filterPureImageMessages: formData.filterPureImageMessages ?? false,
-                    prettyFormat: true,
-                    preferGroupMemberName: formData.preferGroupMemberName ?? true,
-                    debugExport: formData.debugExport ?? false,
-                    ...(Array.isArray(formData.skipDownloadResourceTypes) && formData.skipDownloadResourceTypes.length > 0 && {
-                        skipDownloadResourceTypes: formData.skipDownloadResourceTypes,
-                    }),
-                },
-                ...(formData.outputDir?.trim() && { outputDir: formData.outputDir.trim() }),
-                enabled: formData.enabled,
-            };
+            const config = scheduledExportFormToConfig(formData);
             
             const response = await apiCall('/api/scheduled-exports', {
                 method: 'POST',
@@ -242,6 +272,38 @@ export function useScheduledExports() {
         }
     }, [apiCall, fetchTasks]);
 
+    // 批量触发选中的定时导出任务
+    const triggerTasks = useCallback(async (ids: string[]) => {
+        const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+        if (uniqueIds.length === 0) return { triggeredCount: 0, triggered: [], missingIds: [] };
+        try {
+            setLoading(true);
+            const response = await apiCall('/api/scheduled-exports/trigger-batch', {
+                method: 'POST',
+                body: JSON.stringify({ ids: uniqueIds }),
+            }) as APIResponse<{
+                triggeredCount: number;
+                triggered: Array<{ id: string; name: string }>;
+                missingIds: string[];
+            }>;
+            if (!response.success || !response.data) {
+                throw new Error(response.error?.message || '批量触发任务失败');
+            }
+            toast({
+                title: "成功",
+                description: `已触发 ${response.data.triggeredCount} 个定时导出任务`
+            });
+            await fetchTasks();
+            return response.data;
+        } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : '批量触发任务失败';
+            toast({ title: "错误", description: errorMsg, variant: "destructive" });
+            throw err;
+        } finally {
+            setLoading(false);
+        }
+    }, [apiCall, fetchTasks]);
+
     // 获取任务执行历史
     const fetchTaskHistory = useCallback(async (id: string, limit: number = 50): Promise<ExecutionHistory[]> => {
         try {
@@ -295,6 +357,7 @@ export function useScheduledExports() {
         updateScheduledExport: updateTask,
         deleteScheduledExport: deleteTask,
         triggerScheduledExport: triggerTask,
+        triggerScheduledExports: triggerTasks,
         toggleScheduledExport: async (id: string, enabled: boolean) => {
             const task = tasks.find(t => t.id === id);
             if (task) {

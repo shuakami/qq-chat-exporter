@@ -277,6 +277,10 @@ fn build_router(
             post(scheduled::trigger_all_scheduled_exports),
         )
         .route(
+            "/api/scheduled-exports/trigger-batch",
+            post(scheduled::trigger_scheduled_exports),
+        )
+        .route(
             "/api/scheduled-exports/:id",
             get(scheduled::get_scheduled_export)
                 .put(scheduled::update_scheduled_export)

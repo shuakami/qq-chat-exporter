@@ -38,6 +38,7 @@ interface ScheduledExportWizardProps {
   friends?: Friend[]
   onLoadData?: () => void
   taskStatsMap?: Record<string, SessionTaskStats | undefined>
+  mode?: 'create' | 'edit'
 }
 
 interface SelectedTarget {
@@ -60,6 +61,7 @@ export function ScheduledExportWizard({
   friends = [],
   onLoadData,
   taskStatsMap,
+  mode = 'create',
 }: ScheduledExportWizardProps) {
   // 基础配置表单
   const [baseForm, setBaseForm] = useState({
@@ -95,15 +97,6 @@ export function ScheduledExportWizard({
   const friendSearchRef = useRef(friendSearch)
   const currentChatTypeRef = useRef(currentChatType)
 
-  // 格式改变时自动调整filterPureImageMessages默认值
-  useEffect(() => {
-    if (baseForm.format === 'HTML') {
-      setBaseForm(p => ({ ...p, filterPureImageMessages: false }))
-    } else if (baseForm.format === 'JSON' || baseForm.format === 'TXT') {
-      setBaseForm(p => ({ ...p, filterPureImageMessages: true }))
-    }
-  }, [baseForm.format])
-
   // 初始化搜索引用
   useEffect(() => {
     groupSearchRef.current = groupSearch
@@ -114,7 +107,7 @@ export function ScheduledExportWizard({
   // 预填充数据处理
   useEffect(() => {
     if (prefilledData && isOpen) {
-      const format = (prefilledData.format as "HTML" | "JSON" | "TXT") || "HTML"
+      const format = (prefilledData.format as "HTML" | "JSON" | "TXT" | "EXCEL") || "HTML"
       // 根据format设置filterPureImageMessages的默认值
       const defaultFilter = format === 'JSON' || format === 'TXT' ? true : false
       
@@ -212,9 +205,12 @@ export function ScheduledExportWizard({
   const handleSubmit = async () => {
     let successCount = 0
     
-    for (const target of selectedTargets) {
+    const targets = mode === 'edit' ? selectedTargets.slice(0, 1) : selectedTargets
+    for (const target of targets) {
       const taskForm: CreateScheduledExportForm = {
-        name: baseForm.namePrefix ? `${baseForm.namePrefix}-${target.name}` : target.name,
+        name: mode === 'edit'
+          ? baseForm.namePrefix.trim()
+          : baseForm.namePrefix ? `${baseForm.namePrefix}-${target.name}` : target.name,
         chatType: target.chatType,
         peerUid: target.peerUid,
         peerUin: target.peerUin,
@@ -241,7 +237,7 @@ export function ScheduledExportWizard({
         const success = await onSubmit(taskForm)
         if (success) successCount++
       } catch (error) {
-        console.error(`创建定时任务失败: ${target.name}`, error)
+        console.error(`${mode === 'edit' ? '更新' : '创建'}定时任务失败: ${target.name}`, error)
       }
     }
     
@@ -250,7 +246,9 @@ export function ScheduledExportWizard({
     }
   }
 
-  const canSubmit = () => selectedTargets.length > 0 && (baseForm.namePrefix.trim() !== "" || selectedTargets.length === 1)
+  const canSubmit = () => mode === 'edit'
+    ? selectedTargets.length === 1 && baseForm.namePrefix.trim() !== ""
+    : selectedTargets.length > 0 && (baseForm.namePrefix.trim() !== "" || selectedTargets.length === 1)
 
   // 搜索处理
   const handleSearchInput = useCallback((value: string) => {
@@ -334,7 +332,9 @@ export function ScheduledExportWizard({
     
     const isSelected = selectedTargets.some(t => t.id === id && t.type === selectedTarget.type)
     
-    if (isSelected) {
+    if (mode === 'edit') {
+      setSelectedTargets(isSelected ? [] : [selectedTarget])
+    } else if (isSelected) {
       setSelectedTargets(prev => prev.filter(t => !(t.id === id && t.type === selectedTarget.type)))
     } else {
       setSelectedTargets(prev => [...prev, selectedTarget])
@@ -388,14 +388,18 @@ export function ScheduledExportWizard({
         overlayClassName="bg-background/80 dark:bg-background/80"
         className="inset-4 w-auto h-auto rounded-[24px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.14)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col p-0"
       >
-        <DialogTitle className="sr-only">批量创建定时导出任务</DialogTitle>
+        <DialogTitle className="sr-only">{mode === 'edit' ? '编辑定时导出任务' : '批量创建定时导出任务'}</DialogTitle>
 
         <div className="flex-1 flex gap-8 min-h-0 pl-12 pr-8 pt-12 pb-6">
           {/* 左侧 - 目标选择 */}
           <div className="w-2/5 max-w-[500px] min-w-[300px] flex-shrink-0 flex flex-col">
             <div className="mb-6">
-              <h1 className="text-[20px] font-semibold text-foreground mb-2">批量创建定时任务</h1>
-              <p className="text-[13px] text-muted-foreground leading-relaxed">选择要创建定时任务的群组或好友，右侧配置调度规则。</p>
+              <h1 className="text-[20px] font-semibold text-foreground mb-2">
+                {mode === 'edit' ? '编辑定时任务' : '批量创建定时任务'}
+              </h1>
+              <p className="text-[13px] text-muted-foreground leading-relaxed">
+                {mode === 'edit' ? '查看并修改任务目标、调度规则与导出设置。' : '选择要创建定时任务的群组或好友，右侧配置调度规则。'}
+              </p>
             </div>
             
             {showTargetSelector ? (
@@ -659,7 +663,9 @@ export function ScheduledExportWizard({
                 <h2 className={SECTION_TITLE}>基础配置</h2>
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-[13px] font-medium text-foreground/80">任务名称前缀</label>
+                    <label className="text-[13px] font-medium text-foreground/80">
+                      {mode === 'edit' ? '任务名称' : '任务名称前缀'}
+                    </label>
                     <Input
                       id="namePrefix"
                       placeholder="例如：每日备份"
@@ -668,9 +674,11 @@ export function ScheduledExportWizard({
                       className={PILL_INPUT + " w-full"}
                     />
                     <p className="text-xs text-muted-foreground">
-                      {selectedTargets.length > 1 
-                        ? `将为每个会话创建任务，格式：${baseForm.namePrefix || "任务名称"}-会话名称`
-                        : "留空则使用会话名称作为任务名称"
+                      {mode === 'edit'
+                        ? '保存后立即用于后续调度和手动执行'
+                        : selectedTargets.length > 1
+                          ? `将为每个会话创建任务，格式：${baseForm.namePrefix || "任务名称"}-会话名称`
+                          : "留空则使用会话名称作为任务名称"
                       }
                     </p>
                   </div>
@@ -749,7 +757,11 @@ export function ScheduledExportWizard({
                             ? "bg-white dark:bg-white/10 text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
                             : "text-muted-foreground hover:text-foreground"
                         ].join(" ")}
-                        onClick={() => setBaseForm(p => ({ ...p, format: fmt }))}
+                        onClick={() => setBaseForm(p => ({
+                          ...p,
+                          format: fmt,
+                          filterPureImageMessages: fmt === 'JSON' || fmt === 'TXT',
+                        }))}
                       >
                         {fmt}
                       </button>
@@ -962,9 +974,11 @@ export function ScheduledExportWizard({
         <div className="h-[72px] flex items-center justify-between px-10 flex-shrink-0">
           <div className="text-[13px] font-medium text-muted-foreground">
             {canSubmit() ? (
-              <span className="text-foreground">配置就绪，将为 {selectedTargets.length} 个会话创建定时任务</span>
+              <span className="text-foreground">
+                {mode === 'edit' ? '配置就绪，可以保存更改' : `配置就绪，将为 ${selectedTargets.length} 个会话创建定时任务`}
+              </span>
             ) : (
-              <span>请选择会话并填写任务名称前缀</span>
+              <span>{mode === 'edit' ? '请选择一个会话并填写任务名称' : '请选择会话并填写任务名称前缀'}</span>
             )}
           </div>
 
@@ -977,7 +991,7 @@ export function ScheduledExportWizard({
               disabled={!canSubmit() || isLoading}
               className="rounded-full text-[13px] h-8 px-6 bg-[#317CFF] text-white hover:bg-[#2867d6]"
             >
-              {isLoading ? "创建中..." : "批量创建任务"}
+              {isLoading ? (mode === 'edit' ? "保存中..." : "创建中...") : (mode === 'edit' ? "保存更改" : "批量创建任务")}
             </Button>
           </div>
         </div>

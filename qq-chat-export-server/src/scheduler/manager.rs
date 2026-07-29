@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -91,7 +91,9 @@ impl ScheduledExportManager {
         task.insert("createdAt".to_string(), json!(now));
         task.insert("updatedAt".to_string(), json!(now));
         let next_run = calculate_next_run(
-            task.get("scheduleType").and_then(Value::as_str).unwrap_or("daily"),
+            task.get("scheduleType")
+                .and_then(Value::as_str)
+                .unwrap_or("daily"),
             task.get("cronExpression").and_then(Value::as_str),
             task.get("executeTime").and_then(Value::as_str),
         );
@@ -104,7 +106,11 @@ impl ScheduledExportManager {
         }
         self.save_task(&task).await;
 
-        if task.get("enabled").and_then(Value::as_bool).unwrap_or(false) {
+        if task
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             self.start_task(&id).await;
         }
         task
@@ -133,7 +139,10 @@ impl ScheduledExportManager {
             }
             merged.insert("updatedAt".to_string(), json!(now_iso()));
             let next_run = calculate_next_run(
-                merged.get("scheduleType").and_then(Value::as_str).unwrap_or("daily"),
+                merged
+                    .get("scheduleType")
+                    .and_then(Value::as_str)
+                    .unwrap_or("daily"),
                 merged.get("cronExpression").and_then(Value::as_str),
                 merged.get("executeTime").and_then(Value::as_str),
             );
@@ -146,7 +155,11 @@ impl ScheduledExportManager {
         self.save_task(&updated).await;
 
         self.stop_task(id).await;
-        if updated.get("enabled").and_then(Value::as_bool).unwrap_or(false) {
+        if updated
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             self.start_task(id).await;
         }
         Some(updated)
@@ -199,12 +212,33 @@ impl ScheduledExportManager {
                 .values()
                 .filter(|task| {
                     include_disabled
-                        || task.get("enabled").and_then(Value::as_bool).unwrap_or(false)
+                        || task
+                            .get("enabled")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
                 })
                 .cloned()
                 .collect()
         };
+        self.enqueue_export_tasks(targets)
+    }
 
+    /// 按 ID 触发选中的定时导出任务（issue #624）。
+    ///
+    /// 保留请求顺序并忽略重复或不存在的 ID；显式选择的禁用任务也允许手动执行。
+    pub async fn trigger_scheduled_exports(self: &Arc<Self>, ids: &[String]) -> Vec<Value> {
+        let targets = {
+            let tasks = self.tasks.lock().await;
+            let mut seen = HashSet::new();
+            ids.iter()
+                .filter(|id| seen.insert((*id).clone()))
+                .filter_map(|id| tasks.get(id).cloned())
+                .collect()
+        };
+        self.enqueue_export_tasks(targets)
+    }
+
+    fn enqueue_export_tasks(self: &Arc<Self>, targets: Vec<Value>) -> Vec<Value> {
         let manager = Arc::clone(self);
         let queue = targets.clone();
         tokio::spawn(async move {
@@ -227,7 +261,9 @@ impl ScheduledExportManager {
 
     /// 获取任务执行历史。
     pub async fn execution_history(&self, scheduled_export_id: &str, limit: usize) -> Vec<Value> {
-        self.db.get_execution_history(scheduled_export_id, limit).await
+        self.db
+            .get_execution_history(scheduled_export_id, limit)
+            .await
     }
 
     /// 关闭调度器：停止全部 cron 任务。
@@ -245,7 +281,9 @@ impl ScheduledExportManager {
             tasks
                 .iter()
                 .filter(|(_, task)| {
-                    task.get("enabled").and_then(Value::as_bool).unwrap_or(false)
+                    task.get("enabled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
                 })
                 .map(|(id, _)| id.clone())
                 .collect()
@@ -313,7 +351,9 @@ impl ScheduledExportManager {
         history.insert("duration".to_string(), json!(0));
 
         let (start_time, end_time) = calculate_time_range(
-            task.get("timeRangeType").and_then(Value::as_str).unwrap_or("yesterday"),
+            task.get("timeRangeType")
+                .and_then(Value::as_str)
+                .unwrap_or("yesterday"),
             task.get("customTimeRange"),
         );
 
@@ -326,7 +366,11 @@ impl ScheduledExportManager {
                     .and_then(|summary| summary.get("failed"))
                     .and_then(Value::as_i64)
                     .unwrap_or(0);
-                let status = if failed_resources > 0 { "partial" } else { "success" };
+                let status = if failed_resources > 0 {
+                    "partial"
+                } else {
+                    "success"
+                };
                 history.insert("status".to_string(), json!(status));
                 history.insert("messageCount".to_string(), json!(outcome.message_count));
                 if let Some(file_path) = outcome.file_path {
@@ -370,10 +414,7 @@ impl ScheduledExportManager {
             }
         }
 
-        history.insert(
-            "duration".to_string(),
-            json!(now_millis() - start_millis),
-        );
+        history.insert("duration".to_string(), json!(now_millis() - start_millis));
         let history = Value::Object(history);
 
         // 内存历史（保留最近 100 条）。
@@ -523,9 +564,8 @@ fn calculate_time_range(time_range_type: &str, custom: Option<&Value>) -> (i64, 
             let start_date =
                 chrono::NaiveDate::from_ymd_opt(year, month, 1).unwrap_or(now.date_naive());
             let start = local_midnight_millis(start_date);
-            let this_month_start =
-                chrono::NaiveDate::from_ymd_opt(now.year(), now.month(), 1)
-                    .unwrap_or(now.date_naive());
+            let this_month_start = chrono::NaiveDate::from_ymd_opt(now.year(), now.month(), 1)
+                .unwrap_or(now.date_naive());
             let end = local_midnight_millis(this_month_start) - 1;
             (start / 1000, end / 1000)
         }
@@ -576,7 +616,9 @@ fn random_suffix() -> String {
     const CHARS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
     let mut seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0x9e37_79b9, |d| u64::from(d.subsec_nanos()) ^ (d.as_secs() << 17));
+        .map_or(0x9e37_79b9, |d| {
+            u64::from(d.subsec_nanos()) ^ (d.as_secs() << 17)
+        });
     (0..9)
         .map(|_| {
             // xorshift64
@@ -732,5 +774,30 @@ mod tests {
         let mut executed = wait_for_executions(&executor, 3).await;
         executed.sort();
         assert_eq!(executed, vec!["a", "b", "c"]);
+    }
+
+    #[tokio::test]
+    async fn trigger_selected_preserves_order_and_ignores_duplicates_and_missing_ids() {
+        let (_temp, manager, executor) = manager(None).await;
+        install_tasks(&manager).await;
+
+        let triggered = manager
+            .trigger_scheduled_exports(&[
+                "c".to_owned(),
+                "b".to_owned(),
+                "c".to_owned(),
+                "missing".to_owned(),
+            ])
+            .await;
+        assert_eq!(
+            triggered,
+            vec![
+                json!({ "id": "c", "name": "task-c" }),
+                json!({ "id": "b", "name": "task-b" }),
+            ]
+        );
+
+        let executed = wait_for_executions(&executor, 2).await;
+        assert_eq!(executed, vec!["c", "b"]);
     }
 }

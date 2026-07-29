@@ -665,3 +665,76 @@ test.describe('Standalone mode (issue #340)', () => {
         ).toBeVisible({ timeout: 10_000 });
     });
 });
+
+test.describe('Scheduled exports (issue #624)', () => {
+    test('edits an existing task and triggers the selected tasks in one batch', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => localStorage.setItem('qce_access_token', value), TOKEN);
+
+        let tasks = [
+            {
+                id: 'task-a', name: '任务 A', peer: { chatType: 2, peerUid: 'group-a', guildId: '' },
+                sessionName: '群 A', scheduleType: 'daily', executeTime: '02:00',
+                timeRangeType: 'yesterday', format: 'JSON', enabled: true,
+                options: { filterPureImageMessages: false },
+            },
+            {
+                id: 'task-b', name: '任务 B', peer: { chatType: 1, peerUid: 'friend-b', guildId: '' },
+                sessionName: '好友 B', scheduleType: 'weekly', executeTime: '03:00',
+                timeRangeType: 'last-week', format: 'JSON', enabled: false, options: {},
+            },
+        ];
+        let updateBody: Record<string, unknown> | null = null;
+        let batchBody: { ids?: string[] } | null = null;
+
+        await page.route('**/api/scheduled-exports**', async (route, request) => {
+            const url = new URL(request.url());
+            if (request.method() === 'GET' && url.pathname.endsWith('/api/scheduled-exports')) {
+                await route.fulfill({
+                    status: 200, contentType: 'application/json',
+                    body: JSON.stringify({ success: true, data: { scheduledExports: tasks } }),
+                });
+                return;
+            }
+            if (request.method() === 'PUT' && url.pathname.endsWith('/api/scheduled-exports/task-a')) {
+                updateBody = request.postDataJSON();
+                tasks = tasks.map(task => task.id === 'task-a' ? { ...task, ...updateBody } : task);
+                await route.fulfill({
+                    status: 200, contentType: 'application/json',
+                    body: JSON.stringify({ success: true, data: { ...tasks[0], id: 'task-a' } }),
+                });
+                return;
+            }
+            if (request.method() === 'POST' && url.pathname.endsWith('/api/scheduled-exports/trigger-batch')) {
+                batchBody = request.postDataJSON();
+                await route.fulfill({
+                    status: 200, contentType: 'application/json',
+                    body: JSON.stringify({
+                        success: true,
+                        data: { triggeredCount: batchBody?.ids?.length ?? 0, triggered: [], missingIds: [] },
+                    }),
+                });
+                return;
+            }
+            await route.continue();
+        });
+
+        const response = await page.goto(`${FRONTEND_BASE}${SHELL_PATH}/scheduled`).catch(() => null);
+        test.skip(!response || response.status() >= 500, `frontend not reachable at ${FRONTEND_BASE}`);
+        const skipBtn = page.getByRole('button', { name: '跳过' }).first();
+        if (await skipBtn.isVisible({ timeout: 1500 }).catch(() => false)) await skipBtn.click();
+
+        await expect(page.getByText('任务 A', { exact: true })).toBeVisible({ timeout: 15_000 });
+        await page.getByRole('button', { name: '编辑', exact: true }).first().click();
+        await expect(page.getByRole('dialog', { name: '编辑定时导出任务' })).toBeVisible();
+        await page.locator('#namePrefix').fill('任务 A 已编辑');
+        await page.getByRole('button', { name: '保存更改', exact: true }).click();
+        await expect.poll(() => updateBody?.name).toBe('任务 A 已编辑');
+        await expect.poll(() => (updateBody?.options as Record<string, unknown> | undefined)?.filterPureImageMessages).toBe(false);
+
+        await page.getByRole('checkbox', { name: '选择定时任务 任务 A 已编辑' }).click();
+        await page.getByRole('checkbox', { name: '选择定时任务 任务 B' }).click();
+        await page.getByRole('button', { name: '执行已选', exact: true }).click();
+        await expect.poll(() => batchBody?.ids).toEqual(['task-a', 'task-b']);
+    });
+});

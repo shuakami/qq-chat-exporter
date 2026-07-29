@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use axum::extract::{Extension, Path, Query, State};
 use axum::response::Response;
@@ -12,6 +12,37 @@ use crate::api::state::SharedState;
 const MAX_SCHEDULED_EXPORTS: usize = 128;
 const MAX_NAME_LENGTH: usize = 128;
 const MAX_IDENTIFIER_LENGTH: usize = 256;
+const MAX_TRIGGER_BATCH_SIZE: usize = MAX_SCHEDULED_EXPORTS;
+
+fn parse_trigger_ids(body: &Value) -> Result<Vec<String>, ApiError> {
+    let ids = body
+        .get("ids")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ApiError::validation("ids 必须是数组", "INVALID_TRIGGER_IDS"))?;
+    if ids.is_empty() || ids.len() > MAX_TRIGGER_BATCH_SIZE {
+        return Err(ApiError::validation(
+            format!("ids 数量必须在 1 到 {MAX_TRIGGER_BATCH_SIZE} 之间"),
+            "INVALID_TRIGGER_IDS",
+        ));
+    }
+    let mut unique = HashSet::new();
+    let mut result = Vec::with_capacity(ids.len());
+    for id in ids {
+        let id = id
+            .as_str()
+            .map(str::trim)
+            .filter(|id| {
+                !id.is_empty()
+                    && id.chars().count() <= MAX_IDENTIFIER_LENGTH
+                    && !id.chars().any(char::is_control)
+            })
+            .ok_or_else(|| ApiError::validation("ids 包含无效任务 ID", "INVALID_TRIGGER_IDS"))?;
+        if unique.insert(id.to_owned()) {
+            result.push(id.to_owned());
+        }
+    }
+    Ok(result)
+}
 
 fn validate_string_field(
     body: &Value,
@@ -290,6 +321,40 @@ pub async fn trigger_all_scheduled_exports(
     )
 }
 
+/// `POST /api/scheduled-exports/trigger-batch` — 触发选中的定时导出。
+pub async fn trigger_scheduled_exports(
+    State(state): State<SharedState>,
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Json(body): Json<Value>,
+) -> Response {
+    let ids = match parse_trigger_ids(&body) {
+        Ok(ids) => ids,
+        Err(err) => return response::error(&err, &request_id),
+    };
+    let triggered = state
+        .scheduled_export_manager
+        .trigger_scheduled_exports(&ids)
+        .await;
+    let triggered_ids: HashSet<&str> = triggered
+        .iter()
+        .filter_map(|task| task.get("id").and_then(Value::as_str))
+        .collect();
+    let missing_ids: Vec<&str> = ids
+        .iter()
+        .map(String::as_str)
+        .filter(|id| !triggered_ids.contains(id))
+        .collect();
+    response::success(
+        json!({
+            "message": format!("已触发 {} 个定时导出任务", triggered.len()),
+            "triggeredCount": triggered.len(),
+            "triggered": triggered,
+            "missingIds": missing_ids,
+        }),
+        &request_id,
+    )
+}
+
 /// `GET /api/scheduled-exports/:id` — 单个定时导出。
 pub async fn get_scheduled_export(
     State(state): State<SharedState>,
@@ -401,7 +466,7 @@ pub async fn scheduled_export_history(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_config;
+    use super::{parse_trigger_ids, validate_config};
     use serde_json::json;
 
     fn valid_config() -> serde_json::Value {
@@ -419,6 +484,17 @@ mod tests {
     #[test]
     fn accepts_valid_scheduled_export() {
         assert!(validate_config(&valid_config(), false).is_ok());
+    }
+
+    #[test]
+    fn validates_and_deduplicates_batch_trigger_ids() {
+        assert_eq!(
+            parse_trigger_ids(&json!({ "ids": ["a", "b", "a"] })).expect("valid ids"),
+            vec!["a".to_owned(), "b".to_owned()]
+        );
+        assert!(parse_trigger_ids(&json!({ "ids": [] })).is_err());
+        assert!(parse_trigger_ids(&json!({ "ids": [1] })).is_err());
+        assert!(parse_trigger_ids(&json!({})).is_err());
     }
 
     #[test]
