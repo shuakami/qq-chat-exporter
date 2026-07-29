@@ -10,9 +10,14 @@ import subprocess
 import zipfile
 import tarfile
 from pathlib import Path
-from urllib.request import urlretrieve, urlopen
+from urllib.request import urlretrieve
 from datetime import datetime
-from plugin_runtime import FIND_QQ_PS1, copy_native_server_binary, stage_plugin_runtime
+from plugin_runtime import (
+    FIND_QQ_PS1,
+    copy_native_server_binary,
+    get_napcat_latest_version,
+    stage_plugin_runtime,
+)
 
 def get_qce_version():
     """Get QCE version from package.json or environment variable"""
@@ -46,20 +51,6 @@ def get_platform_info():
     else:
         print(f"[!] Unsupported platform: {system}")
         sys.exit(1)
-
-def get_napcat_latest_version():
-    """Get latest NapCat version from GitHub API"""
-    print("[1/11] Getting NapCat latest version...")
-    try:
-        with urlopen("https://api.github.com/repos/NapNeko/NapCatQQ/releases/latest") as response:
-            data = json.loads(response.read())
-            version = data["tag_name"]
-            print(f"[x] Detected NapCat version: {version}")
-            return version
-    except Exception as e:
-        print(f"[!] Failed to get latest version: {e}")
-        print("[!] Using default version v4.8.119")
-        return "v4.8.119"
 
 def download_file(url, dest):
     """Download file with progress"""
@@ -163,7 +154,7 @@ def main():
     print()
     
     # Get NapCat version
-    napcat_version = get_napcat_latest_version()
+    napcat_version = get_napcat_latest_version("[1/11]")
     napcat_url = f"https://github.com/NapNeko/NapCatQQ/releases/download/{napcat_version}/NapCat.Shell.zip"
     print()
     

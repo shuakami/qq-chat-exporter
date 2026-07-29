@@ -17,13 +17,31 @@ jobs:
     outputs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
+      # 整条发布流程唯一一次 NapCat 版本查询，结果分发给下面所有打包任务。
+      # 之前每个打包任务各查一次（5 次匿名请求），而匿名配额 60 次/小时、按来源
+      # IP 计算，Actions 构建机共用出口 IP —— v6.1.9 发布时 macOS 那台被限流，
+      # 静默回退到写死的 v4.8.119，产出了一个能构建、能过校验却无法登录的包。
       - name: "获取 NapCat 最新版本"
         id: get_version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NAPCAT_VERSION=$(curl -s https://api.github.com/repos/NapNeko/NapCatQQ/releases/latest | jq -r '.tag_name')
-          if [ -z "$NAPCAT_VERSION" ] || [ "$NAPCAT_VERSION" == "null" ]; then
-            echo "无法获取最新版本，使用默认版本"
-            NAPCAT_VERSION="v4.8.119"
+          set -uo pipefail
+          # 本步骤由 Actions 以 bash -e 运行，errexit 始终生效，所以 curl 与 jq
+          # 都要用 `|| VAR=""` 兜住——否则它们非零退出会直接中断这一步，
+          # 下面那段说明该怎么办的提示就永远不会打印出来。
+          # 带 token 认证走 1000 次/小时的仓库配额，而不是共享 IP 的 60 次。
+          RESPONSE=$(curl -fsSL --retry 3 --retry-delay 2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            https://api.github.com/repos/NapNeko/NapCatQQ/releases/latest) || RESPONSE=""
+          # `// empty` 已把 JSON null 归一为空串，只需判空。
+          NAPCAT_VERSION=$(printf '%s' "$RESPONSE" | jq -r '.tag_name // empty') || NAPCAT_VERSION=""
+          if [ -z "$NAPCAT_VERSION" ]; then
+            echo "::error::无法解析 NapCat 最新版本。"
+            echo "::error::不再回退到写死的版本：过期的 NapCat 会产出无法登录的包。"
+            echo "::error::配额恢复后重跑失败任务即可（无需新建 tag）。"
+            exit 1
           fi
           echo "version=${NAPCAT_VERSION}" >> $GITHUB_OUTPUT
           echo "检测到 NapCat 版本: ${NAPCAT_VERSION}"
@@ -137,7 +155,7 @@ jobs:
           retention-days: 7
 
   build-shell-packages:
-    needs: [build-frontend, build-server-binaries]
+    needs: [get-napcat-version, build-frontend, build-server-binaries]
     strategy:
       # A failure on one platform must not cancel the others mid-package:
       # release tags are never reused, so a partially built release costs a
@@ -202,6 +220,8 @@ jobs:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=4096
           QCE_VERSION: ${{ github.ref_name }}
+          # 用上面解析好的版本号，三个平台因此必然打包同一个 NapCat。
+          NAPCAT_VERSION: ${{ needs.get-napcat-version.outputs.version }}
           QCE_FRONTEND_OUT: qce-v4-tool/out
           QCE_SERVER_BINARY: prebuilt-server/${{ matrix.server_binary }}
       
@@ -227,6 +247,17 @@ jobs:
 
           file "$ROOT/qce-server" | grep -q 'Mach-O.*arm64'
           lipo -archs "$ROOT/qce-server" | grep -qw arm64
+
+          # 断言 get-napcat-version -> NAPCAT_VERSION -> 包内 README.txt 这条传递
+          # 链没断：真正杜绝 v6.1.9 事故的是删掉兜底版本，这里守的是日后重构
+          # 悄悄绕开 NAPCAT_VERSION、让各平台又各查各的。
+          EXPECTED_NAPCAT="${{ needs.get-napcat-version.outputs.version }}"
+          if ! grep -qF "NapCat 版本: ${EXPECTED_NAPCAT}" "$ROOT/README.txt"; then
+            echo "FAIL: packaged NapCat is not ${EXPECTED_NAPCAT}"
+            grep -F 'NapCat 版本:' "$ROOT/README.txt" || true
+            exit 1
+          fi
+          echo "Bundled NapCat: ${EXPECTED_NAPCAT}"
           bash -n "$ROOT/launcher-user.sh"
           bash -n "$ROOT/start-standalone.sh"
           node --check "$ROOT/napcat-bootstrap.mjs"
@@ -247,7 +278,7 @@ jobs:
           retention-days: 7
 
   build-framework-package:
-    needs: [build-frontend, build-server-binaries]
+    needs: [get-napcat-version, build-frontend, build-server-binaries]
     runs-on: ubuntu-latest
     
     steps:
@@ -278,6 +309,7 @@ jobs:
         env:
           NODE_ENV: production
           QCE_VERSION: ${{ github.ref_name }}
+          NAPCAT_VERSION: ${{ needs.get-napcat-version.outputs.version }}
           QCE_FRONTEND_OUT: qce-v4-tool/out
           QCE_SERVER_WINDOWS_X64: prebuilt-server/qce-server.exe
       

@@ -8,10 +8,82 @@ import platform
 import shutil
 import subprocess
 import stat
+import time
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 SERVER_DIR = Path("qq-chat-export-server")
+
+NAPCAT_LATEST_API = "https://api.github.com/repos/NapNeko/NapCatQQ/releases/latest"
+
+
+def _rate_limit_hint(headers) -> str:
+    """Say when the GitHub quota lifts and how to get past it meanwhile."""
+    reset = (headers.get("X-RateLimit-Reset") or "").strip()
+    until = f" until {time.strftime('%H:%M:%S UTC', time.gmtime(int(reset)))}" if reset.isdigit() else ""
+    return (
+        f"[!] GitHub API rate limited{until}. Re-run the failed jobs once it lifts\n"
+        "[!] (no new tag needed), or set GITHUB_TOKEN for the 1000/hour quota,\n"
+        "[!] or pin NAPCAT_VERSION=vX.Y.Z."
+    )
+
+
+def get_napcat_latest_version(progress: str = "[*]") -> str:
+    """Resolve which NapCat release to bundle.
+
+    NAPCAT_VERSION wins when set, so one CI lookup can feed every packaging job
+    and all platforms in a release are guaranteed to bundle the same NapCat.
+
+    There is deliberately no hardcoded fallback. A stale NapCat still builds,
+    still passes every packaging check and still ships -- but cannot log in at
+    all: v6.1.9's macOS package fell back to NapCat v4.8.119 this way after the
+    lookup hit the 60/hour unauthenticated rate limit, and QQ's native bridge
+    then failed with `NodeIQQNTWrapperSession.create is not a function` before a
+    QR code could ever be generated. Failing the build is the cheaper outcome:
+    it happens in seconds, before any artifact exists.
+    """
+    print(f"{progress} Getting NapCat latest version...")
+
+    pinned = os.environ.get("NAPCAT_VERSION", "").strip()
+    if pinned:
+        print(f"[x] Using NAPCAT_VERSION from environment: {pinned}")
+        return pinned
+
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "qce-packaging"}
+    # GITHUB_TOKEN is injected per-run by Actions; TEMP_GITHUB_PAT lets a local
+    # build borrow the same authenticated quota without inventing a new name.
+    token = (os.environ.get("GITHUB_TOKEN") or os.environ.get("TEMP_GITHUB_PAT") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    attempts = 4
+    for attempt in range(1, attempts + 1):
+        try:
+            with urlopen(Request(NAPCAT_LATEST_API, headers=headers), timeout=30) as response:
+                version = json.loads(response.read())["tag_name"]
+            if not version:
+                raise ValueError("empty tag_name")
+            print(f"[x] Detected NapCat version: {version}")
+            return version
+        except HTTPError as error:
+            # A 4xx will not change on a retry. Rate limiting in particular
+            # resets hourly, so report when it lifts rather than retry blindly.
+            if error.code < 500:
+                if error.code in (403, 429):
+                    print(_rate_limit_hint(error.headers))
+                raise SystemExit(f"NapCat version lookup failed: HTTP {error.code}")
+            reason = f"HTTP {error.code}"
+        except (URLError, TimeoutError, ValueError, KeyError) as error:
+            reason = str(error) or error.__class__.__name__
+
+        if attempt < attempts:
+            delay = 2**attempt
+            print(f"[!] Attempt {attempt}/{attempts} failed ({reason}); retrying in {delay}s...")
+            time.sleep(delay)
+
+    raise SystemExit(f"NapCat version lookup failed after {attempts} attempts: {reason}")
 
 
 def run_command(command: list[str], cwd: Path | None = None) -> None:
