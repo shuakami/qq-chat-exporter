@@ -10,8 +10,10 @@ import {
     buildAuthUrl,
     buildBrowserOpenCommand,
     createNapCatBridge,
+    parseWindowsListeningPids,
     readAccessTokenWithRetry,
     readAutoOpenBrowserSetting,
+    resolveBridgePort,
     resolveSecurityConfigPath,
     resolveUserConfigPath,
     shouldAutoOpenBrowser,
@@ -19,18 +21,6 @@ import {
 } from '../../runtime/rustBridge.mjs';
 
 import { createTempDir } from '../helpers/tempDir.js';
-
-async function freePort(): Promise<number> {
-    const server = net.createServer();
-    await new Promise<void>((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(0, '127.0.0.1', () => resolve());
-    });
-    const address = server.address();
-    assert.ok(address && typeof address === 'object');
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    return address.port;
-}
 
 test('bridge JSON preserves nested Map, Set and bigint values', () => {
     const serialized = JSON.stringify({
@@ -41,6 +31,52 @@ test('bridge JSON preserves nested Map, Set and bigint values', () => {
         infos: { u_1: { uin: '10001' } },
         roles: ['owner', 'admin']
     });
+});
+
+test('bridge uses the reserved QCE port unless explicitly overridden', () => {
+    assert.equal(resolveBridgePort({}), 40654);
+    assert.equal(resolveBridgePort({ QCE_BRIDGE_PORT: '41000' }), 41000);
+    assert.throws(
+        () => resolveBridgePort({ QCE_BRIDGE_PORT: 'invalid' }),
+        /Invalid QCE_BRIDGE_PORT/
+    );
+});
+
+test('Windows listener parsing returns only owners of the requested port', () => {
+    const output = [
+        '  TCP    127.0.0.1:40654      0.0.0.0:0      LISTENING       1234',
+        '  TCP    127.0.0.1:40653      0.0.0.0:0      LISTENING       5678',
+        '  TCP    127.0.0.1:40654      127.0.0.1:50000 ESTABLISHED     9999'
+    ].join('\r\n');
+    assert.deepEqual(parseWindowsListeningPids(output, 40654), [1234]);
+});
+
+test('bridge terminates the old owner before rebinding the reserved port', async () => {
+    const blocker = net.createServer();
+    await new Promise<void>((resolve, reject) => {
+        blocker.once('error', reject);
+        blocker.listen(0, '127.0.0.1', () => resolve());
+    });
+    const address = blocker.address();
+    assert.ok(address && typeof address === 'object');
+    let reclaimedPort = 0;
+
+    const bridge = await createNapCatBridge({}, address.port, {
+        reclaimPort: address.port,
+        terminatePortOwners: async (port: number) => {
+            reclaimedPort = port;
+            await new Promise<void>((resolve) => blocker.close(() => resolve()));
+            return [4242];
+        }
+    });
+    try {
+        assert.equal(reclaimedPort, address.port);
+        assert.equal(bridge.port, address.port);
+        assert.deepEqual(bridge.terminatedPids, [4242]);
+        assert.equal(bridge.fallbackFromPort, null);
+    } finally {
+        await bridge.stop();
+    }
 });
 
 test('bridge exposes raw NapCat services with the original arguments', async () => {
@@ -75,10 +111,10 @@ test('bridge exposes raw NapCat services with the original arguments', async () 
         },
         apis: {}
     };
-    const port = await freePort();
-    const bridge = await createNapCatBridge(core, port);
+    const bridge = await createNapCatBridge(core, 0);
     try {
-        const response = await fetch(`http://127.0.0.1:${port}/rpc`, {
+        assert.ok(bridge.port > 0);
+        const response = await fetch(`http://127.0.0.1:${bridge.port}/rpc`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
@@ -93,7 +129,7 @@ test('bridge exposes raw NapCat services with the original arguments', async () 
             emoji_1: { eId: 'emoji_1', emoId: 1 }
         });
 
-        const groupResponse = await fetch(`http://127.0.0.1:${port}/rpc`, {
+        const groupResponse = await fetch(`http://127.0.0.1:${bridge.port}/rpc`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
