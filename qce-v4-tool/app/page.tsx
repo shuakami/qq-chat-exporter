@@ -50,6 +50,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Zap,
+  Play,
   History,
   MessageCircle,
   Users,
@@ -90,7 +91,12 @@ import { UpdatePopover, type UpdateBannerInfo } from "@/components/ui/update-ban
 import { SecurityExposureBanner } from "@/components/ui/security-exposure-banner"
 import AuthManager from "@/lib/auth"
 import { classifySpecialChatType, specialKindLabel } from "@/lib/special-contacts"
-import { useScheduledExports } from "@/hooks/use-scheduled-exports"
+import {
+  scheduledExportConfigToForm,
+  scheduledExportFormToConfig,
+  useScheduledExports,
+  type ScheduledExportConfig,
+} from "@/hooks/use-scheduled-exports"
 import { useChatHistory } from "@/hooks/use-chat-history"
 import { useStickerPacks } from "@/hooks/use-sticker-packs"
 import { useResourceIndex } from "@/hooks/use-resource-index"
@@ -181,6 +187,8 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   const [selectedPreset, setSelectedPreset] = useState<Partial<CreateTaskForm> | undefined>()
   const [isScheduledExportWizardOpen, setIsScheduledExportWizardOpen] = useState(false)
   const [selectedScheduledPreset, setSelectedScheduledPreset] = useState<Partial<CreateScheduledExportForm> | undefined>()
+  const [editingScheduledExportId, setEditingScheduledExportId] = useState<string | null>(null)
+  const [selectedScheduledExportIds, setSelectedScheduledExportIds] = useState<Set<string>>(new Set())
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false)
   const [selectedHistoryTask, setSelectedHistoryTask] = useState<{id: string, name: string} | null>(null)
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
@@ -586,11 +594,32 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     updateScheduledExport,
     deleteScheduledExport,
     triggerScheduledExport,
+    triggerScheduledExports,
     toggleScheduledExport,
     getExecutionHistory,
     getStats: getScheduledStats,
     setError: setScheduledError,
   } = useScheduledExports()
+
+  const filteredScheduledExports = useMemo(() =>
+    scheduledExports.filter(task =>
+      scheduledFilter === 'all' || (scheduledFilter === 'enabled' ? task.enabled : !task.enabled)
+    ),
+  [scheduledExports, scheduledFilter])
+  const selectedVisibleScheduledCount = filteredScheduledExports.reduce(
+    (count, task) => count + (selectedScheduledExportIds.has(task.id) ? 1 : 0),
+    0
+  )
+  const allVisibleScheduledSelected = filteredScheduledExports.length > 0
+    && selectedVisibleScheduledCount === filteredScheduledExports.length
+
+  useEffect(() => {
+    const existingIds = new Set(scheduledExports.map(task => task.id))
+    setSelectedScheduledExportIds(previous => {
+      const next = new Set(Array.from(previous).filter(id => existingIds.has(id)))
+      return next.size === previous.size ? previous : next
+    })
+  }, [scheduledExports])
 
   const {
     files: chatHistoryFiles,
@@ -662,13 +691,54 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   }
 
   const handleOpenScheduledExportWizard = (preset?: Partial<CreateScheduledExportForm>) => {
+    setEditingScheduledExportId(null)
     setSelectedScheduledPreset(preset)
+    setIsScheduledExportWizardOpen(true)
+  }
+
+  const handleEditScheduledExport = (task: ScheduledExportConfig & { id: string }) => {
+    setEditingScheduledExportId(task.id)
+    setSelectedScheduledPreset(scheduledExportConfigToForm(task))
     setIsScheduledExportWizardOpen(true)
   }
 
   const handleCloseScheduledExportWizard = () => {
     setIsScheduledExportWizardOpen(false)
     setSelectedScheduledPreset(undefined)
+    setEditingScheduledExportId(null)
+  }
+
+  const handleToggleScheduledSelection = (id: string, checked: boolean) => {
+    setSelectedScheduledExportIds(previous => {
+      const next = new Set(previous)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  const handleToggleAllVisibleScheduled = (checked: boolean) => {
+    setSelectedScheduledExportIds(previous => {
+      const next = new Set(previous)
+      for (const task of filteredScheduledExports) {
+        if (checked) next.add(task.id)
+        else next.delete(task.id)
+      }
+      return next
+    })
+  }
+
+  const handleTriggerSelectedScheduledExports = async () => {
+    const ids = scheduledExports
+      .map(task => task.id)
+      .filter(id => selectedScheduledExportIds.has(id))
+    if (ids.length === 0) return
+    try {
+      await triggerScheduledExports(ids)
+      setSelectedScheduledExportIds(new Set())
+    } catch {
+      // 错误提示由 hook 统一处理。
+    }
   }
 
   const handleOpenHistoryModal = (taskId: string, taskName: string) => {
@@ -2102,27 +2172,62 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
               <div className="p-5 space-y-4 max-w-4xl mx-auto w-full">
                 {/* Filter Tabs */}
                 {scheduledExports.length > 0 && (
-                  <div className="flex items-center gap-1 px-1">
-                    {[
-                      { id: 'all', label: `全部 ${getScheduledStats().total}` },
-                      { id: 'enabled', label: `启用 ${getScheduledStats().enabled}` },
-                      { id: 'disabled', label: `禁用 ${getScheduledStats().disabled}` },
-                    ].map(tab => {
-                      const isActive = scheduledFilter === tab.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          onClick={() => setScheduledFilter(tab.id as typeof scheduledFilter)}
-                          className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
-                            isActive
-                              ? 'bg-black/[0.06] dark:bg-white/[0.08] text-foreground'
-                              : 'text-muted-foreground/70 hover:text-foreground'
-                          }`}
-                        >
-                          {tab.label}
-                        </button>
-                      );
-                    })}
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+                    <div className="flex items-center gap-1">
+                      {[
+                        { id: 'all', label: `全部 ${getScheduledStats().total}` },
+                        { id: 'enabled', label: `启用 ${getScheduledStats().enabled}` },
+                        { id: 'disabled', label: `禁用 ${getScheduledStats().disabled}` },
+                      ].map(tab => {
+                        const isActive = scheduledFilter === tab.id
+                        return (
+                          <button
+                            key={tab.id}
+                            onClick={() => setScheduledFilter(tab.id as typeof scheduledFilter)}
+                            className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
+                              isActive
+                                ? 'bg-black/[0.06] dark:bg-white/[0.08] text-foreground'
+                                : 'text-muted-foreground/70 hover:text-foreground'
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-2 text-[12px] text-muted-foreground cursor-pointer">
+                        <Checkbox
+                          checked={allVisibleScheduledSelected ? true : selectedVisibleScheduledCount > 0 ? 'indeterminate' : false}
+                          onCheckedChange={checked => handleToggleAllVisibleScheduled(checked === true)}
+                          aria-label="全选当前筛选的定时任务"
+                        />
+                        全选当前筛选
+                      </label>
+                      {selectedScheduledExportIds.size > 0 && (
+                        <>
+                          <span className="text-[12px] text-muted-foreground">已选 {selectedScheduledExportIds.size} 项</span>
+                          <Button
+                            size="sm"
+                            className="h-8 rounded-full px-3 text-[12px]"
+                            onClick={handleTriggerSelectedScheduledExports}
+                            disabled={scheduledLoading}
+                          >
+                            {scheduledLoading ? <Loader size={14} /> : <Play data-icon="inline-start" />}
+                            执行已选
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 rounded-full px-2.5 text-[12px]"
+                            onClick={() => setSelectedScheduledExportIds(new Set())}
+                            disabled={scheduledLoading}
+                          >
+                            清除
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -2135,14 +2240,21 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                   </div>
                 ) : (
                   <div className="space-y-1">
-                    {scheduledExports
-                      .filter(se => scheduledFilter === 'all' || (scheduledFilter === 'enabled' ? se.enabled : !se.enabled))
-                      .map((scheduledExport) => (
+                    {filteredScheduledExports.map((scheduledExport) => (
                       <div
                         key={scheduledExport.id}
-                        className="group flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors"
+                        className={`group flex items-center justify-between px-3 py-2.5 rounded-xl transition-colors ${
+                          selectedScheduledExportIds.has(scheduledExport.id)
+                            ? 'bg-primary/[0.05]'
+                            : 'hover:bg-black/[0.03] dark:hover:bg-white/[0.03]'
+                        }`}
                       >
                         <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <Checkbox
+                            checked={selectedScheduledExportIds.has(scheduledExport.id)}
+                            onCheckedChange={checked => handleToggleScheduledSelection(scheduledExport.id, checked === true)}
+                            aria-label={`选择定时任务 ${scheduledExport.name}`}
+                          />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2.5">
                               <span className="text-[13px] font-medium text-foreground truncate">
@@ -2181,7 +2293,15 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className={`flex items-center gap-1 flex-shrink-0 transition-opacity ${
+                          selectedScheduledExportIds.has(scheduledExport.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                        }`}>
+                          <button
+                            className="px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground/60 hover:text-foreground rounded-full hover:bg-black/[0.05] dark:hover:bg-white/[0.06] transition-colors"
+                            onClick={() => handleEditScheduledExport(scheduledExport)}
+                          >
+                            编辑
+                          </button>
                           <button
                             className="px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground/60 hover:text-foreground rounded-full hover:bg-black/[0.05] dark:hover:bg-white/[0.06] transition-colors"
                             onClick={() => toggleScheduledExport(scheduledExport.id, !scheduledExport.enabled)}
@@ -2860,11 +2980,16 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
         isOpen={isScheduledExportWizardOpen}
         onClose={handleCloseScheduledExportWizard}
         onSubmit={async (form) => {
-          await createScheduledExport(form)
+          if (editingScheduledExportId) {
+            await updateScheduledExport(editingScheduledExportId, scheduledExportFormToConfig(form))
+          } else {
+            await createScheduledExport(form)
+          }
           return true
         }}
         isLoading={scheduledLoading}
         prefilledData={selectedScheduledPreset}
+        mode={editingScheduledExportId ? 'edit' : 'create'}
         groups={groups}
         friends={friends}
         onLoadData={loadChatData}
