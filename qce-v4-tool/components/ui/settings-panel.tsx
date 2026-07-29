@@ -245,7 +245,7 @@ export function SettingsPanel() {
           <Section title="启动">
             <Row
               title="自动打开浏览器"
-              description="扫码登录成功、或独立模式启动完成后自动打开操作页面；关闭后仍会在控制台打印一键登录链接"
+              description="扫码登录成功、或独立模式启动完成后自动打开操作页面"
             >
               {config ? (
                 <Switch
