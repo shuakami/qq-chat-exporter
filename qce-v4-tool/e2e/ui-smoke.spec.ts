@@ -732,9 +732,10 @@ test.describe('Scheduled exports (issue #624)', () => {
         await expect.poll(() => updateBody?.name).toBe('任务 A 已编辑');
         await expect.poll(() => (updateBody?.options as Record<string, unknown> | undefined)?.filterPureImageMessages).toBe(false);
 
+        await page.getByRole('button', { name: '批量选择', exact: true }).click();
         await page.getByRole('checkbox', { name: '选择定时任务 任务 A 已编辑' }).click();
         await page.getByRole('checkbox', { name: '选择定时任务 任务 B' }).click();
-        await page.getByRole('button', { name: '执行已选', exact: true }).click();
+        await page.getByRole('button', { name: '执行', exact: true }).click();
         await expect.poll(() => batchBody?.ids).toEqual(['task-a', 'task-b']);
     });
 });

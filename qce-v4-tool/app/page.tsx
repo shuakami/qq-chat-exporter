@@ -50,7 +50,6 @@ import {
   ToggleLeft,
   ToggleRight,
   Zap,
-  Play,
   History,
   MessageCircle,
   Users,
@@ -189,6 +188,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   const [selectedScheduledPreset, setSelectedScheduledPreset] = useState<Partial<CreateScheduledExportForm> | undefined>()
   const [editingScheduledExportId, setEditingScheduledExportId] = useState<string | null>(null)
   const [selectedScheduledExportIds, setSelectedScheduledExportIds] = useState<Set<string>>(new Set())
+  const [scheduledBatchMode, setScheduledBatchMode] = useState(false)
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false)
   const [selectedHistoryTask, setSelectedHistoryTask] = useState<{id: string, name: string} | null>(null)
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
@@ -706,6 +706,13 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     setIsScheduledExportWizardOpen(false)
     setSelectedScheduledPreset(undefined)
     setEditingScheduledExportId(null)
+  }
+
+  const handleToggleScheduledBatchMode = () => {
+    setScheduledBatchMode(previous => {
+      if (previous) setSelectedScheduledExportIds(new Set())
+      return !previous
+    })
   }
 
   const handleToggleScheduledSelection = (id: string, checked: boolean) => {
@@ -1717,6 +1724,16 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                 >
                   合并
                 </Button>
+                {scheduledExports.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 text-[13px] rounded-full px-2.5"
+                    onClick={handleToggleScheduledBatchMode}
+                  >
+                    {scheduledBatchMode ? "退出批量选择" : "批量选择"}
+                  </Button>
+                )}
                 <Button size="sm" className="h-8 text-[13px] rounded-full px-2.5" onClick={() => handleOpenScheduledExportWizard()}>
                   新建定时任务
                 </Button>
@@ -2172,7 +2189,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
               <div className="p-5 space-y-4 max-w-4xl mx-auto w-full">
                 {/* Filter Tabs */}
                 {scheduledExports.length > 0 && (
-                  <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+                  <div className="flex flex-wrap items-center gap-3 px-1">
                     <div className="flex items-center gap-1">
                       {[
                         { id: 'all', label: `全部 ${getScheduledStats().total}` },
@@ -2195,39 +2212,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                         )
                       })}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <label className="flex items-center gap-2 text-[12px] text-muted-foreground cursor-pointer">
-                        <Checkbox
-                          checked={allVisibleScheduledSelected ? true : selectedVisibleScheduledCount > 0 ? 'indeterminate' : false}
-                          onCheckedChange={checked => handleToggleAllVisibleScheduled(checked === true)}
-                          aria-label="全选当前筛选的定时任务"
-                        />
-                        全选当前筛选
-                      </label>
-                      {selectedScheduledExportIds.size > 0 && (
-                        <>
-                          <span className="text-[12px] text-muted-foreground">已选 {selectedScheduledExportIds.size} 项</span>
-                          <Button
-                            size="sm"
-                            className="h-8 rounded-full px-3 text-[12px]"
-                            onClick={handleTriggerSelectedScheduledExports}
-                            disabled={scheduledLoading}
-                          >
-                            {scheduledLoading ? <Loader size={14} /> : <Play data-icon="inline-start" />}
-                            执行已选
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 rounded-full px-2.5 text-[12px]"
-                            onClick={() => setSelectedScheduledExportIds(new Set())}
-                            disabled={scheduledLoading}
-                          >
-                            清除
-                          </Button>
-                        </>
-                      )}
-                    </div>
+
                   </div>
                 )}
 
@@ -2250,11 +2235,13 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                         }`}
                       >
                         <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <Checkbox
-                            checked={selectedScheduledExportIds.has(scheduledExport.id)}
-                            onCheckedChange={checked => handleToggleScheduledSelection(scheduledExport.id, checked === true)}
-                            aria-label={`选择定时任务 ${scheduledExport.name}`}
-                          />
+                          {scheduledBatchMode && (
+                            <Checkbox
+                              checked={selectedScheduledExportIds.has(scheduledExport.id)}
+                              onCheckedChange={checked => handleToggleScheduledSelection(scheduledExport.id, checked === true)}
+                              aria-label={`选择定时任务 ${scheduledExport.name}`}
+                            />
+                          )}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2.5">
                               <span className="text-[13px] font-medium text-foreground truncate">
@@ -2293,8 +2280,10 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                           </div>
                         </div>
 
-                        <div className={`flex items-center gap-1 flex-shrink-0 transition-opacity ${
-                          selectedScheduledExportIds.has(scheduledExport.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                        <div className={`items-center gap-1 flex-shrink-0 transition-opacity ${
+                          scheduledBatchMode
+                            ? 'hidden'
+                            : selectedScheduledExportIds.has(scheduledExport.id) ? 'flex opacity-100' : 'flex opacity-0 group-hover:opacity-100'
                         }`}>
                           <button
                             className="px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground/60 hover:text-foreground rounded-full hover:bg-black/[0.05] dark:hover:bg-white/[0.06] transition-colors"
@@ -2337,6 +2326,54 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                     ))}
                   </div>
                 )}
+
+                <AnimatePresence>
+                  {scheduledBatchMode && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.94 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.94 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 35, mass: 0.8 }}
+                      className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50"
+                    >
+                      <div className="flex items-center gap-1 rounded-full bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.08)] border border-black/[0.06] dark:border-white/[0.08] px-2 py-1.5">
+                        <span className="text-[13px] font-medium text-foreground px-3 tabular-nums">
+                          已选择 {selectedScheduledExportIds.size} 项
+                        </span>
+                        {selectedScheduledExportIds.size > 0 && (
+                          <button
+                            onClick={() => setSelectedScheduledExportIds(new Set())}
+                            className="px-2 py-0.5 text-[12px] text-muted-foreground/60 hover:text-muted-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors mr-1"
+                          >
+                            清空
+                          </button>
+                        )}
+                        <span className="w-px h-4 bg-black/[0.08] dark:bg-white/[0.1]" />
+                        <button
+                          onClick={() => handleToggleAllVisibleScheduled(!allVisibleScheduledSelected)}
+                          className="px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
+                        >
+                          {allVisibleScheduledSelected ? "取消全选" : "全选当前"}
+                        </button>
+                        <span className="w-px h-4 bg-black/[0.08] dark:bg-white/[0.1]" />
+                        <button
+                          onClick={handleTriggerSelectedScheduledExports}
+                          disabled={selectedScheduledExportIds.size === 0 || scheduledLoading}
+                          className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#317CFF] rounded-full hover:bg-[#2867d6] transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                        >
+                          {scheduledLoading ? "执行中…" : "执行"}
+                        </button>
+                        <button
+                          onClick={handleToggleScheduledBatchMode}
+                          className="p-1.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors ml-1"
+                          aria-label="退出批量选择"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )}
 

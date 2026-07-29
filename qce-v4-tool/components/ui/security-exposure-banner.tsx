@@ -162,7 +162,7 @@ export function SecurityExposureBanner() {
                 : "bg-amber-600 text-white hover:bg-amber-600/90")
             }
           >
-            {protecting ? "处理中…" : wildcard ? "收紧白名单" : "开启白名单保护"}
+            {protecting ? "处理中…" : wildcard ? "设置白名单" : "开启白名单保护"}
           </button>
           <button
             type="button"
