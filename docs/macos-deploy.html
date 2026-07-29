@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>macOS 部署 · QQ Chat Exporter</title>
+<meta name="description" content="QQ Chat Exporter (QCE) 文档：macOS 部署。免费开源的 QQ 聊天记录导出工具，导出 HTML、JSON、TXT、Excel，支持定时备份、批量导出。">
+<meta name="keywords" content="QQ聊天记录导出,QQ Chat Exporter,QCE,QQ备份,QQNT,NapCat,macOS 部署">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="../favicon.ico">
+<link rel="canonical" href="https://shuakami.github.io/qq-chat-exporter/docs/macos-deploy.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="QQ Chat Exporter">
+<meta property="og:title" content="macOS 部署 · QQ Chat Exporter">
+<meta property="og:description" content="QQ Chat Exporter (QCE) 文档：macOS 部署">
+<meta property="og:url" content="https://shuakami.github.io/qq-chat-exporter/docs/macos-deploy.html">
+<meta property="og:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="macOS 部署 · QQ Chat Exporter">
+<meta name="twitter:description" content="QQ Chat Exporter (QCE) 文档：macOS 部署">
+<meta name="twitter:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<link rel="preconnect" href="https://fonts.loli.net">
+<link rel="preconnect" href="https://gstatic.loli.net" crossorigin>
+<link href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
+  <span class="right">
+    <a href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </span>
+  <button class="menu-btn" aria-label="菜单" onclick="document.body.classList.add('nav-open')">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+</header>
+<div class="mnav" aria-hidden="true">
+  <div class="mnav-head">
+    <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
+    <button class="mnav-close" aria-label="关闭" onclick="document.body.classList.remove('nav-open')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <nav class="mnav-body">
+    <a href="index.html">介绍</a>
+<a href="guide.html">使用手册</a>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="macos-deploy.html" class="active">macOS 部署</a>
+<a href="docker-napcat-deployment.html">Docker NapCat 部署</a>
+<a href="feedback.html">如何反馈问题</a>
+<a href="contributing.html">如何贡献</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </nav>
+</div>
+<div class="shell">
+  <nav class="sidebar"><div class="sec">指南</div>
+<a href="index.html">介绍</a>
+<a href="guide.html">使用手册</a>
+<div class="sec">部署</div>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="macos-deploy.html" class="active">macOS 部署</a>
+<a href="docker-napcat-deployment.html">Docker NapCat 部署</a>
+<div class="sec">参与</div>
+<a href="feedback.html">如何反馈问题</a>
+<a href="contributing.html">如何贡献</a></nav>
+  <div class="main"><article class="content">
+    <h1>macOS 部署</h1>
+    <p>QCE 的 Shell 模式包现在也可以在 Apple Silicon（M1 及以上）Mac 上原生运行。这份文档介绍如何在官方 macOS 版 QQ 的基础之上完成部署，以及背后的运行机制。</p>
+<p><em>注意：Intel 芯片的 Mac，或者不想在本机安装 QQ 客户端的用户，请改用 <a href="docker-napcat-deployment.html">Docker NapCat 部署</a>。</em></p>
+<p>⚠️ <strong>macOS 支持目前仍处于预览阶段</strong>，扫码登录与导出已经能正常跑通，但覆盖面还不如 Windows / Linux 版本充分。如果你在使用中遇到问题，欢迎反馈（见文末）。</p>
+<p>⚠️ <strong>启动前必须先完全退出电脑上的 QQ</strong>：QCE 会用一份专属的 QQ 副本登录，它和你日常使用的 QQ 共用同一个「电脑端」登录名额。桌面 QQ 没退出时，启动器会在最开始就自动检测到并直接停止运行、给出提示，不会进入登录环节。注意点红色叉号只是关闭窗口，QQ 仍在后台运行，正确的退出方式见下面第 2 步。</p>
+<h2 id="前提条件与依赖"><a class="h-a" href="#前提条件与依赖">前提条件与依赖</a></h2>
+<p>在安装之前，请先确认你的 Mac 满足以下要求：</p>
+<table>
+<thead>
+<tr>
+<th>配置项</th>
+<th>推荐版本 / 要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>芯片架构</strong></td>
+<td>Apple Silicon（M1 及以上，arm64）。Intel（x64）Mac 暂无官方预编译包</td>
+</tr>
+<tr>
+<td><strong>操作系统</strong></td>
+<td>与官方 macOS 版 QQ 的要求一致（Apple Silicon 机型的出厂系统均已满足）</td>
+</tr>
+<tr>
+<td><strong>QQ 客户端</strong></td>
+<td>已从 <a href="https://im.qq.com/">QQ 官网</a> 安装到 <code>/Applications/QQ.app</code>（或 <code>~/Applications/QQ.app</code>）</td>
+</tr>
+<tr>
+<td><strong>Xcode 命令行工具</strong></td>
+<td>需要 <code>codesign</code>，未安装时执行 <code>xcode-select --install</code></td>
+</tr>
+<tr>
+<td><strong>可用磁盘空间</strong></td>
+<td>至少 1.5 GB（首次启动会在本地生成一份约 1 GB 的 QQ 运行副本，见下文）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="部署具体步骤"><a class="h-a" href="#部署具体步骤">部署具体步骤</a></h2>
+<h3 id="1-下载并解压"><a class="h-a" href="#1-下载并解压">1. 下载并解压</a></h3>
+<p>去 <a href="https://github.com/shuakami/qq-chat-exporter/releases">GitHub Releases</a> 页面，下载文件名以 <code>NapCat-QCE-macOS-arm64</code> 开头的压缩包。</p>
+<p>下载完成后打开「终端」，把下面三行整段复制进去执行。命令会自动找到你刚下载的那个压缩包并解压到 <code>~/qce</code>，不需要改动任何内容：</p>
+<pre class="highlight"><code class="language-bash">mkdir -p ~/qce &amp;&amp; cd ~/qce
+tar -xf "$(ls -t ~/Downloads/NapCat-QCE-macOS-arm64-*.tar* | head -1)"
+cd NapCat-QCE-macOS-arm64</code></pre>
+<p>如果你把压缩包存到了「下载」以外的位置，把命令里的 <code>~/Downloads</code> 换成实际所在的文件夹；想解压到别处，把两处 <code>~/qce</code> 换掉即可。</p>
+<h3 id="2-退出桌面-qq"><a class="h-a" href="#2-退出桌面-qq">2. 退出桌面 QQ</a></h3>
+<p>用下面任意一种方式退出：</p>
+<ul>
+<li>在程序坞（Dock）里右键点击 QQ 图标，选择「退出」；</li>
+<li>或者切换到 QQ 窗口，按 <code>Command + Q</code>。</li>
+</ul>
+<p>点窗口左上角的红色叉号只是关闭窗口，QQ 会继续在后台运行，程序坞图标下方的小圆点还在就说明没退干净。</p>
+<p>如果忘了这一步，启动器会直接停下并提示 <code>The desktop QQ client is still running</code>，退出 QQ 后重新运行即可。</p>
+<h3 id="3-启动程序与扫码登录"><a class="h-a" href="#3-启动程序与扫码登录">3. 启动程序与扫码登录</a></h3>
+<pre class="highlight"><code class="language-bash">./launcher-user.sh</code></pre>
+<p><strong>首次运行会比日常慢一些</strong>：脚本会自动在同目录下生成一份专用的 QQ 运行副本（<code>QQNapCatRuntime.app</code>），这一步涉及约 1 GB 文件的复制与重新签名，通常需要几十秒到一两分钟，具体取决于磁盘速度。这是正常现象，请耐心等待；控制台会打印 <code>Preparing a private, patched copy of QQ.app for NapCat</code> 提示。之后每次启动都会直接复用这份副本，仅在检测到 QQ 更新版本时才会重新生成。</p>
+<p><strong>登录操作：</strong>
+启动成功后，控制台窗口会出现登录二维码。打开手机 QQ 扫描即可完成登录。</p>
+<p><strong>访问网页：</strong>
+登录成功后，控制台会打印访问令牌和一条一键登录链接，并自动用默认浏览器打开它，直接进入操作界面（可以在网页的「设置 → 启动」里关闭这个自动打开）：</p>
+<pre class="highlight"><code>[QCE] Token: xxxxxxxx
+[QCE] 一键登录: http://127.0.0.1:40653/qce/auth?token=...</code></pre>
+<p>浏览器没有自动弹出时，手动复制这条链接打开即可；也可以直接访问 <code>http://localhost:40653/qce</code>，把上面那串 Token 粘贴进验证框。如果两行都没看到，令牌也存在 <code>~/.qq-chat-exporter/security.json</code> 的 <code>accessToken</code> 字段里，详见<a href="guide.html#login">使用手册</a>。</p>
+<h3 id="独立查看模式"><a class="h-a" href="#独立查看模式">独立查看模式</a></h3>
+<p>只需要浏览已经导出的聊天记录、不需要登录 QQ 时，可以运行：</p>
+<pre class="highlight"><code class="language-bash">./start-standalone.sh</code></pre>
+<p>这个模式不用退出桌面 QQ，启动后同样会打印登录链接并自动打开浏览器。</p>
+<h3 id="自定义-qq-路径"><a class="h-a" href="#自定义-qq-路径">自定义 QQ 路径</a></h3>
+<p>启动器默认按顺序查找 <code>/Applications/QQ.app/Contents/MacOS/QQ</code> 和 <code>~/Applications/QQ.app/Contents/MacOS/QQ</code>。如果你的 QQ 安装在其他位置，可以手动指定（必须指向 <code>.app</code> 内部真实的可执行文件，而不是 <code>.app</code> 目录本身）：</p>
+<pre class="highlight"><code class="language-bash">export NAPCAT_QQ_PATH="/你的路径/QQ.app/Contents/MacOS/QQ"
+./launcher-user.sh</code></pre>
+<hr />
+<h2 id="这份专用-qq-运行副本是什么为什么需要它"><a class="h-a" href="#这份专用-qq-运行副本是什么为什么需要它">这份"专用 QQ 运行副本"是什么，为什么需要它</a></h2>
+<p>macOS 版 <code>/Applications/QQ.app</code> 是苹果 Hardened Runtime（强化运行时）签名的正式打包应用，不像 Linux 那样可以用 <code>LD_PRELOAD</code> 在内存里劫持文件读取。要让 QQ 的 Electron 进程加载 NapCat 的代码，唯一稳定可行的办法是：</p>
+<ol>
+<li>在 <code>launcher-user.sh</code> 所在目录下复制一份 QQ.app（<code>QQNapCatRuntime.app</code>），<strong>从不修改你日常使用的 <code>/Applications/QQ.app</code></strong>；</li>
+<li>给这份副本的 <code>package.json</code> 打补丁，让它加载 NapCat 而不是 QQ 自己的入口；</li>
+<li>由于补丁改动了签名清单覆盖的文件，必须对副本重新签名（临时自签名，仅限本机使用）才能通过 Gatekeeper 校验并正常启动。</li>
+</ol>
+<p>重新签名是这套方案能生效的必要代价，会带来一个副作用：<strong>这份运行副本会永久失去 macOS 的 App 沙盒（App Sandbox）保护</strong>（临时自签名无法获得与真实 QQ 相匹配的 App Group 授权）。这只影响这个专门用于后台运行 NapCat 的副本，不会影响你日常使用的、始终保持苹果原版签名的 <code>/Applications/QQ.app</code>。如果你不希望在本机保留一份失去沙盒保护的 QQ 副本，请不要使用 macOS Shell 模式。</p>
+<p>首次启动时脚本会打印明确提示，说明即将进行这一操作。副本与真实安装完全隔离存放，删除启动器目录下的 <code>QQNapCatRuntime.app</code> 即可随时清除，下次启动会重新生成。</p>
+<h3 id="副本与桌面-qq-共用同一份聊天数据"><a class="h-a" href="#副本与桌面-qq-共用同一份聊天数据">副本与桌面 QQ 共用同一份聊天数据</a></h3>
+<p>失去沙盒还有一个连带影响：沙盒会把 QQ 的数据目录重定向到系统的容器目录里，而副本没有沙盒，默认会另起一份<strong>全新的空数据库</strong>。如果放任不管，导出好友聊天时就只能拿到最近这一两天的内容（群聊记录可以从服务器补拉，所以看起来正常，一对一聊天则不行）。</p>
+<p>因此启动器会把桌面 QQ 的聊天数据目录<strong>软链接</strong>到副本读取的位置，让两者共用同一份数据库——这与 Windows / Linux 版本本来的行为一致，在那两个平台上 Shell 模式和桌面 QQ 读的就是同一个数据目录。具体来说：</p>
+<ul>
+<li>只在 <code>~/Library/Application Support/QQ/</code> 下创建软链接，<strong>不会复制、移动或删除系统容器目录里的任何东西</strong>；</li>
+<li>如果这个位置上已经有一份运行副本自己建的独立数据库（例如你在桌面 QQ 首次登录之前就先跑过 QCE），它会被改名保留为 <code>&lt;原名&gt;.qce-unlinked-backup</code>（不会删除），确认无用后可以自行删掉；</li>
+<li>因为两者共用一份数据库，桌面 QQ 必须先退出——这也正是前面那条前置要求的另一个原因。</li>
+</ul>
+<p>另外要注意：<strong>QCE 运行期间也请不要再打开桌面 QQ</strong>。系统不会阻止你这么做（运行副本和 <code>/Applications/QQ.app</code> 是两个独立的程序），桌面 QQ 也能正常登录——但它会占走登录名额，把 QCE 这边的连接顶下线。</p>
+<p>有意思的是，因为两者共用同一份数据库，被顶下线后 QCE 表面上仍然一切正常：桌面 QQ 收到的新消息会立刻写进这份库，QCE 照样读得到，历史导出也完全不受影响。但这只是「借着桌面 QQ 在工作」，一旦你把桌面 QQ 关掉，就不再有新消息进库，QCE 也不会自己重新登录，需要 <code>Ctrl+C</code> 停掉后重新启动。</p>
+<p>省事的做法就是：用 QCE 期间别开桌面 QQ，用完停掉 QCE 再开。</p>
+<hr />
+<h2 id="支持的环境变量"><a class="h-a" href="#支持的环境变量">支持的环境变量</a></h2>
+<table>
+<thead>
+<tr>
+<th>环境变量名称</th>
+<th>默认值</th>
+<th>具体用途说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NAPCAT_QQ_PATH</code></td>
+<td>自动探测</td>
+<td>手动指定 QQ.app 内部可执行文件的绝对路径</td>
+</tr>
+<tr>
+<td><code>NAPCAT_DISABLE_MULTI_PROCESS</code></td>
+<td><code>1</code></td>
+<td>是否禁用 NapCat 的多进程模式（macOS 下默认禁用）</td>
+</tr>
+<tr>
+<td><code>QCE_NO_AUTO_OPEN</code></td>
+<td>未设置</td>
+<td>设为 <code>1</code> 后不再自动打开浏览器，只在控制台打印链接；优先级高于设置页里的开关</td>
+</tr>
+<tr>
+<td><code>QCE_LOG_DIR</code> / <code>QCE_LOG_FILE</code></td>
+<td><code>logs/qce-runtime.log</code></td>
+<td>运行日志输出位置</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="常见问题"><a class="h-a" href="#常见问题">常见问题</a></h2>
+<h3 id="提示-codesign-not-found"><a class="h-a" href="#提示-codesign-not-found">提示 <code>codesign not found</code></a></h3>
+<ul>
+<li><strong>原因分析</strong>：本机未安装 Xcode 命令行工具。</li>
+<li><strong>解决方法</strong>：执行 <code>xcode-select --install</code>，按提示完成安装后重新运行 <code>launcher-user.sh</code>。</li>
+</ul>
+<h3 id="提示-codesign-failed或副本损坏想要重来"><a class="h-a" href="#提示-codesign-failed或副本损坏想要重来">提示 <code>codesign failed</code>，或副本损坏想要重来</a></h3>
+<ul>
+<li><strong>解决方法</strong>：删除运行副本后重新执行脚本，会从头重新生成：</li>
+</ul>
+<pre class="highlight"><code class="language-bash">rm -rf QQNapCatRuntime.app
+./launcher-user.sh</code></pre>
+<h3 id="提示-the-desktop-qq-client-is-still-running"><a class="h-a" href="#提示-the-desktop-qq-client-is-still-running">提示 <code>The desktop QQ client is still running</code></a></h3>
+<ul>
+<li><strong>原因分析</strong>：电脑上的 QQ 还在后台运行，它和 QCE 的运行副本共用同一个电脑端登录名额与同一份聊天数据。</li>
+<li><strong>解决方法</strong>：在程序坞里右键 QQ 图标选「退出」，或切到 QQ 窗口按 <code>Command + Q</code>，然后重新运行 <code>./launcher-user.sh</code>。</li>
+</ul>
+<h3 id="提示-端口-40653-绑定失败-address-already-in-use"><a class="h-a" href="#提示-端口-40653-绑定失败-address-already-in-use">提示 <code>端口 40653 绑定失败: Address already in use</code></a></h3>
+<ul>
+<li><strong>原因分析</strong>：多半是上一次运行的 <code>qce-server</code> 还在后台。它由 QQ 拉起，如果 QQ 是被强制退出或异常结束的，它不会跟着关闭，会一直占着端口——即使你换一个目录重新解压也一样，端口只有一个。完整模式和独立模式也不能同时开。</li>
+<li><strong>解决方法</strong>：先查出是谁占着，再结束它：</li>
+</ul>
+<pre class="highlight"><code class="language-bash">lsof -nP -iTCP:40653 -sTCP:LISTEN
+kill &lt;上面查到的 PID&gt;</code></pre>
+<h3 id="关闭ctrlc-或退出-qq后弹出系统崩溃报告"><a class="h-a" href="#关闭ctrlc-或退出-qq后弹出系统崩溃报告">关闭（Ctrl+C 或退出 QQ）后弹出系统崩溃报告</a></h3>
+<ul>
+<li><strong>原因分析</strong>：<code>--single-process</code> 把原本相互独立的 GPU、网络等子进程都并入了同一个进程（见上文「这份"专用 QQ 运行副本"是什么」），退出阶段偶尔会撞上 Node/libuv 内部一个信号量的时序竞争，被系统判定为崩溃。</li>
+<li><strong>解决方法</strong>：无需处理。这个崩溃发生在进程已经在退出的过程中，不影响此前已完成的导出结果，直接关掉崩溃报告窗口即可。</li>
+</ul>
+<h3 id="首次启动为什么要花这么久是不是卡死了"><a class="h-a" href="#首次启动为什么要花这么久是不是卡死了">首次启动为什么要花这么久，是不是卡死了？</a></h3>
+<p>参见上文「启动程序与扫码登录」——首次运行会复制并签名一份约 1 GB 的 QQ 副本，属于正常现象，请留意控制台是否有 <code>[Info]</code> 前缀的日志在持续输出。之后的启动会跳过这一步，明显更快。</p>
+<h3 id="首次启动时-macos-弹出麦克风-摄像头权限请求"><a class="h-a" href="#首次启动时-macos-弹出麦克风-摄像头权限请求">首次启动时 macOS 弹出麦克风 / 摄像头权限请求</a></h3>
+<p>这是 QQ 自身的功能所需（语音、视频通话），运行副本沿用了同一套权限声明。QCE 只做聊天记录导出，全部拒绝不影响使用。</p>
+<h3 id="想彻底卸载"><a class="h-a" href="#想彻底卸载">想彻底卸载</a></h3>
+<p>删掉整个解压出来的包目录即可，其中包含运行副本。另外还有两处可选清理：</p>
+<ul>
+<li><code>~/.qq-chat-exporter/</code>：QCE 的配置与访问令牌；</li>
+<li><code>~/Library/Application Support/QQ/nt_qq_*.qce-unlinked-backup</code>：如果有的话，是改用共享数据库时保留下来的那份副本自建数据库。</li>
+</ul>
+<p><strong>不要</strong>删除 <code>~/Library/Containers/com.tencent.qq/</code>，那是你桌面 QQ 的真实聊天数据。</p>
+<hr />
+<h2 id="与-linux-windows-版本的区别"><a class="h-a" href="#与-linux-windows-版本的区别">与 Linux / Windows 版本的区别</a></h2>
+<p>不要在 macOS 上使用 <code>NapCat-QCE-Linux-x64</code> 或 <code>NapCat-QCE-Windows-x64</code> 压缩包，其中的服务端与注入模块均为对应平台架构编译，无法在 macOS 上运行。</p>
+<p>macOS 完整包会：</p>
+<ul>
+<li>使用原生 Apple Silicon（arm64）编译的 <code>qce-server</code>；</li>
+<li>使用 macOS QQ 的 <code>.app</code> 路径自动探测逻辑；</li>
+<li>通过本文上一节描述的私有运行副本机制加载 NapCat；</li>
+<li>不包含 Windows 专用的 <code>.bat</code> / <code>.dll</code> / <code>.exe</code> 文件。</li>
+</ul>
+<p>另外，Linux 版本有一个 <code>--legacy</code> 参数可以让 QCE 与桌面 QQ 同时在线，<strong>macOS 没有对应功能</strong>：那种启动方式在 macOS 上根本加载不了 NapCat，这也正是本文这套运行副本方案存在的原因。</p>
+<hr />
+<h2 id="反馈问题"><a class="h-a" href="#反馈问题">反馈问题</a></h2>
+<p>提交 Issue 时请附上：</p>
+<ul>
+<li>Mac 芯片型号（如 M1 / M2 / M3 / M4 / M5）和 macOS 版本；</li>
+<li>QQ、QCE 与 NapCat 版本；</li>
+<li><code>logs/qce-runtime.log</code> 的完整内容；</li>
+<li>终端中从启动到出现问题前后的完整日志。</li>
+</ul>
+    <div class="pagenav"><a class="prev" href="linux-deploy.html"><span class="dir">上一篇</span><span class="lbl">Linux 部署</span></a><a class="next" href="docker-napcat-deployment.html"><span class="dir">下一篇</span><span class="lbl">Docker NapCat 部署</span></a></div>
+  </article></div>
+  <nav class="toc"><div class="t">本页目录</div><a class="" href="#前提条件与依赖">前提条件与依赖</a>
+<a class="" href="#部署具体步骤">部署具体步骤</a>
+<a class="d3" href="#1-下载并解压">1. 下载并解压</a>
+<a class="d3" href="#2-退出桌面-qq">2. 退出桌面 QQ</a>
+<a class="d3" href="#3-启动程序与扫码登录">3. 启动程序与扫码登录</a>
+<a class="d3" href="#独立查看模式">独立查看模式</a>
+<a class="d3" href="#自定义-qq-路径">自定义 QQ 路径</a>
+<a class="" href="#这份专用-qq-运行副本是什么为什么需要它">这份"专用 QQ 运行副本"是什么，为什么需要它</a>
+<a class="d3" href="#副本与桌面-qq-共用同一份聊天数据">副本与桌面 QQ 共用同一份聊天数据</a>
+<a class="" href="#支持的环境变量">支持的环境变量</a>
+<a class="" href="#常见问题">常见问题</a>
+<a class="d3" href="#提示-codesign-not-found">提示 codesign not found</a>
+<a class="d3" href="#提示-codesign-failed或副本损坏想要重来">提示 codesign failed，或副本损坏想要重来</a>
+<a class="d3" href="#提示-the-desktop-qq-client-is-still-running">提示 The desktop QQ client is still running</a>
+<a class="d3" href="#提示-端口-40653-绑定失败-address-already-in-use">提示 端口 40653 绑定失败: Address already in use</a>
+<a class="d3" href="#关闭ctrlc-或退出-qq后弹出系统崩溃报告">关闭（Ctrl+C 或退出 QQ）后弹出系统崩溃报告</a>
+<a class="d3" href="#首次启动为什么要花这么久是不是卡死了">首次启动为什么要花这么久，是不是卡死了？</a>
+<a class="d3" href="#首次启动时-macos-弹出麦克风-摄像头权限请求">首次启动时 macOS 弹出麦克风 / 摄像头权限请求</a>
+<a class="d3" href="#想彻底卸载">想彻底卸载</a>
+<a class="" href="#与-linux-windows-版本的区别">与 Linux / Windows 版本的区别</a>
+<a class="" href="#反馈问题">反馈问题</a></nav>
+</div>
+<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('.toc a'));
+  if(!links.length)return;
+  var hs=links.map(function(a){return document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1)))});
+  function on(){
+    var i=0;
+    for(var j=0;j<hs.length;j++){if(hs[j]&&hs[j].getBoundingClientRect().top<90)i=j;}
+    links.forEach(function(a,j){a.classList.toggle('active',j===i)});
+  }
+  addEventListener('scroll',on,{passive:true});on();
+})();
+(function(){
+  var box=document.createElement('div');box.className='lightbox';
+  var big=document.createElement('img');box.appendChild(big);
+  var x=document.createElement('button');x.className='lb-close';x.innerHTML='✕';x.setAttribute('aria-label','关闭');box.appendChild(x);
+  document.body.appendChild(box);
+  function close(){box.classList.remove('open');setTimeout(function(){if(!box.classList.contains('open'))big.src='';},240);}
+  box.addEventListener('click',close);x.addEventListener('click',close);
+  big.addEventListener('click',function(e){e.stopPropagation();});
+  addEventListener('keydown',function(e){if(e.key==='Escape')close();});
+  [].forEach.call(document.querySelectorAll('.content img'),function(img){
+    img.addEventListener('click',function(){big.src=img.src;box.classList.add('open');});
+  });
+})();
+(function(){
+  var COPY='<svg class="ic ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+  var CHECK='<svg class="ic ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  [].forEach.call(document.querySelectorAll('.content pre'),function(pre){
+    var btn=document.createElement('button');
+    btn.className='copy-btn';btn.type='button';btn.setAttribute('aria-label','复制代码');
+    btn.innerHTML=COPY+CHECK;
+    btn.addEventListener('click',function(){
+      var code=pre.querySelector('code');
+      var text=(code?code.textContent:pre.textContent).replace(/\n$/,'');
+      (navigator.clipboard?navigator.clipboard.writeText(text):Promise.reject()).catch(function(){
+        var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);
+        ta.select();document.execCommand('copy');document.body.removeChild(ta);
+      }).then(function(){
+        btn.classList.add('copied');
+        clearTimeout(btn._t);
+        btn._t=setTimeout(function(){btn.classList.remove('copied');},1600);
+      });
+    });
+    pre.appendChild(btn);
+  });
+})();
+</script>
+</body>
+</html>
