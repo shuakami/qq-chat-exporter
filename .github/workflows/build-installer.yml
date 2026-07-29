@@ -76,6 +76,9 @@ jobs:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=4096
           QCE_VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('pr-{0}', github.run_id) }}
+          # Authenticated NapCat version lookup: the anonymous 60/hour quota is
+          # per source IP and shared across runners, so it runs out at random.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Inject uninstaller exe into the Shell zip so it gets extracted
       # to the install directory alongside the main application files.
