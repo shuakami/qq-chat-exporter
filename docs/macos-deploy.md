@@ -26,13 +26,17 @@ QCE 的 Shell 模式包现在也可以在 Apple Silicon（M1 及以上）Mac 上
 
 ### 1. 下载并解压
 
-去 [GitHub Releases](https://github.com/shuakami/qq-chat-exporter/releases) 页面下载最新的 `NapCat-QCE-macOS-arm64-vXXX.tar.gz`，然后在终端执行以下命令解压（默认解压到 `~/qce`，想放别处把命令里的路径改掉即可）：
+去 [GitHub Releases](https://github.com/shuakami/qq-chat-exporter/releases) 页面，下载文件名以 `NapCat-QCE-macOS-arm64` 开头的压缩包。
+
+下载完成后打开「终端」，把下面三行整段复制进去执行。命令会自动找到你刚下载的那个压缩包并解压到 `~/qce`，不需要改动任何内容：
 
 ```bash
 mkdir -p ~/qce && cd ~/qce
-tar -xzf ~/Downloads/NapCat-QCE-macOS-arm64-vXXX.tar.gz
+tar -xf "$(ls -t ~/Downloads/NapCat-QCE-macOS-arm64-*.tar* | head -1)"
 cd NapCat-QCE-macOS-arm64
 ```
+
+如果你把压缩包存到了「下载」以外的位置，把命令里的 `~/Downloads` 换成实际所在的文件夹；想解压到别处，把两处 `~/qce` 换掉即可。
 
 ### 2. 退出桌面 QQ
 

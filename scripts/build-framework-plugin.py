@@ -12,10 +12,11 @@ import subprocess
 import zipfile
 import platform
 from pathlib import Path
-from urllib.request import urlretrieve, urlopen
+from urllib.request import urlretrieve
 from datetime import datetime
 from plugin_runtime import (
     copy_windows_server_binary,
+    get_napcat_latest_version,
     stage_plugin_runtime,
     write_find_qq_script,
 )
@@ -32,19 +33,6 @@ def get_qce_version():
             return json.load(f).get('version', 'unknown')
     except:
         return 'unknown'
-
-def get_napcat_latest_version():
-    """Get latest NapCat version from GitHub API"""
-    print("[*] Getting NapCat latest version...")
-    try:
-        with urlopen("https://api.github.com/repos/NapNeko/NapCatQQ/releases/latest") as response:
-            data = json.loads(response.read())
-            version = data["tag_name"]
-            print(f"[x] NapCat version: {version}")
-            return version
-    except Exception as e:
-        print(f"[!] Failed to get latest version: {e}")
-        return "v4.8.119"
 
 def write_napcat_builtin_plugin_config(config_dir):
     """Disable the builtin #napcat reply command by default."""

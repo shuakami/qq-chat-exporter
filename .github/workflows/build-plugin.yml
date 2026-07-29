@@ -97,6 +97,9 @@ jobs:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=4096
           QCE_VERSION: ${{ steps.version.outputs.version }}
+          # Authenticated NapCat version lookup: the anonymous 60/hour quota is
+          # per source IP and shared across runners, so it runs out at random.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build complete package (Linux)
         if: matrix.platform == 'Linux'
@@ -106,6 +109,7 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
           QCE_VERSION: ${{ steps.version.outputs.version }}
           QCE_SERVER_BINARY: qq-chat-export-server/target/x86_64-unknown-linux-musl/release/qce-server
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # quick-pack.py builds qce-server itself when no prebuilt binary is
       # supplied, same as the Windows leg above.
@@ -116,6 +120,7 @@ jobs:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=4096
           QCE_VERSION: ${{ steps.version.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify macOS package is native arm64
         if: matrix.platform == 'macOS'
@@ -182,6 +187,7 @@ jobs:
         env:
           NODE_ENV: production
           QCE_VERSION: ${{ steps.version.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Framework artifact
         uses: actions/upload-artifact@v4
