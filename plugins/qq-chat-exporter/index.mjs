@@ -251,6 +251,10 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
     const realApis = globalThis.__NAPCAT_BRIDGE__?.core?.apis || runtimeCore.apis;
     runtimeCore.apis = createApiAdapter(realApis);
 
+    if (apiLauncher) {
+      await apiLauncher.stopApiServer();
+      apiLauncher = null;
+    }
     apiLauncher = new QQChatExporterApiLauncher(runtimeCore);
     await apiLauncher.startApiServer();
   } catch (error) {

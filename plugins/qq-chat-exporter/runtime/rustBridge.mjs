@@ -8,8 +8,95 @@ import { fileURLToPath } from 'node:url';
 
 const MAX_BRIDGE_BODY_BYTES = 64 * 1024 * 1024;
 const BRIDGE_HOST = '127.0.0.1';
-const BRIDGE_PORT = Number(process.env.QCE_BRIDGE_PORT || 40654);
+const DEFAULT_BRIDGE_PORT = 40654;
 const API_PORT = Number(process.env.QCE_SERVER_PORT || 40653);
+
+export function resolveBridgePort(env = process.env) {
+  const configured = env.QCE_BRIDGE_PORT;
+  if (configured === undefined || configured === '') {
+    return DEFAULT_BRIDGE_PORT;
+  }
+  const port = Number(configured);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`Invalid QCE_BRIDGE_PORT: ${configured}`);
+  }
+  return port;
+}
+
+function runCommand(command, args) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+    const chunks = [];
+    child.stdout?.on('data', (chunk) => chunks.push(chunk));
+    child.once('error', () => resolve({ stdout: '', exitCode: null }));
+    child.once('close', (exitCode) => resolve({
+      stdout: Buffer.concat(chunks).toString('utf8'),
+      exitCode
+    }));
+  });
+}
+
+export function parseWindowsListeningPids(output, port) {
+  const suffix = `:${port}`;
+  const pids = new Set();
+  for (const line of String(output).split(/\r?\n/)) {
+    const fields = line.trim().split(/\s+/);
+    if (fields.length < 5 || fields[0].toUpperCase() !== 'TCP') continue;
+    if (!fields[1].endsWith(suffix) || fields[3].toUpperCase() !== 'LISTENING') continue;
+    const pid = Number(fields[4]);
+    if (Number.isInteger(pid) && pid > 0 && pid !== process.pid) pids.add(pid);
+  }
+  return Array.from(pids);
+}
+
+async function listeningPids(port) {
+  if (process.platform === 'win32') {
+    const result = await runCommand('netstat', ['-ano', '-p', 'tcp']);
+    return parseWindowsListeningPids(result.stdout, port);
+  }
+  const result = await runCommand('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t']);
+  return Array.from(new Set(
+    result.stdout
+      .split(/\r?\n/)
+      .map((value) => Number(value.trim()))
+      .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid)
+  ));
+}
+
+async function terminatePortOwners(port) {
+  const pids = await listeningPids(port);
+  const terminated = [];
+  for (const pid of pids) {
+    if (process.platform === 'win32') {
+      const result = await runCommand('taskkill', ['/PID', String(pid), '/F', '/T']);
+      if (result.exitCode === 0) terminated.push(pid);
+    } else {
+      try {
+        process.kill(pid, 'SIGTERM');
+        terminated.push(pid);
+      } catch {
+        continue;
+      }
+    }
+  }
+  return terminated;
+}
+
+function listen(server, port) {
+  return new Promise((resolve, reject) => {
+    const onError = (error) => {
+      server.off('listening', onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off('error', onError);
+      resolve();
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port, BRIDGE_HOST);
+  });
+}
 
 export function bridgeJsonReplacer(_key, value) {
   if (value instanceof Map) {
@@ -206,7 +293,9 @@ export function findRustServerBinary() {
   return candidates.find((candidate) => candidate && existsSync(candidate)) ?? null;
 }
 
-export async function createNapCatBridge(core, port = BRIDGE_PORT) {
+export async function createNapCatBridge(core, port = resolveBridgePort(), recovery = {}) {
+  const reclaimPort = recovery.reclaimPort ?? DEFAULT_BRIDGE_PORT;
+  const terminateOwners = recovery.terminatePortOwners ?? terminatePortOwners;
   let requestId = 0;
 
   const server = createServer((request, response) => {
@@ -296,16 +385,40 @@ export async function createNapCatBridge(core, port = BRIDGE_PORT) {
     });
   });
 
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(port, BRIDGE_HOST, () => {
-      server.off('error', reject);
-      resolve();
-    });
-  });
+  let terminatedPids = [];
+  let fallbackFromPort = null;
+  try {
+    await listen(server, port);
+  } catch (error) {
+    if (error?.code !== 'EADDRINUSE' || port !== reclaimPort) throw error;
+    terminatedPids = await terminateOwners(port);
+    let reclaimed = false;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      try {
+        await listen(server, port);
+        reclaimed = true;
+        break;
+      } catch (retryError) {
+        if (retryError?.code !== 'EADDRINUSE') throw retryError;
+      }
+    }
+    if (!reclaimed) {
+      fallbackFromPort = port;
+      await listen(server, 0);
+    }
+  }
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    await new Promise((resolve) => server.close(() => resolve()));
+    throw new Error('NapCat bridge did not expose a TCP port');
+  }
 
   return {
-    port,
+    port: address.port,
+    terminatedPids,
+    fallbackFromPort,
     stop: () => new Promise((resolve) => server.close(() => resolve()))
   };
 }
@@ -352,6 +465,13 @@ export async function startRustApiServer(core, frontendPath) {
   let bridge;
   try {
     bridge = await createNapCatBridge(core);
+    if (bridge.terminatedPids.length > 0) {
+      appendRuntimeLog(logFile, '[qce-plugin]', `terminated bridge port ${DEFAULT_BRIDGE_PORT} owner pid(s) ${bridge.terminatedPids.join(',')}`);
+    }
+    if (bridge.fallbackFromPort !== null) {
+      appendRuntimeLog(logFile, '[qce-plugin]', `bridge port ${bridge.fallbackFromPort} remained busy; using ${bridge.port}`);
+    }
+    appendRuntimeLog(logFile, '[qce-plugin]', `bridge ready on port ${bridge.port}`);
   } catch (error) {
     appendRuntimeLog(logFile, '[qce-plugin]', `bridge startup failed: ${error instanceof Error ? error.message : String(error)}`);
     throw error;

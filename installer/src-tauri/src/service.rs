@@ -80,8 +80,17 @@ pub fn start_service(state: State<'_, AppState>) -> Result<(), String> {
     }
     util::installer_log(
         &dir,
-        &format!("starting service (installer v{})", env!("CARGO_PKG_VERSION")),
+        &format!(
+            "starting service (installer v{})",
+            env!("CARGO_PKG_VERSION")
+        ),
     );
+
+    // The installer may have restarted and lost the previous child handle.
+    // Stop that stale NapCat process tree before starting a fresh instance so
+    // its WebUI, QCE bridge, and package files are released.
+    kill_napcat_only();
+    std::thread::sleep(std::time::Duration::from_millis(500));
 
     let launcher = util::find_launcher(&dir)
         .ok_or_else(|| "未找到启动脚本（launcher-user.bat）".to_string())?;

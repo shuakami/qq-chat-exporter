@@ -41,6 +41,7 @@ persistence, or API behavior back under the plugin package.
 ### API and bridge
 
 - Keep the Node bridge bound to loopback and preserve request-size limits.
+- For reserved loopback ports, terminate known stale QCE/NapCat owners, retry the reserved port, then fall back to an ephemeral port with explicit diagnostics.
 - Treat NapCat payloads as externally shaped data: support documented wrapper variants without weakening error handling.
 - Do not add cross-account, cross-task, or unbounded caches. Every cache needs an owner, capacity/lifetime, and invalidation rule.
 - Keep WebSocket task resync, polling fallback, task persistence, and completion notifications consistent.
