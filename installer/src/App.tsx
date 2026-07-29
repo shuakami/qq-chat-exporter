@@ -18,7 +18,7 @@ import api, {
 } from './tauri';
 
 type InstallStep = 'welcome' | 'installing' | 'complete' | 'setup';
-type SetupStep = 'intro' | 'login' | 'warning' | 'configuring' | 'done' | 'running';
+type SetupStep = 'intro' | 'login' | 'warning' | 'configuring' | 'timeout' | 'done' | 'running';
 type Direction = 'forward' | 'back' | 'none';
 
 interface LoaderProps {
@@ -177,6 +177,8 @@ const INSTALL_TIPS = [
 ];
 
 const FRAMEWORK_DOWNLOAD_URL = 'https://github.com/shuakami/qq-chat-exporter/releases/latest';
+const CONFIGURE_TIMEOUT_MS = 20_000;
+const CONFIGURE_POLL_INTERVAL_MS = 1_500;
 
 const isAlreadyLoggedIn = (msg: string) =>
   msg.includes('已登录') || /is\s*logined|already\s*log/i.test(msg);
@@ -232,6 +234,8 @@ export default function App() {
 
   const tipsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const qrPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const configureCleanupRef = useRef<(() => void) | null>(null);
+  const configureRunRef = useRef(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const selectedAccount = accounts.find((a) => a.uin === selectedUin) ?? null;
@@ -496,22 +500,45 @@ export default function App() {
   }, [selectedAccount]);
 
   const startConfiguring = useCallback(() => {
+    configureCleanupRef.current?.();
+    const runId = ++configureRunRef.current;
     setSetupStep('configuring');
     setSetupProgress(8);
+    setSetupHint('请稍候，我们正在为您初始化导出组件...');
+
+    let stopped = false;
     let unlisten: (() => void) | null = null;
+    let poll: ReturnType<typeof setInterval> | null = null;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      stopped = true;
+      if (poll) clearInterval(poll);
+      if (timeout) clearTimeout(timeout);
+      if (unlisten) unlisten();
+      if (configureRunRef.current === runId) configureCleanupRef.current = null;
+    };
+    configureCleanupRef.current = cleanup;
+
     api
       .onConfigureProgress((p) => {
+        if (stopped || configureRunRef.current !== runId) return;
         setSetupProgress(p.percent);
         if (p.message) setSetupHint(p.message);
       })
-      .then((fn) => (unlisten = fn));
-    // Poll QCE until it reports running, then advance.
-    const poll = setInterval(async () => {
+      .then((fn) => {
+        if (stopped || configureRunRef.current !== runId) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {
+        /* Status polling and timeout protection remain active. */
+      });
+
+    const checkRunning = async () => {
       try {
         const info = await api.isQceRunning();
-        if (info.running) {
-          clearInterval(poll);
-          if (unlisten) unlisten();
+        if (!stopped && configureRunRef.current === runId && info.running) {
+          cleanup();
           setSetupProgress(100);
           if (info.webuiUrl) setWebuiUrl(info.webuiUrl);
           setTimeout(() => setSetupStep('done'), 400);
@@ -519,8 +546,22 @@ export default function App() {
       } catch {
         /* keep polling */
       }
-    }, 1500);
+    };
+
+    poll = setInterval(checkRunning, CONFIGURE_POLL_INTERVAL_MS);
+    timeout = setTimeout(() => {
+      if (stopped || configureRunRef.current !== runId) return;
+      cleanup();
+      setSetupStep('timeout');
+    }, CONFIGURE_TIMEOUT_MS);
+    void checkRunning();
   }, []);
+
+  useEffect(() => {
+    if (setupStep !== 'configuring') configureCleanupRef.current?.();
+  }, [setupStep]);
+
+  useEffect(() => () => configureCleanupRef.current?.(), []);
 
   const enterRunning = useCallback(async () => {
     setRuntimeStopped(false);
@@ -992,6 +1033,23 @@ export default function App() {
                       transition={{ type: 'spring', stiffness: 90, damping: 20, mass: 1 }}
                     />
                   </div>
+                </div>
+              </div>
+            )}
+
+            {setupStep === 'timeout' && (
+              <div className="flex-1 flex flex-col items-center justify-center text-center w-full px-6">
+                <h2 className="text-[19px] font-bold tracking-tight text-[var(--color-text)] mb-3">配置超时</h2>
+                <p className="text-[var(--color-text-secondary)] text-[13px] leading-relaxed mb-8 max-w-[280px]">
+                  配置过程超过 20 秒，可能遇到了运行环境问题。请查看运行日志了解具体原因。
+                </p>
+                <div className="w-full max-w-[240px] flex flex-col gap-3">
+                  <Button fullWidth size="lg" onClick={() => void api.openLogFile()} className="h-9 font-medium">
+                    查看运行日志
+                  </Button>
+                  <button onClick={startConfiguring} className="text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors py-1">
+                    重新检查
+                  </button>
                 </div>
               </div>
             )}
