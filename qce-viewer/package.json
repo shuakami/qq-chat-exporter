@@ -11,7 +11,7 @@
   "author": "shuakami",
   "license": "GPL-3.0-only",
   "dependencies": {
-    "express": "^4.18.2",
+    "express": "^4.22.2",
     "open": "^8.4.2"
   },
   "engines": {
