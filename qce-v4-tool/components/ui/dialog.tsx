@@ -37,42 +37,72 @@ type DialogContentProps = React.ComponentPropsWithoutRef<typeof DialogPrimitive.
   fullScreen?: boolean
 }
 
+/** Toast 叠在 Dialog 之上且可点；点 toast 时不能当成 Dialog「点外部」关闭。 */
+function isInsideQceToaster(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest("[data-qce-toaster]"))
+}
+
 export const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(({ className, children, overlayClassName, fullScreen = false, ...props }, ref) => (
-  <DialogPortal>
-    <DialogOverlay className={overlayClassName} />
-    <DialogPrimitive.Content
-      ref={ref}
-      className={cn(
-        fullScreen
-          ? [
-              "fixed inset-0 z-[101]",
-              "w-full h-full",
-              "bg-card dark:bg-card",
-            ]
-          : [
-              "fixed left-1/2 top-1/2 z-[101]",
-              "-translate-x-1/2 -translate-y-1/2",
-              "w-full max-w-lg",
-              "bg-card dark:bg-card",
-              "rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.08)]",
-              "",
-            ],
-        "data-[state=open]:animate-in data-[state=closed]:animate-out",
-        "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
-        "data-[state=open]:zoom-in-[0.97] data-[state=closed]:zoom-out-[0.97]",
-        "data-[state=open]:duration-300 data-[state=closed]:duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",
-        "outline-none",
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </DialogPrimitive.Content>
-  </DialogPortal>
-))
+>(
+  (
+    {
+      className,
+      children,
+      overlayClassName,
+      fullScreen = false,
+      onInteractOutside,
+      onPointerDownOutside,
+      ...props
+    },
+    ref
+  ) => (
+    <DialogPortal>
+      <DialogOverlay className={overlayClassName} />
+      <DialogPrimitive.Content
+        ref={ref}
+        className={cn(
+          fullScreen
+            ? [
+                "fixed inset-0 z-[101]",
+                "w-full h-full",
+                "bg-card dark:bg-card",
+              ]
+            : [
+                "fixed left-1/2 top-1/2 z-[101]",
+                "-translate-x-1/2 -translate-y-1/2",
+                "w-full max-w-lg",
+                "bg-card dark:bg-card",
+                "rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.08)]",
+                "",
+              ],
+          "data-[state=open]:animate-in data-[state=closed]:animate-out",
+          "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+          "data-[state=open]:zoom-in-[0.97] data-[state=closed]:zoom-out-[0.97]",
+          "data-[state=open]:duration-300 data-[state=closed]:duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",
+          "outline-none",
+          className
+        )}
+        onPointerDownOutside={(event) => {
+          if (isInsideQceToaster(event.target)) {
+            event.preventDefault()
+          }
+          onPointerDownOutside?.(event)
+        }}
+        onInteractOutside={(event) => {
+          if (isInsideQceToaster(event.target)) {
+            event.preventDefault()
+          }
+          onInteractOutside?.(event)
+        }}
+        {...props}
+      >
+        {children}
+      </DialogPrimitive.Content>
+    </DialogPortal>
+  )
+)
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
 export const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
