@@ -2,6 +2,7 @@
 
 import { Fragment, memo, useCallback, useEffect, useRef, type ReactNode } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import { BatchSelectionCheckbox } from "@/components/ui/batch-selection-checkbox"
 import { Button } from "./button"
 import { Input } from "./input"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
@@ -311,42 +312,12 @@ function SessionListComponent({
         ].join(" ")}
         onClick={(e: React.MouseEvent) => batchMode && handleRowClick(e, item)}
       >
-        <AnimatePresence initial={false}>
-          {batchMode && (
-            <motion.div
-              initial={{ width: 0, opacity: 0, marginRight: 0 }}
-              animate={{ width: 14, opacity: 1, marginRight: 0 }}
-              exit={{ width: 0, opacity: 0, marginRight: 0 }}
-              transition={{ type: "tween", duration: 0.2, ease: "easeOut" }}
-              className="flex-shrink-0 overflow-hidden"
-            >
-              <div
-                className={[
-                  "flex items-center justify-center w-[14px] h-[14px] rounded-[3.5px] transition-colors cursor-pointer border",
-                  isSelected
-                    ? "bg-[#317CFF] border-[#317CFF]"
-                    : "bg-white dark:bg-neutral-900 border-neutral-300 dark:border-neutral-600 hover:border-[#317CFF]",
-                ].join(" ")}
-              >
-                <AnimatePresence>
-                  {isSelected && (
-                    <motion.svg
-                      initial={{ scale: 0.5, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0.5, opacity: 0 }}
-                      transition={{ type: "tween", duration: 0.15, ease: "easeOut" }}
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      className="w-2.5 h-2.5 text-white"
-                    >
-                      <path d="M4.5 12.75l6 6 9-13.5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                    </motion.svg>
-                  )}
-                </AnimatePresence>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <BatchSelectionCheckbox
+          visible={batchMode}
+          checked={isSelected}
+          label={`选择会话 ${item.name}`}
+          onCheckedChange={() => onToggleItem?.(item.type, item.id)}
+        />
 
         <Avatar className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
           <AvatarImage src={item.avatarUrl} alt={item.name} />
@@ -633,7 +604,7 @@ function SessionListComponent({
                 disabled={selectedItems.size === 0}
                 className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#317CFF] rounded-full hover:bg-[#2867d6] transition-colors disabled:opacity-40 disabled:pointer-events-none"
               >
-                导出
+                设置并导出
               </button>
               <button
                 onClick={onToggleBatchMode}

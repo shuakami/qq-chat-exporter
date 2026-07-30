@@ -182,6 +182,39 @@ impl ScheduledExportManager {
         true
     }
 
+    /// 批量启用或禁用任务，保留请求顺序并忽略重复或不存在的 ID。
+    pub async fn set_scheduled_exports_enabled(
+        self: &Arc<Self>,
+        ids: &[String],
+        enabled: bool,
+    ) -> Vec<Value> {
+        let mut updated = Vec::new();
+        let mut seen = HashSet::new();
+        for id in ids {
+            if seen.insert(id.clone()) {
+                if let Some(task) = self
+                    .update_scheduled_export(id, json!({ "enabled": enabled }))
+                    .await
+                {
+                    updated.push(task);
+                }
+            }
+        }
+        updated
+    }
+
+    /// 批量删除任务，保留请求顺序并忽略重复或不存在的 ID。
+    pub async fn delete_scheduled_exports(&self, ids: &[String]) -> Vec<String> {
+        let mut deleted = Vec::new();
+        let mut seen = HashSet::new();
+        for id in ids {
+            if seen.insert(id.clone()) && self.delete_scheduled_export(id).await {
+                deleted.push(id.clone());
+            }
+        }
+        deleted
+    }
+
     /// 获取所有定时导出任务。
     pub async fn all_scheduled_exports(&self) -> Vec<Value> {
         self.tasks.lock().await.values().cloned().collect()

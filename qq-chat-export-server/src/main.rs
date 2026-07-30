@@ -281,6 +281,14 @@ fn build_router(
             post(scheduled::trigger_scheduled_exports),
         )
         .route(
+            "/api/scheduled-exports/update-batch",
+            post(scheduled::update_scheduled_exports),
+        )
+        .route(
+            "/api/scheduled-exports/delete-batch",
+            post(scheduled::delete_scheduled_exports),
+        )
+        .route(
             "/api/scheduled-exports/:id",
             get(scheduled::get_scheduled_export)
                 .put(scheduled::update_scheduled_export)
