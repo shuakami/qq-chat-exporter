@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "@/components/ui/toast"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { BatchExportItem, BatchExportConfig } from "@/components/ui/batch-export-dialog"
 import { SessionList } from "@/components/ui/session-list"
+import { BatchSelectionCheckbox } from "@/components/ui/batch-selection-checkbox"
 import { ExportHelpDialog, type ExportHelpFormat } from "@/components/ui/export-help-dialog"
 import {
   sessionTaskStatsKey,
@@ -595,6 +595,8 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     deleteScheduledExport,
     triggerScheduledExport,
     triggerScheduledExports,
+    setScheduledExportsEnabled,
+    deleteScheduledExports,
     toggleScheduledExport,
     getExecutionHistory,
     getStats: getScheduledStats,
@@ -746,6 +748,34 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     } catch {
       // 错误提示由 hook 统一处理。
     }
+  }
+
+  const getSelectedScheduledIds = () => scheduledExports
+    .map(task => task.id)
+    .filter(id => selectedScheduledExportIds.has(id))
+
+  const handleDisableSelectedScheduledExports = async () => {
+    const ids = getSelectedScheduledIds()
+    if (ids.length === 0) return
+    try {
+      await setScheduledExportsEnabled(ids, false)
+      setSelectedScheduledExportIds(new Set())
+    } catch {
+      // 错误提示由 hook 统一处理。
+    }
+  }
+
+  const handleDeleteSelectedScheduledExports = () => {
+    const ids = getSelectedScheduledIds()
+    if (ids.length === 0) return
+    showDeleteConfirmationToast(
+      `删除已选择的 ${ids.length} 个定时任务？`,
+      "相关执行历史也会删除，此操作不可撤销",
+      async () => {
+        await deleteScheduledExports(ids)
+        setSelectedScheduledExportIds(new Set())
+      }
+    )
   }
 
   const handleOpenHistoryModal = (taskId: string, taskName: string) => {
@@ -1676,7 +1706,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                     className="h-8 text-[13px] rounded-full px-2.5"
                     onClick={handleToggleBatchMode}
                   >
-                    批量导出
+                    批量选择
                   </Button>
                 )}
               </>
@@ -1724,14 +1754,14 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                 >
                   合并
                 </Button>
-                {scheduledExports.length > 0 && (
+                {scheduledExports.length > 0 && !scheduledBatchMode && (
                   <Button
                     size="sm"
                     variant="ghost"
                     className="h-8 text-[13px] rounded-full px-2.5"
                     onClick={handleToggleScheduledBatchMode}
                   >
-                    {scheduledBatchMode ? "退出批量选择" : "批量选择"}
+                    批量选择
                   </Button>
                 )}
                 <Button size="sm" className="h-8 text-[13px] rounded-full px-2.5" onClick={() => handleOpenScheduledExportWizard()}>
@@ -2225,23 +2255,35 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                   </div>
                 ) : (
                   <div className="space-y-1">
-                    {filteredScheduledExports.map((scheduledExport) => (
+                    {filteredScheduledExports.map((scheduledExport, index, items) => {
+                      const isSelected = selectedScheduledExportIds.has(scheduledExport.id)
+                      const isPreviousSelected = index > 0 && selectedScheduledExportIds.has(items[index - 1].id)
+                      const isNextSelected = index < items.length - 1 && selectedScheduledExportIds.has(items[index + 1].id)
+                      return (
                       <div
                         key={scheduledExport.id}
-                        className={`group flex items-center justify-between px-3 py-2.5 rounded-xl transition-colors ${
-                          selectedScheduledExportIds.has(scheduledExport.id)
-                            ? 'bg-primary/[0.05]'
-                            : 'hover:bg-black/[0.03] dark:hover:bg-white/[0.03]'
-                        }`}
+                        className={[
+                          "group flex items-center justify-between px-3 py-2.5 transition-colors",
+                          scheduledBatchMode
+                            ? isSelected
+                              ? "bg-black/[0.045] dark:bg-white/[0.075] cursor-pointer"
+                              : "hover:bg-black/[0.03] dark:hover:bg-white/[0.03] cursor-pointer"
+                            : "hover:bg-black/[0.03] dark:hover:bg-white/[0.03]",
+                          isSelected && scheduledBatchMode
+                            ? `${isPreviousSelected ? "rounded-t-none" : "rounded-t-xl"} ${isNextSelected ? "rounded-b-none" : "rounded-b-xl"}`
+                            : "rounded-xl",
+                        ].join(" ")}
+                        onClick={() => {
+                          if (scheduledBatchMode) handleToggleScheduledSelection(scheduledExport.id, !isSelected)
+                        }}
                       >
                         <div className="flex items-center gap-3 min-w-0 flex-1">
-                          {scheduledBatchMode && (
-                            <Checkbox
-                              checked={selectedScheduledExportIds.has(scheduledExport.id)}
-                              onCheckedChange={checked => handleToggleScheduledSelection(scheduledExport.id, checked === true)}
-                              aria-label={`选择定时任务 ${scheduledExport.name}`}
-                            />
-                          )}
+                          <BatchSelectionCheckbox
+                            visible={scheduledBatchMode}
+                            checked={isSelected}
+                            label={`选择定时任务 ${scheduledExport.name}`}
+                            onCheckedChange={checked => handleToggleScheduledSelection(scheduledExport.id, checked)}
+                          />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2.5">
                               <span className="text-[13px] font-medium text-foreground truncate">
@@ -2323,7 +2365,8 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                           </button>
                         </div>
                       </div>
-                    ))}
+                    )
+                    })}
                   </div>
                 )}
 
@@ -2356,6 +2399,20 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                           {allVisibleScheduledSelected ? "取消全选" : "全选当前"}
                         </button>
                         <span className="w-px h-4 bg-black/[0.08] dark:bg-white/[0.1]" />
+                        <button
+                          onClick={handleDisableSelectedScheduledExports}
+                          disabled={selectedScheduledExportIds.size === 0 || scheduledLoading}
+                          className="px-3 py-1.5 text-[13px] text-muted-foreground hover:text-foreground rounded-full hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                        >
+                          禁用
+                        </button>
+                        <button
+                          onClick={handleDeleteSelectedScheduledExports}
+                          disabled={selectedScheduledExportIds.size === 0 || scheduledLoading}
+                          className="px-3 py-1.5 text-[13px] text-red-500 hover:text-red-600 rounded-full hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                        >
+                          删除
+                        </button>
                         <button
                           onClick={handleTriggerSelectedScheduledExports}
                           disabled={selectedScheduledExportIds.size === 0 || scheduledLoading}

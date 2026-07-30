@@ -355,6 +355,73 @@ pub async fn trigger_scheduled_exports(
     )
 }
 
+/// `POST /api/scheduled-exports/update-batch` — 批量启用或禁用定时导出。
+pub async fn update_scheduled_exports(
+    State(state): State<SharedState>,
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Json(body): Json<Value>,
+) -> Response {
+    let ids = match parse_trigger_ids(&body) {
+        Ok(ids) => ids,
+        Err(err) => return response::error(&err, &request_id),
+    };
+    let Some(enabled) = body.get("enabled").and_then(Value::as_bool) else {
+        let err = ApiError::validation("enabled 必须是布尔值", "INVALID_ENABLED_STATE");
+        return response::error(&err, &request_id);
+    };
+    let updated = state
+        .scheduled_export_manager
+        .set_scheduled_exports_enabled(&ids, enabled)
+        .await;
+    let updated_ids: HashSet<&str> = updated
+        .iter()
+        .filter_map(|task| task.get("id").and_then(Value::as_str))
+        .collect();
+    let missing_ids: Vec<&str> = ids
+        .iter()
+        .map(String::as_str)
+        .filter(|id| !updated_ids.contains(id))
+        .collect();
+    response::success(
+        json!({
+            "updatedCount": updated.len(),
+            "updated": updated,
+            "missingIds": missing_ids,
+        }),
+        &request_id,
+    )
+}
+
+/// `POST /api/scheduled-exports/delete-batch` — 批量删除定时导出。
+pub async fn delete_scheduled_exports(
+    State(state): State<SharedState>,
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Json(body): Json<Value>,
+) -> Response {
+    let ids = match parse_trigger_ids(&body) {
+        Ok(ids) => ids,
+        Err(err) => return response::error(&err, &request_id),
+    };
+    let deleted_ids = state
+        .scheduled_export_manager
+        .delete_scheduled_exports(&ids)
+        .await;
+    let deleted_set: HashSet<&str> = deleted_ids.iter().map(String::as_str).collect();
+    let missing_ids: Vec<&str> = ids
+        .iter()
+        .map(String::as_str)
+        .filter(|id| !deleted_set.contains(id))
+        .collect();
+    response::success(
+        json!({
+            "deletedCount": deleted_ids.len(),
+            "deletedIds": deleted_ids,
+            "missingIds": missing_ids,
+        }),
+        &request_id,
+    )
+}
+
 /// `GET /api/scheduled-exports/:id` — 单个定时导出。
 pub async fn get_scheduled_export(
     State(state): State<SharedState>,
