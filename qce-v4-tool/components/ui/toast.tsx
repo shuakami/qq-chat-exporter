@@ -866,6 +866,7 @@ export const Toaster: React.FC<ToasterProps> = ({
 
   return (
     <div
+      data-qce-toaster=""
       className={`fixed ${positionClasses[position]} w-[calc(100vw-32px)] sm:w-[360px] z-[1000] pointer-events-none`}
       style={{ height: items.length > 0 ? (isHovered ? totalHeight : 80) : 0 }}
       onMouseEnter={handleMouseEnter}
