@@ -5,16 +5,20 @@ import { startRustApiServer } from './rustBridge.mjs';
 
 const pluginRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-function resolveFrontendPath(core) {
+export function resolveFrontendPath(core, options = {}) {
+  const env = options.env ?? process.env;
+  const root = options.pluginRoot ?? pluginRoot;
   const candidates = [
-    process.env.QCE_STATIC_DIR,
-    path.join(pluginRoot, 'webui'),
-    path.resolve(pluginRoot, '..', '..', 'static', 'qce'),
-    typeof core.configPath === 'string'
+    env.QCE_STATIC_DIR,
+    path.resolve(root, '..', '..', 'static', 'qce'),
+    typeof core?.configPath === 'string'
       ? path.join(core.configPath, 'static', 'qce')
       : undefined,
+    path.join(root, 'webui'),
   ];
-  return candidates.find((candidate) => candidate && fs.existsSync(candidate));
+  return candidates.find((candidate) =>
+    candidate && fs.existsSync(path.join(candidate, 'index.html'))
+  );
 }
 
 export class QQChatExporterApiLauncher {
