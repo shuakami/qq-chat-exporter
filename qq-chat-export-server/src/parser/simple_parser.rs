@@ -490,6 +490,41 @@ mod reply_target_tests {
     }
 
     #[tokio::test]
+    async fn av_call_end_message_is_classified_as_system() {
+        let call_end = json!({
+            "msgId": "7743302844328986887",
+            "msgSeq": "48482",
+            "msgTime": 1_785_598_185,
+            "msgType": 19,
+            "chatType": 2,
+            "peerUid": "group-1",
+            "senderUid": "",
+            "senderUin": "0",
+            "elements": [{
+                "elementType": 21,
+                "avRecordElement": {
+                    "type": 16,
+                    "time": "0",
+                    "text": "语音通话已结束",
+                    "mainType": 0,
+                    "hasRead": true,
+                    "extraType": null
+                }
+            }]
+        });
+
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let parsed = parser.parse_messages(&[call_end]).await;
+
+        assert!(parsed[0].system);
+        assert_eq!(parsed[0].sender.uid, "未知");
+        assert_eq!(parsed[0].sender.uin, None);
+        assert_eq!(parsed[0].sender.name, "系统消息");
+        assert_eq!(parsed[0].content.text, "通话 - 语音通话已结束");
+        assert_eq!(parsed[0].content.elements[0].element_type, "av_record");
+    }
+
+    #[tokio::test]
     async fn anonymous_system_message_gets_system_sender_placeholder() {
         let system = json!({
             "msgId": "sys-1",
@@ -1090,14 +1125,19 @@ impl SimpleMessageParser {
         let sender_info = self.get_sender_display_info(message);
         let content = self.parse_message_content(message, 0).await;
         let msg_type = v_i64(message, "msgType").unwrap_or(0);
+        let system = msg_type == 5
+            || content
+                .elements
+                .iter()
+                .any(|element| matches!(element.element_type.as_str(), "system" | "av_record"));
 
-        // 系统灰条消息（撤回提示等）没有真实发送者：NapCat 给出的
+        // 系统消息（灰条、音视频通话状态等）没有真实发送者：NapCat 给出的
         // senderUid 为空、senderUin 为 "0"，若原样导出会被第三方导入工具
         // 当成一个名叫 "0" 的用户，这里归一化成明确的系统占位。
         let sender_uid = trimmed_field(message, "senderUid");
         let sender_uin = trimmed_field(message, "senderUin");
         let anonymous_system =
-            msg_type == 5 && sender_uid.is_none() && sender_uin.as_deref().is_none_or(|u| u == "0");
+            system && sender_uid.is_none() && sender_uin.as_deref().is_none_or(|u| u == "0");
 
         let sender = if anonymous_system {
             Sender {
@@ -1134,7 +1174,7 @@ impl SimpleMessageParser {
             recalled: v_get(message, "recallTime")
                 .and_then(Value::as_str)
                 .is_some_and(|t| t != "0"),
-            system: msg_type == 5,
+            system,
             raw_message: None,
         }
     }
