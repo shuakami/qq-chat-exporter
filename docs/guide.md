@@ -8,13 +8,14 @@
 | Shell 模式 | Windows x64 | 独立在后台运行的无界面 QQ，适合服务器运行或自动化备份。 | `NapCat-QCE-Windows-x64-vxxx.zip` |
 | Shell 模式 | Linux x64 | 独立的无界面 Linux QQ 运行包，适合服务器部署或 Docker 环境。 | `NapCat-QCE-Linux-x64-vxxx.tar.gz` |
 | Shell 模式（预览） | macOS Apple Silicon (arm64) | 独立运行环境，首次启动会在本地生成一份专用的 QQ 运行副本，详见 [macOS 部署指南](macos-deploy.md)。 | `NapCat-QCE-macOS-arm64-vxxx.tar.gz` |
-| Framework 模式 | Windows | 桌面 QQ 的插件版本，可以与你平时聊天的 QQ 客户端共存。 | `NapCat-Framework-QCE-vxxx.zip` |
+| Framework 模式 | Windows | 注入桌面 QQ；由 Framework 启动后仍可正常聊天，适合与日常 QQ 使用共存。 | `NapCat-Framework-QCE-vxxx.zip` |
 | NapCat 插件商店包 | 跨平台 | 专给已经配置好 NapCat 环境的用户使用，可在插件商店直接装。 | `napcat-plugin-qce.zip` |
 
 ### Windows 用户
 
 * **绝大多数用户**：直接下载[当前最新版本](https://github.com/shuakami/qq-chat-exporter/releases/latest)下的一键安装包。双击安装后软件会自动提示扫码或快捷登录，然后弹出网页界面。
 * **需要与日常 QQ 共存**（比如说想一边照常挂着 QQ 聊天，一边让工具在后台跑定时备份）：下载 `NapCat-Framework-QCE-vxxx.zip`，并参考下文的 [Framework 模式使用方法](#framework-usage)。
+* **需要独立后台运行**：选择一键安装包或 Shell 模式。它们会启动单独的后台 QQ 进程，并不是在你已经打开的日常桌面 QQ 中加载 QCE。
 
 ---
 
@@ -26,13 +27,15 @@
 
 #### Shell 模式
 
-在后台启动一个没有图形界面的 QQ 进程，需要你使用手机 QQ 扫码登录。由于没有桌面客户端，它全程在控制台（黑底白字的命令行窗口）里运行。
+在后台启动一个没有图形界面的 QQ 进程，需要你使用手机 QQ 扫码登录。由于没有桌面客户端，它全程在控制台（黑底白字的命令行窗口）里运行。它不是日常聊天客户端；如果你需要继续使用桌面 QQ 聊天，优先选择 Framework 模式。
 
 > 具体运行步骤见下文[启动引导](#start-guide)中的 [A. 完整模式](#full-mode)。
 
 #### Framework 模式
 
-作为插件注入到电脑上现有的桌面版 QQ 中，直接共享你已经在桌面 QQ 上登录的账号。适合不想重复扫码登录、想让工具在后台静默跑定时任务的场景。
+作为插件注入到电脑上现有的桌面版 QQ 中，直接共享你在这个 QQ 进程里登录的账号。由 Framework 启动成功后，QQ 仍可像平时一样收发消息，同时运行 QCE。它仍然使用桌面版 QQ 客户端，但由于运行时加载了 NapCat/QCE，不应视为完全未修改的纯官方运行环境。
+
+这里的“共存”是指 **QCE 与日常聊天功能运行在同一个由 Framework 启动的桌面 QQ 进程中**，不是保留原来已经运行的 QQ，再额外启动第二个桌面 QQ 进程。
 
 ---
 
@@ -45,7 +48,7 @@
 *此方式不需要你提前安装 LiteLoaderQQNT 插件框架。*
 
 1. 下载 `NapCat-Framework-QCE-vxxx.zip` 并解压到一个固定的文件夹（例如你的文档目录）。
-2. **必须先完全退出电脑上已经打开的 QQ 客户端**。
+2. **必须先完全退出电脑上已经打开的 QQ 客户端**。这是为了让加载器从 QQ 启动阶段注入 Framework，并不代表启动完成后不能正常使用 QQ。
 3. 进入解压后的文件夹，双击运行 `napiLoader.bat`。
 4. 此时 QQ 会自动启动并弹出登录页，按照平时的方式登录你的账号即可。
 5. 打开浏览器，访问 `http://localhost:40653/qce`，按照下文[登录 Web 界面](#login)的方法找到安全令牌并输入。
@@ -56,6 +59,24 @@
 
 1. 确保你已经按照 LiteLoaderQQNT 官方文档装好了框架，并在 QQ 设置左侧能看到 LiteLoaderQQNT 选项。
 2. 将 Framework 包解压，并按照 LiteLoaderQQNT / NapCat 的常规插件部署要求放入对应的 plugins 目录。
+
+### 日常 QQ 使用与账号风险 {#qq-account-risk}
+
+#### 使用 QCE 时还能正常使用 QQ 吗？
+
+* **Framework 模式**：可以。先退出原有 QQ，再通过 `napiLoader.bat` 启动带 Framework 的 QQ；启动完成后，这个 QQ 仍可正常聊天。
+* **一键安装包 / Shell 模式**：它们启动的是独立后台 QQ 进程，主要面向导出、定时备份或服务器运行，不适合作为“保留当前桌面 QQ，同时再启动一个后台 QQ”的共存方案。
+
+#### 会不会触发账号风控或封禁？
+
+QCE 依赖 NapCat，并通过第三方加载、自动化接口访问 QQ 数据，**不是腾讯官方提供的功能**。项目无法承诺“零风险”，也无法保证账号一定不会遇到限制登录、额外验证或封禁等情况。
+
+为减少不必要的风险：
+
+1. 使用仓库当前推荐且兼容的 QQ、NapCat 和 QCE 版本，不要混用来源不明的修改包。
+2. 避免短时间内反复登录、同时创建大量任务或持续进行高频批量导出。
+3. 看到 QQ 的安全提醒、异常登录提示或频繁验证时，先停止任务并检查运行环境。
+4. 对账号安全极为敏感、无法接受任何第三方工具风险时，不要使用 Framework、NapCat 或其他注入/自动化方案。
 
 ---
 
