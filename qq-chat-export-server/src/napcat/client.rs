@@ -3,8 +3,21 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::fetcher::{MessageFetchApi, Peer};
+use crate::fetcher::{MessageFetchApi, Peer, GROUP_CHAT_TYPE};
 use crate::parser::ForwardFetcher;
+
+/// issue #634：群历史请求超过 1000 条时，部分 QQ/NapCat 版本会直接退出 Worker。
+/// 在 bridge 边界再次限制窗口，避免旧前端或手工 API 绕过流式导出的保守配置。
+const MAX_GROUP_HISTORY_BATCH_SIZE: i64 = 1000;
+
+fn bounded_history_batch_size(peer: &Peer, count: i64) -> i64 {
+    let count = count.max(1);
+    if peer.chat_type == GROUP_CHAT_TYPE {
+        count.min(MAX_GROUP_HISTORY_BATCH_SIZE)
+    } else {
+        count
+    }
+}
 
 /// bridge 调用错误。
 #[derive(Debug, thiserror::Error)]
@@ -169,8 +182,7 @@ impl NapCatBridgeClient {
 
     /// 获取 NTQQ 本地保存的全量会话列表。
     pub async fn get_recent_contact_list_sync(&self) -> Result<Value, BridgeError> {
-        self.call("UserApi.getRecentContactListSync", json!([]))
-            .await
+        self.call("UserApi.getRecentContactListSync", json!([])).await
     }
 
     /// 获取 NTQQ 本地保存的全量会话列表（部分版本使用异步方法名）。
@@ -368,6 +380,7 @@ impl MessageFetchApi for NapCatBridgeClient {
         peer: &Peer,
         count: i64,
     ) -> Result<Value, String> {
+        let count = bounded_history_batch_size(peer, count);
         let params = json!([peer_to_value(peer), count]);
         match self
             .call("MsgService.getAioFirstViewLatestMsgs", params.clone())
@@ -387,6 +400,7 @@ impl MessageFetchApi for NapCatBridgeClient {
         msg_id: &str,
         count: i64,
     ) -> Result<Value, String> {
+        let count = bounded_history_batch_size(peer, count);
         let params = json!([peer_to_value(peer), msg_id, count, true]);
         match self
             .call("MsgService.getMsgsIncludeSelf", params.clone())
@@ -468,8 +482,28 @@ fn download_media_params(
 
 #[cfg(test)]
 mod tests {
-    use super::{download_media_params, extract_forward_messages};
+    use super::{bounded_history_batch_size, download_media_params, extract_forward_messages};
+    use crate::fetcher::{Peer, GROUP_CHAT_TYPE};
     use serde_json::json;
+
+    #[test]
+    fn caps_group_history_batch_before_bridge_call() {
+        let group_peer = Peer {
+            chat_type: GROUP_CHAT_TYPE,
+            peer_uid: "group".to_string(),
+            guild_id: None,
+        };
+        let private_peer = Peer {
+            chat_type: 1,
+            peer_uid: "friend".to_string(),
+            guild_id: None,
+        };
+
+        assert_eq!(bounded_history_batch_size(&group_peer, 3000), 1000);
+        assert_eq!(bounded_history_batch_size(&group_peer, 500), 500);
+        assert_eq!(bounded_history_batch_size(&private_peer, 3000), 3000);
+        assert_eq!(bounded_history_batch_size(&group_peer, 0), 1);
+    }
 
     #[test]
     fn extracts_forward_messages_from_supported_response_shapes() {
