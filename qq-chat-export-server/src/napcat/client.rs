@@ -310,9 +310,32 @@ impl NapCatBridgeClient {
             .call("MsgService.getMsgsIncludeSelf", params.clone())
             .await
         {
-            Ok(result) => Ok(result),
-            Err(_) => self.call("MsgApi.getMsgHistory", params).await,
+            Ok(result) => Ok(normalize_message_response(result)),
+            Err(service_error) => {
+                tracing::debug!(
+                    "MsgService.getMsgsIncludeSelf 调用失败，尝试 MsgApi 包装层: {}",
+                    service_error
+                );
+                self.call("MsgApi.getMsgHistory", params)
+                    .await
+                    .map(normalize_message_response)
+            }
         }
+    }
+
+    /// 从 NTQQ 本地消息数据库读取会话最新消息。
+    /// 该内核接口与首屏/历史查询相互独立，用于数据线会话空结果回退。
+    async fn get_latest_db_messages(
+        &self,
+        peer: &Peer,
+        count: i64,
+    ) -> Result<Value, BridgeError> {
+        self.call(
+            "MsgService.getLatestDbMsgs",
+            json!([peer_to_value(peer), count]),
+        )
+        .await
+        .map(normalize_message_response)
     }
 
     async fn latest_device_message_id(&self, peer: &Peer) -> Option<String> {
@@ -365,6 +388,47 @@ fn message_list(value: &Value) -> Option<&Vec<Value>> {
                 .and_then(|data| data.get("msgList"))
                 .and_then(Value::as_array)
         })
+        .or_else(|| {
+            value
+                .get("data")
+                .and_then(|data| data.get("result"))
+                .and_then(|result| result.get("msgList"))
+                .and_then(Value::as_array)
+        })
+}
+
+/// 统一为批量获取器能够稳定消费的顶层 `msgList` 响应。
+fn normalize_message_response(value: Value) -> Value {
+    message_list(&value)
+        .cloned()
+        .map_or(value, |messages| json!({ "msgList": messages }))
+}
+
+fn message_response_shape(value: &Value) -> &'static str {
+    if value.get("msgList").is_some() {
+        "msgList"
+    } else if value
+        .get("result")
+        .and_then(|result| result.get("msgList"))
+        .is_some()
+    {
+        "result.msgList"
+    } else if value
+        .get("data")
+        .and_then(|data| data.get("msgList"))
+        .is_some()
+    {
+        "data.msgList"
+    } else if value
+        .get("data")
+        .and_then(|data| data.get("result"))
+        .and_then(|result| result.get("msgList"))
+        .is_some()
+    {
+        "data.result.msgList"
+    } else {
+        "missing"
+    }
 }
 
 fn response_has_messages(value: &Value) -> bool {
@@ -390,6 +454,19 @@ fn recent_contact_list(value: &Value) -> Option<&Vec<Value>> {
         value
             .get("result")
             .and_then(|result| result.get("changedList"))
+            .and_then(Value::as_array)
+    })
+    .or_else(|| {
+        value
+            .get("data")
+            .and_then(|data| data.get("info"))
+            .and_then(|info| info.get("changedList"))
+            .and_then(Value::as_array)
+    })
+    .or_else(|| {
+        value
+            .get("data")
+            .and_then(|data| data.get("changedList"))
             .and_then(Value::as_array)
     })
 }
@@ -483,29 +560,99 @@ impl MessageFetchApi for NapCatBridgeClient {
             .await
         {
             Ok(result) => result,
-            Err(_) => self
-                .call("MsgApi.getAioFirstViewLatestMsgs", params)
-                .await
-                .map_err(|error| error.to_string())?,
+            Err(service_error) => {
+                tracing::debug!(
+                    "MsgService.getAioFirstViewLatestMsgs 调用失败，尝试 MsgApi 包装层: {}",
+                    service_error
+                );
+                self.call("MsgApi.getAioFirstViewLatestMsgs", params)
+                    .await
+                    .map_err(|error| error.to_string())?
+            }
         };
 
-        if !is_device_chat_type(peer.chat_type) || response_has_messages(&result) {
+        if !is_device_chat_type(peer.chat_type) {
             return Ok(result);
         }
 
+        if response_has_messages(&result) {
+            return Ok(normalize_message_response(result));
+        }
+
+        tracing::warn!(
+            "设备会话首屏消息为空，开始多级回退: peerUid={}, chatType={}, responseShape={}",
+            peer.peer_uid,
+            peer.chat_type,
+            message_response_shape(&result)
+        );
+
+        match self.get_latest_db_messages(peer, count).await {
+            Ok(db_messages) if response_has_messages(&db_messages) => {
+                tracing::info!(
+                    "设备会话已通过 getLatestDbMsgs 读取本地消息: peerUid={}, chatType={}, count={}",
+                    peer.peer_uid,
+                    peer.chat_type,
+                    message_list(&db_messages).map_or(0, Vec::len)
+                );
+                return Ok(db_messages);
+            }
+            Ok(db_messages) => tracing::warn!(
+                "设备会话 getLatestDbMsgs 仍为空: peerUid={}, chatType={}, responseShape={}",
+                peer.peer_uid,
+                peer.chat_type,
+                message_response_shape(&db_messages)
+            ),
+            Err(error) => tracing::warn!(
+                "设备会话 getLatestDbMsgs 调用失败: peerUid={}, chatType={}, error={}",
+                peer.peer_uid,
+                peer.chat_type,
+                error
+            ),
+        }
+
         let Some(msg_id) = self.latest_device_message_id(peer).await else {
-            return Ok(result);
+            tracing::warn!(
+                "设备会话无法从最近联系人定位消息锚点: peerUid={}, chatType={}",
+                peer.peer_uid,
+                peer.chat_type
+            );
+            return Ok(normalize_message_response(result));
         };
         tracing::info!(
-            "设备会话首屏消息为空，使用最近会话锚点回退查询: peerUid={}, chatType={}, msgId={}",
+            "设备会话使用最近会话锚点回退查询: peerUid={}, chatType={}, msgId={}",
             peer.peer_uid,
             peer.chat_type,
             msg_id
         );
 
         match self.get_message_history(peer, &msg_id, count).await {
-            Ok(history) if response_has_messages(&history) => Ok(history),
-            Ok(_) | Err(_) => Ok(result),
+            Ok(history) if response_has_messages(&history) => {
+                tracing::info!(
+                    "设备会话已通过最近会话锚点读取消息: peerUid={}, chatType={}, count={}",
+                    peer.peer_uid,
+                    peer.chat_type,
+                    message_list(&history).map_or(0, Vec::len)
+                );
+                Ok(history)
+            }
+            Ok(history) => {
+                tracing::warn!(
+                    "设备会话锚点历史查询仍为空: peerUid={}, chatType={}, responseShape={}",
+                    peer.peer_uid,
+                    peer.chat_type,
+                    message_response_shape(&history)
+                );
+                Ok(normalize_message_response(result))
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "设备会话锚点历史查询失败: peerUid={}, chatType={}, error={}",
+                    peer.peer_uid,
+                    peer.chat_type,
+                    error
+                );
+                Ok(normalize_message_response(result))
+            }
         }
     }
 
@@ -590,7 +737,7 @@ fn download_media_params(
 mod tests {
     use super::{
         download_media_params, extract_forward_messages, is_device_chat_type,
-        latest_message_id_for_peer, response_has_messages,
+        latest_message_id_for_peer, normalize_message_response, response_has_messages,
     };
     use crate::fetcher::Peer;
     use serde_json::json;
@@ -622,8 +769,26 @@ mod tests {
         assert!(response_has_messages(
             &json!({"data": {"msgList": [{"msgId": "1"}]}})
         ));
+        assert!(response_has_messages(
+            &json!({"data": {"result": {"msgList": [{"msgId": "1"}]}}})
+        ));
         assert!(!response_has_messages(&json!({"msgList": []})));
         assert!(!response_has_messages(&json!({})));
+    }
+
+    #[test]
+    fn normalizes_wrapped_message_lists_for_batch_fetcher() {
+        let message = json!({"msgId": "1"});
+        assert_eq!(
+            normalize_message_response(json!({"data": {"msgList": [message.clone()]}})),
+            json!({"msgList": [message.clone()]})
+        );
+        assert_eq!(
+            normalize_message_response(json!({
+                "data": {"result": {"msgList": [message.clone()]}}
+            })),
+            json!({"msgList": [message]})
+        );
     }
 
     #[test]
@@ -656,10 +821,16 @@ mod tests {
         assert_eq!(
             latest_message_id_for_peer(
                 &json!({
-                    "result": {
-                        "changedList": [
-                            {"chatType": "134", "peerUid": "u_mobile_device", "msgId": 12345}
-                        ]
+                    "data": {
+                        "info": {
+                            "changedList": [
+                                {
+                                    "chatType": "134",
+                                    "peerUid": "u_mobile_device",
+                                    "msgId": 12345
+                                }
+                            ]
+                        }
                     }
                 }),
                 &mobile_peer,
