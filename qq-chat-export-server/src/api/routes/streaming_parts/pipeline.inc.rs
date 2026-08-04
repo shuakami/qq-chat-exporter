@@ -17,6 +17,20 @@ async fn process_streaming_inner(
         None,
     )
     .await;
+    let keywords = request
+        .filter
+        .get("keywords")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|keyword| !keyword.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .filter(|items| !items.is_empty());
     let fetcher = BatchMessageFetcher::new(
         Arc::new(state.napcat.clone()),
         BatchFetchConfig {
@@ -44,6 +58,7 @@ async fn process_streaming_inner(
             loose_i64(request.filter.get("endTime"))
                 .unwrap_or_else(|| Utc::now().timestamp_millis()),
         )),
+        keywords,
         ..MessageFilter::default()
     };
 

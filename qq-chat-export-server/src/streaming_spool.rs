@@ -11,7 +11,7 @@ const STALE_SPOOL_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 /// 超大导出的磁盘暂存区。
 ///
 /// 每一批原始消息立即写成 JSONL，内存中只保留当前批次。正常完成、失败或取消
-/// 时主动清理；Drop 再做一次同步兜底。进程异常退出时留下的暂存目录会在下次
+/// 时主动清理；Drop 再做一次异步兜底。进程异常退出时留下的暂存目录会在下次
 /// 创建流式任务时按固定前缀和修改时间清理，避免原始聊天数据长期残留。
 pub struct StreamingMessageSpool {
     root: PathBuf,
@@ -70,7 +70,14 @@ impl StreamingMessageSpool {
 
 impl Drop for StreamingMessageSpool {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.root);
+        let root = self.root.clone();
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                let _ = tokio::fs::remove_dir_all(root).await;
+            });
+        } else {
+            let _ = std::fs::remove_dir_all(root);
+        }
     }
 }
 
@@ -158,8 +165,6 @@ async fn write_jsonl<T: Serialize>(path: &Path, items: &[T]) -> Result<(), Strin
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use serde_json::{json, Value};
 
     use super::{read_jsonl, StreamingMessageSpool, SPOOL_PREFIX};
@@ -209,7 +214,7 @@ mod tests {
         assert!(tokio::fs::try_exists(&recent).await.expect("check recent"));
 
         spool.cleanup().await;
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        drop(spool);
         let _ = tokio::fs::remove_dir_all(root).await;
     }
 }

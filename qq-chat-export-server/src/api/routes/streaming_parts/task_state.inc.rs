@@ -23,6 +23,14 @@ async fn prepare_request(state: &SharedState, body: &Value) -> Result<StreamingR
             .then(|| raw_peer_uid.to_string())
         });
     let filter = body.get("filter").cloned().unwrap_or(Value::Null);
+    let start_time = loose_i64(filter.get("startTime")).map(normalize_ms);
+    let end_time = loose_i64(filter.get("endTime")).map(normalize_ms);
+    if matches!((start_time, end_time), (Some(start), Some(end)) if end < start) {
+        return Err(ApiError::validation(
+            "结束时间不能早于开始时间",
+            "INVALID_TIME_RANGE",
+        ));
+    }
     let options = body.get("options").cloned().unwrap_or(Value::Null);
     let session_name = match body
         .get("sessionName")
