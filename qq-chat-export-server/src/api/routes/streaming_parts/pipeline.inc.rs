@@ -188,11 +188,6 @@ async fn process_streaming_inner(
 
     configure_skip_types(state, &request.options).await;
     let mut summary = ResourceBatchSummary::default();
-    let skip_all_resources = request
-        .options
-        .get("filterPureImageMessages")
-        .and_then(Value::as_bool)
-        == Some(true);
     let files = spool.raw_files_oldest_first();
     let mut processed_raw = 0usize;
     for (file_index, file) in files.iter().enumerate() {
@@ -233,7 +228,7 @@ async fn process_streaming_inner(
         let mut resource_messages = raw_messages;
         resource_messages.extend(parser.take_forward_raw_messages());
 
-        if !skip_all_resources && !resource_messages.is_empty() {
+        if !resource_messages.is_empty() {
             let resource_map = state
                 .resource_handler
                 .process_message_resources_with_cancel_and_trace(
