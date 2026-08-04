@@ -72,7 +72,6 @@ struct DiskOutputWriter {
     final_path: PathBuf,
     work_dir: PathBuf,
     chunks_dir: PathBuf,
-    resources_dir: PathBuf,
     chunks: Vec<ChunkMeta>,
     total_messages: usize,
     first_time: Option<i64>,
@@ -114,7 +113,6 @@ impl DiskOutputWriter {
             final_path,
             work_dir,
             chunks_dir,
-            resources_dir,
             chunks: Vec::new(),
             total_messages: 0,
             first_time: None,
@@ -312,9 +310,17 @@ impl DiskOutputWriter {
                 tokio::task::spawn_blocking(move || zip_directory(&work_dir, &zip_path))
                     .await
                     .map_err(|error| format!("ZIP ä»»åŠ¡å¼‚å¸¸: {error}"))??;
-                let _ = tokio::fs::remove_dir_all(&self.work_diŠK˜]ØZ]ÂˆÚÊ
-Ù[‹™š[˜[Ü]Ù[‹İ[ÛY\ÜØYÙ\ÊJBˆBˆBˆB‚ˆ\Ş[˜È›ˆX›Ü
-	œÙ[ŠHÂˆYˆÙ[‹›[ÙHOHİ™X[Z[™Óİ]]’[š\Âˆ]ÈHÚÚ[Î™œÎœ™[[İ™WÙ\—Ø[
-	œÙ[‹ÛÜš×Ù\ŠK˜]ØZ]ÂˆH[ÙHÂˆ]ÈHÚÚ[Î™œÎœ™[[İ™WÙ\—Ø[
-	œÙ[‹™š[˜[Ü]
-K˜]ØZ]ÂˆBˆBŸB‚
+                let _ = tokio::fs::remove_dir_all(&self.work_dir).await;
+                Ok((self.final_path, self.total_messages))
+            }
+        }
+    }
+
+    async fn abort(&self) {
+        if self.mode == StreamingOutput::HtmlZip {
+            let _ = tokio::fs::remove_dir_all(&self.work_dir).await;
+        } else {
+            let _ = tokio::fs::remove_dir_all(&self.final_path).await;
+        }
+    }
+}
