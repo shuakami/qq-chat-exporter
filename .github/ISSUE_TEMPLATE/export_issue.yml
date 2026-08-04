@@ -12,6 +12,8 @@ body:
         
         > ⚠️ **大量消息导出（>50万条）？** 请使用流式导出功能！
         > 📖 [查看用户手册](https://sdjz.wiki/post/qce%E7%94%A8%E6%88%B7%E6%89%8B%E5%86%8C)
+        >
+        > 🔒 **提交日志前请先脱敏。** 不要公开 QQ 号、群号、昵称、聊天内容、二维码、WebUI Token、完整本地路径或其他账号凭据。只需提供错误前后必要的少量日志；无法安全提供时，请说明现象即可。
 
   - type: input
     id: qce-version
@@ -68,11 +70,11 @@ body:
   - type: textarea
     id: error
     attributes:
-      label: "📋 错误信息"
-      description: "来自终端、Web 界面或程序目录下的 `logs` 文件夹"
+      label: "📋 脱敏后的错误信息"
+      description: "请只粘贴与故障直接相关的少量日志。删除或替换 QQ 号、群号、昵称、聊天内容、二维码、WebUI Token、完整本地路径及其他凭据；请勿上传完整控制台记录或原始聊天数据。"
       render: shell
       placeholder: |
-        粘贴终端或 Web 界面的错误信息
+        粘贴错误前后必要的脱敏日志（无需完整日志）
         
         [ERROR] xxx
 
@@ -80,11 +82,11 @@ body:
     id: evidence
     attributes:
       label: "📎 日志和截图确认"
-      description: "请确认已提供完整日志和必要截图；如果某项不适用，请在问题描述中说明原因。"
+      description: "隐私优先：只提交定位问题所需的信息。无法安全提供日志或截图时，请在问题描述中说明，不要勉强公开。"
       options:
-        - label: "我已提供完整日志；即使启动失败，也已提供启动失败时生成的日志。"
+        - label: "我已检查并移除日志、截图中的账号凭据、聊天内容、二维码、Token 和可识别个人身份的信息。"
           required: true
-        - label: "我已提供必要截图；如果不适用，已在问题描述中说明。"
+        - label: "我仅提供了定位问题所需的日志片段和截图；不适用或无法安全提供的内容已在问题描述中说明。"
           required: true
 
   - type: checkboxes
