@@ -53,7 +53,7 @@ jobs:
 
           path.write_text(source, encoding='utf-8')
           PY
-          rustfmt qq-chat-export-server/src/api/routes/streaming.rs
+          rustfmt --edition 2021 qq-chat-export-server/src/api/routes/streaming.rs
 
       - name: Upload corrected source
         uses: actions/upload-artifact@v4
