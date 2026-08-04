@@ -243,5 +243,3 @@ async fn process_streaming_task(
     state.resource_file_cache.lock().await.clear();
     Ok(())
 }
-
-#[allow(clippy::too_many_lines)]
