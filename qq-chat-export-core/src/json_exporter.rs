@@ -417,6 +417,128 @@ impl JsonExporter {
         })
     }
 
+    /// 从已有 NDJSON 文件合成最终 JSON（外部流水线用）。
+    ///
+    /// 调用方负责分批解析消息、写入 NDJSON、累积统计，然后调用此方法将 NDJSON
+    /// 合成为包装了 metadata / statistics / avatars 的完整 JSON 文件。
+    /// 完成后**不会**删除 NDJSON 文件（由调用方管理生命周期）。
+    #[allow(clippy::too_many_arguments)]
+    pub async fn synthesize_from_ndjson(
+        &self,
+        ndjson_path: &Path,
+        chat_info: &ChatInfo,
+        final_stats: &crate::stats::FinalStats,
+        resource_count: usize,
+        total: usize,
+        avatar_map: Option<HashMap<String, String>>,
+        start_time: Instant,
+    ) -> ExportResultT<ExportOutcome> {
+        self.ctx.ensure_output_directory().await?;
+
+        let formatted_chat_info = self.format_chat_info_async(chat_info).await;
+        let mut out_writer =
+            BufferedTextWriter::create(&self.ctx.options.output_path, DEFAULT_FLUSH_THRESHOLD)
+                .await?;
+        let ctx = create_json_stream_context(self.json_options.pretty, "  ");
+
+        out_writer
+            .write(&JsonSingleFileTemplates::begin(
+                &self.metadata,
+                &formatted_chat_info,
+                final_stats,
+                &ctx,
+            )?)
+            .await?;
+
+        // 流式读取 NDJSON，逐行输出到 messages 数组
+        {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let read_file = tokio::fs::File::open(ndjson_path)
+                .await
+                .map_err(|e| ExportError::io("readNdjson", ndjson_path, e))?;
+            let mut lines = BufReader::new(read_file).lines();
+            let mut is_first = true;
+            while let Some(line) = lines
+                .next_line()
+                .await
+                .map_err(|e| ExportError::io("readNdjson", ndjson_path, e))?
+            {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if !is_first {
+                    out_writer.write(&format!(",{}", ctx.nl)).await?;
+                }
+                if ctx.pretty {
+                    out_writer
+                        .write(&format!("{0}{0}{line}", ctx.indent_unit))
+                        .await?;
+                } else {
+                    out_writer.write(&line).await?;
+                }
+                is_first = false;
+            }
+        }
+
+        out_writer
+            .write(&JsonSingleFileTemplates::messages_array_end(&ctx))
+            .await?;
+
+        // 头像嵌入
+        if let Some(ref avatars) = avatar_map {
+            if !avatars.is_empty() {
+                out_writer
+                    .write(&JsonSingleFileTemplates::avatars_begin(&ctx))
+                    .await?;
+                let total_avatars = avatars.len();
+                for (idx, (uin, base64)) in avatars.iter().enumerate() {
+                    let is_last = idx + 1 == total_avatars;
+                    out_writer
+                        .write(&JsonSingleFileTemplates::avatar_entry(
+                            uin, base64, is_last, &ctx,
+                        )?)
+                        .await?;
+                }
+                out_writer
+                    .write(&JsonSingleFileTemplates::avatars_end(&ctx))
+                    .await?;
+            }
+        }
+
+        if self.json_options.include_metadata {
+            let export_options = self.generate_export_options();
+            out_writer
+                .write(&JsonSingleFileTemplates::export_options_field(
+                    &export_options, &ctx,
+                )?)
+                .await?;
+        }
+
+        out_writer
+            .write(&JsonSingleFileTemplates::end(&ctx))
+            .await?;
+        out_writer.end().await?;
+
+        // 拷贝资源到导出目录（失败不阻断导出）
+        if let Some(dir) = self.ctx.options.output_path.parent() {
+            self.ctx.copy_resources_alongside_export(dir).await;
+        }
+
+        self.ctx.update_progress(total, total, "导出完成");
+
+        // 调用方传入的 start_time 用于计算总导出耗时
+        Ok(ExportOutcome {
+            task_id: String::new(),
+            format: self.ctx.format,
+            file_path: self.ctx.options.output_path.clone(),
+            file_size: self.ctx.output_file_size().await,
+            message_count: total,
+            resource_count,
+            export_time: start_time.elapsed().as_millis(),
+            completed_at: now_iso(),
+        })
+    }
+
     /// 方案 B：chunked-jsonl 导出。
     ///
     /// 输出结构：`<outputDir>/manifest.json + chunks/cNNNNNN.jsonl [+ avatars.json]`。

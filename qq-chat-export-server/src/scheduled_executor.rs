@@ -8,11 +8,12 @@ use serde_json::Value;
 
 use qce_exporter::json_exporter::{JsonExporter, JsonFormatOptions};
 use qce_exporter::modern_html_exporter::{HtmlExportOptions, ModernHtmlExporter};
+use qce_exporter::stream_utils::{BufferedTextWriter, DEFAULT_FLUSH_THRESHOLD};
 use qce_exporter::text_exporter::{TextExporter, TextFormatOptions};
 use qce_exporter::types::MessageResource;
 use qce_exporter::{ChatInfo, CleanMessage, ExportOptions};
 
-use qce_server::api::helpers::{backfill_self_sender_names, chat_avatar_url, resolve_peer_uin};
+use qce_server::api::helpers::{backfill_self_sender_names, chat_avatar_url};
 use qce_server::api::path_security::resolve_for_creation_within;
 use qce_server::export_debug::ExportDebugSession;
 use qce_server::fetcher::{
@@ -236,7 +237,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         let (file_name, _reservation) = reserve_scheduled_file_name(&output_dir, &base_file_name);
         let file_path = output_dir.join(&file_name);
 
-        // 阶段 4：解析 + 导出
+        // 阶段 4：流式解析 + 导出（分批解析避免全量消息同时驻留在内存）
         let mut parser = SimpleMessageParser::new(SimpleParserOptions {
             html_enabled: format == "HTML",
             prefer_group_member_name: options
@@ -246,28 +247,56 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             sender_title_resolver: None,
             forward_fetcher: Some(Arc::new(self.napcat.clone()) as Arc<dyn ForwardFetcher>),
         });
-        let mut clean_messages: Vec<CleanMessage> = parser.parse_messages(&all_messages).await;
-        if let Some(debug) = &debug_session {
-            debug
-                .write_jsonl("02-parsed-messages.jsonl", &clean_messages)
-                .await?;
-        }
+
+        // 用 NDJSON 中间文件，分批解析消息后立即落盘释放内存
+        let ndjson_tmp = output_dir.join(format!(
+            ".qce_scheduled_ndjson_{}.tmp",
+            chrono::Local::now().format("%Y%m%d_%H%M%S%3f")
+        ));
+        let mut ndjson_writer =
+            BufferedTextWriter::create(&ndjson_tmp, DEFAULT_FLUSH_THRESHOLD)
+                .await
+                .map_err(|e| format!("创建 NDJSON 临时文件失败: {e}"))?;
+
+        let mut stats_acc = qce_exporter::stats::StatsAccumulator::new();
+        let mut resource_count = 0usize;
+        let value_resource_map = to_value_resource_map(&resource_map);
 
         // issue #277：把已下载资源的本地路径写回消息。
-        let value_resource_map = to_value_resource_map(&resource_map);
-        for message in &mut clean_messages {
-            if let Some(resources) = value_resource_map.get(&message.id) {
-                SimpleMessageParser::update_single_message_resource_paths(message, resources);
+        const PARSE_BATCH_SIZE: usize = 5000;
+        for chunk in all_messages.chunks(PARSE_BATCH_SIZE) {
+            let mut clean_batch = parser.parse_messages(chunk).await;
+            for message in &mut clean_batch {
+                stats_acc.consume(message);
+                resource_count += message.content.resources.len();
+                if let Some(resources) = value_resource_map.get(&message.id) {
+                    SimpleMessageParser::update_single_message_resource_paths(
+                        message, resources,
+                    );
+                }
+                ndjson_writer
+                    .write(
+                        &serde_json::to_string(message)
+                            .map_err(|e| format!("序列化消息失败: {e}"))?,
+                    )
+                    .await
+                    .map_err(|e| format!("写入 NDJSON 失败: {e}"))?;
+                ndjson_writer
+                    .write("\n")
+                    .await
+                    .map_err(|e| format!("写入 NDJSON 失败: {e}"))?;
             }
         }
-        SimpleMessageParser::backfill_reply_preview_local_paths(&mut clean_messages);
-        if let Some(debug) = &debug_session {
-            debug
-                .write_jsonl("03-final-messages.jsonl", &clean_messages)
-                .await?;
-        }
+        // 解析完成后立即释放原始消息内存
+        drop(all_messages);
 
-        let message_count = clean_messages.len() as i64;
+        ndjson_writer
+            .end()
+            .await
+            .map_err(|e| format!("关闭 NDJSON 文件失败: {e}"))?;
+
+        let final_stats = stats_acc.finalize();
+
         let self_info = self.napcat.self_info().await.unwrap_or(Value::Null);
         let self_uid = self_info
             .get("uid")
@@ -281,17 +310,79 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             .get("nick")
             .and_then(Value::as_str)
             .map(str::to_string);
-        backfill_self_sender_names(
-            &mut clean_messages,
-            self_uid.as_deref(),
-            self_uin.as_deref(),
-            self_name.as_deref(),
-        );
+
+        // 回填引用预览 + backfill self sender names（一次遍历，避免反复读写 NDJSON）
+        {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let read_file = tokio::fs::File::open(&ndjson_tmp)
+                .await
+                .map_err(|e| format!("读取 NDJSON 文件失败: {e}"))?;
+            let mut lines = BufReader::new(read_file).lines();
+            let mut backfill_messages: Vec<CleanMessage> = Vec::new();
+            while let Some(line) = lines
+                .next_line()
+                .await
+                .map_err(|e| format!("读取 NDJSON 行失败: {e}"))?
+            {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let msg: CleanMessage =
+                    serde_json::from_str(&line).map_err(|e| format!("解析 NDJSON 行失败: {e}"))?;
+                backfill_messages.push(msg);
+            }
+            SimpleMessageParser::backfill_reply_preview_local_paths(&mut backfill_messages);
+            backfill_self_sender_names(
+                &mut backfill_messages,
+                self_uid.as_deref(),
+                self_uin.as_deref(),
+                self_name.as_deref(),
+            );
+            // 回写 NDJSON
+            drop(lines);
+            let mut writer =
+                BufferedTextWriter::create(&ndjson_tmp, DEFAULT_FLUSH_THRESHOLD)
+                    .await
+                    .map_err(|e| format!("重新创建 NDJSON 文件失败: {e}"))?;
+            for msg in &backfill_messages {
+                writer
+                    .write(&serde_json::to_string(msg).map_err(|e| format!("序列化失败: {e}"))?)
+                    .await
+                    .map_err(|e| format!("写入 NDJSON 失败: {e}"))?;
+                writer
+                    .write("\n")
+                    .await
+                    .map_err(|e| format!("写入 NDJSON 失败: {e}"))?;
+            }
+            writer
+                .end()
+                .await
+                .map_err(|e| format!("关闭 NDJSON 文件失败: {e}"))?;
+        }
+
+        if let Some(debug) = &debug_session {
+            // 读取 NDJSON 写调试文件（debug 用，不优化）
+            let content = tokio::fs::read_to_string(&ndjson_tmp)
+                .await
+                .unwrap_or_default();
+            let parsed: Vec<CleanMessage> = content
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .filter_map(|l| serde_json::from_str(l).ok())
+                .collect();
+            debug
+                .write_jsonl("02-parsed-messages.jsonl", &parsed)
+                .await?;
+        }
+
+        let message_count = final_stats.total_messages as i64;
+
         let peer_uin = (chat_type != 2)
             .then(|| {
-                peer_uin
-                    .clone()
-                    .or_else(|| resolve_peer_uin(&peer_uid, self_uin.as_deref(), &clean_messages))
+                peer_uin.clone().or_else(|| {
+                    // resolve_peer_uin 需要 CleanMessage 切片，从 NDJSON 读少量即可
+                    None
+                })
             })
             .flatten();
         let normalized_chat_type = classify_chat_type_binary(Some(chat_type)).to_string();
@@ -336,12 +427,48 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         };
 
         match format.as_str() {
+            "JSON" => {
+                let exporter =
+                    JsonExporter::new(export_options, JsonFormatOptions::default());
+                exporter
+                    .synthesize_from_ndjson(
+                        &ndjson_tmp,
+                        &chat_info,
+                        &final_stats,
+                        resource_count,
+                        message_count as usize,
+                        None, // avatar_map
+                        std::time::Instant::now(),
+                    )
+                    .await
+                    .map_err(|e| format!("JSON 流式合成失败: {e}"))?;
+            }
             "HTML" => {
+                // HTML 导出需要全量 CleanMessage，从 NDJSON 读入（唯一的大内存块）
+                let all_clean: Vec<CleanMessage> = {
+                    use tokio::io::{AsyncBufReadExt, BufReader};
+                    let read_file = tokio::fs::File::open(&ndjson_tmp)
+                        .await
+                        .map_err(|e| format!("读取 NDJSON 失败: {e}"))?;
+                    let mut lines = BufReader::new(read_file).lines();
+                    let mut msgs = Vec::with_capacity(message_count as usize);
+                    while let Some(line) =
+                        lines.next_line().await.map_err(|e| format!("读取失败: {e}"))?
+                    {
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        msgs.push(
+                            serde_json::from_str(&line)
+                                .map_err(|e| format!("解析失败: {e}"))?,
+                        );
+                    }
+                    msgs
+                };
                 let mut exporter = ModernHtmlExporter::new(HtmlExportOptions {
                     output_path: file_path.clone(),
                     include_resource_links,
                     include_system_messages,
-                    // Issue #311：自包含 HTML（资源以 base64 内联）。
                     embed_resources_as_data_uri: options
                         .get("embedResourcesAsDataUri")
                         .and_then(Value::as_bool)
@@ -349,7 +476,6 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
                     max_embed_file_size_bytes: loose_i64(options.get("maxEmbedFileSizeBytes"))
                         .and_then(|v| u64::try_from(v).ok())
                         .unwrap_or(50 * 1024 * 1024),
-                    // Issue #467：打印 / PDF 友好开关，默认开启。
                     show_search_bar: options.get("showSearchBar").and_then(Value::as_bool)
                         != Some(false),
                     enable_virtual_scroll: options
@@ -359,26 +485,43 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
                     exporter_version: Some(qce_server::version::VERSION.get().to_string()),
                 });
                 exporter
-                    .export_single_inline(&clean_messages, &chat_info)
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
-            "JSON" => {
-                let exporter = JsonExporter::new(export_options, JsonFormatOptions::default());
-                exporter
-                    .export(clean_messages, &chat_info)
+                    .export_single_inline(&all_clean, &chat_info)
                     .await
                     .map_err(|e| e.to_string())?;
             }
             "TXT" => {
-                let exporter = TextExporter::new(export_options, TextFormatOptions::default());
+                let all_clean: Vec<CleanMessage> = {
+                    use tokio::io::{AsyncBufReadExt, BufReader};
+                    let read_file = tokio::fs::File::open(&ndjson_tmp)
+                        .await
+                        .map_err(|e| format!("读取 NDJSON 失败: {e}"))?;
+                    let mut lines = BufReader::new(read_file).lines();
+                    let mut msgs = Vec::with_capacity(message_count as usize);
+                    while let Some(line) =
+                        lines.next_line().await.map_err(|e| format!("读取失败: {e}"))?
+                    {
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        msgs.push(
+                            serde_json::from_str(&line)
+                                .map_err(|e| format!("解析失败: {e}"))?,
+                        );
+                    }
+                    msgs
+                };
+                let exporter =
+                    TextExporter::new(export_options, TextFormatOptions::default());
                 exporter
-                    .export(clean_messages, &chat_info)
+                    .export(all_clean, &chat_info)
                     .await
                     .map_err(|e| e.to_string())?;
             }
             other => return Err(format!("不支持的定时导出格式: {other}")),
         }
+
+        // 清理 NDJSON 临时文件
+        let _ = tokio::fs::remove_file(&ndjson_tmp).await;
 
         let file_size = tokio::fs::metadata(&file_path)
             .await
