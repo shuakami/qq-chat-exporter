@@ -31,7 +31,22 @@ async fn prepare_request(state: &SharedState, body: &Value) -> Result<StreamingR
             "INVALID_TIME_RANGE",
         ));
     }
-    let options = body.get("options").cloned().unwrap_or(Value::Null);
+    let mut options = body.get("options").cloned().unwrap_or_else(|| json!({}));
+    // 保持旧流式导出的“快速导出/过滤纯多媒体消息”语义：不下载任何资源。
+    // 仍然逐批解析文本，但资源处理器只记录跳过，不发起图片、视频、语音或文件请求。
+    if options
+        .get("filterPureImageMessages")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        if !options.is_object() {
+            options = json!({});
+        }
+        options.as_object_mut().expect("options object").insert(
+            "skipDownloadResourceTypes".to_string(),
+            json!(["image", "video", "audio", "file"]),
+        );
+    }
     let session_name = match body
         .get("sessionName")
         .and_then(Value::as_str)
