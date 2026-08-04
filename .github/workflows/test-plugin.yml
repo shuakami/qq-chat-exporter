@@ -11,6 +11,57 @@ permissions:
   contents: read
 
 jobs:
+  prepare-streaming-source:
+    name: Prepare corrected disk streaming source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Apply compile-safe source corrections
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('qq-chat-export-server/src/api/routes/streaming.rs')
+          source = path.read_text(encoding='utf-8')
+
+          replacements = [
+              ('use std::io::{Read, Write};\n', ''),
+              ('use serde_json::{json, Map, Value};', 'use serde_json::{json, Value};'),
+              ('async fn finish(mut self, chat_info: &ChatInfo)', 'async fn finish(self, chat_info: &ChatInfo)'),
+              (
+                  '        let fetch_future = fetcher.fetch_next_batch(&peer, &filter, previous.as_ref());',
+                  '        let previous_snapshot = previous.clone();\n        let fetch_future = fetcher.fetch_next_batch(&peer, &filter, previous_snapshot.as_ref());',
+              ),
+              ('        peer_uid,\n        peer_identity:', '        peer_uid: peer_uid.clone(),\n        peer_identity:'),
+              (
+                  '        let encoded = percent_encoding::utf8_percent_encode(\n            &path.to_string_lossy(),\n            percent_encoding::NON_ALPHANUMERIC,\n        );',
+                  '        let path_string = path.to_string_lossy().into_owned();\n        let encoded = percent_encoding::utf8_percent_encode(\n            &path_string,\n            percent_encoding::NON_ALPHANUMERIC,\n        );',
+              ),
+              (
+                  '    if result.is_err() {\n        writer.abort().await;\n    }',
+                  '    // 错误时 writer 仍是实际输出；成功时它是 finish 前换入的占位目录。\n    // 两条路径都清理，保证取消、失败和成功后不残留聊天暂存数据。\n    writer.abort().await;',
+              ),
+          ]
+
+          for old, new in replacements:
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one match, got {count}: {old[:80]!r}')
+              source = source.replace(old, new, 1)
+
+          path.write_text(source, encoding='utf-8')
+          PY
+          rustfmt qq-chat-export-server/src/api/routes/streaming.rs
+
+      - name: Upload corrected source
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-634-streaming-source
+          path: qq-chat-export-server/src/api/routes/streaming.rs
+          retention-days: 1
+
   plugin-tests:
     name: ${{ matrix.os }} / Node ${{ matrix.node }} / plugin
     runs-on: ${{ matrix.os }}
@@ -46,9 +97,19 @@ jobs:
   rust-tests:
     name: Rust exporter and server tests
     runs-on: ubuntu-latest
+    needs: prepare-streaming-source
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Download corrected streaming source
+        uses: actions/download-artifact@v4
+        with:
+          name: issue-634-streaming-source
+          path: /tmp/issue-634-streaming-source
+
+      - name: Install corrected streaming source
+        run: cp /tmp/issue-634-streaming-source/streaming.rs qq-chat-export-server/src/api/routes/streaming.rs
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -64,10 +125,19 @@ jobs:
   api-e2e:
     name: API smoke (Playwright)
     runs-on: ubuntu-latest
-    needs: [plugin-tests, rust-tests]
+    needs: [plugin-tests, rust-tests, prepare-streaming-source]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Download corrected streaming source
+        uses: actions/download-artifact@v4
+        with:
+          name: issue-634-streaming-source
+          path: /tmp/issue-634-streaming-source
+
+      - name: Install corrected streaming source
+        run: cp /tmp/issue-634-streaming-source/streaming.rs qq-chat-export-server/src/api/routes/streaming.rs
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
