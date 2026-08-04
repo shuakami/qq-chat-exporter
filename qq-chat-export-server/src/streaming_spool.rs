@@ -1,19 +1,22 @@
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 
+const SPOOL_PREFIX: &str = ".qce-stream-spool-";
+const STALE_SPOOL_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
 /// 超大导出的磁盘暂存区。
 ///
-/// 原始消息和解析后的消息分别按批次写成 JSONL。内存中只保留当前批次，
-/// 任务结束时会主动清理；Drop 再做一次同步兜底，避免异常路径遗留聊天内容。
+/// 每一批原始消息立即写成 JSONL，内存中只保留当前批次。正常完成、失败或取消
+/// 时主动清理；Drop 再做一次同步兜底。进程异常退出时留下的暂存目录会在下次
+/// 创建流式任务时按固定前缀和修改时间清理，避免原始聊天数据长期残留。
 pub struct StreamingMessageSpool {
     root: PathBuf,
     raw_dir: PathBuf,
-    clean_dir: PathBuf,
     raw_files: Vec<PathBuf>,
-    clean_files: Vec<PathBuf>,
 }
 
 impl StreamingMessageSpool {
@@ -23,26 +26,21 @@ impl StreamingMessageSpool {
             .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
             .take(80)
             .collect();
-        let root = output_dir.join(format!(".qce-stream-spool-{safe_task_id}"));
+        let root = output_dir.join(format!("{SPOOL_PREFIX}{safe_task_id}"));
+        cleanup_stale_spools(output_dir, &root).await;
         if tokio::fs::try_exists(&root).await.unwrap_or(false) {
             tokio::fs::remove_dir_all(&root)
                 .await
                 .map_err(|error| format!("清理旧流式暂存目录失败: {error}"))?;
         }
         let raw_dir = root.join("raw");
-        let clean_dir = root.join("clean");
         tokio::fs::create_dir_all(&raw_dir)
             .await
             .map_err(|error| format!("创建原始消息暂存目录失败: {error}"))?;
-        tokio::fs::create_dir_all(&clean_dir)
-            .await
-            .map_err(|error| format!("创建解析消息暂存目录失败: {error}"))?;
         Ok(Self {
             root,
             raw_dir,
-            clean_dir,
             raw_files: Vec::new(),
-            clean_files: Vec::new(),
         })
     }
 
@@ -54,32 +52,11 @@ impl StreamingMessageSpool {
         Ok(())
     }
 
-    pub async fn push_clean_batch<T: Serialize>(&mut self, items: &[T]) -> Result<(), String> {
-        if items.is_empty() {
-            return Ok(());
-        }
-        let index = self.clean_files.len() + 1;
-        let path = self.clean_dir.join(format!("batch-{index:06}.jsonl"));
-        write_jsonl(&path, items).await?;
-        self.clean_files.push(path);
-        Ok(())
-    }
-
     /// QQ 历史分页通常由新到旧返回；倒序处理批次，再对批次内部按时间排序，
     /// 可以在不进行全量内存排序的情况下恢复为旧到新的导出顺序。
     #[must_use]
     pub fn raw_files_oldest_first(&self) -> Vec<PathBuf> {
         self.raw_files.iter().rev().cloned().collect()
-    }
-
-    #[must_use]
-    pub fn clean_files(&self) -> &[PathBuf] {
-        &self.clean_files
-    }
-
-    #[must_use]
-    pub fn root(&self) -> &Path {
-        &self.root
     }
 
     pub async fn cleanup(&self) {
@@ -94,6 +71,43 @@ impl StreamingMessageSpool {
 impl Drop for StreamingMessageSpool {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+async fn cleanup_stale_spools(output_dir: &Path, current_root: &Path) {
+    let Ok(mut entries) = tokio::fs::read_dir(output_dir).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path == current_root {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(SPOOL_PREFIX) {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata().await else {
+            continue;
+        };
+        if !metadata.is_dir() {
+            continue;
+        }
+        let stale = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+            .is_some_and(|age| age >= STALE_SPOOL_AGE);
+        if stale {
+            if let Err(error) = tokio::fs::remove_dir_all(&path).await {
+                tracing::warn!(
+                    "[StreamingSpool] 清理过期暂存目录失败 {}: {error}",
+                    path.display()
+                );
+            }
+        }
     }
 }
 
@@ -144,9 +158,11 @@ async fn write_jsonl<T: Serialize>(path: &Path, items: &[T]) -> Result<(), Strin
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use serde_json::{json, Value};
 
-    use super::{read_jsonl, StreamingMessageSpool};
+    use super::{read_jsonl, StreamingMessageSpool, SPOOL_PREFIX};
 
     #[tokio::test]
     async fn stores_batches_on_disk_and_reverses_fetch_order() {
@@ -172,6 +188,28 @@ mod tests {
         assert_eq!(first[0]["msgId"], "old");
 
         spool.cleanup().await;
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[tokio::test]
+    async fn leaves_recent_foreign_spool_untouched() {
+        let root = std::env::temp_dir().join(format!(
+            "qce-streaming-spool-cleanup-test-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        tokio::fs::create_dir_all(&root).await.expect("create root");
+        let recent = root.join(format!("{SPOOL_PREFIX}recent"));
+        tokio::fs::create_dir_all(&recent)
+            .await
+            .expect("create recent spool");
+
+        let spool = StreamingMessageSpool::create(&root, "current")
+            .await
+            .expect("create current spool");
+        assert!(tokio::fs::try_exists(&recent).await.expect("check recent"));
+
+        spool.cleanup().await;
+        tokio::time::sleep(Duration::from_millis(5)).await;
         let _ = tokio::fs::remove_dir_all(root).await;
     }
 }
