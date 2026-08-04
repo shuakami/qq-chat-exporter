@@ -6,7 +6,8 @@ mod tests {
 
     #[test]
     fn sanitizes_output_components() {
-        assert_eq!(sanitize_component("A<>:/\\|?* B"), "A_ B");
+        // 每个 Windows 非法字符都必须被替换，不能遗漏任何一个字符或重新引入路径分隔符。
+        assert_eq!(sanitize_component("A<>:/\\|?* B"), "A________ B");
     }
 
     #[test]
