@@ -3,7 +3,7 @@
 include!("streaming_parts/types_and_writer.inc.rs");
 include!("streaming_parts/task_lifecycle.inc.rs");
 include!("streaming_parts/safe_history.inc.rs");
-include!("streaming_parts/pipeline_v2.inc.rs");
+include!("streaming_parts/pipeline.inc.rs");
 include!("streaming_parts/task_state.inc.rs");
 include!("streaming_parts/helpers_and_viewer.inc.rs");
 include!("streaming_parts/tests.inc.rs");
