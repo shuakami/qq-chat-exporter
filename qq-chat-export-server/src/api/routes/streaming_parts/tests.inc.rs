@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_history_messages, next_safe_group_batch_size, raw_message_matches_fetch_filter,
-        replace_local_paths, sanitize_component,
+        extract_history_messages, group_db_query_params, next_safe_group_batch_size,
+        raw_message_matches_fetch_filter, replace_local_paths, sanitize_component,
+        SAFE_GROUP_BOOTSTRAP_METHOD, SAFE_GROUP_PAGE_METHOD,
     };
     use serde_json::json;
     use std::collections::HashMap;
@@ -50,6 +51,22 @@ mod tests {
             extract_history_messages(&json!({"data": {"msgList": [message.clone()]}})),
             vec![message]
         );
+    }
+
+    #[test]
+    fn uses_only_local_database_methods_for_group_streaming() {
+        assert_eq!(SAFE_GROUP_BOOTSTRAP_METHOD, "MsgService.getLatestDbMsgs");
+        assert_eq!(SAFE_GROUP_PAGE_METHOD, "MsgService.queryMsgsWithFilterEx");
+        assert!(!SAFE_GROUP_BOOTSTRAP_METHOD.contains("getMsgHistory"));
+        assert!(!SAFE_GROUP_PAGE_METHOD.contains("getMsgsBySeqAndCount"));
+
+        let peer = json!({"chatType": 2, "peerUid": "group", "guildId": ""});
+        let params = group_db_query_params(&peer, 1234, 500);
+        assert_eq!(params[2], json!("1234"));
+        assert_eq!(params[3]["chatInfo"], peer);
+        assert_eq!(params[3]["isReverseOrder"], json!(true));
+        assert_eq!(params[3]["isIncludeCurrent"], json!(false));
+        assert_eq!(params[3]["pageLimit"], json!(200));
     }
 
     #[test]
