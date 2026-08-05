@@ -9,10 +9,10 @@ use tokio::sync::Mutex;
 
 use crate::fetcher::chat_type::is_private_like_chat_type;
 
-/// issue #305 / #316：自适应缩小后的 batchSize 下限。
+/// issue #305 / #316 / #634：压力错误后自适应缩小的 batchSize 下限。
 const MIN_BATCH_SIZE_ON_TIMEOUT: i64 = 200;
 
-/// 缩小后的 batchSize 连续成功该次数后翻倍回升（不超过配置值）。
+/// 缩小后的 batchSize 连续成功该次数后翻倍回升（不超过安全上限）。
 const BATCH_SIZE_RECOVERY_SUCCESSES: u32 = 3;
 
 /// 分页批次之间的间隔（本地 IPC 调用，仅留出让路空隙）。
@@ -178,6 +178,35 @@ impl FetchError {
             _ => false,
         }
     }
+
+    /// 判断错误是否表明 NapCat / QQ Worker 在请求期间退出或重置连接。
+    ///
+    /// 这类错误与超时一样，通常意味着当前消息窗口给 QQ UtilityProcess
+    /// 造成了过大压力。issue #634 的日志即表现为 getMsgHistory(5000)
+    /// 期间 Worker 退出，而 bridge 侧通常只能看到连接重置 / EOF 等传输错误。
+    fn is_worker_restart_or_transport_reset(&self) -> bool {
+        let Self::Api(message) = self else {
+            return false;
+        };
+        let lower = message.to_lowercase();
+        [
+            "utilityprocess",
+            "worker process",
+            "worker进程",
+            "进程退出",
+            "connection reset",
+            "connection closed",
+            "connection aborted",
+            "broken pipe",
+            "unexpected eof",
+            "incomplete message",
+            "error sending request",
+            "channel closed",
+            "socket hang up",
+        ]
+        .iter()
+        .any(|needle| lower.contains(needle))
+    }
 }
 
 /// NapCat 消息获取 API 抽象（由 bridge 客户端实现）。
@@ -227,6 +256,9 @@ pub enum FetchStrategy {
 #[derive(Debug)]
 struct FetcherState {
     batch_size: i64,
+    /// batchSize 自动回升时允许达到的上限。
+    /// Worker/连接重置后会钉在最后一次安全缩小值，避免几批成功后又涨回崩溃窗口。
+    batch_size_recovery_ceiling: i64,
     consecutive_successes: u32,
     stats: ApiCallStats,
     current_strategy: FetchStrategy,
@@ -250,6 +282,7 @@ impl BatchMessageFetcher {
             config,
             state: Mutex::new(FetcherState {
                 batch_size,
+                batch_size_recovery_ceiling: batch_size,
                 consecutive_successes: 0,
                 stats: ApiCallStats::default(),
                 current_strategy: FetchStrategy::Hybrid,
@@ -586,6 +619,8 @@ impl BatchMessageFetcher {
     ///
     /// issue #305 / #316：超时类错误下次重试自动折半 batchSize（不低于
     /// [`MIN_BATCH_SIZE_ON_TIMEOUT`]），让 QQ 客户端有机会用更小窗口完成查询。
+    /// issue #634：Worker 退出 / bridge 连接重置也执行同样降载，并把本次抓取
+    /// 的自动回升上限钉在缩小后的安全值，避免几批成功后再次涨回崩溃窗口。
     async fn call_with_retry<F, Fut>(&self, api_call: F) -> Result<Value, FetchError>
     where
         F: Fn(i64) -> Fut,
@@ -615,16 +650,19 @@ impl BatchMessageFetcher {
                     let mut state = self.state.lock().await;
                     state.stats.consecutive_failures = 0;
                     // issue #305 / #316 的反向路径：缩小后的 batchSize 在连续成功后
-                    // 逐步翻倍回升，避免一次超时让整个任务全程使用小批次。
-                    if state.batch_size < self.config.batch_size {
+                    // 逐步翻倍回升，但不越过 Worker 崩溃后记录的安全上限。
+                    let recovery_ceiling = state
+                        .batch_size_recovery_ceiling
+                        .min(self.config.batch_size);
+                    if state.batch_size < recovery_ceiling {
                         state.consecutive_successes += 1;
                         if state.consecutive_successes >= BATCH_SIZE_RECOVERY_SUCCESSES {
                             let previous = state.batch_size;
-                            let next = (previous * 2).min(self.config.batch_size);
+                            let next = (previous * 2).min(recovery_ceiling);
                             state.batch_size = next;
                             state.consecutive_successes = 0;
                             tracing::info!(
-                                "[BatchMessageFetcher] 连续成功，batchSize 回升: {previous} -> {next}"
+                                "[BatchMessageFetcher] 连续成功，batchSize 回升: {previous} -> {next}（上限 {recovery_ceiling}）"
                             );
                         }
                     } else {
@@ -651,16 +689,27 @@ impl BatchMessageFetcher {
                 break;
             }
 
-            // issue #305 / #316：超时类错误下次重试用更小的 batchSize。
-            if result.is_timeout() {
+            let is_timeout = result.is_timeout();
+            let is_worker_restart = result.is_worker_restart_or_transport_reset();
+            if is_timeout || is_worker_restart {
                 let mut state = self.state.lock().await;
                 state.consecutive_successes = 0;
-                if state.batch_size > MIN_BATCH_SIZE_ON_TIMEOUT {
-                    let previous = state.batch_size;
-                    let next = (previous / 2).max(MIN_BATCH_SIZE_ON_TIMEOUT);
-                    state.batch_size = next;
+                let previous = state.batch_size;
+                let next = (previous / 2).max(MIN_BATCH_SIZE_ON_TIMEOUT);
+                state.batch_size = next;
+                if is_worker_restart {
+                    state.batch_size_recovery_ceiling =
+                        state.batch_size_recovery_ceiling.min(next);
+                }
+                if next < previous {
+                    let reason = if is_worker_restart {
+                        "Worker退出或连接重置"
+                    } else {
+                        "超时"
+                    };
                     tracing::warn!(
-                        "[BatchMessageFetcher] 检测到超时，自适应缩小 batchSize: {previous} -> {next}"
+                        "[BatchMessageFetcher] 检测到{reason}，自适应缩小 batchSize: {previous} -> {next}（回升上限 {}）",
+                        state.batch_size_recovery_ceiling
                     );
                 }
             }
@@ -881,6 +930,8 @@ fn now_ms() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+
     use serde_json::json;
 
     use super::*;
@@ -977,6 +1028,76 @@ mod tests {
                 .expect("call succeeds");
         }
         assert_eq!(fetcher.state.lock().await.batch_size, 5000);
+    }
+
+    #[test]
+    fn classifies_worker_restart_transport_errors() {
+        assert!(FetchError::Api(
+            "bridge 传输错误: error sending request for url: connection reset by peer".to_string()
+        )
+        .is_worker_restart_or_transport_reset());
+        assert!(FetchError::Api("[UtilityProcess] Worker进程退出".to_string())
+            .is_worker_restart_or_transport_reset());
+        assert!(!FetchError::Api("permission denied".to_string())
+            .is_worker_restart_or_transport_reset());
+    }
+
+    #[tokio::test]
+    async fn worker_restart_shrinks_and_pins_recovery_ceiling() {
+        let fetcher = BatchMessageFetcher::new(
+            Arc::new(NoopApi),
+            BatchFetchConfig {
+                retry_interval_ms: 0,
+                ..BatchFetchConfig::default()
+            },
+        );
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let observed_batch_sizes = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        fetcher
+            .call_with_retry({
+                let attempts = Arc::clone(&attempts);
+                let observed_batch_sizes = Arc::clone(&observed_batch_sizes);
+                move |batch_size| {
+                    let attempts = Arc::clone(&attempts);
+                    let observed_batch_sizes = Arc::clone(&observed_batch_sizes);
+                    async move {
+                        observed_batch_sizes
+                            .lock()
+                            .expect("batch size lock")
+                            .push(batch_size);
+                        if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                            Err(
+                                "bridge 传输错误: error sending request for url: connection reset by peer"
+                                    .to_string(),
+                            )
+                        } else {
+                            Ok(json!({ "msgList": [] }))
+                        }
+                    }
+                }
+            })
+            .await
+            .expect("retry succeeds after reducing the batch");
+
+        assert_eq!(
+            *observed_batch_sizes.lock().expect("batch size lock"),
+            vec![5000, 2500]
+        );
+        {
+            let state = fetcher.state.lock().await;
+            assert_eq!(state.batch_size, 2500);
+            assert_eq!(state.batch_size_recovery_ceiling, 2500);
+        }
+
+        // 即使后续连续成功，也不再涨回导致 Worker 崩溃的 5000 窗口。
+        for _ in 0..(BATCH_SIZE_RECOVERY_SUCCESSES * 2) {
+            fetcher
+                .call_with_retry(|_batch_size| async { Ok(json!({ "msgList": [] })) })
+                .await
+                .expect("call succeeds");
+        }
+        assert_eq!(fetcher.state.lock().await.batch_size, 2500);
     }
 
     #[test]

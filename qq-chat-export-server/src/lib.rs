@@ -10,4 +10,5 @@ pub mod resource;
 pub mod scheduler;
 pub mod security;
 pub mod storage;
+pub mod streaming_spool;
 pub mod version;

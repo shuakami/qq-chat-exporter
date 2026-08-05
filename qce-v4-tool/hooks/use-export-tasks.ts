@@ -16,6 +16,10 @@ import {
 import { useApi } from "./use-api"
 
 const GITHUB_URL = "https://github.com/shuakami/qq-chat-exporter"
+const STANDARD_EXPORT_BATCH_SIZE = 5000
+// issue #634：3000 条历史消息已能直接压垮部分 QQ/NapCat Worker。
+// 流式导出的目标是稳定处理超大记录，首次请求必须使用保守窗口，后端仍会继续自适应降载。
+const STREAMING_EXPORT_BATCH_SIZE = 1000
 
 type TaskStatus = "running" | "completed" | "failed" | "cancelled"
 
@@ -293,7 +297,6 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       }
 
       const actions = buildCompletedActions(task, payload)
-
       toast.update(toastId, {
         type: "success",
         title: "导出完成",
@@ -491,7 +494,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           includeRecalled: form.includeRecalled,
         },
         options: {
-          batchSize: useStreamingMode ? 3000 : 5000,
+          batchSize: useStreamingMode ? STREAMING_EXPORT_BATCH_SIZE : STANDARD_EXPORT_BATCH_SIZE,
           includeResourceLinks: true,
           includeSystemMessages: form.includeSystemMessages,
           filterPureImageMessages: form.filterPureImageMessages,
