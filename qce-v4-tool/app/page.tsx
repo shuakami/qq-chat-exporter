@@ -24,6 +24,7 @@ const BatchExportDialog = lazy(() => import("@/components/ui/batch-export-dialog
 const ScheduledBackupMergeDialog = lazy(() => import("@/components/ui/scheduled-backup-merge-dialog").then(m => ({ default: m.ScheduledBackupMergeDialog })))
 const GroupEssenceModal = lazy(() => import("@/components/ui/group-essence-modal").then(m => ({ default: m.GroupEssenceModal })))
 const GroupFilesModal = lazy(() => import("@/components/ui/group-files-modal").then(m => ({ default: m.GroupFilesModal })))
+const ExportTaskPlansPanel = lazy(() => import("@/components/export-plans/plans-panel").then(m => ({ default: m.ExportTaskPlansPanel })))
 const SettingsPanel = lazy(() => import("@/components/ui/settings-panel").then(m => ({ default: m.SettingsPanel })))
 const AboutPanel = lazy(() => import("@/components/ui/about-panel").then(m => ({ default: m.AboutPanel })))
 import {
@@ -154,7 +155,7 @@ const INLINE_DIVIDER = (
   <span aria-hidden className="mx-0.5 inline-block h-3 w-px translate-y-[2px] bg-current opacity-20" />
 )
 
-const VALID_TABS = ["overview", "sessions", "tasks", "scheduled", "history", "stickers", "settings", "about"] as const
+const VALID_TABS = ["overview", "sessions", "tasks", "plans", "scheduled", "history", "stickers", "settings", "about"] as const
 type TabId = typeof VALID_TABS[number]
 
 const TAB_PATH_MAP: Record<string, TabId> = {
@@ -162,6 +163,7 @@ const TAB_PATH_MAP: Record<string, TabId> = {
   "overview": "overview",
   "sessions": "sessions",
   "tasks": "tasks",
+  "plans": "plans",
   "scheduled": "scheduled",
   "history": "history",
   "stickers": "stickers",
@@ -1389,6 +1391,9 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   }, [tasks])
   const STAG = useMemo(() => makeStagger(reduceMotion || hasLargeList ? 0 : 0.06, reduceMotion || hasLargeList), [reduceMotion, hasLargeList])
   const SIDEBAR_WIDTH = 240
+  // Issue #641：导出任务管理面板（通过 ref 触发「新建导出任务」向导）
+  const exportPlansPanelRef = useRef<import("@/components/export-plans/plans-panel").ExportTaskPlansPanelHandle>(null)
+
   const sidebarTransition = useMemo(
     () => reduceMotion
       ? { duration: DUR.fast, ease: EASE.out }
@@ -1441,6 +1446,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     { id: "overview", label: "概览", icon: Activity },
     { id: "sessions", label: "会话", icon: MessageCircle },
     { id: "tasks", label: "任务", icon: Zap },
+    { id: "plans", label: "导出任务", icon: Layers },
     { id: "scheduled", label: "定时导出", icon: Clock },
     { id: "history", label: "聊天记录", icon: History },
     { id: "stickers", label: "表情包", icon: Smile },
@@ -1456,6 +1462,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     overview: "概览",
     sessions: "会话",
     tasks: "任务",
+    plans: "导出任务",
     scheduled: "定时导出",
     history: "聊天记录",
     stickers: "表情包",
@@ -1733,6 +1740,15 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                   新建任务
                 </Button>
               </>
+            )}
+            {activeTab === "plans" && (
+              <Button
+                size="sm"
+                className="h-8 text-[13px] rounded-full px-2.5"
+                onClick={() => exportPlansPanelRef.current?.openCreateWizard()}
+              >
+                新建导出任务
+              </Button>
             )}
             {activeTab === "scheduled" && (
               <>
@@ -2212,6 +2228,13 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                   ))
                 )}
               </div>
+            )}
+
+            {/* ==================== EXPORT TASK PLANS (Issue #641) ==================== */}
+            {activeTab === "plans" && (
+              <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader size={24} /></div>}>
+                <ExportTaskPlansPanel ref={exportPlansPanelRef} groups={groups} />
+              </Suspense>
             )}
 
             {/* ==================== SCHEDULED ==================== */}
