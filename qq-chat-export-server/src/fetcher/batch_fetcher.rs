@@ -1,11 +1,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 
 use crate::fetcher::chat_type::is_private_like_chat_type;
 
@@ -17,6 +17,30 @@ const BATCH_SIZE_RECOVERY_SUCCESSES: u32 = 3;
 
 /// 分页批次之间的间隔（本地 IPC 调用，仅留出让路空隙）。
 const INTER_BATCH_DELAY_MS: u64 = 20;
+
+/// issue #634：群聊序列分页的单页上限。大窗口历史查询会在 QQ 原生
+/// Worker（wrapper.node）内积累巨大内存压力，最终导致 0xC0000005 崩溃。
+const GROUP_SEQ_PAGE_MAX: i64 = 500;
+
+/// issue #634：超时后的冷却时间。本地超时并不代表 Worker 内的原生查询已经
+/// 结束，立即重试会造成重量级查询在 Worker 内叠加。
+const TIMEOUT_COOLDOWN_MS: u64 = 15_000;
+
+/// issue #634：bridge / Worker 崩溃后等待恢复（NapCat 重启并重新登录）的上限。
+const BRIDGE_RECOVERY_WAIT_MS: u64 = 10 * 60 * 1000;
+
+/// bridge 恢复探测间隔。
+const BRIDGE_PROBE_INTERVAL_MS: u64 = 5_000;
+
+/// 单次 API 调用允许的 bridge 崩溃恢复次数（不计入普通重试次数）。
+const MAX_BRIDGE_RECOVERIES: u32 = 5;
+
+/// issue #634：进程级历史查询门控。同一时刻只允许一个重量级历史消息查询
+/// 进入 NapCat Worker，防止并发/叠加查询压垮 QQ 原生模块。
+fn history_fetch_gate() -> &'static Semaphore {
+    static GATE: OnceLock<Semaphore> = OnceLock::new();
+    GATE.get_or_init(|| Semaphore::new(1))
+}
 
 /// 聊天对象（对应 NapCat `Peer`）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,6 +202,30 @@ impl FetchError {
             _ => false,
         }
     }
+
+    /// 判断错误是否属于 bridge / Worker 不可用（NapCat Worker 崩溃或重启）。
+    fn is_bridge_down(&self) -> bool {
+        let Self::Api(message) = self else {
+            return false;
+        };
+        if message.contains("传输错误") {
+            return true;
+        }
+        let lower = message.to_lowercase();
+        [
+            "connection refused",
+            "connection reset",
+            "connection closed",
+            "broken pipe",
+            "error sending request",
+            "connect error",
+            "unexpected eof",
+            "channel closed",
+            "dns error",
+        ]
+        .iter()
+        .any(|pattern| lower.contains(pattern))
+    }
 }
 
 /// NapCat 消息获取 API 抽象（由 bridge 客户端实现）。
@@ -210,6 +258,11 @@ pub trait MessageFetchApi: Send + Sync {
         anchor_seq: i64,
         count: i64,
     ) -> Result<Value, String>;
+
+    /// bridge / Worker 是否健康可用（默认视为健康）。
+    async fn bridge_healthy(&self) -> bool {
+        true
+    }
 }
 
 /// 获取策略。
@@ -221,6 +274,8 @@ pub enum FetchStrategy {
     SequenceBasedRange,
     /// 混合策略（动态选择）。
     Hybrid,
+    /// issue #634：基于序列号的小页分页（群聊安全路径）。
+    SequenceBasedPaged,
 }
 
 /// 内部可变状态。
@@ -420,9 +475,15 @@ impl BatchMessageFetcher {
         if !self.config.enable_optimization {
             return FetchStrategy::TimeBasedSequential;
         }
-        // 暂时统一使用基础方法，避免不同版本的复杂 API 差异。
+        // issue #634：群聊使用小页序列分页，避免大窗口 getMsgHistory 查询
+        // 压垮 QQ 原生 Worker。
         let _ = filter;
-        FetchStrategy::TimeBasedSequential
+        tracing::debug!(
+            "策略选择: 群聊使用序列小页分页, 对等体={}, chatType={}",
+            peer.peer_uid,
+            peer.chat_type
+        );
+        FetchStrategy::SequenceBasedPaged
     }
 
     /// 执行指定的获取策略。
@@ -446,7 +507,61 @@ impl BatchMessageFetcher {
                 self.fetch_by_hybrid_strategy(peer, filter, start_message_id, start_seq)
                     .await
             }
+            FetchStrategy::SequenceBasedPaged => {
+                self.fetch_by_seq_paged(peer, filter, start_seq).await
+            }
         }
+    }
+
+    /// issue #634：基于序列号的小页分页获取（群聊安全路径）。
+    ///
+    /// 首批用 `getAioFirstViewLatestMsgs` 的小窗口拿到当前最新序列号，之后
+    /// 每批用 `getMsgsBySeqAndCount` 从锚点向前翻小页。空页（历史缺口）按
+    /// 页宽线性跳过，序列号单调递减保证终止。
+    async fn fetch_by_seq_paged(
+        &self,
+        peer: &Peer,
+        filter: &MessageFilter,
+        start_seq: Option<&str>,
+    ) -> Result<BatchFetchResult, FetchError> {
+        let anchor = start_seq.and_then(|seq| seq.parse::<i64>().ok());
+        if let Some(anchor) = anchor {
+            if anchor <= 0 {
+                return Ok(BatchFetchResult::default());
+            }
+        }
+
+        let api = Arc::clone(&self.api);
+        let peer_clone = peer.clone();
+        let result = self
+            .call_with_retry(move |batch_size| {
+                let api = Arc::clone(&api);
+                let peer = peer_clone.clone();
+                let page = seq_page_size(batch_size);
+                async move {
+                    match anchor {
+                        None => {
+                            tracing::info!(
+                                "[BatchMessageFetcher] 调用 getAioFirstViewLatestMsgs API (seq 分页首批), count={page}"
+                            );
+                            api.get_aio_first_view_latest_msgs(&peer, page).await
+                        }
+                        Some(anchor) => {
+                            tracing::info!(
+                                "[BatchMessageFetcher] 调用 getMsgsBySeqAndCount API, anchorSeq={anchor}, count={page}"
+                            );
+                            api.get_msgs_by_seq_and_count(&peer, anchor, page).await
+                        }
+                    }
+                }
+            })
+            .await?;
+
+        let page = seq_page_size(self.state.lock().await.batch_size);
+        let mut batch = process_seq_page_result(result, filter, anchor, page);
+        batch.messages = apply_client_side_filter(batch.messages, filter);
+        batch.actual_count = batch.messages.len();
+        Ok(batch)
     }
 
     /// 基于时间的顺序获取策略。
@@ -591,9 +706,10 @@ impl BatchMessageFetcher {
         F: Fn(i64) -> Fut,
         Fut: std::future::Future<Output = Result<Value, String>>,
     {
-        let mut last_error = FetchError::Api("未知API错误".to_string());
+        let mut bridge_recoveries = 0_u32;
+        let mut attempt = 0_u32;
 
-        for attempt in 0..=self.config.retry_count {
+        loop {
             if self.is_cancelled() {
                 return Err(FetchError::Cancelled);
             }
@@ -604,11 +720,17 @@ impl BatchMessageFetcher {
                 self.config.retry_count + 1
             );
 
+            // issue #634：进程级串行门控，避免多个重量级历史查询同时进入 Worker。
+            let gate_permit = history_fetch_gate()
+                .acquire()
+                .await
+                .map_err(|_| FetchError::Api("历史查询门控已关闭".to_string()))?;
             let call_result = tokio::time::timeout(
                 Duration::from_millis(self.config.timeout_ms),
                 api_call(batch_size),
             )
             .await;
+            drop(gate_permit);
             let result = match call_result {
                 Ok(Ok(value)) => {
                     tracing::info!("[BatchMessageFetcher] API调用成功");
@@ -646,32 +768,79 @@ impl BatchMessageFetcher {
                 state.stats.consecutive_failures += 1;
             }
 
-            if attempt == self.config.retry_count {
-                last_error = result;
-                break;
+            // issue #634：bridge / Worker 崩溃属于可恢复状态：等待 NapCat 重启
+            // 并重新登录后从当前游标继续，不计入普通重试次数。
+            if result.is_bridge_down() {
+                if bridge_recoveries >= MAX_BRIDGE_RECOVERIES {
+                    return Err(result);
+                }
+                bridge_recoveries += 1;
+                self.shrink_batch_size().await;
+                tracing::warn!(
+                    "[BatchMessageFetcher] bridge 不可用（Worker 可能崩溃/重启），等待恢复后继续 (第 {bridge_recoveries}/{MAX_BRIDGE_RECOVERIES} 次)"
+                );
+                if !self.wait_for_bridge_recovery().await {
+                    return Err(result);
+                }
+                continue;
             }
+
+            if attempt >= self.config.retry_count {
+                return Err(result);
+            }
+            attempt += 1;
 
             // issue #305 / #316：超时类错误下次重试用更小的 batchSize。
+            // issue #634：本地超时不代表 Worker 内旧查询已结束，先冷却再等
+            // bridge 健康，避免重量级查询在 Worker 内叠加。
             if result.is_timeout() {
-                let mut state = self.state.lock().await;
-                state.consecutive_successes = 0;
-                if state.batch_size > MIN_BATCH_SIZE_ON_TIMEOUT {
-                    let previous = state.batch_size;
-                    let next = (previous / 2).max(MIN_BATCH_SIZE_ON_TIMEOUT);
-                    state.batch_size = next;
-                    tracing::warn!(
-                        "[BatchMessageFetcher] 检测到超时，自适应缩小 batchSize: {previous} -> {next}"
-                    );
+                self.shrink_batch_size().await;
+                let cooldown =
+                    TIMEOUT_COOLDOWN_MS.max(self.config.retry_interval_ms * u64::from(attempt));
+                tracing::info!("[BatchMessageFetcher] 超时冷却 {cooldown}ms 后重试");
+                tokio::time::sleep(Duration::from_millis(cooldown)).await;
+                if !self.wait_for_bridge_recovery().await {
+                    return Err(result);
                 }
+            } else {
+                let retry_delay = self.config.retry_interval_ms * u64::from(attempt);
+                tracing::info!("[BatchMessageFetcher] 等待 {retry_delay}ms 后重试");
+                tokio::time::sleep(Duration::from_millis(retry_delay)).await;
             }
-            last_error = result;
-
-            let retry_delay = self.config.retry_interval_ms * u64::from(attempt + 1);
-            tracing::info!("[BatchMessageFetcher] 等待 {retry_delay}ms 后重试");
-            tokio::time::sleep(Duration::from_millis(retry_delay)).await;
         }
+    }
 
-        Err(last_error)
+    /// 超时 / 崩溃后自适应缩小 batchSize（不低于 [`MIN_BATCH_SIZE_ON_TIMEOUT`]）。
+    async fn shrink_batch_size(&self) {
+        let mut state = self.state.lock().await;
+        state.consecutive_successes = 0;
+        if state.batch_size > MIN_BATCH_SIZE_ON_TIMEOUT {
+            let previous = state.batch_size;
+            let next = (previous / 2).max(MIN_BATCH_SIZE_ON_TIMEOUT);
+            state.batch_size = next;
+            tracing::warn!("[BatchMessageFetcher] 自适应缩小 batchSize: {previous} -> {next}");
+        }
+    }
+
+    /// 等待 bridge / Worker 恢复健康；被取消或超出等待上限时返回 `false`。
+    async fn wait_for_bridge_recovery(&self) -> bool {
+        let deadline = std::time::Instant::now() + Duration::from_millis(BRIDGE_RECOVERY_WAIT_MS);
+        loop {
+            if self.is_cancelled() {
+                return false;
+            }
+            if self.api.bridge_healthy().await {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                tracing::error!(
+                    "[BatchMessageFetcher] bridge 在 {BRIDGE_RECOVERY_WAIT_MS}ms 内未恢复"
+                );
+                return false;
+            }
+            tracing::info!("[BatchMessageFetcher] 等待 bridge 恢复...");
+            tokio::time::sleep(Duration::from_millis(BRIDGE_PROBE_INTERVAL_MS)).await;
+        }
     }
 
     /// 更新统计信息。
@@ -691,32 +860,105 @@ impl BatchMessageFetcher {
     }
 }
 
+/// 序列分页的每页大小：跟随自适应 batchSize，但不超过 [`GROUP_SEQ_PAGE_MAX`]。
+fn seq_page_size(batch_size: i64) -> i64 {
+    batch_size.clamp(1, GROUP_SEQ_PAGE_MAX)
+}
+
+/// 宽松读取 msgSeq（可能是字符串或数字）。
+fn loose_msg_seq(msg: &Value) -> Option<i64> {
+    match msg.get("msgSeq") {
+        Some(Value::Number(n)) => n.as_i64(),
+        Some(Value::String(s)) => s.trim().parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+/// 从 API 响应中提取消息数组（兼容 `result.msgList` / `msgList` 两种包装）。
+fn extract_msg_list(api_result: Value) -> Vec<Value> {
+    match api_result {
+        Value::Object(mut root) => {
+            if let Some(Value::Object(result)) = root.get_mut("result") {
+                if let Some(Value::Array(messages)) = result.remove("msgList") {
+                    return messages;
+                }
+            }
+            match root.remove("msgList") {
+                Some(Value::Array(messages)) => messages,
+                _ => Vec::new(),
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// issue #634：处理序列分页的 API 结果。
+///
+/// 下一锚点 = 本页最小序列号 - 1；空页或序列未前进时按页宽线性跳过缺口，
+/// 序列号严格递减保证不会死循环。
+fn process_seq_page_result(
+    api_result: Value,
+    filter: &MessageFilter,
+    anchor: Option<i64>,
+    page: i64,
+) -> BatchFetchResult {
+    let messages = extract_msg_list(api_result);
+
+    let min_seq = messages.iter().filter_map(loose_msg_seq).min();
+    let mut earliest_msg_time = messages
+        .iter()
+        .filter_map(loose_msg_time)
+        .min()
+        .map(to_millis);
+    if messages.is_empty() {
+        earliest_msg_time = None;
+    }
+
+    let next_anchor = match (min_seq, anchor) {
+        (Some(min_seq), Some(anchor)) if min_seq < anchor => min_seq - 1,
+        (Some(min_seq), None) => min_seq - 1,
+        // 空页或未前进：按页宽跳过缺口。首批（无锚点）空结果视为空会话。
+        (_, Some(anchor)) => anchor - page.max(1),
+        (None, None) => 0,
+    };
+
+    let mut has_more = next_anchor > 0 && !(anchor.is_none() && messages.is_empty());
+
+    // 早停：最早时间早于筛选开始时间。
+    if let (Some(earliest), Some(start_time)) = (earliest_msg_time, filter.start_time) {
+        if earliest < start_time {
+            tracing::info!(
+                "[BatchMessageFetcher] 早停：earliestMsgTime={earliest} < startTime={start_time}，停止继续获取"
+            );
+            has_more = false;
+        }
+    }
+
+    let next_seq = has_more.then(|| next_anchor.to_string());
+    tracing::info!(
+        "[BatchMessageFetcher] 序列分页结果: {} 条消息, anchor={anchor:?}, nextSeq={next_seq:?}, hasMore={has_more}",
+        messages.len()
+    );
+
+    let actual_count = messages.len();
+    BatchFetchResult {
+        messages,
+        has_more,
+        next_message_id: None,
+        next_seq,
+        actual_count,
+        fetch_time_ms: 0,
+        earliest_msg_time,
+    }
+}
+
 /// 处理 API 调用结果，统一格式化。
 fn process_api_result(
     api_result: Value,
     filter: Option<&MessageFilter>,
     current_message_id: Option<&str>,
 ) -> BatchFetchResult {
-    let messages = match api_result {
-        Value::Object(mut root) => {
-            if let Some(Value::Object(result)) = root.get_mut("result") {
-                if let Some(Value::Array(messages)) = result.remove("msgList") {
-                    messages
-                } else {
-                    match root.remove("msgList") {
-                        Some(Value::Array(messages)) => messages,
-                        _ => Vec::new(),
-                    }
-                }
-            } else {
-                match root.remove("msgList") {
-                    Some(Value::Array(messages)) => messages,
-                    _ => Vec::new(),
-                }
-            }
-        }
-        _ => Vec::new(),
-    };
+    let messages = extract_msg_list(api_result);
 
     let mut has_more = !messages.is_empty();
     let mut next_message_id: Option<String> = None;
@@ -737,10 +979,7 @@ fn process_api_result(
             .get("msgId")
             .and_then(Value::as_str)
             .map(ToString::to_string);
-        next_seq = earliest
-            .get("msgSeq")
-            .and_then(Value::as_str)
-            .map(ToString::to_string);
+        next_seq = loose_msg_seq(earliest).map(|seq| seq.to_string());
         if let Some(raw_time) = loose_msg_time(earliest) {
             earliest_msg_time = Some(to_millis(raw_time));
         }
@@ -977,6 +1216,173 @@ mod tests {
                 .expect("call succeeds");
         }
         assert_eq!(fetcher.state.lock().await.batch_size, 5000);
+    }
+
+    #[test]
+    fn seq_page_result_advances_cursor_monotonically() {
+        let filter = MessageFilter::default();
+        let batch = process_seq_page_result(
+            json!({ "msgList": [
+                { "msgId": "m3", "msgSeq": "300", "msgTime": "1783866274" },
+                { "msgId": "m2", "msgSeq": 250, "msgTime": "1783866270" },
+            ] }),
+            &filter,
+            Some(320),
+            100,
+        );
+        assert!(batch.has_more);
+        assert_eq!(batch.next_seq.as_deref(), Some("249"));
+    }
+
+    #[test]
+    fn seq_page_result_skips_empty_pages_without_looping() {
+        let filter = MessageFilter::default();
+        // 空页（历史缺口）：按页宽跳过，游标必须前进。
+        let batch = process_seq_page_result(json!({ "msgList": [] }), &filter, Some(1000), 200);
+        assert!(batch.has_more);
+        assert_eq!(batch.next_seq.as_deref(), Some("800"));
+
+        // 序列号未前进（返回的最小 seq >= 锚点）同样按页宽跳过。
+        let batch = process_seq_page_result(
+            json!({ "msgList": [{ "msgId": "m1", "msgSeq": "1000" }] }),
+            &filter,
+            Some(1000),
+            200,
+        );
+        assert_eq!(batch.next_seq.as_deref(), Some("800"));
+
+        // 游标触底后终止。
+        let batch = process_seq_page_result(json!({ "msgList": [] }), &filter, Some(150), 200);
+        assert!(!batch.has_more);
+        assert!(batch.next_seq.is_none());
+    }
+
+    #[test]
+    fn seq_page_result_terminates_on_empty_first_page() {
+        let batch = process_seq_page_result(
+            json!({ "msgList": [] }),
+            &MessageFilter::default(),
+            None,
+            200,
+        );
+        assert!(!batch.has_more);
+        assert!(batch.next_seq.is_none());
+    }
+
+    #[test]
+    fn seq_page_result_stops_early_before_start_time() {
+        let filter = MessageFilter {
+            start_time: Some(1_800_000_000_000),
+            ..MessageFilter::default()
+        };
+        let batch = process_seq_page_result(
+            json!({ "msgList": [{ "msgId": "m1", "msgSeq": "500", "msgTime": "1783866274" }] }),
+            &filter,
+            Some(600),
+            200,
+        );
+        assert!(!batch.has_more);
+        assert!(batch.next_seq.is_none());
+    }
+
+    #[test]
+    fn seq_page_size_is_capped() {
+        assert_eq!(seq_page_size(5000), GROUP_SEQ_PAGE_MAX);
+        assert_eq!(seq_page_size(200), 200);
+        assert_eq!(seq_page_size(0), 1);
+    }
+
+    #[test]
+    fn bridge_down_errors_are_detected() {
+        assert!(FetchError::Api("传输错误: error sending request".to_string()).is_bridge_down());
+        assert!(FetchError::Api("Connection refused (os error 111)".to_string()).is_bridge_down());
+        assert!(!FetchError::Api("API调用超时".to_string()).is_bridge_down());
+        assert!(!FetchError::Timeout(1000).is_bridge_down());
+    }
+
+    #[tokio::test]
+    async fn history_gate_serializes_concurrent_calls() {
+        use std::sync::atomic::AtomicI64;
+
+        struct ConcurrencyProbe {
+            active: AtomicI64,
+            max_active: AtomicI64,
+        }
+
+        #[async_trait]
+        impl MessageFetchApi for ConcurrencyProbe {
+            async fn get_aio_first_view_latest_msgs(
+                &self,
+                _peer: &Peer,
+                _count: i64,
+            ) -> Result<Value, String> {
+                let now = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+                self.max_active.fetch_max(now, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                self.active.fetch_sub(1, Ordering::SeqCst);
+                Ok(json!({ "msgList": [] }))
+            }
+
+            async fn get_msg_history(
+                &self,
+                _peer: &Peer,
+                _msg_id: &str,
+                _count: i64,
+            ) -> Result<Value, String> {
+                Ok(json!({ "msgList": [] }))
+            }
+
+            async fn get_msgs_by_seq_range(
+                &self,
+                _peer: &Peer,
+                _start_seq: &str,
+                _end_seq: &str,
+            ) -> Result<Value, String> {
+                Ok(json!({ "msgList": [] }))
+            }
+
+            async fn get_msgs_by_seq_and_count(
+                &self,
+                _peer: &Peer,
+                _anchor_seq: i64,
+                _count: i64,
+            ) -> Result<Value, String> {
+                Ok(json!({ "msgList": [] }))
+            }
+        }
+
+        let api = Arc::new(ConcurrencyProbe {
+            active: AtomicI64::new(0),
+            max_active: AtomicI64::new(0),
+        });
+        // 两个独立 fetcher 实例并发调用，进程级门控必须保证串行。
+        let fetcher_a =
+            BatchMessageFetcher::new(Arc::clone(&api) as _, BatchFetchConfig::default());
+        let fetcher_b =
+            BatchMessageFetcher::new(Arc::clone(&api) as _, BatchFetchConfig::default());
+        let api_a = Arc::clone(&api);
+        let api_b = Arc::clone(&api);
+        let peer = Peer {
+            chat_type: 2,
+            peer_uid: "group".to_string(),
+            guild_id: None,
+        };
+        let peer_a = peer.clone();
+        let peer_b = peer;
+        let call_a = fetcher_a.call_with_retry(move |count| {
+            let api = Arc::clone(&api_a);
+            let peer = peer_a.clone();
+            async move { api.get_aio_first_view_latest_msgs(&peer, count).await }
+        });
+        let call_b = fetcher_b.call_with_retry(move |count| {
+            let api = Arc::clone(&api_b);
+            let peer = peer_b.clone();
+            async move { api.get_aio_first_view_latest_msgs(&peer, count).await }
+        });
+        let (a, b) = tokio::join!(call_a, call_b);
+        a.expect("call a succeeds");
+        b.expect("call b succeeds");
+        assert_eq!(api.max_active.load(Ordering::SeqCst), 1);
     }
 
     #[test]

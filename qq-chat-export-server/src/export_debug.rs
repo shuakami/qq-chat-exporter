@@ -124,6 +124,30 @@ impl ExportDebugSession {
         file.flush().await.map_err(|error| error.to_string())
     }
 
+    /// 追加写 JSONL（用于分块流水线逐块落盘，issue #634）。
+    pub async fn append_jsonl<T: Serialize>(
+        &self,
+        file_name: &str,
+        values: &[T],
+    ) -> Result<(), String> {
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.directory.join(file_name))
+            .await
+            .map_err(|error| error.to_string())?;
+        for value in values {
+            let line = serde_json::to_vec(value).map_err(|error| error.to_string())?;
+            file.write_all(&line)
+                .await
+                .map_err(|error| error.to_string())?;
+            file.write_all(b"\n")
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+        file.flush().await.map_err(|error| error.to_string())
+    }
+
     pub async fn write_json<T: Serialize>(&self, file_name: &str, value: &T) -> Result<(), String> {
         let bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
         tokio::fs::write(self.directory.join(file_name), bytes)

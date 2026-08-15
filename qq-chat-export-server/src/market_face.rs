@@ -21,10 +21,9 @@ pub fn alternate_url(url: &str) -> Option<String> {
         .map_or((url, None), |(path, query)| (path, Some(query)));
     let alternate = if let Some(base) = path.strip_suffix("/raw300.gif") {
         format!("{base}/raw300.png")
-    } else if let Some(base) = path.strip_suffix("/raw300.png") {
-        format!("{base}/raw300.gif")
     } else {
-        return None;
+        let base = path.strip_suffix("/raw300.png")?;
+        format!("{base}/raw300.gif")
     };
     Some(query.map_or(alternate.clone(), |query| format!("{alternate}?{query}")))
 }

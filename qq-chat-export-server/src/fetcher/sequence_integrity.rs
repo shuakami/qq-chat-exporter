@@ -100,6 +100,7 @@ pub async fn repair_group_message_sequence(
 
         rounds += 1;
         let mut remaining_round_budget = config.round_budget.min(remaining_total_budget).max(0);
+        let mut fetched: Vec<Value> = Vec::new();
         for gap in gaps.iter().rev() {
             let mut anchor = gap.upper - 1;
             let mut remaining = gap.missing_positions;
@@ -111,17 +112,21 @@ pub async fn repair_group_message_sequence(
                     .min(remaining_total_budget)
                     .max(1);
                 let lower = (anchor - count + 1).max(gap.lower + 1);
-                let range_messages = api
+                let mut range_messages = api
                     .get_msgs_by_seq_range(peer, &lower.to_string(), &anchor.to_string())
                     .await
                     .ok()
                     .map(extract_messages)
                     .unwrap_or_default();
                 if range_messages.is_empty() {
-                    api.get_msgs_by_seq_and_count(peer, anchor, count)
-                        .await
-                        .map_err(FetchError::Api)?;
+                    // issue #634：count 回退的返回结果同样要并入修复集合。
+                    range_messages = extract_messages(
+                        api.get_msgs_by_seq_and_count(peer, anchor, count)
+                            .await
+                            .map_err(FetchError::Api)?,
+                    );
                 }
+                fetched.extend(range_messages);
                 remaining_round_budget -= count;
                 remaining_total_budget -= count;
                 remaining -= count;
@@ -131,6 +136,7 @@ pub async fn repair_group_message_sequence(
                 break;
             }
         }
+        merge_messages(messages, fetched);
 
         let reprobed = reprobe_with_message_history(api, peer, messages, &gaps, config).await?;
         merge_messages(messages, reprobed);
@@ -469,10 +475,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn merges_count_fallback_results() {
+        // issue #634：count 回退的返回消息必须并入修复集合。
+        let api = MockApi::new(
+            vec![Ok(json!({ "msgList": [] }))],
+            vec![Ok(repaired_history())],
+            vec![Ok(json!({ "msgList": endpoints() }))],
+        );
+        let mut messages = endpoints();
+        let report = repair_group_message_sequence(
+            &api,
+            &peer(),
+            &mut messages,
+            SequenceRepairConfig::default(),
+        )
+        .await
+        .unwrap();
+
+        assert!(report.repaired_messages > 0);
+        assert!(detect_large_seq_gaps(&messages, 5).is_empty());
+    }
+
+    #[tokio::test]
     async fn fails_when_normal_reprobe_makes_no_progress() {
         let api = MockApi::new(
-            vec![Ok(repaired_history())],
-            vec![],
+            vec![Ok(json!({ "msgList": [] }))],
+            vec![Ok(json!({ "msgList": [] }))],
             vec![Ok(json!({ "msgList": endpoints() }))],
         );
         let mut messages = endpoints();
@@ -492,11 +520,8 @@ mod tests {
     #[tokio::test]
     async fn continues_with_a_new_round_after_progress() {
         let api = MockApi::new(
-            vec![
-                Ok(json!({ "msgList": [{ "msgId": "loaded-first", "msgSeq": 5 }] })),
-                Ok(json!({ "msgList": [{ "msgId": "loaded-second", "msgSeq": 8 }] })),
-            ],
-            vec![],
+            vec![Ok(json!({ "msgList": [] })), Ok(json!({ "msgList": [] }))],
+            vec![Ok(json!({ "msgList": [] })), Ok(json!({ "msgList": [] }))],
             vec![
                 Ok(json!({ "msgList": [
                     { "msgId": "one", "msgSeq": 1 },

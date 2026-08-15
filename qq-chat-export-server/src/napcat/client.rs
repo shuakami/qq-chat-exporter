@@ -425,12 +425,23 @@ impl MessageFetchApi for NapCatBridgeClient {
         anchor_seq: i64,
         count: i64,
     ) -> Result<Value, String> {
+        // NapCat 的 msgSeq 参数是字符串。
         self.call(
             "MsgApi.getMsgsBySeqAndCount",
-            json!([peer_to_value(peer), anchor_seq, count, true, true]),
+            json!([
+                peer_to_value(peer),
+                anchor_seq.to_string(),
+                count,
+                true,
+                true
+            ]),
         )
         .await
         .map_err(|error| error.to_string())
+    }
+
+    async fn bridge_healthy(&self) -> bool {
+        self.healthy().await
     }
 }
 

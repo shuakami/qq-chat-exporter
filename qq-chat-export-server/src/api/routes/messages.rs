@@ -1304,16 +1304,23 @@ async fn fetch_group_member_title_map(
     }
 }
 
-/// 补全群消息的群昵称（sendMemberName）。
-async fn fill_group_member_names(state: &SharedState, peer_uid: &str, messages: &mut [Value]) {
-    let Ok(group_members) = state.napcat.get_group_member_all(peer_uid, false).await else {
-        return;
-    };
-    let Some(infos) = group_members
+/// 拉取群成员 infos（用于群昵称补全，只拉一次，逐块复用）。
+async fn fetch_group_member_infos(state: &SharedState, peer_uid: &str) -> Option<Value> {
+    let group_members = state
+        .napcat
+        .get_group_member_all(peer_uid, false)
+        .await
+        .ok()?;
+    group_members
         .pointer("/result/infos")
         .or_else(|| group_members.get("infos"))
-        .and_then(Value::as_object)
-    else {
+        .filter(|infos| infos.is_object())
+        .cloned()
+}
+
+/// 补全群消息的群昵称（sendMemberName）。
+fn apply_group_member_names(member_infos: &Value, messages: &mut [Value]) {
+    let Some(infos) = member_infos.as_object() else {
         return;
     };
     for message in messages.iter_mut() {
@@ -1389,6 +1396,7 @@ fn to_value_resource_map(
 }
 
 /// ZIP 打包（阻塞线程执行）：HTML 文件 + resources 相对路径列表。
+/// issue #634：逐文件流式复制，不把单个文件整体读入内存。
 async fn create_zip_with_resources(
     base_dir: PathBuf,
     main_file: PathBuf,
@@ -1396,7 +1404,6 @@ async fn create_zip_with_resources(
     zip_path: PathBuf,
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || -> Result<(), String> {
-        use std::io::Write as _;
         let file = std::fs::File::create(&zip_path).map_err(|e| e.to_string())?;
         let mut zip = zip::ZipWriter::new(file);
         let options = zip::write::SimpleFileOptions::default()
@@ -1407,18 +1414,18 @@ async fn create_zip_with_resources(
             .ok_or_else(|| "无效的主文件名".to_string())?;
         zip.start_file(&main_name, options)
             .map_err(|e| e.to_string())?;
-        let data = std::fs::read(&main_file).map_err(|e| e.to_string())?;
-        zip.write_all(&data).map_err(|e| e.to_string())?;
+        let mut main = std::fs::File::open(&main_file).map_err(|e| e.to_string())?;
+        std::io::copy(&mut main, &mut zip).map_err(|e| e.to_string())?;
         for rel in resource_rel_paths {
             let src = base_dir.join(&rel);
-            let Ok(data) = std::fs::read(&src) else {
+            let Ok(mut src) = std::fs::File::open(&src) else {
                 continue;
             };
             let entry_name = rel.replace('\\', "/");
             if zip.start_file(&entry_name, options).is_err() {
                 continue;
             }
-            let _ = zip.write_all(&data);
+            let _ = std::io::copy(&mut src, &mut zip);
         }
         zip.finish().map_err(|e| e.to_string())?;
         Ok(())
@@ -1428,9 +1435,9 @@ async fn create_zip_with_resources(
 }
 
 /// ZIP 打包整个目录（阻塞线程执行）。
+/// issue #634：逐文件流式复制，不把单个文件整体读入内存。
 async fn create_zip_from_dir(dir: PathBuf, zip_path: PathBuf) -> Result<(), String> {
     tokio::task::spawn_blocking(move || -> Result<(), String> {
-        use std::io::Write as _;
         let file = std::fs::File::create(&zip_path).map_err(|e| e.to_string())?;
         let mut zip = zip::ZipWriter::new(file);
         let options = zip::write::SimpleFileOptions::default()
@@ -1445,14 +1452,151 @@ async fn create_zip_from_dir(dir: PathBuf, zip_path: PathBuf) -> Result<(), Stri
             let rel = entry.path().strip_prefix(&dir).map_err(|e| e.to_string())?;
             zip.start_file(rel.to_string_lossy().replace('\\', "/"), options)
                 .map_err(|e| e.to_string())?;
-            let data = std::fs::read(entry.path()).map_err(|e| e.to_string())?;
-            zip.write_all(&data).map_err(|e| e.to_string())?;
+            let mut src = std::fs::File::open(entry.path()).map_err(|e| e.to_string())?;
+            std::io::copy(&mut src, &mut zip).map_err(|e| e.to_string())?;
         }
         zip.finish().map_err(|e| e.to_string())?;
         Ok(())
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// issue #634：分块流水线的块大小（原始消息条数）。
+const RAW_SPOOL_CHUNK_SIZE: usize = 20_000;
+
+/// issue #634：抓取阶段的磁盘 spool。原始消息逐批落盘为 JSONL，避免在内存
+/// 中累积超大群聊的全部原始消息；任何退出路径（Drop）都会清理文件。
+struct RawMessageSpool {
+    path: PathBuf,
+    writer: Option<tokio::io::BufWriter<tokio::fs::File>>,
+    count: usize,
+}
+
+impl RawMessageSpool {
+    async fn create(path: PathBuf) -> Result<Self, String> {
+        let file = tokio::fs::File::create(&path)
+            .await
+            .map_err(|e| format!("创建消息暂存文件失败: {e}"))?;
+        Ok(Self {
+            path,
+            writer: Some(tokio::io::BufWriter::new(file)),
+            count: 0,
+        })
+    }
+
+    async fn append(&mut self, messages: &[Value]) -> Result<(), String> {
+        use tokio::io::AsyncWriteExt as _;
+        let writer = self
+            .writer
+            .as_mut()
+            .ok_or_else(|| "消息暂存文件已关闭".to_string())?;
+        for message in messages {
+            let line = serde_json::to_vec(message).map_err(|e| e.to_string())?;
+            writer
+                .write_all(&line)
+                .await
+                .map_err(|e| format!("写入消息暂存文件失败: {e}"))?;
+            writer
+                .write_all(b"\n")
+                .await
+                .map_err(|e| format!("写入消息暂存文件失败: {e}"))?;
+            self.count += 1;
+        }
+        Ok(())
+    }
+
+    async fn finish(&mut self) -> Result<(), String> {
+        use tokio::io::AsyncWriteExt as _;
+        if let Some(mut writer) = self.writer.take() {
+            writer
+                .flush()
+                .await
+                .map_err(|e| format!("写入消息暂存文件失败: {e}"))?;
+        }
+        Ok(())
+    }
+
+    fn path(&self) -> &FsPath {
+        &self.path
+    }
+
+    fn count(&self) -> usize {
+        self.count
+    }
+}
+
+impl Drop for RawMessageSpool {
+    fn drop(&mut self) {
+        self.writer.take();
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// 按块读取 spool JSONL。
+struct SpoolChunkReader {
+    lines: tokio::io::Lines<tokio::io::BufReader<tokio::fs::File>>,
+    chunk_size: usize,
+}
+
+impl SpoolChunkReader {
+    async fn open(path: &FsPath, chunk_size: usize) -> Result<Self, String> {
+        use tokio::io::AsyncBufReadExt as _;
+        let file = tokio::fs::File::open(path)
+            .await
+            .map_err(|e| format!("打开消息暂存文件失败: {e}"))?;
+        Ok(Self {
+            lines: tokio::io::BufReader::new(file).lines(),
+            chunk_size: chunk_size.max(1),
+        })
+    }
+
+    async fn next_chunk(&mut self) -> Result<Option<Vec<Value>>, String> {
+        let mut chunk = Vec::new();
+        while chunk.len() < self.chunk_size {
+            match self
+                .lines
+                .next_line()
+                .await
+                .map_err(|e| format!("读取消息暂存文件失败: {e}"))?
+            {
+                Some(line) if !line.trim().is_empty() => {
+                    chunk.push(serde_json::from_str(&line).map_err(|e| e.to_string())?);
+                }
+                Some(_) => {}
+                None => break,
+            }
+        }
+        Ok(if chunk.is_empty() { None } else { Some(chunk) })
+    }
+}
+
+/// issue #634：基于序列号的真实抓取进度（1–49），取代硬编码的 50% 假进度。
+fn estimate_fetch_progress(max_seq: Option<i64>, min_seq: Option<i64>, batch_count: i64) -> i64 {
+    if let (Some(max), Some(min)) = (max_seq, min_seq) {
+        if max > 0 && max >= min {
+            let done = (max - min) as f64 / max as f64;
+            return (1.0 + done * 48.0).round() as i64;
+        }
+    }
+    // 无序列号信息时按批次数渐近逼近 49。
+    let asymptotic = (1.0 - 1.0 / (1.0 + batch_count.max(0) as f64 / 20.0)) * 49.0;
+    (asymptotic.round() as i64).clamp(1, 49)
+}
+
+/// 累加逐块资源下载摘要。
+fn merge_resource_summary(total: &mut ResourceBatchSummary, batch: &ResourceBatchSummary) {
+    total.attempted += batch.attempted;
+    total.already_available += batch.already_available;
+    total.downloaded += batch.downloaded;
+    total.failed += batch.failed;
+    total.skipped += batch.skipped;
+    for sample in &batch.failed_samples {
+        if total.failed_samples.len() >= 5 {
+            break;
+        }
+        total.failed_samples.push(sample.clone());
+    }
 }
 
 /// 导出主流程。
@@ -1516,9 +1660,19 @@ async fn process_export_task(
         ..MessageFilter::default()
     };
 
-    let mut all_messages: Vec<Value> = Vec::new();
+    // issue #634：磁盘分块流水线——原始消息逐批落盘，不在内存累积。
+    tokio::fs::create_dir_all(&req.output_dir)
+        .await
+        .map_err(|e| format!("创建输出目录失败: {e}"))?;
+    let mut spool =
+        RawMessageSpool::create(req.output_dir.join(format!(".qce_spool_{task_id}.jsonl"))).await?;
+
     let mut previous = None;
     let mut batch_count: i64 = 0;
+    let mut max_seq_seen: Option<i64> = None;
+    let mut min_seq_seen: Option<i64> = None;
+    // 群聊序列修复所需的轻量索引（仅 msgId / msgSeq）。
+    let mut seq_stubs: Vec<Value> = Vec::new();
     loop {
         if is_cancelled(state, task_id, cancel_flag).await {
             fetcher.cancel();
@@ -1538,17 +1692,31 @@ async fn process_export_task(
             Err(error) => return Err(format!("获取消息失败: {error}")),
         };
         batch_count += 1;
-        all_messages.append(&mut batch.messages);
+        for message in &batch.messages {
+            let Some(seq) = loose_i64(message.get("msgSeq")) else {
+                continue;
+            };
+            max_seq_seen = Some(max_seq_seen.map_or(seq, |v| v.max(seq)));
+            min_seq_seen = Some(min_seq_seen.map_or(seq, |v| v.min(seq)));
+            if req.chat_type == GROUP_CHAT_TYPE {
+                if let Some(id) = message.get("msgId").and_then(Value::as_str) {
+                    seq_stubs.push(json!({ "msgId": id, "msgSeq": seq }));
+                }
+            }
+        }
+        spool.append(&batch.messages).await?;
+        batch.messages = Vec::new();
 
-        let progress = (batch_count * 10).min(50);
-        let message = format!("已获取 {} 条消息...", all_messages.len());
+        // issue #634：基于序列号的真实抓取进度（1 → 49）。
+        let progress = estimate_fetch_progress(max_seq_seen, min_seq_seen, batch_count);
+        let message = format!("已获取 {} 条消息...", spool.count());
         update_task(
             state,
             task_id,
-            json!({ "progress": progress, "messageCount": all_messages.len(), "message": message }),
+            json!({ "progress": progress, "messageCount": spool.count(), "message": message }),
         )
         .await;
-        broadcast_progress(state, task_id, progress, &message, all_messages.len());
+        broadcast_progress(state, task_id, progress, &message, spool.count());
         previous = Some(batch);
     }
 
@@ -1556,11 +1724,12 @@ async fn process_export_task(
         return Err("任务已被用户停止".to_string());
     }
 
-    if req.chat_type == GROUP_CHAT_TYPE && !all_messages.is_empty() {
+    if req.chat_type == GROUP_CHAT_TYPE && !seq_stubs.is_empty() {
+        let stubs_before_repair = seq_stubs.len();
         match repair_group_message_sequence(
             &state.napcat,
             &peer,
-            &mut all_messages,
+            &mut seq_stubs,
             SequenceRepairConfig::default(),
         )
         .await
@@ -1585,38 +1754,30 @@ async fn process_export_task(
                     .await;
             }
         }
+        // 修复补齐的完整消息追加进 spool。
+        if seq_stubs.len() > stubs_before_repair {
+            spool.append(&seq_stubs[stubs_before_repair..]).await?;
+        }
     }
+    drop(seq_stubs);
 
     // 群昵称补全 + 群头衔映射（issue #331）
     let mut title_map: Option<HashMap<String, String>> = None;
-    if req.chat_type == GROUP_CHAT_TYPE && !all_messages.is_empty() {
-        fill_group_member_names(state, &req.peer_uid, &mut all_messages).await;
+    let mut member_infos: Option<Value> = None;
+    if req.chat_type == GROUP_CHAT_TYPE && spool.count() > 0 {
+        member_infos = fetch_group_member_infos(state, &req.peer_uid).await;
         title_map = fetch_group_member_title_map(state, &req.peer_uid, req.chat_type).await;
     }
 
-    // 按 includeUserUins / excludeUserUins 过滤（issue #369）。
-    let mut filtered_messages = apply_sender_filter(all_messages, &req.filter);
+    spool.finish().await?;
 
     update_task(
         state,
         task_id,
-        json!({ "progress": 60, "message": "正在解析消息...", "messageCount": filtered_messages.len() }),
+        json!({ "progress": 55, "message": "正在解析消息...", "messageCount": spool.count() }),
     )
     .await;
-    broadcast_progress(
-        state,
-        task_id,
-        60,
-        "正在解析消息...",
-        filtered_messages.len(),
-    );
-
-    filtered_messages.sort_by_key(msg_time_ms);
-    if let Some(debug) = &debug_session {
-        debug
-            .write_jsonl("01-raw-messages.jsonl", &filtered_messages)
-            .await?;
-    }
+    broadcast_progress(state, task_id, 55, "正在解析消息...", spool.count());
 
     let sender_title_resolver = title_map.map(|map| {
         let map = Arc::new(map);
@@ -1635,61 +1796,15 @@ async fn process_export_task(
         sender_title_resolver,
         forward_fetcher: Some(Arc::new(state.napcat.clone()) as Arc<dyn ForwardFetcher>),
     });
-    let mut clean_messages: Vec<CleanMessage> = parser.parse_messages(&filtered_messages).await;
-    if let Some(debug) = &debug_session {
-        debug
-            .write_jsonl("02-parsed-messages.jsonl", &clean_messages)
-            .await?;
-    }
-    let mut resource_messages = filtered_messages.clone();
-    resource_messages.extend(parser.take_forward_raw_messages());
-    let mut resource_message_ids = HashSet::new();
-    resource_messages.retain(|message| {
-        let Some(message_id) = message.get("msgId").and_then(Value::as_str) else {
-            return true;
-        };
-        message_id == "0" || resource_message_ids.insert(message_id.to_string())
-    });
-
-    // 阶段 2：资源下载（70 → 85）
+    // 阶段 2（issue #634）：磁盘分块流水线，逐块解析 + 逐块资源下载（55 → 85）。
     let filter_pure_image = req
         .options
         .get("filterPureImageMessages")
         .and_then(Value::as_bool)
         == Some(true);
-    let mut resource_map: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
-    let mut resource_summary: Option<ResourceBatchSummary> = None;
     if filter_pure_image {
         tracing::info!("[ApiServer] 已启用纯多媒体消息过滤，跳过资源下载");
     } else {
-        update_task(
-            state,
-            task_id,
-            json!({ "progress": 70, "message": "正在下载资源...", "messageCount": filtered_messages.len() }),
-        )
-        .await;
-        broadcast_progress(
-            state,
-            task_id,
-            70,
-            "正在下载资源...",
-            filtered_messages.len(),
-        );
-
-        // 资源下载进度回调（70 → 85）。
-        let state_cb = Arc::clone(state);
-        let task_id_cb = task_id.to_string();
-        let count_cb = filtered_messages.len();
-        state
-            .resource_handler
-            .set_progress_callback(Some(Arc::new(move |progress| {
-                let percent = 70
-                    + ((progress.completed as f64 / progress.total.max(1) as f64) * 15.0).round()
-                        as i64;
-                broadcast_progress(&state_cb, &task_id_cb, percent, &progress.message, count_cb);
-            })))
-            .await;
-
         // Issue #341：跳过下载的资源类型（仅保留元数据）。
         let requested_skip_types: Vec<String> = req
             .options
@@ -1726,48 +1841,146 @@ async fn process_export_task(
                 .set_skip_download_types(Some(&normalized_skip_types))
                 .await;
         }
+    }
 
-        resource_map = state
-            .resource_handler
-            .process_message_resources_with_cancel_and_trace(
-                &resource_messages,
-                Arc::clone(cancel_flag),
-                debug_session.as_ref().map(ExportDebugSession::trace),
-            )
-            .await;
-        let summary = state.resource_handler.last_batch_summary().await;
-        state.resource_handler.set_progress_callback(None).await;
-        state.resource_handler.set_skip_download_types(None).await;
+    let total_chunks = spool.count().div_ceil(RAW_SPOOL_CHUNK_SIZE).max(1);
+    let mut clean_messages: Vec<CleanMessage> = Vec::new();
+    let mut resource_map: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
+    let mut resource_summary_total = ResourceBatchSummary::default();
+    let mut parsed_message_ids: HashSet<String> = HashSet::new();
+    let mut resource_message_ids: HashSet<String> = HashSet::new();
+    let mut reader = SpoolChunkReader::open(spool.path(), RAW_SPOOL_CHUNK_SIZE).await?;
+    let mut chunk_index: usize = 0;
+    while let Some(chunk) = reader.next_chunk().await? {
+        if is_cancelled(state, task_id, cancel_flag).await {
+            return Err("任务已被用户停止".to_string());
+        }
+        // 按 includeUserUins / excludeUserUins 过滤（issue #369）。
+        let mut chunk = apply_sender_filter(chunk, &req.filter);
+        // 跨块去重（保持原先单次 parse 的全局去重语义）。
+        chunk.retain(
+            |message| match message.get("msgId").and_then(Value::as_str) {
+                Some(id) if !id.is_empty() && id != "0" => {
+                    parsed_message_ids.insert(id.to_string())
+                }
+                _ => true,
+            },
+        );
+        if let Some(infos) = &member_infos {
+            apply_group_member_names(infos, &mut chunk);
+        }
+        chunk.sort_by_key(msg_time_ms);
+        if let Some(debug) = &debug_session {
+            debug.append_jsonl("01-raw-messages.jsonl", &chunk).await?;
+        }
+
+        let parsed = parser.parse_messages(&chunk).await;
+        if let Some(debug) = &debug_session {
+            debug
+                .append_jsonl("02-parsed-messages.jsonl", &parsed)
+                .await?;
+        }
+        clean_messages.extend(parsed);
+
+        let progress_base = (55 + 30 * chunk_index / total_chunks) as i64;
+        let progress_next = (55 + 30 * (chunk_index + 1) / total_chunks) as i64;
+        if !filter_pure_image {
+            let mut resource_chunk = chunk;
+            resource_chunk.extend(parser.take_forward_raw_messages());
+            resource_chunk.retain(|message| {
+                let Some(message_id) = message.get("msgId").and_then(Value::as_str) else {
+                    return true;
+                };
+                message_id == "0" || resource_message_ids.insert(message_id.to_string())
+            });
+
+            // 资源下载进度回调：映射到本块的进度区间。
+            let state_cb = Arc::clone(state);
+            let task_id_cb = task_id.to_string();
+            let count_cb = clean_messages.len();
+            let span = (progress_next - progress_base).max(0) as f64;
+            state
+                .resource_handler
+                .set_progress_callback(Some(Arc::new(move |progress| {
+                    let percent = progress_base
+                        + ((progress.completed as f64 / progress.total.max(1) as f64) * span)
+                            .round() as i64;
+                    broadcast_progress(
+                        &state_cb,
+                        &task_id_cb,
+                        percent,
+                        &progress.message,
+                        count_cb,
+                    );
+                })))
+                .await;
+            let chunk_map = state
+                .resource_handler
+                .process_message_resources_with_cancel_and_trace(
+                    &resource_chunk,
+                    Arc::clone(cancel_flag),
+                    debug_session.as_ref().map(ExportDebugSession::trace),
+                )
+                .await;
+            merge_resource_summary(
+                &mut resource_summary_total,
+                &state.resource_handler.last_batch_summary().await,
+            );
+            resource_map.extend(chunk_map);
+        }
+
+        chunk_index += 1;
+        let message = format!("正在解析消息与下载资源... ({chunk_index}/{total_chunks})");
+        update_task(
+            state,
+            task_id,
+            json!({ "progress": progress_next, "message": message, "messageCount": clean_messages.len() }),
+        )
+        .await;
+        broadcast_progress(
+            state,
+            task_id,
+            progress_next,
+            &message,
+            clean_messages.len(),
+        );
+    }
+    drop(reader);
+    drop(parsed_message_ids);
+    drop(resource_message_ids);
+    state.resource_handler.set_progress_callback(None).await;
+    state.resource_handler.set_skip_download_types(None).await;
+
+    let resource_summary: Option<ResourceBatchSummary> = if filter_pure_image {
+        None
+    } else {
         tracing::info!(
             "[ApiServer] 处理了 {} 个消息的资源（attempted={}, downloaded={}, alreadyAvailable={}, failed={}, skipped={}）",
             resource_map.len(),
-            summary.attempted,
-            summary.downloaded,
-            summary.already_available,
-            summary.failed,
-            summary.skipped,
+            resource_summary_total.attempted,
+            resource_summary_total.downloaded,
+            resource_summary_total.already_available,
+            resource_summary_total.failed,
+            resource_summary_total.skipped,
         );
-        resource_summary = Some(summary);
-    }
+        Some(resource_summary_total)
+    };
+
+    // 全局按时间排序（分块解析后跨块归并）。
+    clean_messages.sort_by_key(|message| message.timestamp);
 
     if is_cancelled(state, task_id, cancel_flag).await {
         return Err("任务已被用户停止".to_string());
     }
 
-    // 阶段 3：解析 + 生成文件（85 →）
+    // 阶段 3：生成文件（85 →）
     update_task(
         state,
         task_id,
-        json!({ "progress": 85, "message": "正在生成文件...", "messageCount": filtered_messages.len() }),
+        json!({ "progress": 85, "message": "正在生成文件...", "messageCount": clean_messages.len() }),
     )
     .await;
-    broadcast_progress(
-        state,
-        task_id,
-        85,
-        "正在生成文件...",
-        filtered_messages.len(),
-    );
+    broadcast_progress(state, task_id, 85, "正在生成文件...", clean_messages.len());
 
     // Issue #30 / #192：确保输出目录存在。
     tokio::fs::create_dir_all(&req.output_dir)
