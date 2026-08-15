@@ -79,6 +79,8 @@ export function ScheduledExportWizard({
     filterPureImageMessages: false,
     preferGroupMemberName: true,
     debugExport: false,
+    // Issue #646：定时 HTML 导出把资源内联为 base64，生成自包含单文件。
+    embedResourcesAsDataUri: false,
     // Issue #344：定时导出也支持按资源类型逐项跳过下载。
     skipDownloadResourceTypes: undefined as SkipDownloadResourceType[] | undefined,
   })
@@ -128,6 +130,7 @@ export function ScheduledExportWizard({
           : defaultFilter,
         preferGroupMemberName: prefilledData.preferGroupMemberName !== undefined ? prefilledData.preferGroupMemberName : true,
         debugExport: prefilledData.debugExport ?? false,
+        embedResourcesAsDataUri: prefilledData.embedResourcesAsDataUri ?? false,
         skipDownloadResourceTypes: Array.isArray(prefilledData.skipDownloadResourceTypes) && prefilledData.skipDownloadResourceTypes.length > 0
           ? (prefilledData.skipDownloadResourceTypes as SkipDownloadResourceType[])
           : undefined,
@@ -167,6 +170,7 @@ export function ScheduledExportWizard({
         filterPureImageMessages: false,
         preferGroupMemberName: true,
         debugExport: false,
+        embedResourcesAsDataUri: false,
         skipDownloadResourceTypes: undefined,
       })
       setSelectedTargets([])
@@ -228,6 +232,8 @@ export function ScheduledExportWizard({
         filterPureImageMessages: baseForm.filterPureImageMessages,
         preferGroupMemberName: baseForm.preferGroupMemberName,
         debugExport: baseForm.debugExport,
+        // Issue #646：仅 HTML 支持自包含内联，其他格式忽略该开关。
+        embedResourcesAsDataUri: baseForm.format === 'HTML' && baseForm.embedResourcesAsDataUri,
         ...(!baseForm.filterPureImageMessages && baseForm.skipDownloadResourceTypes && baseForm.skipDownloadResourceTypes.length > 0 && {
           skipDownloadResourceTypes: baseForm.skipDownloadResourceTypes,
         }),
@@ -899,6 +905,15 @@ export function ScheduledExportWizard({
                       title: "不下载语音",
                       desc: "定时导出时跳过 SILK / AMR 语音消息。对只需要文字记录的备份场景很有用。",
                       visible: !baseForm.filterPureImageMessages,
+                    },
+                    // Issue #646：定时 HTML 导出生成自包含单文件，图片等资源直接内联。
+                    {
+                      id: "embedResourcesAsDataUri",
+                      checked: baseForm.embedResourcesAsDataUri,
+                      set: (v: boolean) => setBaseForm(p => ({ ...p, embedResourcesAsDataUri: v })),
+                      title: "自包含 HTML（内联图片等资源）",
+                      desc: "把已下载的图片、语音等资源以 base64 写进 HTML，单个文件即可离线查看，代价是文件体积明显变大。",
+                      visible: baseForm.format === 'HTML' && !baseForm.filterPureImageMessages,
                     },
                     {
                       id: "preferGroupMemberName",

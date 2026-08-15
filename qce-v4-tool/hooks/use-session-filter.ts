@@ -8,6 +8,7 @@ import {
   type SortField,
   type SortOrder,
 } from "@/lib/session-sort"
+import { dedupeSessionItems } from "@/lib/session-dedupe"
 
 export type SessionType = 'all' | 'group' | 'friend'
 export type { SortField, SortOrder }
@@ -156,7 +157,8 @@ export function useSessionFilter(
       }
     })
 
-    return [...groupItems, ...friendItems]
+    // Issue #649：任何上游数据源重复都不应让会话列表出现两条相同记录。
+    return dedupeSessionItems([...groupItems, ...friendItems])
   }, [groups, friends, recentActivityMap, taskStatsMap])
 
   const sortedItems = useMemo<SessionItem[]>(() => {

@@ -5,13 +5,14 @@
  *
  * - 任务（导出任务计划）、群标签、运行记录的本地持久化（localStorage）。
  * - 执行引擎：解析群集合 → 自动拆分批次的顺序执行，实时回写进度。
- *   当前环境无后端任务接口时以本地模拟执行完成闭环；接入服务端后
- *   只需将 executeBatch 替换为对 /api/export-task-plans/:id/run 的调用。
+ *   每个群调用 `POST /api/messages/export` 创建真实导出任务，再轮询
+ *   `GET /api/tasks/:taskId` 等待结果，失败原因写入运行记录。
  * - 失败恢复：runPlan({ onlyGroupCodes }) 仅重跑指定群。
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
-import type { Group } from "@/types/api"
+import type { ExportTask, Group } from "@/types/api"
+import { useApi } from "./use-api"
 import {
   DEFAULT_BATCH_SIZE,
   ExportTaskPlan,
@@ -31,6 +32,31 @@ const LS_RUNS = "qce-export-task-runs-v1"
 const LS_KNOWN_GROUPS = "qce-known-groups-v1"
 const MAX_RUNS_PER_PLAN = 30
 const MAX_KNOWN_GROUPS = 500
+/** 单群导出轮询间隔（毫秒）。 */
+const TASK_POLL_INTERVAL_MS = 2_000
+/** 单群导出等待上限（毫秒），超时当作失败并进入失败列表。 */
+const TASK_WAIT_TIMEOUT_MS = 6 * 60 * 60 * 1_000
+const DAY_SECONDS = 86_400
+
+/**
+ * Issue #641：旧版本提供过「载入示例数据」，写入的示例任务与虚构群会一直占着
+ * 任务列表和群组选择器，用户看不到也选不了自己的群。示例数据已经移除，
+ * 这里只负责把本地残留的示例记录清掉（真实任务的 ID 不使用这些前缀）。
+ */
+const DEMO_PLAN_IDS = new Set(["plan_demo_school", "plan_demo_games", "plan_demo_txt"])
+const DEMO_RUN_ID_PREFIX = "run_demo_"
+
+function demoGroupCodes(): Set<string> {
+  const codes = new Set<string>()
+  for (const [prefix, count] of [
+    ["81", 8],
+    ["82", 6],
+    ["83", 6],
+  ] as Array<[string, number]>) {
+    for (let i = 0; i < count; i += 1) codes.add(`${prefix}${100_000 + i * 137}`)
+  }
+  return codes
+}
 
 function readLS<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback
@@ -67,13 +93,34 @@ export function useExportTaskPlans(liveGroups: Group[] = []) {
   /** 正在运行的计划 ID -> run ID */
   const [activeRuns, setActiveRuns] = useState<Record<string, string>>({})
   const cancelRef = useRef<Set<string>>(new Set())
+  const { apiCall } = useApi()
 
   // ---------------- hydration ----------------
   useEffect(() => {
-    setPlans(readLS<ExportTaskPlan[]>(LS_PLANS, []))
-    setGroupTags(readLS<GroupTagMap>(LS_TAGS, {}))
-    setRuns(readLS<ExportTaskRun[]>(LS_RUNS, []))
-    setKnownGroups(readLS<Group[]>(LS_KNOWN_GROUPS, []))
+    const storedPlans = readLS<ExportTaskPlan[]>(LS_PLANS, [])
+    const storedTags = readLS<GroupTagMap>(LS_TAGS, {})
+    const storedRuns = readLS<ExportTaskRun[]>(LS_RUNS, [])
+    const storedGroups = readLS<Group[]>(LS_KNOWN_GROUPS, [])
+
+    const demoCodes = demoGroupCodes()
+    const cleanPlans = storedPlans.filter((p) => !DEMO_PLAN_IDS.has(p.id))
+    const cleanRuns = storedRuns.filter(
+      (r) => !r.id.startsWith(DEMO_RUN_ID_PREFIX) && !DEMO_PLAN_IDS.has(r.planId),
+    )
+    const cleanGroups = storedGroups.filter((g) => !demoCodes.has(g.groupCode))
+    const cleanTags = Object.fromEntries(
+      Object.entries(storedTags).filter(([code]) => !demoCodes.has(code)),
+    )
+
+    if (cleanPlans.length !== storedPlans.length) writeLS(LS_PLANS, cleanPlans)
+    if (cleanRuns.length !== storedRuns.length) writeLS(LS_RUNS, cleanRuns)
+    if (cleanGroups.length !== storedGroups.length) writeLS(LS_KNOWN_GROUPS, cleanGroups)
+    if (Object.keys(cleanTags).length !== Object.keys(storedTags).length) writeLS(LS_TAGS, cleanTags)
+
+    setPlans(cleanPlans)
+    setGroupTags(cleanTags)
+    setRuns(cleanRuns)
+    setKnownGroups(cleanGroups)
     setHydrated(true)
   }, [])
 
@@ -195,19 +242,101 @@ export function useExportTaskPlans(liveGroups: Group[] = []) {
     [],
   )
 
-  /**
-   * 执行单个批次。
-   * TODO(backend): 替换为对服务端批量导出接口的调用，并按返回结果构造失败列表。
-   * 本地模式下批次内全部成功。
-   */
-  const executeBatch = useCallback(
-    async (_plan: ExportTaskPlan, batch: ExportTaskRunBatch): Promise<ExportTaskRunFailure[]> => {
-      // 模拟批次执行耗时，驱动 UI 进度动画
-      const cost = 420 + Math.min(batch.groupCodes.length, 20) * 36 + Math.random() * 240
-      await new Promise((r) => setTimeout(r, cost))
-      return []
+  /** 轮询导出任务直到结束，返回失败原因；成功返回 null。 */
+  const waitForTask = useCallback(
+    async (taskId: string, runId: string): Promise<string | null> => {
+      const deadline = Date.now() + TASK_WAIT_TIMEOUT_MS
+      while (Date.now() < deadline) {
+        if (cancelRef.current.has(runId)) return "任务已取消"
+        await new Promise((resolve) => setTimeout(resolve, TASK_POLL_INTERVAL_MS))
+        const resp = await apiCall<ExportTask>(`/api/tasks/${encodeURIComponent(taskId)}`)
+        if (!resp.success || !resp.data) continue
+        const task = resp.data
+        if (task.status === "completed") return null
+        if (task.status === "failed") return task.error || "导出失败"
+        if (task.status === "cancelled") return "导出任务被取消"
+      }
+      return "等待导出结果超时"
     },
-    [],
+    [apiCall],
+  )
+
+  /** 导出单个群，返回失败原因；成功返回 null。 */
+  const exportGroup = useCallback(
+    async (plan: ExportTaskPlan, group: { groupCode: string; groupName: string }, runId: string) => {
+      const nowSeconds = Math.floor(Date.now() / 1000)
+      // 增量导出：从该群上次导出到的位置继续；否则按任务的时间范围类型。
+      const incrementalFrom = plan.incremental ? plan.progress?.[group.groupCode] : undefined
+      let startTime = incrementalFrom
+      let endTime: number | undefined
+      if (startTime === undefined) {
+        if (plan.timeRangeType === "last-7-days") startTime = nowSeconds - 7 * DAY_SECONDS
+        else if (plan.timeRangeType === "last-30-days") startTime = nowSeconds - 30 * DAY_SECONDS
+        else if (plan.timeRangeType === "custom" && plan.customTimeRange) {
+          startTime = plan.customTimeRange.startTime
+          endTime = plan.customTimeRange.endTime
+        }
+      }
+
+      const outputDir = plan.outputDir?.trim()
+      const body = {
+        peer: { chatType: 2, peerUid: group.groupCode, guildId: "" },
+        sessionName: group.groupName || group.groupCode,
+        format: plan.format,
+        filter: {
+          ...(startTime !== undefined && { startTime }),
+          ...(endTime !== undefined && { endTime }),
+          includeRecalled: false,
+        },
+        options: {
+          batchSize: 5000,
+          prettyFormat: true,
+          useFriendlyFileName: true,
+          includeResourceLinks: plan.options.includeResourceLinks,
+          includeSystemMessages: plan.options.includeSystemMessages,
+          filterPureImageMessages: plan.options.filterPureImageMessages,
+          preferGroupMemberName: plan.options.preferGroupMemberName,
+          ...(outputDir && { outputDir }),
+        },
+      }
+
+      try {
+        const resp = await apiCall<{ taskId?: string }>("/api/messages/export", {
+          method: "POST",
+          body: JSON.stringify(body),
+        })
+        if (!resp.success) return resp.error?.message || "创建导出任务失败"
+        const taskId = resp.data?.taskId
+        // 没有 taskId 说明服务端同步完成，无需轮询。
+        if (!taskId) return null
+        return await waitForTask(taskId, runId)
+      } catch (err) {
+        return err instanceof Error ? err.message : "创建导出任务失败"
+      }
+    },
+    [apiCall, waitForTask],
+  )
+
+  /** 顺序执行单个批次内的每个群，返回失败列表。 */
+  const executeBatch = useCallback(
+    async (
+      plan: ExportTaskPlan,
+      batch: ExportTaskRunBatch,
+      runId: string,
+    ): Promise<ExportTaskRunFailure[]> => {
+      const failures: ExportTaskRunFailure[] = []
+      for (const [index, groupCode] of batch.groupCodes.entries()) {
+        const groupName = batch.groupNames[index] || groupCode
+        if (cancelRef.current.has(runId)) {
+          failures.push({ groupCode, groupName, reason: "任务已取消" })
+          continue
+        }
+        const reason = await exportGroup(plan, { groupCode, groupName }, runId)
+        if (reason) failures.push({ groupCode, groupName, reason })
+      }
+      return failures
+    },
+    [exportGroup],
   )
 
   const runPlan = useCallback(
@@ -276,7 +405,7 @@ export function useExportTaskPlans(liveGroups: Group[] = []) {
           batches: r.batches.map((b) => (b.index === batch.index ? { ...b, status: "running" } : b)),
         }))
 
-        const batchFailures = await executeBatch(plan, batch)
+        const batchFailures = await executeBatch(plan, batch, run.id)
 
         const batchFailed = batchFailures.length
         const batchSuccess = batch.groupCodes.length - batchFailed
@@ -398,25 +527,6 @@ export function useExportTaskPlans(liveGroups: Group[] = []) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, runs.length])
 
-  // ---------------- 示例数据 ----------------
-
-  /** 载入示例任务（空状态下的一键体验数据） */
-  const seedDemoData = useCallback(() => {
-    if (plans.length > 0) return false
-    const demo = buildDemoPayload()
-    persistPlans(demo.plans)
-    persistTags(demo.groupTags)
-    persistRuns(demo.runs)
-    setKnownGroups((prev) => {
-      const map = new Map(prev.map((g) => [g.groupCode, g]))
-      for (const g of demo.groups) if (!map.has(g.groupCode)) map.set(g.groupCode, g)
-      const merged = Array.from(map.values())
-      writeLS(LS_KNOWN_GROUPS, merged)
-      return merged
-    })
-    return true
-  }, [plans.length, persistPlans, persistTags, persistRuns])
-
   return {
     hydrated,
     plans,
@@ -437,248 +547,5 @@ export function useExportTaskPlans(liveGroups: Group[] = []) {
     setGroupTagList,
     toggleGroupTag,
     deleteTag,
-    seedDemoData,
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 示例数据
-// ---------------------------------------------------------------------------
-
-function buildDemoPayload(): {
-  plans: ExportTaskPlan[]
-  runs: ExportTaskRun[]
-  groupTags: GroupTagMap
-  groups: Group[]
-} {
-  const now = Date.now()
-  const day = 86_400_000
-  const iso = (t: number) => new Date(t).toISOString()
-
-  const school = [
-    "高三（2）班家长群",
-    "高三年级通知群",
-    "班级家委会",
-    "数学竞赛兴趣小组",
-    "英语角交流群",
-    "校学生会大群",
-    "社团联合会",
-    "图书馆志愿者",
-  ]
-  const games = ["原神锄地大队", "王者开黑群", "Steam 拼车群", "Switch 同好会", "独立游戏品鉴", "电竞赛事讨论"]
-  const interests = ["摄影扫街小分队", "周末骑行俱乐部", "手冲咖啡研究所", "二次元同好会", "读书会·周六场", "城市徒步联盟"]
-
-  const groups: Group[] = []
-  const groupTags: GroupTagMap = {}
-  const push = (name: string, tag: string, i: number, prefix: string) => {
-    const groupCode = `${prefix}${(100000 + i * 137).toString()}`
-    groups.push({
-      groupCode,
-      groupName: name,
-      memberCount: 48 + ((i * 37) % 450),
-      maxMember: 500,
-    })
-    groupTags[groupCode] = [tag]
-  }
-  school.forEach((n, i) => push(n, "学校", i, "81"))
-  games.forEach((n, i) => push(n, "游戏", i, "82"))
-  interests.forEach((n, i) => push(n, "兴趣", i, "83"))
-
-  const tagGroups = (tag: string) => groups.filter((g) => (groupTags[g.groupCode] || []).includes(tag))
-
-  const schoolRefs = tagGroups("学校").map((g) => ({
-    groupCode: g.groupCode,
-    groupName: g.groupName,
-    memberCount: g.memberCount,
-  }))
-
-  // 任务一：标签关联，最近一次部分失败
-  const planA: ExportTaskPlan = {
-    id: "plan_demo_school",
-    name: "学校交流群备份",
-    description: "每周备份班级群与社团群文字消息，用于期末整理归档",
-    sourceMode: "tags",
-    fixedGroups: [],
-    tags: ["学校"],
-    format: "JSON",
-    options: {
-      includeResourceLinks: false,
-      includeSystemMessages: true,
-      filterPureImageMessages: true,
-      preferGroupMemberName: true,
-    },
-    outputDir: "backups/school",
-    incremental: true,
-    timeRangeType: "all",
-    batchSize: 5,
-    createdAt: iso(now - 32 * day),
-    updatedAt: iso(now - 1 * day),
-    progress: Object.fromEntries(schoolRefs.map((r) => [r.groupCode, Math.floor((now - day) / 1000)])),
-  }
-
-  // 任务一的最近一次运行：8 群，6 成功 2 失败
-  const failedA = schoolRefs.slice(5, 7)
-  const runA: ExportTaskRun = {
-    id: "run_demo_school_1",
-    planId: planA.id,
-    planName: planA.name,
-    trigger: "manual",
-    status: "partial",
-    startedAt: iso(now - day - 3_600_000),
-    finishedAt: iso(now - day - 3_540_000),
-    durationMs: 60_000,
-    total: schoolRefs.length,
-    success: schoolRefs.length - failedA.length,
-    failed: failedA.length,
-    batches: [
-      {
-        index: 0,
-        groupCodes: schoolRefs.slice(0, 5).map((r) => r.groupCode),
-        groupNames: schoolRefs.slice(0, 5).map((r) => r.groupName),
-        status: "success",
-      },
-      {
-        index: 1,
-        groupCodes: schoolRefs.slice(5).map((r) => r.groupCode),
-        groupNames: schoolRefs.slice(5).map((r) => r.groupName),
-        status: "partial",
-        failedGroupCodes: failedA.map((r) => r.groupCode),
-        error: "批次内部分群导出失败",
-      },
-    ],
-    failures: [
-      { groupCode: failedA[0].groupCode, groupName: failedA[0].groupName, reason: "消息拉取超时（单群消息量过大）" },
-      { groupCode: failedA[1].groupCode, groupName: failedA[1].groupName, reason: "账号被临时风控，群消息接口受限" },
-    ],
-  }
-  planA.lastRun = {
-    runId: runA.id,
-    at: runA.finishedAt!,
-    status: "partial",
-    total: runA.total,
-    success: runA.success,
-    failed: runA.failed,
-  }
-
-  // 任务一更早的一次成功运行
-  const runA0: ExportTaskRun = {
-    id: "run_demo_school_0",
-    planId: planA.id,
-    planName: planA.name,
-    trigger: "manual",
-    status: "success",
-    startedAt: iso(now - 8 * day),
-    finishedAt: iso(now - 8 * day + 54_000),
-    durationMs: 54_000,
-    total: schoolRefs.length,
-    success: schoolRefs.length,
-    failed: 0,
-    batches: [
-      {
-        index: 0,
-        groupCodes: schoolRefs.slice(0, 5).map((r) => r.groupCode),
-        groupNames: schoolRefs.slice(0, 5).map((r) => r.groupName),
-        status: "success",
-      },
-      {
-        index: 1,
-        groupCodes: schoolRefs.slice(5).map((r) => r.groupCode),
-        groupNames: schoolRefs.slice(5).map((r) => r.groupName),
-        status: "success",
-      },
-    ],
-    failures: [],
-  }
-
-  // 任务二：混合来源，从未运行
-  const fixedB = tagGroups("游戏").slice(0, 3).map((g) => ({
-    groupCode: g.groupCode,
-    groupName: g.groupName,
-    memberCount: g.memberCount,
-  }))
-  const planB: ExportTaskPlan = {
-    id: "plan_demo_games",
-    name: "游戏群精华存档",
-    description: "固定三个开黑群 + 所有 #兴趣 标签群",
-    sourceMode: "mixed",
-    fixedGroups: fixedB,
-    tags: ["兴趣"],
-    format: "HTML",
-    options: {
-      includeResourceLinks: true,
-      includeSystemMessages: false,
-      filterPureImageMessages: false,
-      preferGroupMemberName: true,
-    },
-    outputDir: "",
-    incremental: false,
-    timeRangeType: "last-30-days",
-    batchSize: 5,
-    createdAt: iso(now - 6 * day),
-    updatedAt: iso(now - 6 * day),
-  }
-
-  // 任务三：固定群，上次全部成功
-  const fixedC = tagGroups("游戏").map((g) => ({
-    groupCode: g.groupCode,
-    groupName: g.groupName,
-    memberCount: g.memberCount,
-  }))
-  const planC: ExportTaskPlan = {
-    id: "plan_demo_txt",
-    name: "游戏群文字记录（TXT）",
-    sourceMode: "fixed",
-    fixedGroups: fixedC,
-    tags: [],
-    format: "TXT",
-    options: {
-      includeResourceLinks: false,
-      includeSystemMessages: false,
-      filterPureImageMessages: true,
-      preferGroupMemberName: false,
-    },
-    incremental: true,
-    timeRangeType: "all",
-    batchSize: 10,
-    createdAt: iso(now - 20 * day),
-    updatedAt: iso(now - 2 * day),
-    progress: Object.fromEntries(fixedC.map((r) => [r.groupCode, Math.floor((now - 2 * day) / 1000)])),
-  }
-  const runC: ExportTaskRun = {
-    id: "run_demo_txt_1",
-    planId: planC.id,
-    planName: planC.name,
-    trigger: "manual",
-    status: "success",
-    startedAt: iso(now - 2 * day - 40_000),
-    finishedAt: iso(now - 2 * day),
-    durationMs: 40_000,
-    total: fixedC.length,
-    success: fixedC.length,
-    failed: 0,
-    batches: [
-      {
-        index: 0,
-        groupCodes: fixedC.map((r) => r.groupCode),
-        groupNames: fixedC.map((r) => r.groupName),
-        status: "success",
-      },
-    ],
-    failures: [],
-  }
-  planC.lastRun = {
-    runId: runC.id,
-    at: runC.finishedAt!,
-    status: "success",
-    total: runC.total,
-    success: runC.success,
-    failed: 0,
-  }
-
-  return {
-    plans: [planA, planB, planC],
-    runs: [runA, runA0, runC],
-    groupTags,
-    groups,
   }
 }

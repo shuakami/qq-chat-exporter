@@ -1273,7 +1273,9 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
 
   useEffect(() => {
     if (isStandalone) return
-    if (activeTab === "sessions" && groups.length === 0 && friends.length === 0) {
+    // Issue #641：「导出任务」页的群聊集合也需要真实群列表，否则新建任务时群组
+    // 选择器一直是空的，用户既搜不到也选不了自己的群。
+    if ((activeTab === "sessions" || activeTab === "plans") && groups.length === 0 && friends.length === 0) {
       loadChatData()
     }
   }, [activeTab, groups.length, friends.length, loadChatData, isStandalone])

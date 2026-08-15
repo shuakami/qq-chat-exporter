@@ -140,6 +140,31 @@ impl PathManager {
         self.default_export_root_dir().join("scheduled-exports")
     }
 
+    /// 导出目录允许的根集合。
+    ///
+    /// Issue #644：任务级自定义导出目录可以位于默认导出根之外（例如另一个盘），
+    /// 校验策略与设置页的自定义导出目录一致：必须是绝对路径，且不能落在系统关键
+    /// 目录里。不满足时只返回默认导出根，请求会被上层按越界路径拒绝。
+    pub fn export_output_roots(&self, requested: Option<&str>) -> Vec<PathBuf> {
+        let mut roots = vec![self.exports_dir(), self.scheduled_exports_dir()];
+        if let Some(raw) = requested {
+            let sanitized = Self::sanitize_path(raw);
+            let path = Path::new(&sanitized);
+            let has_parent_component = path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+                || sanitized.split(['/', '\\']).any(|segment| segment == "..");
+            if !sanitized.is_empty() && path.is_absolute() && !has_parent_component {
+                if let Ok(dir) = Self::validate_path(&sanitized) {
+                    if !roots.contains(&dir) {
+                        roots.push(dir);
+                    }
+                }
+            }
+        }
+        roots
+    }
+
     /// 资源目录。
     pub fn resources_dir(&self) -> PathBuf {
         self.default_base_dir().join("resources")
@@ -299,6 +324,27 @@ mod tests {
             .set_custom_output_dir(Some("C:\\Windows\\System32\\x"))
             .is_err());
         assert!(pm.set_custom_output_dir(Some("/home/user/exports")).is_ok());
+    }
+
+    #[test]
+    fn custom_export_roots_extend_allowed_roots_for_absolute_safe_paths() {
+        let pm = PathManager::new();
+        let defaults = pm.export_output_roots(None);
+        assert_eq!(defaults.len(), 2);
+
+        let custom = if cfg!(windows) {
+            "D:\\stampBOT\\data"
+        } else {
+            "/data/stampbot"
+        };
+        let roots = pm.export_output_roots(Some(custom));
+        assert_eq!(roots.len(), 3);
+        assert_eq!(roots[2], PathBuf::from(custom));
+
+        // 相对路径与系统关键目录不会成为允许的根。
+        assert_eq!(pm.export_output_roots(Some("relative/dir")).len(), 2);
+        assert_eq!(pm.export_output_roots(Some("/etc/cron.d")).len(), 2);
+        assert_eq!(pm.export_output_roots(Some("   ")).len(), 2);
     }
 
     #[test]

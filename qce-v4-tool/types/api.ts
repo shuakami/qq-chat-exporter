@@ -439,6 +439,8 @@ export interface CreateScheduledExportForm {
   debugExport?: boolean
   /** Issue #341: 仅保留元数据、跳过下载的资源类型 */
   skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
+  /** Issue #646: 定时 HTML 导出把图片等资源 base64 内联，生成自包含单文件。 */
+  embedResourcesAsDataUri?: boolean
 }
 
 export interface ScheduledExportsResponse {

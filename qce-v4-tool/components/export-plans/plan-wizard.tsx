@@ -557,7 +557,7 @@ function FixedGroupPicker({
             <Users className="w-8 h-8 mx-auto text-muted-foreground/30 mb-2" />
             <p className="text-sm">{store.knownGroups.length === 0 ? "暂无群组数据" : `没有找到匹配 "${keyword}" 的群组`}</p>
             {store.knownGroups.length === 0 && (
-              <p className="text-xs text-muted-foreground/60 mt-1">请先在「会话」页加载群列表</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">群列表正在加载，稍等一下或到「会话」页刷新</p>
             )}
           </div>
         ) : (

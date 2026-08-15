@@ -30,6 +30,8 @@ export interface ScheduledExportConfig {
         preferGroupMemberName?: boolean;
         debugExport?: boolean;
         skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>;
+        /** Issue #646: 定时 HTML 导出把资源 base64 内联，生成自包含单文件。 */
+        embedResourcesAsDataUri?: boolean;
     };
     outputDir?: string;
     enabled: boolean;
@@ -61,6 +63,7 @@ export function scheduledExportFormToConfig(formData: CreateScheduledExportForm)
             prettyFormat: true,
             preferGroupMemberName: formData.preferGroupMemberName ?? true,
             debugExport: formData.debugExport ?? false,
+            embedResourcesAsDataUri: formData.embedResourcesAsDataUri ?? false,
             ...(Array.isArray(formData.skipDownloadResourceTypes) && formData.skipDownloadResourceTypes.length > 0 && {
                 skipDownloadResourceTypes: formData.skipDownloadResourceTypes,
             }),
@@ -91,6 +94,7 @@ export function scheduledExportConfigToForm(task: ScheduledExportConfig): Create
         preferGroupMemberName: task.options.preferGroupMemberName ?? true,
         debugExport: task.options.debugExport ?? false,
         skipDownloadResourceTypes: task.options.skipDownloadResourceTypes,
+        embedResourcesAsDataUri: task.options.embedResourcesAsDataUri ?? false,
     };
 }
 
