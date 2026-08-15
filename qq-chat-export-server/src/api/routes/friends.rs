@@ -317,6 +317,29 @@ fn map_friend(friend: &Value, category_id: &Value) -> Value {
     })
 }
 
+/// 把 NapCat 的分组好友结构展开成扁平列表。
+///
+/// Issue #649：同一个好友可以同时出现在多个分组里，按 uid 去重，避免会话列表出现
+/// 重复条目。
+fn flatten_friend_categories(categories: &[Value]) -> Vec<Value> {
+    let mut seen_uids: HashSet<String> = HashSet::new();
+    let mut friends: Vec<Value> = Vec::new();
+    for cat in categories {
+        let category_id = cat.get("categoryId").cloned().unwrap_or(Value::Null);
+        if let Some(list) = cat.get("buddyList").and_then(Value::as_array) {
+            for friend in list {
+                let mapped = map_friend(friend, &category_id);
+                let uid = str_of(&mapped, "uid");
+                if !uid.is_empty() && !seen_uids.insert(uid) {
+                    continue;
+                }
+                friends.push(mapped);
+            }
+        }
+    }
+    friends
+}
+
 /// `GET /api/friends` — 好友列表（分页）。
 pub async fn list_friends(
     State(state): State<SharedState>,
@@ -336,15 +359,7 @@ pub async fn list_friends(
 
     let empty: Vec<Value> = Vec::new();
     let cats = categories.as_array().unwrap_or(&empty);
-    let mut friends: Vec<Value> = Vec::new();
-    for cat in cats {
-        let category_id = cat.get("categoryId").cloned().unwrap_or(Value::Null);
-        if let Some(list) = cat.get("buddyList").and_then(Value::as_array) {
-            for friend in list {
-                friends.push(map_friend(friend, &category_id));
-            }
-        }
-    }
+    let friends = flatten_friend_categories(cats);
 
     let total = friends.len();
     let start_index = (page - 1).saturating_mul(limit);
@@ -532,6 +547,34 @@ mod tests {
             recent_contact_limit(&HashMap::from([("limit".to_string(), "9000".to_string())])),
             2_000
         );
+    }
+
+    #[test]
+    fn flattened_friends_are_deduplicated_across_categories() {
+        let categories = vec![
+            json!({
+                "categoryId": 0,
+                "buddyList": [
+                    {"coreInfo": {"uid": "u_a", "uin": "1001", "nick": "A"}},
+                    {"coreInfo": {"uid": "u_b", "uin": "1002", "nick": "B"}},
+                ],
+            }),
+            json!({
+                "categoryId": 1,
+                "buddyList": [
+                    {"coreInfo": {"uid": "u_a", "uin": "1001", "nick": "A"}},
+                    {"coreInfo": {"uid": "u_c", "uin": "1003", "nick": "C"}},
+                ],
+            }),
+        ];
+
+        let friends = flatten_friend_categories(&categories);
+
+        assert_eq!(friends.len(), 3);
+        assert_eq!(friends[0]["uid"], "u_a");
+        assert_eq!(friends[0]["categoryId"], 0);
+        assert_eq!(friends[1]["uid"], "u_b");
+        assert_eq!(friends[2]["uid"], "u_c");
     }
 
     #[test]
