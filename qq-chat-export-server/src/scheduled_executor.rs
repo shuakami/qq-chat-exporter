@@ -87,18 +87,12 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             .unwrap_or("HTML")
             .to_uppercase();
         let options = task.get("options").cloned().unwrap_or(Value::Null);
-        let requested_output_dir = task
-            .get("outputDir")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map_or_else(|| self.path_manager.scheduled_exports_dir(), PathBuf::from);
-        let output_roots = [
-            self.path_manager.exports_dir(),
-            self.path_manager.scheduled_exports_dir(),
-        ];
-        let output_dir = resolve_for_creation_within(&requested_output_dir, &output_roots)
-            .ok_or_else(|| "定时导出目录不在允许的导出目录内".to_string())?;
+        // Issue #644：任务自带的输出目录可以指向默认导出根之外的位置（例如另一个盘），
+        // 由 `PathManager` 统一做安全校验后加入允许的根集合。
+        let output_dir = resolve_scheduled_output_dir(
+            &self.path_manager,
+            task.get("outputDir").and_then(Value::as_str),
+        )?;
         let debug_session = if options.get("debugExport").and_then(Value::as_bool) == Some(true) {
             let export_name = format!(
                 "scheduled-{}-{}",
@@ -580,9 +574,79 @@ fn to_value_resource_map(
         .collect()
 }
 
+/// 解析定时导出的输出目录。
+///
+/// Issue #644：任务自带的输出目录可以指向默认导出根之外的位置（例如另一个盘），
+/// 由 `PathManager` 统一做安全校验后加入允许的根集合；非法路径按越界拒绝。
+fn resolve_scheduled_output_dir(
+    path_manager: &PathManager,
+    raw_output_dir: Option<&str>,
+) -> Result<PathBuf, String> {
+    let configured = raw_output_dir
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(PathManager::sanitize_path)
+        .filter(|s| !s.is_empty());
+    let requested = configured
+        .as_deref()
+        .map_or_else(|| path_manager.scheduled_exports_dir(), PathBuf::from);
+    let roots = path_manager.export_output_roots(configured.as_deref());
+    resolve_for_creation_within(&requested, &roots)
+        .ok_or_else(|| "定时导出目录不在允许的导出目录内".to_string())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{reserve_scheduled_file_name, sanitize_task_name, scheduled_export_file_name};
+    use super::{
+        reserve_scheduled_file_name, resolve_for_creation_within, resolve_scheduled_output_dir,
+        sanitize_task_name, scheduled_export_file_name, PathBuf, PathManager,
+    };
+
+    #[test]
+    fn scheduled_output_dir_accepts_configured_dirs_outside_default_roots() {
+        let path_manager = PathManager::new();
+
+        // 默认导出根在 Windows 上会被 canonicalize 成 \\?\ 前缀形式，期望值同步规范化。
+        let default_dir = resolve_for_creation_within(
+            &path_manager.scheduled_exports_dir(),
+            &path_manager.export_output_roots(None),
+        )
+        .unwrap();
+        assert_eq!(
+            resolve_scheduled_output_dir(&path_manager, None).unwrap(),
+            default_dir
+        );
+        assert_eq!(
+            resolve_scheduled_output_dir(&path_manager, Some("   ")).unwrap(),
+            default_dir
+        );
+
+        let custom = if cfg!(windows) {
+            "D:\\stampBOT\\data"
+        } else {
+            "/data/stampbot"
+        };
+        // 自定义目录若已存在会被 canonicalize，统一按规范化结果比较。
+        let custom_expected = resolve_for_creation_within(
+            &PathBuf::from(custom),
+            &path_manager.export_output_roots(Some(custom)),
+        )
+        .unwrap();
+        assert_eq!(
+            resolve_scheduled_output_dir(&path_manager, Some(custom)).unwrap(),
+            custom_expected
+        );
+        // 引号包裹的粘贴路径同样可用。
+        assert_eq!(
+            resolve_scheduled_output_dir(&path_manager, Some(&format!("\"{custom}\""))).unwrap(),
+            custom_expected
+        );
+
+        // 相对路径、系统关键目录与父目录穿越都不会成为允许的根。
+        for rejected in ["relative/dir", "/etc/cron.d", "/data/../etc"] {
+            assert!(resolve_scheduled_output_dir(&path_manager, Some(rejected)).is_err());
+        }
+    }
 
     #[test]
     fn scheduled_names_are_readable_safe_and_reserved_concurrently() {

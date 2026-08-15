@@ -178,8 +178,17 @@ pub async fn list_groups(
     let empty: Vec<Value> = Vec::new();
     let list = groups.as_array().unwrap_or(&empty);
 
+    // Issue #649：NapCat 缓存与实时列表合并后可能出现同一个群，按群号去重。
+    let mut seen_codes: HashSet<String> = HashSet::new();
     let groups_with_avatars: Vec<Value> = list
         .iter()
+        .filter(|group| {
+            let code = group
+                .get("groupCode")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            code.is_empty() || seen_codes.insert(code.to_string())
+        })
         .map(|group| {
             let code = group
                 .get("groupCode")

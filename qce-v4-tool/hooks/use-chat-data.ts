@@ -2,6 +2,7 @@ import { useState, useCallback } from "react"
 import type { Group, Friend, GroupsResponse, FriendsResponse, RecentContactsResponse } from "@/types/api"
 import { useApi } from "./use-api"
 import { buildSpecialFriends } from "@/lib/special-contacts"
+import { dedupeFriends, dedupeGroups } from "@/lib/session-dedupe"
 
 export interface AvatarExportResult {
   success: boolean
@@ -55,7 +56,7 @@ export function useChatData() {
 
           if (hasMore) {
             currentPage++
-            setGroups([...allGroups])
+            setGroups(dedupeGroups(allGroups))
           } else {
             break
           }
@@ -64,7 +65,8 @@ export function useChatData() {
         }
       }
 
-      setGroups(allGroups)
+      // Issue #649：分页结果可能重复包含同一个群，去重后再进入 UI。
+      setGroups(dedupeGroups(allGroups))
       setLoadProgress(null)
       console.log(`[QCE] 已加载 ${allGroups.length} 个群组`)
 
@@ -102,7 +104,7 @@ export function useChatData() {
 
           if (hasMore) {
             currentPage++
-            setFriends([...allFriends])
+            setFriends(dedupeFriends(allFriends))
           } else {
             break
           }
@@ -128,7 +130,11 @@ export function useChatData() {
           }
           setRecentActivityMap(activityMap)
 
-          const existingUids = new Set(allFriends.map((f) => f.uid))
+          // Issue #649：同时用 uid 和 uin 判断是否已存在，避免同一会话被特殊会话
+          // 合并逻辑再插一遍。
+          const existingUids = new Set(
+            allFriends.flatMap((f) => [f.uid, f.uin ? String(f.uin) : ""]).filter(Boolean),
+          )
           const specialFriends = buildSpecialFriends(recentResp.data.contacts, existingUids)
 
           if (specialFriends.length > 0) {
@@ -140,7 +146,7 @@ export function useChatData() {
         console.warn("[QCE] 加载最近联系人失败，跳过特殊会话合并:", recentErr)
       }
 
-      setFriends(allFriends)
+      setFriends(dedupeFriends(allFriends))
       setLoadProgress(null)
       console.log(`[QCE] 已加载 ${allFriends.length} 个好友`)
 

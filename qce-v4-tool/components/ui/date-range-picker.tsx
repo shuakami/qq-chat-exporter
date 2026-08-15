@@ -45,12 +45,36 @@ function formatDisplay(date?: Date): string {
   return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`
 }
 
+/** 归一到月首日，作为日历可见月份。 */
+function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
 export function DateRangePicker({ startTime, endTime, onChange, className }: DateRangePickerProps) {
   const [isOpen, setIsOpen] = React.useState(false)
 
   const from = parseDate(startTime)
   const to = parseDate(endTime)
   const range: DateRange | undefined = from ? { from, to } : undefined
+
+  // Issue #643：日历可见月份受控，否则 `defaultMonth` 只在首次渲染生效，已选
+  // 日期变化后面板仍停在旧月份，用户只能一个月一个月点过去。
+  const [visibleMonth, setVisibleMonth] = React.useState<Date>(() =>
+    startOfMonth(from ?? new Date()),
+  )
+  const fromMonthKey = from ? `${from.getFullYear()}-${from.getMonth()}` : ""
+  React.useEffect(() => {
+    if (!fromMonthKey) return
+    const [year, month] = fromMonthKey.split("-").map(Number)
+    setVisibleMonth((prev) =>
+      prev.getFullYear() === year && prev.getMonth() === month ? prev : new Date(year, month, 1),
+    )
+  }, [fromMonthKey])
+
+  // 年份下拉范围：QQ 聊天记录最早到 2005 年，上限给到今年年底。
+  const currentYear = new Date().getFullYear()
+  const startMonth = React.useMemo(() => new Date(2005, 0, 1), [])
+  const endMonth = React.useMemo(() => new Date(currentYear, 11, 31), [currentYear])
 
   const startClock = parseClock(startTime, "00:00")
   const endClock = parseClock(endTime, "23:59")
@@ -113,7 +137,12 @@ export function DateRangePicker({ startTime, endTime, onChange, className }: Dat
           <div className="p-3 shrink-0 flex justify-center w-full sm:w-[280px]">
             <Calendar
               mode="range"
-              defaultMonth={from}
+              // Issue #643：下拉式年/月选择，不再需要逐月翻页。
+              captionLayout="dropdown"
+              month={visibleMonth}
+              onMonthChange={setVisibleMonth}
+              startMonth={startMonth}
+              endMonth={endMonth}
               selected={range}
               onSelect={handleSelect}
               numberOfMonths={1}
@@ -160,6 +189,7 @@ export function DateRangePicker({ startTime, endTime, onChange, className }: Dat
                 className="w-full justify-center h-8 text-[13px] font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
                 onClick={() => {
                   const today = new Date()
+                  setVisibleMonth(startOfMonth(today))
                   emit({ from: today, to: today }, startClock, endClock)
                 }}
               >

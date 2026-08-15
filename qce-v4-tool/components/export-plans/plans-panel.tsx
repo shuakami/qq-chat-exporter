@@ -172,16 +172,6 @@ export const ExportTaskPlansPanel = forwardRef<
             >
               新建导出任务
             </button>
-            <button
-              onClick={() => {
-                if (store.seedDemoData()) {
-                  toast({ title: "已载入示例数据", description: "包含标签、任务与运行记录，可直接体验" })
-                }
-              }}
-              className="h-8 px-3.5 rounded-full text-[12px] text-muted-foreground hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
-            >
-              载入示例数据
-            </button>
           </div>
         </div>
       ) : filteredPlans.length === 0 ? (

@@ -65,7 +65,14 @@ export function buildSpecialFriends(
   existingUids: Set<string>,
 ): Friend[] {
   return contacts
-    .filter((c) => c.classification === "special" && !existingUids.has(c.peerUid))
+    .filter(
+      (c) =>
+        c.classification === "special" &&
+        // Issue #649：群会话属于群列表，不能被当成好友再插一遍。
+        c.chatType !== 2 &&
+        !existingUids.has(c.peerUid) &&
+        !(c.peerUin && existingUids.has(String(c.peerUin))),
+    )
     .map((c) => {
       const specialKind = classifySpecialChatType(c.chatType)
       const isDevice = specialKind === "device"
