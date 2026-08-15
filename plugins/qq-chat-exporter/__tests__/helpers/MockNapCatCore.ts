@@ -63,6 +63,7 @@ interface Logger {
 interface MsgApi {
     getMsgHistory(peer: MockPeer, msgId: string, count: number, reverse: boolean): Promise<{ msgList: RawMessage[] }>;
     getAioFirstViewLatestMsgs(peer: MockPeer, count: number): Promise<{ msgList: RawMessage[] }>;
+    getMsgsBySeqAndCount(peer: MockPeer, anchorSeq: string, count: number): Promise<{ msgList: RawMessage[] }>;
     getMultiMsg(params: { peer?: MockPeer; rootMsgId?: string; parentMsgId?: string; forwardId?: string; resId?: string }): Promise<{ msgList: RawMessage[] } | undefined>;
 }
 
@@ -105,6 +106,7 @@ interface SessionFacade {
     getMsgService(): {
         getAioFirstViewLatestMsgs(peer: MockPeer, count: number): Promise<{ msgList: RawMessage[] }>;
         getMsgsBySeqRange(peer: MockPeer, endSeq: string, startSeq: string): Promise<{ msgList: RawMessage[] }>;
+        getMsgsBySeqAndCount(peer: MockPeer, anchorSeq: string, count: number): Promise<{ msgList: RawMessage[] }>;
     };
     getRichMediaService(): Record<string, never>;
 }
@@ -175,6 +177,17 @@ export function createMockCore(config: MockConfig = {}): MockNapCatCore {
             if (!conv) return { msgList: [] };
             const sorted = [...conv.messages].sort(sortByTimeDesc);
             return { msgList: sorted.slice(0, count) };
+        },
+
+        async getMsgsBySeqAndCount(peer, anchorSeq, count) {
+            track('MsgApi.getMsgsBySeqAndCount', [peer, anchorSeq, count]);
+            const conv = findConversation(peer);
+            if (!conv) return { msgList: [] };
+            const anchor = parseInt(String(anchorSeq), 10);
+            if (!Number.isFinite(anchor) || anchor <= 0) return { msgList: [] };
+            const sorted = [...conv.messages].sort(sortByTimeDesc);
+            const list = sorted.filter((m) => parseInt(m.msgSeq ?? '0', 10) <= anchor);
+            return { msgList: list.slice(0, count) };
         },
 
         async getMultiMsg(params) {
@@ -307,7 +320,9 @@ export function createMockCore(config: MockConfig = {}): MockNapCatCore {
                             return s >= lo && s <= hi;
                         }).sort(sortByTimeDesc)
                     };
-                }
+                },
+                getMsgsBySeqAndCount: (peer, anchorSeq, count) =>
+                    MsgApi.getMsgsBySeqAndCount(peer, anchorSeq, count)
             };
         },
         getRichMediaService() {
