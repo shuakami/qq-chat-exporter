@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -78,6 +78,7 @@ export interface BatchExportProgress {
 
 
 export function BatchExportDialog({ open, onOpenChange, items, onExport }: BatchExportDialogProps) {
+  const didInitRef = useRef(false)
   const [format, setFormat] = useState<'HTML' | 'TXT' | 'JSON' | 'EXCEL'>('HTML')
   const [timeRange, setTimeRange] = useState<'all' | 'recent' | 'custom'>('all')
   const [customStartDate, setCustomStartDate] = useState('')
@@ -114,6 +115,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
 
   // 对话框打开时重置所有状态
   useEffect(() => {
+    if (didInitRef.current) return
     if (open) {
       setFormat('HTML')
       setTimeRange('all')
@@ -141,8 +143,15 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
         status: 'idle',
         results: items.map(item => ({ name: item.name, status: 'pending' }))
       })
+      didInitRef.current = true
     }
   }, [open, items])
+
+  useEffect(() => {
+    if (!open) {
+      didInitRef.current = false
+    }
+  }, [open])
 
   // 格式改变时自动调整filterPureImageMessages默认值，并重置格式专有选项
   useEffect(() => {
