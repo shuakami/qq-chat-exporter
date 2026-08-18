@@ -27,8 +27,8 @@ use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::routes::groups::standalone_guard;
 use crate::api::state::{MessageCacheEntry, RunMode, SharedState, CACHE_EXPIRE_TIME_MS};
 
-const MAX_ACTIVE_EXPORT_TASKS: usize = 32;
 const MAX_MESSAGE_CACHE_ENTRIES: usize = 64;
+const MAX_QUEUED_TASKS: usize = 1000;
 const MAX_CACHED_MESSAGES_PER_ENTRY: usize = 20_000;
 use crate::clean_message_spool::{CleanMessageSpool, SpooledCleanMessageSource};
 use crate::export_debug::ExportDebugSession;
@@ -844,11 +844,11 @@ async fn register_task(state: &SharedState, task: &Value) -> bool {
             .filter(|value| {
                 matches!(
                     value.get("status").and_then(Value::as_str),
-                    Some("pending" | "running")
+                    Some("queued" | "pending" | "running")
                 )
             })
             .count();
-        if active_count >= MAX_ACTIVE_EXPORT_TASKS {
+        if active_count >= MAX_QUEUED_TASKS {
             return false;
         }
         tasks.insert(task_id, task.clone());
@@ -912,7 +912,8 @@ pub async fn export_messages(
         "fileName": file_name,
         "downloadUrl": download_url,
         "messageCount": 0,
-        "status": "running",
+        "status": "queued",             // 初始状态设为 queued
+        "message": "正在排队中...",      // 初始消息设为 正在排队中...
         "progress": 0,
         "createdAt": now_iso(),
         "format": format,
@@ -922,7 +923,7 @@ pub async fn export_messages(
     if !register_task(&state, &task).await {
         let err = ApiError::new(
             ErrorType::Api,
-            "运行中的导出任务已达到上限",
+            "排队中的导出任务已达到上限",
             "EXPORT_TASK_LIMIT_REACHED",
         )
         .with_status(axum::http::StatusCode::TOO_MANY_REQUESTS);
@@ -936,7 +937,7 @@ pub async fn export_messages(
         "downloadUrl": download_url,
         "filePath": file_path.to_string_lossy(),
         "messageCount": 0,
-        "status": "running",
+        "status": "queued",
         "startTime": req.filter.get("startTime").cloned().unwrap_or(Value::Null),
         "endTime": req.filter.get("endTime").cloned().unwrap_or(Value::Null),
     });
@@ -1008,7 +1009,8 @@ pub async fn export_streaming_zip(
         "fileName": file_name,
         "downloadUrl": download_url,
         "messageCount": 0,
-        "status": "running",
+        "status": "queued",             // 初始状态设为 queued
+        "message": "正在排队中...",      // 初始消息设为 正在排队中...
         "progress": 0,
         "createdAt": now_iso(),
         "format": "STREAMING_ZIP",
@@ -1018,7 +1020,7 @@ pub async fn export_streaming_zip(
     if !register_task(&state, &task).await {
         let err = ApiError::new(
             ErrorType::Api,
-            "运行中的导出任务已达到上限",
+            "排队中的导出任务已达到上限",
             "EXPORT_TASK_LIMIT_REACHED",
         )
         .with_status(axum::http::StatusCode::TOO_MANY_REQUESTS);
@@ -1032,7 +1034,7 @@ pub async fn export_streaming_zip(
         "downloadUrl": download_url,
         "filePath": file_path.to_string_lossy(),
         "messageCount": 0,
-        "status": "running",
+        "status": "queued",
         "startTime": req.filter.get("startTime").cloned().unwrap_or(Value::Null),
         "endTime": req.filter.get("endTime").cloned().unwrap_or(Value::Null),
         "streamingMode": true,
@@ -1100,7 +1102,8 @@ pub async fn export_streaming_jsonl(
         "fileName": dir_name,
         "downloadUrl": download_url,
         "messageCount": 0,
-        "status": "running",
+        "status": "queued",             // 初始状态设为 queued
+        "message": "正在排队中...",      // 初始消息设为 正在排队中...
         "progress": 0,
         "createdAt": now_iso(),
         "format": "STREAMING_JSONL",
@@ -1110,7 +1113,7 @@ pub async fn export_streaming_jsonl(
     if !register_task(&state, &task).await {
         let err = ApiError::new(
             ErrorType::Api,
-            "运行中的导出任务已达到上限",
+            "排队中的导出任务已达到上限",
             "EXPORT_TASK_LIMIT_REACHED",
         )
         .with_status(axum::http::StatusCode::TOO_MANY_REQUESTS);
@@ -1124,7 +1127,7 @@ pub async fn export_streaming_jsonl(
         "downloadUrl": download_url,
         "filePath": dir_path.to_string_lossy(),
         "messageCount": 0,
-        "status": "running",
+        "status": "queued",
         "startTime": req.filter.get("startTime").cloned().unwrap_or(Value::Null),
         "endTime": req.filter.get("endTime").cloned().unwrap_or(Value::Null),
         "streamingMode": true,
@@ -1157,7 +1160,7 @@ enum ExportMode {
     StreamingJsonl,
 }
 
-/// 后台导出主流程包装：负责取消 / 失败态与清理。
+/// 后台导出主流程包装：负责获取排队许可 / 取消 / 失败态与清理。
 async fn run_export_task(
     state: SharedState,
     task_id: String,
@@ -1177,28 +1180,49 @@ async fn run_export_task(
         flags.insert(task_id.clone(), Arc::clone(&cancel_flag));
     }
 
-    let result = if cancelled_before_registration {
+    // 收敛所有执行分支的结果：末尾统一释放路径、下发终态、清理跟踪状态。
+    // 排队前 / 排队中 / 执行中的「取消」统一交给末尾的 is_cancelled 判定。
+    let result: Result<(), String> = if cancelled_before_registration {
         Err("任务已被用户停止".to_string())
     } else {
-        process_export_task(
+        // 广播当前任务已进入排队状态
+        update_task(
             &state,
             &task_id,
-            &req,
-            &format,
-            &file_name,
-            mode,
-            &cancel_flag,
+            json!({
+                "status": "queued",
+                "progress": 0,
+                "message": "正在排队中..."
+            }),
         )
-        .await
+        .await;
+        broadcast_progress(&state, &task_id, 0, "正在排队中...", 0);
+
+        // 排队：异步获取并发名额，_permit 生命周期覆盖整个导出过程。
+        // 当前面的任务结束时自动唤醒队列中排在最前方的任务。
+        if let Ok(_permit) = state.export_semaphore.acquire().await {
+            if is_cancelled(&state, &task_id, &cancel_flag).await {
+                Err("任务已被用户停止".to_string())
+            } else {
+                process_export_task(
+                    &state,
+                    &task_id,
+                    &req,
+                    &format,
+                    &file_name,
+                    mode,
+                    &cancel_flag,
+                )
+                .await
+            }
+        } else {
+            Err("导出服务已关闭".to_string())
+        }
     };
-    release_export_path(&req.output_dir.join(&file_name));
+    release_export_path(req.output_dir.join(&file_name));
 
     if let Err(error) = result {
-        let was_cancelled = {
-            let cancelled = state.cancelled_task_ids.lock().await;
-            cancelled.contains(&task_id) || cancel_flag.load(Ordering::SeqCst)
-        };
-        if was_cancelled {
+        if is_cancelled(&state, &task_id, &cancel_flag).await {
             tracing::info!("[ApiServer] 导出任务已被用户停止: {task_id}");
             update_task(
                 &state,

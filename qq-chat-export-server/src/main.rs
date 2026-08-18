@@ -162,6 +162,7 @@ async fn run() -> Result<(), String> {
         path_manager: Arc::clone(&path_manager),
         ws_tx,
         export_tasks: Mutex::new(export_tasks),
+        export_semaphore: Arc::new(tokio::sync::Semaphore::new(qce_server::api::state::MAX_ACTIVE_EXPORT_TASKS)),
         cancelled_task_ids: Mutex::new(std::collections::HashSet::new()),
         running_export_cancel_flags: Mutex::new(HashMap::new()),
         resource_file_cache: Mutex::new(HashMap::new()),

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use serde_json::Value;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, Mutex, Semaphore};
 
 use crate::api::response::{ApiError, ErrorType};
 use crate::napcat::NapCatBridgeClient;
@@ -32,6 +32,8 @@ pub const CACHE_EXPIRE_TIME_MS: i64 = 10 * 60 * 1000;
 
 /// WebSocket 广播消息。
 pub type WsMessage = String;
+
+pub const MAX_ACTIVE_EXPORT_TASKS: usize = 32;
 
 /// 服务器运行模式：`plugin`（NapCat 内启动，bridge 可用）或
 /// `standalone`（start-standalone 脚本直接拉起，没有 bridge，issue #668）。
@@ -95,6 +97,8 @@ pub struct AppState {
     pub ws_tx: broadcast::Sender<WsMessage>,
     /// 导出任务表（taskId → 任务 JSON）。
     pub export_tasks: Mutex<HashMap<String, Value>>,
+    /// 导出任务信号量（限制同时运行的导出任务数）。
+    pub export_semaphore: Arc<Semaphore>,
     /// issue #446：被用户主动停止的任务 ID。
     pub cancelled_task_ids: Mutex<std::collections::HashSet<String>>,
     /// issue #446：运行中任务的取消信号（taskId → 取消 flag）。
