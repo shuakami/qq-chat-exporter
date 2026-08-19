@@ -2,7 +2,6 @@ import { Fragment, createElement, useCallback, useEffect, useMemo, useRef, useSt
 import type {
   APIResponse,
   CreateTaskForm,
-  CreateTaskRequest,
   CreateTaskResponse,
   ExportTask,
   TasksResponse,
@@ -14,6 +13,7 @@ import {
   type ExportTaskUpdate,
 } from "@/lib/export-task-state"
 import { useApi } from "./use-api"
+import { buildExportRequest } from "@/lib/export-request"
 
 const GITHUB_URL = "https://github.com/shuakami/qq-chat-exporter"
 
@@ -463,61 +463,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       setLoading(true)
       setError(null)
 
-      const useStreamingMode = form.streamingZipMode === true
-      const isJsonFormat = form.format === "JSON"
-
-      const requestBody: CreateTaskRequest = {
-        peer: {
-          chatType: form.chatType,
-          peerUid: form.peerUid,
-          ...(form.peerUin && { peerUin: form.peerUin }),
-          guildId: "",
-        },
-        sessionName: form.sessionName,
-        format: useStreamingMode
-          ? (isJsonFormat ? "STREAMING_JSONL" : "STREAMING_ZIP")
-          : form.format,
-        filter: {
-          ...(form.startTime && { startTime: Math.floor(new Date(form.startTime).getTime() / 1000) }),
-          ...(form.endTime && { endTime: Math.floor(new Date(form.endTime).getTime() / 1000) }),
-          ...(form.keywords && { keywords: form.keywords.split(",").map((keyword) => keyword.trim()) }),
-          ...(form.excludeUserUins && {
-            excludeUserUins: form.excludeUserUins.split(",").map((uin) => uin.trim()).filter(Boolean),
-          }),
-          // Issue #369：仅导出指定 QQ 的消息。
-          ...(form.includeUserUins && {
-            includeUserUins: form.includeUserUins.split(",").map((uin) => uin.trim()).filter(Boolean),
-          }),
-          includeRecalled: form.includeRecalled,
-        },
-        options: {
-          batchSize: useStreamingMode ? 3000 : 5000,
-          includeResourceLinks: true,
-          includeSystemMessages: form.includeSystemMessages,
-          filterPureImageMessages: form.filterPureImageMessages,
-          prettyFormat: true,
-          exportAsZip: form.exportAsZip,
-          embedAvatarsAsBase64: form.embedAvatarsAsBase64,
-          // Issue #311: 自包含 HTML（资源 base64 内联）。
-          embedResourcesAsDataUri: form.embedResourcesAsDataUri,
-          preferGroupMemberName: form.preferGroupMemberName ?? true,
-          debugExport: form.debugExport ?? false,
-          ...(form.outputDir?.trim() && { outputDir: form.outputDir.trim() }),
-          ...(form.useNameInFileName && { useNameInFileName: true }),
-          // Issue #134: 友好文件名格式 `<名称>(<QQ号>).<扩展名>`
-          ...(form.useFriendlyFileName && { useFriendlyFileName: true }),
-          ...(Array.isArray(form.skipDownloadResourceTypes) && form.skipDownloadResourceTypes.length > 0 && {
-            skipDownloadResourceTypes: form.skipDownloadResourceTypes,
-          }),
-        },
-      }
-
-      let apiEndpoint = "/api/messages/export"
-      if (useStreamingMode) {
-        apiEndpoint = isJsonFormat
-          ? "/api/messages/export-streaming-jsonl"
-          : "/api/messages/export-streaming-zip"
-      }
+      const { endpoint: apiEndpoint, body: requestBody } = buildExportRequest(form)
 
       const response = await apiCall(apiEndpoint, {
         method: "POST",
