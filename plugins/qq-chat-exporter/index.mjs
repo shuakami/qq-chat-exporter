@@ -55,13 +55,22 @@ export function createFallbackCore(rawCore) {
 }
 
 /**
+ * Test-only introspection for the last adapter produced by createApiAdapter.
+ * Tracks at most the most recent adapter.
+ */
+export const __apiAdapterDebug = {
+  lastApis: undefined,
+};
+
+/**
  * API adapter that wraps the real NapCat apis and provides fallback implementations
  * for methods that are missing or have different signatures in NapCat 4.18.6.
  * 
  * This adapter receives the REAL NapCat APIs (from the bridge), not the stub Proxy.
  * It provides stub fallbacks for methods that don't exist or return wrong types.
+ * Non-function properties of the real APIs are passed through untouched.
  */
-function createApiAdapter(apis) {
+export function createApiAdapter(apis) {
   // Known methods that QCE expects, organized by API namespace
   const knownMethods = {
     GroupApi: ['getGroups', 'fetchGroupDetail', 'getGroupMemberAll', 'getGroupFileCount'],
@@ -86,7 +95,7 @@ function createApiAdapter(apis) {
     },
   };
 
-  return new Proxy({}, {
+  const adapter = new Proxy({}, {
     get(target, apiName) {
       if (!(apiName in target)) {
         target[apiName] = new Proxy({}, {
@@ -102,6 +111,10 @@ function createApiAdapter(apis) {
               if (typeof realMethod === 'function') {
                 return realMethod.bind(realApi);
               }
+              // Pass through non-function properties (Maps, objects) untouched
+              if (realApi && methodName in realApi) {
+                return realMethod;
+              }
               // Fall back to stub
               return methodStubs?.[methodName] || (async () => []);
             }
@@ -112,6 +125,10 @@ function createApiAdapter(apis) {
             if (typeof realMethod === 'function') {
               return realMethod.bind(realApi);
             }
+            // Pass through non-function properties (Maps, objects) untouched
+            if (realApi && methodName in realApi) {
+              return realMethod;
+            }
             return async () => ({ result: 0, errMsg: '' });
           }
         });
@@ -119,6 +136,9 @@ function createApiAdapter(apis) {
       return target[apiName];
     }
   });
+
+  __apiAdapterDebug.lastApis = adapter;
+  return adapter;
 }
 
 function pickFirstDefined(...values) {
@@ -249,13 +269,22 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
 
     const runtimeCore = createFallbackCore(core);
     const realApis = globalThis.__NAPCAT_BRIDGE__?.core?.apis || runtimeCore.apis;
-    runtimeCore.apis = createApiAdapter(realApis);
+    const adapter = createApiAdapter(realApis);
+    // Keep NapCat's core.apis untouched: the adapter proxy is QCE-only.
+    // createFallbackCore returns the same object when given a real core, so
+    // copy-on-write is needed to avoid polluting NapCat's runtime state.
+    const qceCore = runtimeCore === core
+      ? Object.assign(Object.create(Object.getPrototypeOf(core)), core, { apis: adapter })
+      : runtimeCore;
+    if (qceCore === runtimeCore) {
+      runtimeCore.apis = adapter;
+    }
 
     if (apiLauncher) {
       await apiLauncher.stopApiServer();
       apiLauncher = null;
     }
-    apiLauncher = new QQChatExporterApiLauncher(runtimeCore);
+    apiLauncher = new QQChatExporterApiLauncher(qceCore);
     await apiLauncher.startApiServer();
   } catch (error) {
     console.error('[QCE] Initialization failed:', error);
