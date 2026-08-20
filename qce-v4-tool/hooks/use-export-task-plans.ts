@@ -13,6 +13,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import type { ExportTask, Group } from "@/types/api"
 import { useApi } from "./use-api"
+import { buildExportRequest, exportTaskPlanToForm } from "@/lib/export-request"
 import {
   DEFAULT_BATCH_SIZE,
   ExportTaskPlan,
@@ -22,6 +23,7 @@ import {
   GroupTagMap,
   collectTags,
   genId,
+  normalizeExportTaskPlan,
   resolvePlanGroups,
   splitIntoBatches,
 } from "@/types/export-task-plans"
@@ -36,7 +38,6 @@ const MAX_KNOWN_GROUPS = 500
 const TASK_POLL_INTERVAL_MS = 2_000
 /** 单群导出等待上限（毫秒），超时当作失败并进入失败列表。 */
 const TASK_WAIT_TIMEOUT_MS = 6 * 60 * 60 * 1_000
-const DAY_SECONDS = 86_400
 
 /**
  * Issue #641：旧版本提供过「载入示例数据」，写入的示例任务与虚构群会一直占着
@@ -103,7 +104,9 @@ export function useExportTaskPlans(liveGroups: Group[] = []) {
     const storedGroups = readLS<Group[]>(LS_KNOWN_GROUPS, [])
 
     const demoCodes = demoGroupCodes()
-    const cleanPlans = storedPlans.filter((p) => !DEMO_PLAN_IDS.has(p.id))
+    const cleanPlans = storedPlans
+      .filter((p) => !DEMO_PLAN_IDS.has(p.id))
+      .map(normalizeExportTaskPlan)
     const cleanRuns = storedRuns.filter(
       (r) => !r.id.startsWith(DEMO_RUN_ID_PREFIX) && !DEMO_PLAN_IDS.has(r.planId),
     )
@@ -112,7 +115,7 @@ export function useExportTaskPlans(liveGroups: Group[] = []) {
       Object.entries(storedTags).filter(([code]) => !demoCodes.has(code)),
     )
 
-    if (cleanPlans.length !== storedPlans.length) writeLS(LS_PLANS, cleanPlans)
+    if (JSON.stringify(cleanPlans) !== JSON.stringify(storedPlans)) writeLS(LS_PLANS, cleanPlans)
     if (cleanRuns.length !== storedRuns.length) writeLS(LS_RUNS, cleanRuns)
     if (cleanGroups.length !== storedGroups.length) writeLS(LS_KNOWN_GROUPS, cleanGroups)
     if (Object.keys(cleanTags).length !== Object.keys(storedTags).length) writeLS(LS_TAGS, cleanTags)
@@ -198,7 +201,7 @@ export function useExportTaskPlans(liveGroups: Group[] = []) {
   const createPlan = useCallback(
     (input: Omit<ExportTaskPlan, "id" | "createdAt" | "updatedAt">) => {
       const now = new Date().toISOString()
-      const plan: ExportTaskPlan = { ...input, id: genId("plan"), createdAt: now, updatedAt: now }
+      const plan = normalizeExportTaskPlan({ ...input, id: genId("plan"), createdAt: now, updatedAt: now })
       persistPlans([plan, ...plans])
       return plan
     },
@@ -208,7 +211,11 @@ export function useExportTaskPlans(liveGroups: Group[] = []) {
   const updatePlan = useCallback(
     (id: string, updates: Partial<Omit<ExportTaskPlan, "id" | "createdAt">>) => {
       persistPlans(
-        plans.map((p) => (p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p)),
+        plans.map((p) =>
+          p.id === id
+            ? normalizeExportTaskPlan({ ...p, ...updates, updatedAt: new Date().toISOString() })
+            : p,
+        ),
       )
     },
     [plans, persistPlans],
@@ -264,44 +271,11 @@ export function useExportTaskPlans(liveGroups: Group[] = []) {
   /** 导出单个群，返回失败原因；成功返回 null。 */
   const exportGroup = useCallback(
     async (plan: ExportTaskPlan, group: { groupCode: string; groupName: string }, runId: string) => {
-      const nowSeconds = Math.floor(Date.now() / 1000)
-      // 增量导出：从该群上次导出到的位置继续；否则按任务的时间范围类型。
-      const incrementalFrom = plan.incremental ? plan.progress?.[group.groupCode] : undefined
-      let startTime = incrementalFrom
-      let endTime: number | undefined
-      if (startTime === undefined) {
-        if (plan.timeRangeType === "last-7-days") startTime = nowSeconds - 7 * DAY_SECONDS
-        else if (plan.timeRangeType === "last-30-days") startTime = nowSeconds - 30 * DAY_SECONDS
-        else if (plan.timeRangeType === "custom" && plan.customTimeRange) {
-          startTime = plan.customTimeRange.startTime
-          endTime = plan.customTimeRange.endTime
-        }
-      }
-
-      const outputDir = plan.outputDir?.trim()
-      const body = {
-        peer: { chatType: 2, peerUid: group.groupCode, guildId: "" },
-        sessionName: group.groupName || group.groupCode,
-        format: plan.format,
-        filter: {
-          ...(startTime !== undefined && { startTime }),
-          ...(endTime !== undefined && { endTime }),
-          includeRecalled: false,
-        },
-        options: {
-          batchSize: 5000,
-          prettyFormat: true,
-          useFriendlyFileName: true,
-          includeResourceLinks: plan.options.includeResourceLinks,
-          includeSystemMessages: plan.options.includeSystemMessages,
-          filterPureImageMessages: plan.options.filterPureImageMessages,
-          preferGroupMemberName: plan.options.preferGroupMemberName,
-          ...(outputDir && { outputDir }),
-        },
-      }
+      const form = exportTaskPlanToForm(plan, group)
+      const { endpoint, body } = buildExportRequest(form)
 
       try {
-        const resp = await apiCall<{ taskId?: string }>("/api/messages/export", {
+        const resp = await apiCall<{ taskId?: string }>(endpoint, {
           method: "POST",
           body: JSON.stringify(body),
         })

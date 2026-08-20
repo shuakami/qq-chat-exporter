@@ -212,6 +212,8 @@ export interface CreateTaskForm {
   endTime?: string
   keywords?: string
   includeRecalled: boolean
+  /** 是否在导出内容中保留资源下载链接；旧调用方未传时默认开启。 */
+  includeResourceLinks?: boolean
   includeSystemMessages: boolean
   filterPureImageMessages: boolean
   exportAsZip?: boolean
@@ -256,6 +258,8 @@ export interface CreateTaskRequest {
     startTime?: number
     endTime?: number
     keywords?: string[]
+    excludeUserUins?: string[]
+    includeUserUins?: string[]
     includeRecalled: boolean
   }
   options: {

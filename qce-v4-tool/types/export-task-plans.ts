@@ -35,9 +35,26 @@ export interface ExportTaskPlanOptions {
   includeSystemMessages: boolean
   filterPureImageMessages: boolean
   preferGroupMemberName: boolean
+  includeRecalled: boolean
+  debugExport: boolean
+  streamingZipMode: boolean
+  exportAsZip: boolean
+  embedAvatarsAsBase64: boolean
+  embedResourcesAsDataUri: boolean
+  skipDownloadResourceTypes?: Array<"image" | "video" | "audio" | "file">
+  useNameInFileName: boolean
+  useFriendlyFileName: boolean
+  keywords?: string
+  excludeUserUins?: string
+  includeUserUins?: string
 }
 
-export type ExportTaskPlanTimeRangeType = "all" | "last-7-days" | "last-30-days" | "custom"
+export type ExportTaskPlanTimeRangeType =
+  | "all"
+  | "recent-3-months"
+  | "last-7-days"
+  | "last-30-days"
+  | "custom"
 
 export interface ExportTaskPlanLastRun {
   runId: string
@@ -134,6 +151,47 @@ export type GroupTagMap = Record<string, string[]>
 export const DEFAULT_BATCH_SIZE = 20
 export const MIN_BATCH_SIZE = 5
 export const MAX_BATCH_SIZE = 50
+
+export const DEFAULT_EXPORT_TASK_PLAN_OPTIONS: ExportTaskPlanOptions = {
+  includeResourceLinks: true,
+  includeSystemMessages: true,
+  filterPureImageMessages: true,
+  preferGroupMemberName: true,
+  includeRecalled: false,
+  debugExport: false,
+  streamingZipMode: false,
+  exportAsZip: false,
+  embedAvatarsAsBase64: false,
+  embedResourcesAsDataUri: false,
+  useNameInFileName: false,
+  useFriendlyFileName: false,
+}
+
+/**
+ * 补齐旧版 localStorage 中不存在的导出选项，同时保留任务、进度和运行信息。
+ * 不改存储 key，避免一次性破坏用户已有任务。
+ */
+export function normalizeExportTaskPlan(plan: ExportTaskPlan): ExportTaskPlan {
+  const skipDownloadResourceTypes = Array.isArray(plan.options?.skipDownloadResourceTypes)
+    ? plan.options.skipDownloadResourceTypes.filter(
+        (value): value is "image" | "video" | "audio" | "file" =>
+          value === "image" || value === "video" || value === "audio" || value === "file",
+      )
+    : undefined
+
+  return {
+    ...plan,
+    options: {
+      ...DEFAULT_EXPORT_TASK_PLAN_OPTIONS,
+      ...(plan.options || {}),
+      ...(skipDownloadResourceTypes && skipDownloadResourceTypes.length > 0
+        ? { skipDownloadResourceTypes }
+        : { skipDownloadResourceTypes: undefined }),
+    },
+    timeRangeType: plan.timeRangeType || "all",
+    batchSize: plan.batchSize || DEFAULT_BATCH_SIZE,
+  }
+}
 
 let idCounter = 0
 export function genId(prefix: string): string {

@@ -17,10 +17,13 @@ import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Slider } from "@/components/ui/slider"
+import { DateRangePicker } from "@/components/ui/date-range-picker"
 import { toast } from "@/components/ui/use-toast"
 import type { useExportTaskPlans } from "@/hooks/use-export-task-plans"
+import { toggleSkipResourceType } from "@/lib/skip-resource-types"
 import {
   DEFAULT_BATCH_SIZE,
+  DEFAULT_EXPORT_TASK_PLAN_OPTIONS,
   MAX_BATCH_SIZE,
   MIN_BATCH_SIZE,
   ExportTaskPlan,
@@ -59,10 +62,31 @@ interface DraftState {
   includeSystemMessages: boolean
   filterPureImageMessages: boolean
   preferGroupMemberName: boolean
+  includeRecalled: boolean
+  debugExport: boolean
+  streamingZipMode: boolean
+  exportAsZip: boolean
+  embedAvatarsAsBase64: boolean
+  embedResourcesAsDataUri: boolean
+  skipDownloadResourceTypes?: Array<"image" | "video" | "audio" | "file">
+  useNameInFileName: boolean
+  useFriendlyFileName: boolean
+  keywords: string
+  excludeUserUins: string
+  includeUserUins: string
   outputDir: string
   incremental: boolean
   timeRangeType: ExportTaskPlanTimeRangeType
+  customStartTime: string
+  customEndTime: string
   batchSize: number
+}
+
+function toDateTimeLocal(seconds?: number): string {
+  if (seconds === undefined) return ""
+  const date = new Date(seconds * 1000)
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 function draftFromPlan(plan: ExportTaskPlan | null): DraftState {
@@ -75,13 +99,15 @@ function draftFromPlan(plan: ExportTaskPlan | null): DraftState {
       fixedSnapshots: {},
       tags: [],
       format: "JSON",
-      includeResourceLinks: false,
-      includeSystemMessages: true,
-      filterPureImageMessages: true,
-      preferGroupMemberName: true,
+      ...DEFAULT_EXPORT_TASK_PLAN_OPTIONS,
+      keywords: "",
+      excludeUserUins: "",
+      includeUserUins: "",
       outputDir: "",
       incremental: true,
       timeRangeType: "all",
+      customStartTime: "",
+      customEndTime: "",
       batchSize: DEFAULT_BATCH_SIZE,
     }
   }
@@ -102,18 +128,36 @@ function draftFromPlan(plan: ExportTaskPlan | null): DraftState {
     includeSystemMessages: plan.options.includeSystemMessages,
     filterPureImageMessages: plan.options.filterPureImageMessages,
     preferGroupMemberName: plan.options.preferGroupMemberName,
+    includeRecalled: plan.options.includeRecalled,
+    debugExport: plan.options.debugExport,
+    streamingZipMode: plan.options.streamingZipMode,
+    exportAsZip: plan.options.exportAsZip,
+    embedAvatarsAsBase64: plan.options.embedAvatarsAsBase64,
+    embedResourcesAsDataUri: plan.options.embedResourcesAsDataUri,
+    skipDownloadResourceTypes: plan.options.skipDownloadResourceTypes,
+    useNameInFileName: plan.options.useNameInFileName,
+    useFriendlyFileName: plan.options.useFriendlyFileName,
+    keywords: plan.options.keywords || "",
+    excludeUserUins: plan.options.excludeUserUins || "",
+    includeUserUins: plan.options.includeUserUins || "",
     outputDir: plan.outputDir || "",
     incremental: plan.incremental,
     timeRangeType: plan.timeRangeType,
+    customStartTime: toDateTimeLocal(plan.customTimeRange?.startTime),
+    customEndTime: toDateTimeLocal(plan.customTimeRange?.endTime),
     batchSize: plan.batchSize || DEFAULT_BATCH_SIZE,
   }
 }
 
 export function ExportTaskPlanWizard({ open, mode, initialPlan, store, onClose }: WizardProps) {
   const [draft, setDraft] = useState<DraftState>(() => draftFromPlan(initialPlan))
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   useEffect(() => {
-    if (open) setDraft(draftFromPlan(initialPlan))
+    if (open) {
+      setDraft(draftFromPlan(initialPlan))
+      setFiltersOpen(false)
+    }
   }, [open, initialPlan])
 
   const patch = (updates: Partial<DraftState>) => setDraft((d) => ({ ...d, ...updates }))
@@ -143,7 +187,12 @@ export function ExportTaskPlanWizard({ open, mode, initialPlan, store, onClose }
 
   const nameValid = draft.name.trim().length > 0
   const groupsValid = resolved.length > 0
-  const canSubmit = nameValid && groupsValid
+  const customRangeValid =
+    draft.timeRangeType !== "custom" ||
+    (Boolean(draft.customStartTime) &&
+      Boolean(draft.customEndTime) &&
+      new Date(draft.customEndTime).getTime() >= new Date(draft.customStartTime).getTime())
+  const canSubmit = nameValid && groupsValid && customRangeValid
   const progressed = initialPlan?.progress ? Object.keys(initialPlan.progress).length : 0
   const batches = splitIntoBatches(Array.from({ length: resolved.length }, (_, i) => i + 1), draft.batchSize)
 
@@ -154,6 +203,10 @@ export function ExportTaskPlanWizard({ open, mode, initialPlan, store, onClose }
     }
     if (!groupsValid) {
       toast({ title: "群聊集合为空", description: "请选择固定群或关联至少一个标签", variant: "destructive" })
+      return
+    }
+    if (!customRangeValid) {
+      toast({ title: "自定义时间范围无效", description: "请选择完整时间，并确保结束时间不早于开始时间", variant: "destructive" })
       return
     }
     const payload = {
@@ -176,10 +229,31 @@ export function ExportTaskPlanWizard({ open, mode, initialPlan, store, onClose }
         includeSystemMessages: draft.includeSystemMessages,
         filterPureImageMessages: draft.filterPureImageMessages,
         preferGroupMemberName: draft.preferGroupMemberName,
+        includeRecalled: draft.includeRecalled,
+        debugExport: draft.debugExport,
+        streamingZipMode: draft.streamingZipMode,
+        exportAsZip: draft.exportAsZip,
+        embedAvatarsAsBase64: draft.embedAvatarsAsBase64,
+        embedResourcesAsDataUri: draft.embedResourcesAsDataUri,
+        skipDownloadResourceTypes: draft.filterPureImageMessages
+          ? undefined
+          : draft.skipDownloadResourceTypes,
+        useNameInFileName: draft.useNameInFileName,
+        useFriendlyFileName: draft.useFriendlyFileName,
+        keywords: draft.keywords.trim() || undefined,
+        excludeUserUins: draft.excludeUserUins.trim() || undefined,
+        includeUserUins: draft.includeUserUins.trim() || undefined,
       },
       outputDir: draft.outputDir.trim() || undefined,
       incremental: draft.incremental,
       timeRangeType: draft.timeRangeType,
+      customTimeRange:
+        draft.timeRangeType === "custom"
+          ? {
+              startTime: Math.floor(new Date(draft.customStartTime).getTime() / 1000),
+              endTime: Math.floor(new Date(draft.customEndTime).getTime() / 1000),
+            }
+          : undefined,
       batchSize: draft.batchSize,
     }
     if (mode === "edit" && initialPlan) {
@@ -318,6 +392,13 @@ export function ExportTaskPlanWizard({ open, mode, initialPlan, store, onClose }
                               patch({
                                 format: fmt,
                                 filterPureImageMessages: fmt === "JSON" || fmt === "TXT",
+                                streamingZipMode:
+                                  fmt === "JSON" || fmt === "HTML" ? draft.streamingZipMode : false,
+                                exportAsZip: fmt === "HTML" ? draft.exportAsZip : false,
+                                embedAvatarsAsBase64:
+                                  fmt === "JSON" ? draft.embedAvatarsAsBase64 : false,
+                                embedResourcesAsDataUri:
+                                  fmt === "HTML" ? draft.embedResourcesAsDataUri : false,
                               })
                             }
                           >
@@ -334,9 +415,11 @@ export function ExportTaskPlanWizard({ open, mode, initialPlan, store, onClose }
                       <div className="inline-flex items-center flex-wrap gap-1 p-1 rounded-[20px] bg-black/[0.04] dark:bg-white/[0.06] w-fit max-w-full">
                         {(
                           [
-                            { id: "all", label: "全部历史" },
+                            { id: "all", label: "全部消息" },
+                            { id: "recent-3-months", label: "最近 3 个月" },
                             { id: "last-7-days", label: "最近 7 天" },
                             { id: "last-30-days", label: "最近 30 天" },
+                            { id: "custom", label: "自定义" },
                           ] as const
                         ).map((t) => {
                           const active = draft.timeRangeType === t.id
@@ -357,9 +440,74 @@ export function ExportTaskPlanWizard({ open, mode, initialPlan, store, onClose }
                           )
                         })}
                       </div>
+                      {draft.timeRangeType === "custom" && (
+                        <div className="space-y-2">
+                          <DateRangePicker
+                            startTime={draft.customStartTime}
+                            endTime={draft.customEndTime}
+                            onChange={(start, end) => patch({ customStartTime: start, customEndTime: end })}
+                          />
+                          {!customRangeValid && (draft.customStartTime || draft.customEndTime) && (
+                            <div className="text-[12px] text-red-600 dark:text-red-400">
+                              请选择完整时间，并确保结束时间不早于开始时间
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
+              </section>
+
+              {/* 过滤条件 */}
+              <section>
+                <button
+                  type="button"
+                  aria-expanded={filtersOpen}
+                  onClick={() => setFiltersOpen((value) => !value)}
+                  className={["inline-flex items-center gap-2 text-left", filtersOpen ? "mb-5" : ""].join(" ")}
+                >
+                  <span className="text-[14px] font-medium text-foreground">过滤条件</span>
+                  {[draft.keywords, draft.excludeUserUins, draft.includeUserUins].filter((value) => value.trim()).length > 0 && (
+                    <span className="rounded-full bg-[#317CFF]/10 px-2 py-0.5 text-[10px] font-medium text-[#317CFF]">
+                      已配置 {[draft.keywords, draft.excludeUserUins, draft.includeUserUins].filter((value) => value.trim()).length} 项
+                    </span>
+                  )}
+                  <ChevronDown
+                    className={["h-4 w-4 text-muted-foreground transition-transform", filtersOpen ? "rotate-180" : ""].join(" ")}
+                  />
+                </button>
+                {filtersOpen && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className={FIELD_LABEL}>关键词过滤</label>
+                      <Input
+                        placeholder="用逗号分隔多个关键词，如：重要,会议,通知"
+                        value={draft.keywords}
+                        onChange={(event) => patch({ keywords: event.target.value })}
+                        className={PILL_INPUT + " w-full"}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className={FIELD_LABEL}>屏蔽用户</label>
+                      <Input
+                        placeholder="用逗号分隔多个 QQ 号"
+                        value={draft.excludeUserUins}
+                        onChange={(event) => patch({ excludeUserUins: event.target.value })}
+                        className={PILL_INPUT + " w-full"}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className={FIELD_LABEL}>仅保留用户</label>
+                      <Input
+                        placeholder="用逗号分隔多个 QQ 号，留空表示不限制"
+                        value={draft.includeUserUins}
+                        onChange={(event) => patch({ includeUserUins: event.target.value })}
+                        className={PILL_INPUT + " w-full"}
+                      />
+                    </div>
+                  </div>
+                )}
               </section>
 
               <hr className="border-black/[0.06] dark:border-white/[0.08]" />
@@ -367,52 +515,47 @@ export function ExportTaskPlanWizard({ open, mode, initialPlan, store, onClose }
               {/* 高级选项 */}
               <section>
                 <h2 className={SECTION_TITLE}>高级选项</h2>
-                <div className="space-y-2.5">
-                  <h3 className="text-[12px] font-medium text-muted-foreground pl-1">导出内容</h3>
-                  <div className="bg-neutral-50/50 dark:bg-white/[0.03] rounded-2xl border border-neutral-100/80 dark:border-white/[0.06] overflow-hidden divide-y divide-neutral-100/80 dark:divide-white/[0.06]">
-                    {(
-                      [
-                        {
-                          id: "includeResourceLinks",
-                          checked: draft.includeResourceLinks,
-                          set: (v: boolean) => patch({ includeResourceLinks: v }),
-                          title: "包含资源链接",
-                          desc: "在导出中包含图片、文件等资源的下载链接",
-                        },
-                        {
-                          id: "includeSystemMessages",
-                          checked: draft.includeSystemMessages,
-                          set: (v: boolean) => patch({ includeSystemMessages: v }),
-                          title: "包含系统消息",
-                          desc: "包含入群通知、撤回提示等系统提示消息",
-                        },
-                        {
-                          id: "filterPureImageMessages",
-                          checked: draft.filterPureImageMessages,
-                          set: (v: boolean) => patch({ filterPureImageMessages: v }),
-                          title: "过滤纯图片消息",
-                          desc: "只要文字内容时可开启，进一步减小导出体积",
-                        },
-                        {
-                          id: "preferGroupMemberName",
-                          checked: draft.preferGroupMemberName,
-                          set: (v: boolean) => patch({ preferGroupMemberName: v }),
-                          title: "优先使用群成员名称",
-                          desc: "群聊导出时优先使用群名片或群内名称",
-                        },
-                      ] as const
-                    ).map((opt) => (
-                      <div key={opt.id} className="flex items-center justify-between gap-6 group p-4 transition-colors">
-                        <div className="flex flex-col gap-0.5 flex-1 pr-4">
-                          <div className="text-[13px] font-medium text-foreground">{opt.title}</div>
-                          <div className="text-[12px] text-muted-foreground leading-snug mt-0.5">{opt.desc}</div>
+                <div className="space-y-6">
+                  {(() => {
+                    const options = [
+                      { id: "includeResourceLinks", checked: draft.includeResourceLinks, set: (v: boolean) => patch({ includeResourceLinks: v }), title: "包含资源链接", desc: "在导出中包含图片、文件等资源的下载链接", visible: true, group: "导出内容" },
+                      { id: "includeSystemMessages", checked: draft.includeSystemMessages, set: (v: boolean) => patch({ includeSystemMessages: v }), title: "包含系统消息", desc: "包含入群通知、撤回提示等系统提示消息", visible: true, group: "导出内容" },
+                      { id: "includeRecalled", checked: draft.includeRecalled, set: (v: boolean) => patch({ includeRecalled: v }), title: "包含撤回消息", desc: "在可获取时保留已撤回消息", visible: true, group: "导出内容" },
+                      { id: "filterPureImageMessages", checked: draft.filterPureImageMessages, set: (v: boolean) => patch({ filterPureImageMessages: v }), title: "快速导出（跳过资源下载）", desc: "保留消息记录，但不下载图片、视频、语音等资源", visible: true, group: "导出内容" },
+                      { id: "skipFileDownload", checked: !!draft.skipDownloadResourceTypes?.includes("file"), set: (v: boolean) => patch({ skipDownloadResourceTypes: toggleSkipResourceType(draft.skipDownloadResourceTypes, "file", v) }), title: "仅保留文件元数据，不下载文件", desc: "群文件和聊天文档仅保留文件名、大小、MD5 等信息", visible: !draft.filterPureImageMessages, group: "导出内容" },
+                      { id: "skipImageDownload", checked: !!draft.skipDownloadResourceTypes?.includes("image"), set: (v: boolean) => patch({ skipDownloadResourceTypes: toggleSkipResourceType(draft.skipDownloadResourceTypes, "image", v) }), title: "不下载图片", desc: "跳过图片资源下载，HTML 中以占位形式显示", visible: !draft.filterPureImageMessages, group: "导出内容" },
+                      { id: "skipVideoDownload", checked: !!draft.skipDownloadResourceTypes?.includes("video"), set: (v: boolean) => patch({ skipDownloadResourceTypes: toggleSkipResourceType(draft.skipDownloadResourceTypes, "video", v) }), title: "不下载视频", desc: "避免视频占用大量带宽和磁盘空间", visible: !draft.filterPureImageMessages, group: "导出内容" },
+                      { id: "skipAudioDownload", checked: !!draft.skipDownloadResourceTypes?.includes("audio"), set: (v: boolean) => patch({ skipDownloadResourceTypes: toggleSkipResourceType(draft.skipDownloadResourceTypes, "audio", v) }), title: "不下载语音", desc: "跳过 SILK、AMR 等语音资源下载", visible: !draft.filterPureImageMessages, group: "导出内容" },
+                      { id: "preferGroupMemberName", checked: draft.preferGroupMemberName, set: (v: boolean) => patch({ preferGroupMemberName: v }), title: "优先使用群成员名称", desc: "优先使用群名片或群内名称", visible: true, group: "导出内容" },
+                      { id: "embedAvatarsAsBase64", checked: draft.embedAvatarsAsBase64, set: (v: boolean) => patch({ embedAvatarsAsBase64: v }), title: "嵌入头像为 Base64", desc: "将发送者头像嵌入 JSON 文件", visible: draft.format === "JSON" && !draft.streamingZipMode, group: "导出内容" },
+                      { id: "embedResourcesAsDataUri", checked: draft.embedResourcesAsDataUri, set: (v: boolean) => patch({ embedResourcesAsDataUri: v, exportAsZip: v ? false : draft.exportAsZip }), title: "生成自包含 HTML", desc: "把资源内联到单个 HTML，不再生成 resources 目录", visible: draft.format === "HTML" && !draft.exportAsZip && !draft.streamingZipMode, group: "导出内容" },
+                      { id: "useNameInFileName", checked: draft.useNameInFileName, set: (v: boolean) => patch({ useNameInFileName: v }), title: "文件名包含会话名称", desc: "保留旧客户端的名称文件名兼容设置", visible: true, group: "文件命名" },
+                      { id: "useFriendlyFileName", checked: draft.useFriendlyFileName, set: (v: boolean) => patch({ useFriendlyFileName: v }), title: "使用友好文件名", desc: "使用名称、群号和时间生成可读文件名", visible: true, group: "文件命名" },
+                      { id: "streamingZipMode", checked: draft.streamingZipMode, set: (v: boolean) => patch({ streamingZipMode: v, exportAsZip: v ? false : draft.exportAsZip, embedResourcesAsDataUri: v ? false : draft.embedResourcesAsDataUri }), title: "流式导出（超大消息量专用）", desc: draft.format === "HTML" ? "输出流式 ZIP，适合 50 万条以上记录" : "输出分块 JSONL，适合 50 万条以上记录", visible: draft.format === "HTML" || draft.format === "JSON", group: "性能与处理" },
+                      { id: "exportAsZip", checked: draft.exportAsZip, set: (v: boolean) => patch({ exportAsZip: v, embedResourcesAsDataUri: v ? false : draft.embedResourcesAsDataUri }), title: "导出为 ZIP 压缩包", desc: "将 HTML 和资源文件打包为 ZIP", visible: draft.format === "HTML" && !draft.streamingZipMode, group: "性能与处理" },
+                      { id: "debugExport", checked: draft.debugExport, set: (v: boolean) => patch({ debugExport: v }), title: "调试导出", desc: "额外保存原始消息、解析结果与资源调用错误", visible: true, group: "性能与处理" },
+                    ].filter((option) => option.visible)
+
+                    return ["导出内容", "文件命名", "性能与处理"]
+                      .map((groupName) => ({ groupName, items: options.filter((option) => option.group === groupName) }))
+                      .filter(({ items }) => items.length > 0)
+                      .map(({ groupName, items }) => (
+                        <div key={groupName} className="space-y-2.5">
+                          <h3 className="text-[12px] font-medium text-muted-foreground pl-1">{groupName}</h3>
+                          <div className="bg-neutral-50/50 dark:bg-white/[0.03] rounded-2xl border border-neutral-100/80 dark:border-white/[0.06] overflow-hidden divide-y divide-neutral-100/80 dark:divide-white/[0.06]">
+                            {items.map((option) => (
+                              <div key={option.id} className="flex items-center justify-between gap-6 p-4 transition-colors">
+                                <div className="flex flex-col gap-0.5 flex-1 pr-4">
+                                  <div className="text-[13px] font-medium text-foreground">{option.title}</div>
+                                  <div className="text-[12px] text-muted-foreground leading-snug mt-0.5">{option.desc}</div>
+                                </div>
+                                <Switch checked={option.checked} onCheckedChange={option.set} />
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div className="flex-shrink-0">
-                          <Switch checked={opt.checked} onCheckedChange={(v) => opt.set(v)} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))
+                  })()}
                 </div>
 
                 {/* 自定义存储路径（对齐 TaskWizard 的位置与样式） */}
@@ -481,7 +624,13 @@ export function ExportTaskPlanWizard({ open, mode, initialPlan, store, onClose }
                 配置就绪，{resolved.length} 个群将分为 {batches.length} 批执行
               </span>
             ) : (
-              <span>{!nameValid ? "请填写任务名称" : "请选择固定群或关联标签"}</span>
+              <span>
+                {!nameValid
+                  ? "请填写任务名称"
+                  : !groupsValid
+                    ? "请选择固定群或关联标签"
+                    : "请填写有效的自定义时间范围"}
+              </span>
             )}
           </div>
 

@@ -20,8 +20,9 @@ import { isNewerVersion } from '../lib/version';
 const TOKEN = process.env.QCE_MOCK_TOKEN ?? 'qce_mock_token_for_tests';
 const FRONTEND_BASE = process.env.E2E_FRONTEND_URL ?? 'http://localhost:40653';
 // Production URL has the frontend living under `/qce/`.
-const AUTH_PATH = `/qce/auth`;
-const SHELL_PATH = `/qce`;
+const BASE_PATH = process.env.QCE_E2E_BASE_PATH ?? '/qce';
+const AUTH_PATH = `${BASE_PATH}/auth`;
+const SHELL_PATH = BASE_PATH || '/';
 
 async function clearLocalStorage(page: import('@playwright/test').Page) {
     // We can't use addInitScript here – that runs on EVERY navigation in the
@@ -215,6 +216,137 @@ async function openSessionsTab(page: import('@playwright/test').Page) {
     await expect(searchBox).toBeVisible({ timeout: 15_000 });
     return searchBox;
 }
+
+test.describe('Session list — batch toolbar and pagination', () => {
+    test('keeps the selected sessions while pagination remains visible and clickable', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+
+        const groups = Array.from({ length: 313 }, (_, index) => ({
+            groupCode: String(900000000 + index),
+            groupName: `分页测试群 ${String(index + 1).padStart(3, '0')}`,
+            memberCount: 10 + index,
+            maxMember: 2000,
+        }));
+
+        await page.route('**/auth', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ success: true }),
+            });
+        });
+        await page.route('**/api/**', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ success: true, data: {} }),
+            });
+        });
+        await page.route('**/api/tasks**', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ success: true, data: { tasks: [] } }),
+            });
+        });
+
+        await page.route('**/api/system/info**', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: {
+                        name: 'QQ Chat Exporter',
+                        version: '5.5.80',
+                        mode: 'plugin',
+                        napcat: {
+                            version: 'mock',
+                            online: true,
+                            selfInfo: { uid: 'mock-user', uin: '10001', nick: '分页测试账号' },
+                        },
+                        runtime: { nodeVersion: 'mock', platform: 'win32', uptime: 1 },
+                    },
+                }),
+            });
+        });
+
+        await page.route('**/api/security/ip-whitelist**', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: { allowedIPs: ['127.0.0.1'], disabled: false, isDocker: false, currentClientIP: '127.0.0.1' },
+                }),
+            });
+        });
+
+        await page.route('**/api/groups?**', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: {
+                        groups,
+                        totalCount: groups.length,
+                        currentPage: 1,
+                        totalPages: 1,
+                        hasNext: false,
+                        hasPrev: false,
+                    },
+                }),
+            });
+        });
+        await page.route('**/api/friends?**', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: { friends: [], totalCount: 0, currentPage: 1, totalPages: 1, hasNext: false, hasPrev: false },
+                }),
+            });
+        });
+        await page.route('**/api/recent-contacts?**', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ success: true, data: { contacts: [] } }),
+            });
+        });
+        const response = await page.goto(`${FRONTEND_BASE}${SHELL_PATH}`).catch(() => null);
+        test.skip(!response || response.status() >= 500, `frontend not reachable at ${FRONTEND_BASE}`);
+
+        await openSessionsTab(page);
+        await expect(page.getByText('分页测试群 001', { exact: true })).toBeVisible({ timeout: 15_000 });
+
+        const batchButton = page.getByRole('button', { name: '批量选择', exact: true }).filter({ visible: true }).first();
+        await batchButton.click();
+        await page.getByRole('checkbox', { name: '选择会话 分页测试群 001' }).click();
+
+        const toolbar = page.getByTestId('batch-selection-toolbar');
+        const pagination = page.getByTestId('session-pagination');
+        await expect(toolbar).toContainText('已选择 1 项');
+        await pagination.scrollIntoViewIfNeeded();
+
+        const [toolbarBox, paginationBox] = await Promise.all([
+            toolbar.boundingBox(),
+            pagination.boundingBox(),
+        ]);
+        expect(toolbarBox).not.toBeNull();
+        expect(paginationBox).not.toBeNull();
+        expect(toolbarBox!.y + toolbarBox!.height).toBeLessThanOrEqual(paginationBox!.y);
+
+        await page.getByRole('button', { name: '下一页' }).click();
+        await expect(pagination).toContainText(/2\s*\/\s*7/);
+        await expect(toolbar).toContainText('已选择 1 项');
+    });
+});
 
 test.describe('Session list — QQ lookup (issue #204)', () => {
     test('searching by deactivated QQ number reveals the lookup card', async ({ page }) => {

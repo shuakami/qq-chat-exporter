@@ -543,9 +543,13 @@ function SessionListComponent({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.94 }}
             transition={{ type: "spring", stiffness: 400, damping: 35, mass: 0.8 }}
-            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50"
+            data-testid="batch-selection-toolbar"
+            className={[
+              "sticky z-50 mx-auto mt-3 w-max max-w-[calc(100vw-2rem)]",
+              totalPages > 1 ? "bottom-16 mb-2" : "bottom-8",
+            ].join(" ")}
           >
-            <div className="flex items-center gap-1 rounded-full bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.08)] border border-black/[0.06] dark:border-white/[0.08] px-2 py-1.5">
+            <div className="flex max-w-full flex-wrap items-center justify-center gap-1 rounded-[24px] bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.08)] border border-black/[0.06] dark:border-white/[0.08] px-2 py-1.5">
               <span className="text-[13px] font-medium text-foreground px-3 tabular-nums">
                 已选择 {selectedItems.size} 项
               </span>
@@ -621,7 +625,7 @@ function SessionListComponent({
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between pt-3">
+        <div data-testid="session-pagination" className="flex flex-wrap items-center justify-between gap-2 pt-3">
           <div className="flex items-center gap-1.5">
             <span className="text-sm text-muted-foreground/60">每页</span>
             <PillDropdown
@@ -637,6 +641,7 @@ function SessionListComponent({
 
           <div className="flex items-center gap-0.5">
             <Button
+              aria-label="第一页"
               variant="ghost"
               size="icon"
               className="h-8 w-8 rounded-full"
@@ -646,6 +651,7 @@ function SessionListComponent({
               <ChevronsLeft className="w-3.5 h-3.5" />
             </Button>
             <Button
+              aria-label="上一页"
               variant="ghost"
               size="icon"
               className="h-8 w-8 rounded-full"
@@ -662,6 +668,7 @@ function SessionListComponent({
             </div>
 
             <Button
+              aria-label="下一页"
               variant="ghost"
               size="icon"
               className="h-8 w-8 rounded-full"
@@ -671,6 +678,7 @@ function SessionListComponent({
               <ChevronRight className="w-3.5 h-3.5" />
             </Button>
             <Button
+              aria-label="最后一页"
               variant="ghost"
               size="icon"
               className="h-8 w-8 rounded-full"
