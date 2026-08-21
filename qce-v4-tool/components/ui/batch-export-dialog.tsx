@@ -32,11 +32,17 @@ export interface BatchExportItem {
   avatarUrl?: string
 }
 
+export type ExportProgressCallback = (
+  index: number,
+  status: 'success' | 'failed',
+  error?: string
+) => void
+
 interface BatchExportDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   items: BatchExportItem[]
-  onExport: (config: BatchExportConfig) => Promise<void>
+  onExport: (config: BatchExportConfig, onProgress?: ExportProgressCallback) => Promise<void>
 }
 
 export interface BatchExportConfig {
@@ -240,7 +246,14 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
     }
 
     try {
-      await onExport(config)
+      await onExport(config, (index, status, error) => {
+        setProgress(prev => {
+          const nextResults = [...prev.results]
+          nextResults[index] = { name: items[index]?.name || '', status, error }
+          const next = Math.min(index + 1, items.length - 1)
+          return { ...prev, current: next, currentItem: items[next]?.name || '', results: nextResults }
+        })
+      })
       setProgress(prev => ({ ...prev, status: 'completed' }))
     } catch (error) {
       setProgress(prev => ({ ...prev, status: 'failed' }))

@@ -1081,7 +1081,10 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   }
 
   // 批量导出处理函数
-  const handleBatchExport = async (config: BatchExportConfig) => {
+  const handleBatchExport = async (
+    config: BatchExportConfig,
+    onProgress?: (index: number, status: 'success' | 'failed', error?: string) => void
+  ) => {
     const items = getBatchExportItems()
     const results: Array<{ name: string; status: 'success' | 'failed'; error?: string }> = []
 
@@ -1145,15 +1148,19 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
         const success = await createTask(form)
         
         if (success) {
+          onProgress?.(i, 'success')
           results.push({ name: item.name, status: 'success' })
         } else {
+          onProgress?.(i, 'failed', '导出失败')
           results.push({ name: item.name, status: 'failed', error: '导出失败' })
         }
       } catch (error) {
+        const message = error instanceof Error ? error.message : '未知错误'
+        onProgress?.(i, 'failed', message)
         results.push({ 
           name: item.name, 
           status: 'failed', 
-          error: error instanceof Error ? error.message : '未知错误' 
+          error: message 
         })
       }
 
