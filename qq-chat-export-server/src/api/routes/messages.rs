@@ -21,7 +21,7 @@ use qce_exporter::{ChatInfo, CleanMessage, ExportOptions};
 
 use crate::api::helpers::{
     backfill_self_sender_names, chat_avatar_url, resolve_peer_uid, resolve_peer_uin,
-    resolve_session_name,
+    resolve_session_name, PeerUinResolver,
 };
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::{MessageCacheEntry, SharedState, CACHE_EXPIRE_TIME_MS};
@@ -29,11 +29,13 @@ use crate::api::state::{MessageCacheEntry, SharedState, CACHE_EXPIRE_TIME_MS};
 const MAX_ACTIVE_EXPORT_TASKS: usize = 32;
 const MAX_MESSAGE_CACHE_ENTRIES: usize = 64;
 const MAX_CACHED_MESSAGES_PER_ENTRY: usize = 20_000;
+use crate::clean_message_spool::{CleanMessageSpool, SpooledCleanMessageSource};
 use crate::export_debug::ExportDebugSession;
 use crate::fetcher::{
     chat_type_prefix, classify_chat_type_binary, repair_group_message_sequence, BatchFetchConfig,
     BatchMessageFetcher, MessageFilter, Peer, SequenceRepairConfig, GROUP_CHAT_TYPE,
 };
+use crate::parser::simple_parser::ReplyImageIndex;
 use crate::parser::{ForwardFetcher, SimpleMessageParser, SimpleParserOptions};
 use crate::paths::PathManager;
 use crate::resource::ResourceBatchSummary;
@@ -1671,8 +1673,6 @@ async fn process_export_task(
     let mut batch_count: i64 = 0;
     let mut max_seq_seen: Option<i64> = None;
     let mut min_seq_seen: Option<i64> = None;
-    // 群聊序列修复所需的轻量索引（仅 msgId / msgSeq）。
-    let mut seq_stubs: Vec<Value> = Vec::new();
     loop {
         if is_cancelled(state, task_id, cancel_flag).await {
             fetcher.cancel();
@@ -1698,11 +1698,6 @@ async fn process_export_task(
             };
             max_seq_seen = Some(max_seq_seen.map_or(seq, |v| v.max(seq)));
             min_seq_seen = Some(min_seq_seen.map_or(seq, |v| v.min(seq)));
-            if req.chat_type == GROUP_CHAT_TYPE {
-                if let Some(id) = message.get("msgId").and_then(Value::as_str) {
-                    seq_stubs.push(json!({ "msgId": id, "msgSeq": seq }));
-                }
-            }
         }
         spool.append(&batch.messages).await?;
         batch.messages = Vec::new();
@@ -1724,42 +1719,20 @@ async fn process_export_task(
         return Err("任务已被用户停止".to_string());
     }
 
-    if req.chat_type == GROUP_CHAT_TYPE && !seq_stubs.is_empty() {
-        let stubs_before_repair = seq_stubs.len();
-        match repair_group_message_sequence(
-            &state.napcat,
-            &peer,
-            &mut seq_stubs,
-            SequenceRepairConfig::default(),
-        )
-        .await
-        {
-            Ok(report) if report.initial_gap_count > 0 => {
-                tracing::info!(
-                    "[Export] 群聊消息序列修复完成: gaps={}, missing={}, added={}, rounds={}",
-                    report.initial_gap_count,
-                    report.initial_missing_positions,
-                    report.repaired_messages,
-                    report.rounds
-                );
-                state
-                    .invalidate_message_cache_for_peer(req.chat_type, &req.peer_uid)
-                    .await;
-            }
-            Ok(_) => {}
-            Err(error) => {
-                tracing::warn!("[Export] 群聊消息序列未能确认完整，继续导出已获取消息: {error}");
-                state
-                    .invalidate_message_cache_for_peer(req.chat_type, &req.peer_uid)
-                    .await;
-            }
-        }
-        // 修复补齐的完整消息追加进 spool。
-        if seq_stubs.len() > stubs_before_repair {
-            spool.append(&seq_stubs[stubs_before_repair..]).await?;
+    // issue #662：导出流程不再做全量序列修复。
+    // SequenceBasedPaged 策略按序列号单调递减逐页覆盖整个序列区间，序列缺口
+    // 只可能是撤回 / 不可见消息，对同一批 API 逐个缺口重探不会产出新消息，却
+    // 会在活跃群上放大成数千次原生查询（issue #662 现场：7441 条消息卡死数十
+    // 分钟）。预览路径（fetch_messages）仍保留序列修复。
+    if req.chat_type == GROUP_CHAT_TYPE {
+        if let (Some(max), Some(min)) = (max_seq_seen, min_seq_seen) {
+            tracing::info!(
+                "[Export] 群聊序列覆盖: seqRange={min}..={max}, span={}, messages={}",
+                max - min + 1,
+                spool.count()
+            );
         }
     }
-    drop(seq_stubs);
 
     // 群昵称补全 + 群头衔映射（issue #331）
     let mut title_map: Option<HashMap<String, String>> = None;
@@ -1844,7 +1817,19 @@ async fn process_export_task(
     }
 
     let total_chunks = spool.count().div_ceil(RAW_SPOOL_CHUNK_SIZE).max(1);
+    // issue #666：chunked HTML（流式 ZIP）是超大会话真正会走的导出模式，这里把
+    // 解析结果也落盘，导出阶段按时间归并流式产出，内存占用不再随消息总数增长。
+    let streaming_pipeline = mode == ExportMode::StreamingZip;
+    let mut clean_spool = if streaming_pipeline {
+        Some(
+            CleanMessageSpool::create(req.output_dir.join(format!(".qce_clean_{task_id}.jsonl")))
+                .await?,
+        )
+    } else {
+        None
+    };
     let mut clean_messages: Vec<CleanMessage> = Vec::new();
+    let mut parsed_count: usize = 0;
     let mut resource_map: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
     let mut resource_summary_total = ResourceBatchSummary::default();
     let mut parsed_message_ids: HashSet<String> = HashSet::new();
@@ -1874,11 +1859,18 @@ async fn process_export_task(
             debug.append_jsonl("01-raw-messages.jsonl", &chunk).await?;
         }
 
-        let parsed = parser.parse_messages(&chunk).await;
+        let mut parsed = parser.parse_messages(&chunk).await;
         if let Some(debug) = &debug_session {
             debug
                 .append_jsonl("02-parsed-messages.jsonl", &parsed)
                 .await?;
+        }
+        parsed_count += parsed.len();
+        if let Some(clean_spool) = clean_spool.as_mut() {
+            // 段内按时间排序，段间由归并读取负责（等价于原先的全量排序）。
+            parsed.sort_by_key(|message| message.timestamp);
+            clean_spool.append_sorted_segment(&parsed).await?;
+            parsed = Vec::new();
         }
         clean_messages.extend(parsed);
 
@@ -1897,7 +1889,7 @@ async fn process_export_task(
             // 资源下载进度回调：映射到本块的进度区间。
             let state_cb = Arc::clone(state);
             let task_id_cb = task_id.to_string();
-            let count_cb = clean_messages.len();
+            let count_cb = parsed_count;
             let span = (progress_next - progress_base).max(0) as f64;
             state
                 .resource_handler
@@ -1934,18 +1926,16 @@ async fn process_export_task(
         update_task(
             state,
             task_id,
-            json!({ "progress": progress_next, "message": message, "messageCount": clean_messages.len() }),
+            json!({ "progress": progress_next, "message": message, "messageCount": parsed_count }),
         )
         .await;
-        broadcast_progress(
-            state,
-            task_id,
-            progress_next,
-            &message,
-            clean_messages.len(),
-        );
+        broadcast_progress(state, task_id, progress_next, &message, parsed_count);
     }
     drop(reader);
+    drop(spool);
+    if let Some(clean_spool) = clean_spool.as_mut() {
+        clean_spool.finish().await?;
+    }
     drop(parsed_message_ids);
     drop(resource_message_ids);
     state.resource_handler.set_progress_callback(None).await;
@@ -1977,10 +1967,10 @@ async fn process_export_task(
     update_task(
         state,
         task_id,
-        json!({ "progress": 85, "message": "正在生成文件...", "messageCount": clean_messages.len() }),
+        json!({ "progress": 85, "message": "正在生成文件...", "messageCount": parsed_count }),
     )
     .await;
-    broadcast_progress(state, task_id, 85, "正在生成文件...", clean_messages.len());
+    broadcast_progress(state, task_id, 85, "正在生成文件...", parsed_count);
 
     // Issue #30 / #192：确保输出目录存在。
     tokio::fs::create_dir_all(&req.output_dir)
@@ -1995,12 +1985,15 @@ async fn process_export_task(
     }
     SimpleMessageParser::backfill_reply_preview_local_paths(&mut clean_messages);
     if let Some(debug) = &debug_session {
-        debug
-            .write_jsonl("03-final-messages.jsonl", &clean_messages)
-            .await?;
+        // 流式模式的最终消息在导出阶段流式产出，见下方 write_streaming_debug_dump。
+        if !streaming_pipeline {
+            debug
+                .write_jsonl("03-final-messages.jsonl", &clean_messages)
+                .await?;
+        }
     }
 
-    let message_count = clean_messages.len();
+    let message_count = parsed_count;
     let self_info = state.napcat.self_info().await.unwrap_or(Value::Null);
     let self_uid = self_info
         .get("uid")
@@ -2020,12 +2013,53 @@ async fn process_export_task(
         self_uin.as_deref(),
         self_name.as_deref(),
     );
+    // issue #666：流式模式的全局后处理改成对解析 spool 的两遍顺序扫描，
+    // 而不是在内存里持有全部消息：
+    //   第一遍：收集被 reply 引用的消息 ID + 解析对端 QQ 号；
+    //   第二遍：只为这些被引用的消息建立图片索引（规模与 reply 数量相关）。
+    let mut streaming_reply_index = ReplyImageIndex::default();
+    let mut streaming_peer_uin: Option<String> = None;
+    if let Some(clean_spool) = clean_spool.as_ref() {
+        let mut referenced: HashSet<String> = HashSet::new();
+        let mut peer_uin_resolver = PeerUinResolver::new(&req.peer_uid, self_uin.as_deref());
+        let mut scan = clean_spool.reader().await?;
+        while let Some(batch) = scan.next_batch().await? {
+            if is_cancelled(state, task_id, cancel_flag).await {
+                return Err("任务已被用户停止".to_string());
+            }
+            SimpleMessageParser::collect_reply_referenced_ids(&batch, &mut referenced);
+            peer_uin_resolver.consume(&batch);
+        }
+        streaming_peer_uin = peer_uin_resolver.finish();
+        if !referenced.is_empty() {
+            scan.reset().await?;
+            while let Some(mut batch) = scan.next_batch().await? {
+                if is_cancelled(state, task_id, cancel_flag).await {
+                    return Err("任务已被用户停止".to_string());
+                }
+                for message in &mut batch {
+                    SimpleMessageParser::update_message_resource_paths_recursive(
+                        message,
+                        &value_resource_map,
+                    );
+                }
+                SimpleMessageParser::collect_reply_preview_images(
+                    &batch,
+                    &referenced,
+                    &mut streaming_reply_index,
+                );
+            }
+        }
+    }
+
     let peer_uin = if req.chat_type == GROUP_CHAT_TYPE {
         None
     } else {
-        req.peer_uin
-            .clone()
-            .or_else(|| resolve_peer_uin(&req.peer_uid, self_uin.as_deref(), &clean_messages))
+        req.peer_uin.clone().or_else(|| {
+            streaming_peer_uin
+                .clone()
+                .or_else(|| resolve_peer_uin(&req.peer_uid, self_uin.as_deref(), &clean_messages))
+        })
     };
     let normalized_chat_type = classify_chat_type_binary(Some(req.chat_type)).to_string();
     let chat_info = ChatInfo {
@@ -2201,14 +2235,56 @@ async fn process_export_task(
                 exporter_version: Some(crate::version::VERSION.get().to_string()),
                 ..HtmlExportOptions::default()
             });
-            html_exporter
-                .export_chunked(
-                    &clean_messages,
-                    &chat_info,
-                    &ChunkedHtmlExportOptions::default(),
-                )
-                .await
-                .map_err(|e| e.to_string())?;
+            // issue #666：解析结果已落盘时走流式数据源，导出阶段不再持有全部消息。
+            if let Some(clean_spool) = clean_spool.as_ref() {
+                // 导出前的最终加工：资源本地路径写回 + 自己的昵称补全 + reply 预览补全。
+                let finalize = |message: &mut CleanMessage| {
+                    SimpleMessageParser::update_message_resource_paths_recursive(
+                        message,
+                        &value_resource_map,
+                    );
+                    backfill_self_sender_names(
+                        std::slice::from_mut(message),
+                        chat_info.self_uid.as_deref(),
+                        chat_info.self_uin.as_deref(),
+                        chat_info.self_name.as_deref(),
+                    );
+                    SimpleMessageParser::apply_reply_preview_local_paths(
+                        message,
+                        &streaming_reply_index,
+                    );
+                };
+                if let Some(debug) = &debug_session {
+                    let mut scan = clean_spool.reader().await?;
+                    while let Some(mut batch) = scan.next_batch().await? {
+                        for message in &mut batch {
+                            finalize(message);
+                        }
+                        debug
+                            .append_jsonl("03-final-messages.jsonl", &batch)
+                            .await?;
+                    }
+                }
+                let mut source =
+                    SpooledCleanMessageSource::new(clean_spool.reader().await?, finalize);
+                html_exporter
+                    .export_chunked_source(
+                        &mut source,
+                        &chat_info,
+                        &ChunkedHtmlExportOptions::default(),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+            } else {
+                html_exporter
+                    .export_chunked(
+                        &clean_messages,
+                        &chat_info,
+                        &ChunkedHtmlExportOptions::default(),
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
 
             update_task(
                 state,

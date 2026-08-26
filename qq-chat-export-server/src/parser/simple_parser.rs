@@ -14,6 +14,9 @@ use crate::market_face;
 /// 嵌套合并转发递归深度上限。三层基本足够，再深就不展开避免栈/性能爆炸。
 const MAX_FORWARD_DEPTH: u32 = 3;
 
+/// reply 预览回填用的图片索引：`msgId → [(md5, localPath)]`（issue #128 / #666）。
+pub type ReplyImageIndex = HashMap<String, Vec<(String, String)>>;
+
 /// 合并转发子消息拉取器：由 bridge 侧实现（`MsgApi.getMultiMsg`）。
 ///
 /// 任何错误都应在实现内部吞掉并返回 `None`，解析器绝不因拉取失败而中断。
@@ -2611,9 +2614,51 @@ impl SimpleMessageParser {
         if messages.is_empty() {
             return;
         }
-        // 第一步：建 msgId → image[] 索引
-        let mut images_by_msg_id: HashMap<String, Vec<(String, String)>> = HashMap::new();
-        for m in messages.iter() {
+        let mut referenced = HashSet::new();
+        Self::collect_reply_referenced_ids(messages, &mut referenced);
+        if referenced.is_empty() {
+            return;
+        }
+        let mut index = ReplyImageIndex::default();
+        Self::collect_reply_preview_images(messages, &referenced, &mut index);
+        if index.is_empty() {
+            return;
+        }
+        for message in messages.iter_mut() {
+            Self::apply_reply_preview_local_paths(message, &index);
+        }
+    }
+
+    /// 收集被 reply 引用到的消息 ID（issue #666：流式导出时先扫一遍，
+    /// 后续只为这些消息建图片索引，索引规模与 reply 数量而非消息总数相关）。
+    pub fn collect_reply_referenced_ids(
+        messages: &[CleanMessage],
+        referenced: &mut HashSet<String>,
+    ) {
+        for m in messages {
+            for el in &m.content.elements {
+                if el.element_type != "reply" {
+                    continue;
+                }
+                if let Some(ref_id) =
+                    v_str(&el.data, "referencedMessageId").filter(|s| !s.is_empty())
+                {
+                    referenced.insert(ref_id.to_string());
+                }
+            }
+        }
+    }
+
+    /// 为 `referenced` 中的消息建立 `msgId → [(md5, localPath)]` 图片索引。
+    pub fn collect_reply_preview_images(
+        messages: &[CleanMessage],
+        referenced: &HashSet<String>,
+        index: &mut ReplyImageIndex,
+    ) {
+        for m in messages {
+            if !referenced.contains(&m.id) {
+                continue;
+            }
             let mut imgs: Vec<(String, String)> = Vec::new();
             for el in &m.content.elements {
                 if el.element_type != "image" {
@@ -2627,59 +2672,60 @@ impl SimpleMessageParser {
                 imgs.push((md5, local_path.to_string()));
             }
             if !imgs.is_empty() {
-                images_by_msg_id.insert(m.id.clone(), imgs);
+                index.insert(m.id.clone(), imgs);
             }
         }
-        if images_by_msg_id.is_empty() {
+    }
+
+    /// 用图片索引回填单条消息里 reply 元素的 `previewElements[].localPath`。
+    pub fn apply_reply_preview_local_paths(message: &mut CleanMessage, index: &ReplyImageIndex) {
+        if index.is_empty() {
             return;
         }
-        // 第二步：扫所有 reply 元素，按 referencedMessageId 找回原消息的图片
-        for m in messages.iter_mut() {
-            for el in &mut m.content.elements {
-                if el.element_type != "reply" {
+        for el in &mut message.content.elements {
+            if el.element_type != "reply" {
+                continue;
+            }
+            let ref_id = v_str(&el.data, "referencedMessageId")
+                .unwrap_or("")
+                .to_string();
+            if ref_id.is_empty() {
+                continue;
+            }
+            let Some(ref_imgs) = index.get(&ref_id) else {
+                continue;
+            };
+            if ref_imgs.is_empty() {
+                continue;
+            }
+            let Some(previews) = el
+                .data
+                .as_object_mut()
+                .and_then(|o| o.get_mut("previewElements"))
+                .and_then(Value::as_array_mut)
+            else {
+                continue;
+            };
+            let mut fallback_idx = 0usize;
+            for pe in previews.iter_mut() {
+                if v_str(pe, "type") != Some("image") {
                     continue;
                 }
-                let ref_id = v_str(&el.data, "referencedMessageId")
-                    .unwrap_or("")
-                    .to_string();
-                if ref_id.is_empty() {
-                    continue;
-                }
-                let Some(ref_imgs) = images_by_msg_id.get(&ref_id) else {
-                    continue;
+                let pe_md5 = v_str(pe, "md5").unwrap_or("").to_string();
+                let by_md5 = if pe_md5.is_empty() {
+                    None
+                } else {
+                    ref_imgs
+                        .iter()
+                        .find(|(md5, _)| !md5.is_empty() && *md5 == pe_md5)
                 };
-                if ref_imgs.is_empty() {
-                    continue;
-                }
-                let Some(previews) = el
-                    .data
-                    .as_object_mut()
-                    .and_then(|o| o.get_mut("previewElements"))
-                    .and_then(Value::as_array_mut)
-                else {
-                    continue;
-                };
-                let mut fallback_idx = 0usize;
-                for pe in previews.iter_mut() {
-                    if v_str(pe, "type") != Some("image") {
-                        continue;
+                let candidate = by_md5.or_else(|| ref_imgs.get(fallback_idx));
+                if let Some((_, local_path)) = candidate {
+                    if let Some(obj) = pe.as_object_mut() {
+                        obj.insert("localPath".to_string(), json!(local_path));
                     }
-                    let pe_md5 = v_str(pe, "md5").unwrap_or("").to_string();
-                    let by_md5 = if pe_md5.is_empty() {
-                        None
-                    } else {
-                        ref_imgs
-                            .iter()
-                            .find(|(md5, _)| !md5.is_empty() && *md5 == pe_md5)
-                    };
-                    let candidate = by_md5.or_else(|| ref_imgs.get(fallback_idx));
-                    if let Some((_, local_path)) = candidate {
-                        if let Some(obj) = pe.as_object_mut() {
-                            obj.insert("localPath".to_string(), json!(local_path));
-                        }
-                    }
-                    fallback_idx += 1;
                 }
+                fallback_idx += 1;
             }
         }
     }

@@ -177,26 +177,61 @@ fn nested_core_info_str(value: &Value, key: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
+#[must_use]
 pub fn resolve_peer_uin(
     peer_uid: &str,
     self_uin: Option<&str>,
     messages: &[CleanMessage],
 ) -> Option<String> {
-    let valid_uin =
-        |uin: &&str| !uin.is_empty() && uin.chars().all(|c| c.is_ascii_digit()) && *uin != "0";
-    messages
-        .iter()
-        .find(|message| message.sender.uid == peer_uid)
-        .and_then(|message| message.sender.uin.as_deref())
-        .filter(valid_uin)
-        .or_else(|| {
-            messages
-                .iter()
-                .filter_map(|message| message.sender.uin.as_deref())
-                .filter(valid_uin)
-                .find(|uin| Some(*uin) != self_uin)
-        })
-        .map(str::to_string)
+    let mut resolver = PeerUinResolver::new(peer_uid, self_uin);
+    resolver.consume(messages);
+    resolver.finish()
+}
+
+/// `resolve_peer_uin` 的流式版本（issue #666）：消息分批到达时按同样的优先级
+/// （先按 `peerUid` 精确命中，再退化为第一个非自己的合法 uin）解析对端 QQ 号。
+pub struct PeerUinResolver<'a> {
+    peer_uid: &'a str,
+    self_uin: Option<&'a str>,
+    exact: Option<String>,
+    fallback: Option<String>,
+}
+
+impl<'a> PeerUinResolver<'a> {
+    #[must_use]
+    pub fn new(peer_uid: &'a str, self_uin: Option<&'a str>) -> Self {
+        Self {
+            peer_uid,
+            self_uin,
+            exact: None,
+            fallback: None,
+        }
+    }
+
+    pub fn consume(&mut self, messages: &[CleanMessage]) {
+        if self.exact.is_some() {
+            return;
+        }
+        let valid_uin =
+            |uin: &&str| !uin.is_empty() && uin.chars().all(|c| c.is_ascii_digit()) && *uin != "0";
+        for message in messages {
+            let Some(uin) = message.sender.uin.as_deref().filter(valid_uin) else {
+                continue;
+            };
+            if message.sender.uid == self.peer_uid {
+                self.exact = Some(uin.to_string());
+                return;
+            }
+            if self.fallback.is_none() && Some(uin) != self.self_uin {
+                self.fallback = Some(uin.to_string());
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn finish(self) -> Option<String> {
+        self.exact.or(self.fallback)
+    }
 }
 
 /// 设备会话（我的电脑 / 我的手机）等场景下，自己发送的消息往往拿不到昵称，

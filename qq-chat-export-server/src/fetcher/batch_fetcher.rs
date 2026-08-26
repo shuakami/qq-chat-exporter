@@ -35,6 +35,27 @@ const BRIDGE_PROBE_INTERVAL_MS: u64 = 5_000;
 /// 单次 API 调用允许的 bridge 崩溃恢复次数（不计入普通重试次数）。
 const MAX_BRIDGE_RECOVERIES: u32 = 5;
 
+/// issue #666：锚点二分定位的最大探测次数（覆盖 2^24 ≈ 1600 万条序列空间）。
+const SEEK_MAX_PROBES: u32 = 24;
+
+/// 锚点探测单次拉取的消息条数（只需要一条即可读出该处时间）。
+const SEEK_PROBE_COUNT: i64 = 1;
+
+/// 锚点探测的超时上限；比正常批次更短，避免定位阶段长时间挂住。
+const SEEK_PROBE_TIMEOUT_MS: u64 = 30_000;
+
+/// 定位到的锚点向新方向留出的安全余量（序列号与时间并非严格同序）。
+const SEEK_ANCHOR_MARGIN: i64 = GROUP_SEQ_PAGE_MAX;
+
+/// `endTime` 距当前时间在该范围内时视为「到最新消息」，跳过锚点定位。
+const SEEK_END_TIME_SLACK_MS: i64 = 6 * 60 * 60 * 1000;
+
+/// 单个二分点探测失败时，向更新方向另找邻近探测点的重试次数。
+const SEEK_NEIGHBOR_RETRIES: u32 = 3;
+
+/// 邻近探测点的步长（一个序列页宽度）。
+const SEEK_NEIGHBOR_STEP: i64 = GROUP_SEQ_PAGE_MAX;
+
 /// issue #634：进程级历史查询门控。同一时刻只允许一个重量级历史消息查询
 /// 进入 NapCat Worker，防止并发/叠加查询压垮 QQ 原生模块。
 fn history_fetch_gate() -> &'static Semaphore {
@@ -513,6 +534,133 @@ impl BatchMessageFetcher {
         }
     }
 
+    /// issue #666：把首批锚点二分定位到 `filter.end_time` 附近。
+    ///
+    /// 序列分页只能从新到旧翻页。当时间范围上界远早于最新消息时（例如导出
+    /// 2020–2022 的历史），逐页回溯会先把范围之外的上百万条消息全部查一遍，
+    /// 在 QQ 原生 Worker 内积累巨量内存并触发连接重置（`recv failed 10054`）。
+    ///
+    /// 这里用 `O(log n)` 次单条探测把锚点定位到上界附近；无法定位时返回
+    /// `None`，回退到原来的从最新消息翻页行为。
+    async fn seek_anchor_for_end_time(&self, peer: &Peer, filter: &MessageFilter) -> Option<i64> {
+        let end_time = filter.end_time?;
+        // 上界接近当前时间：最新消息本身就在范围内，无需定位。
+        if end_time >= now_ms() - SEEK_END_TIME_SLACK_MS {
+            return None;
+        }
+
+        let (latest_seq, latest_time) = self.probe_seq_head(peer, None).await?;
+        if latest_time <= end_time {
+            return None;
+        }
+
+        let mut lo = 1_i64;
+        let mut hi = latest_seq;
+        let mut best: Option<i64> = None;
+        let mut successful_probes = 0_u32;
+        let mut probes = 0_u32;
+        while lo <= hi && probes < SEEK_MAX_PROBES {
+            if self.is_cancelled() {
+                return None;
+            }
+            let mid = lo + (hi - lo) / 2;
+            // 探测点可能落在撤回 / 不可见消息上，也可能只是接口抖动。这类
+            // 「未知」结果绝不能当成「目标在更高处」的证据（那会整段漏掉历史
+            // 消息），只允许在更新方向另找邻近探测点重试。
+            let mut probe: Option<(i64, i64)> = None;
+            let mut point = mid;
+            for retry in 0..=SEEK_NEIGHBOR_RETRIES {
+                if probes >= SEEK_MAX_PROBES {
+                    break;
+                }
+                let candidate = mid + i64::from(retry) * SEEK_NEIGHBOR_STEP;
+                if candidate > hi {
+                    break;
+                }
+                probes += 1;
+                if let Some(result) = self.probe_seq_head(peer, Some(candidate)).await {
+                    point = candidate;
+                    probe = Some(result);
+                    break;
+                }
+            }
+            // 邻近探测点全部失败：方向不可判定。此时任何「猜一个锚点」都可能整段
+            // 漏掉历史消息，只能放弃定位，退回从最新消息翻页（慢但绝不丢消息）。
+            let Some((probe_seq, probe_time)) = probe else {
+                tracing::warn!(
+                    "[BatchMessageFetcher] issue #666：锚点探测连续失败（seq≈{mid}），回退到从最新消息翻页"
+                );
+                return None;
+            };
+            successful_probes += 1;
+            if probe_time <= end_time {
+                best = Some(probe_seq.max(best.unwrap_or(probe_seq)));
+                lo = point + 1;
+            } else {
+                hi = probe_seq.min(point) - 1;
+            }
+        }
+
+        // 探测次数用尽而区间还没收敛：同样不能凭半成品猜锚点。
+        if lo <= hi {
+            tracing::warn!(
+                "[BatchMessageFetcher] issue #666：锚点定位未收敛（probes={probes}），回退到从最新消息翻页"
+            );
+            return None;
+        }
+        // best 为空说明整段历史都比 endTime 新：锚在最旧处，首批自然为空。
+        let anchor = best
+            .map(|seq| (seq + SEEK_ANCHOR_MARGIN).min(latest_seq))
+            .or_else(|| (successful_probes > 0).then_some(1))?;
+        tracing::info!(
+            "[BatchMessageFetcher] issue #666：按 endTime={end_time} 定位首批锚点 anchorSeq={anchor}（latestSeq={latest_seq}, probes={probes}）"
+        );
+        Some(anchor)
+    }
+
+    /// 探测 `seq <= anchor_seq` 区间内最新一条消息的 `(msgSeq, msgTime)`。
+    ///
+    /// `anchor_seq` 为 `None` 时探测会话最新消息。空结果 / 调用失败返回 `None`。
+    async fn probe_seq_head(&self, peer: &Peer, anchor_seq: Option<i64>) -> Option<(i64, i64)> {
+        let permit = history_fetch_gate().acquire().await.ok()?;
+        let timeout = Duration::from_millis(self.config.timeout_ms.min(SEEK_PROBE_TIMEOUT_MS));
+        let call = async {
+            match anchor_seq {
+                None => {
+                    self.api
+                        .get_aio_first_view_latest_msgs(peer, SEEK_PROBE_COUNT)
+                        .await
+                }
+                Some(anchor_seq) => {
+                    self.api
+                        .get_msgs_by_seq_and_count(peer, anchor_seq, SEEK_PROBE_COUNT)
+                        .await
+                }
+            }
+        };
+        let result = tokio::time::timeout(timeout, call).await;
+        drop(permit);
+        let value = match result {
+            Ok(Ok(value)) => value,
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    "[BatchMessageFetcher] 锚点探测失败 (anchor={anchor_seq:?}): {error}"
+                );
+                return None;
+            }
+            Err(_) => {
+                tracing::warn!("[BatchMessageFetcher] 锚点探测超时 (anchor={anchor_seq:?})");
+                return None;
+            }
+        };
+        extract_msg_list(value)
+            .iter()
+            .filter_map(|message| {
+                Some((loose_msg_seq(message)?, to_millis(loose_msg_time(message)?)))
+            })
+            .max_by_key(|(seq, _)| *seq)
+    }
+
     /// issue #634：基于序列号的小页分页获取（群聊安全路径）。
     ///
     /// 首批用 `getAioFirstViewLatestMsgs` 的小窗口拿到当前最新序列号，之后
@@ -524,11 +672,18 @@ impl BatchMessageFetcher {
         filter: &MessageFilter,
         start_seq: Option<&str>,
     ) -> Result<BatchFetchResult, FetchError> {
-        let anchor = start_seq.and_then(|seq| seq.parse::<i64>().ok());
+        let mut anchor = start_seq.and_then(|seq| seq.parse::<i64>().ok());
         if let Some(anchor) = anchor {
             if anchor <= 0 {
                 return Ok(BatchFetchResult::default());
             }
+        }
+
+        // issue #666：首批先把锚点定位到 endTime 附近，避免从最新消息一路翻页
+        // 回到时间范围上界（活跃大群会因此多做数万次原生历史查询，把 QQ
+        // Worker 的内存推到崩溃并出现 recv failed 10054）。
+        if anchor.is_none() {
+            anchor = self.seek_anchor_for_end_time(peer, filter).await;
         }
 
         let api = Arc::clone(&self.api);
@@ -1216,6 +1371,212 @@ mod tests {
                 .expect("call succeeds");
         }
         assert_eq!(fetcher.state.lock().await.batch_size, 5000);
+    }
+
+    /// issue #666：合成的连续群聊历史（seq 1..=`latest_seq`，每条相隔 `step_ms`）。
+    struct SyntheticHistory {
+        latest_seq: i64,
+        oldest_time_ms: i64,
+        step_ms: i64,
+        calls: std::sync::atomic::AtomicU64,
+        /// 单条探测落入该闭区间时模拟接口失败（issue #666 现场的超时 / 10054）。
+        fail_range: Option<(i64, i64)>,
+    }
+
+    impl SyntheticHistory {
+        fn new(latest_seq: i64, step_ms: i64) -> Self {
+            Self {
+                latest_seq,
+                // 对齐到整秒：合成消息的 msgTime 是秒级字符串。
+                oldest_time_ms: (now_ms() - latest_seq * step_ms) / 1000 * 1000,
+                step_ms,
+                calls: std::sync::atomic::AtomicU64::new(0),
+                fail_range: None,
+            }
+        }
+
+        fn with_failing_range(mut self, low: i64, high: i64) -> Self {
+            self.fail_range = Some((low, high));
+            self
+        }
+
+        fn fails_at(&self, anchor_seq: i64) -> bool {
+            self.fail_range
+                .is_some_and(|(low, high)| (low..=high).contains(&anchor_seq))
+        }
+
+        fn time_at(&self, seq: i64) -> i64 {
+            self.oldest_time_ms + seq * self.step_ms
+        }
+
+        fn page(&self, anchor_seq: i64, count: i64) -> Value {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let messages: Vec<Value> = (1..=anchor_seq.min(self.latest_seq))
+                .rev()
+                .take(usize::try_from(count.max(1)).unwrap_or(1))
+                .map(|seq| {
+                    json!({
+                        "msgId": format!("m{seq}"),
+                        "msgSeq": seq.to_string(),
+                        "msgTime": (self.time_at(seq) / 1000).to_string(),
+                    })
+                })
+                .collect();
+            json!({ "msgList": messages })
+        }
+
+        fn call_count(&self) -> u64 {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl MessageFetchApi for SyntheticHistory {
+        async fn get_aio_first_view_latest_msgs(
+            &self,
+            _peer: &Peer,
+            count: i64,
+        ) -> Result<Value, String> {
+            Ok(self.page(self.latest_seq, count))
+        }
+
+        async fn get_msg_history(
+            &self,
+            _peer: &Peer,
+            _msg_id: &str,
+            _count: i64,
+        ) -> Result<Value, String> {
+            Ok(json!({ "msgList": [] }))
+        }
+
+        async fn get_msgs_by_seq_range(
+            &self,
+            _peer: &Peer,
+            _start_seq: &str,
+            _end_seq: &str,
+        ) -> Result<Value, String> {
+            Ok(json!({ "msgList": [] }))
+        }
+
+        async fn get_msgs_by_seq_and_count(
+            &self,
+            _peer: &Peer,
+            anchor_seq: i64,
+            count: i64,
+        ) -> Result<Value, String> {
+            if count <= SEEK_PROBE_COUNT && self.fails_at(anchor_seq) {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                return Err("recv failed with error: 10054".to_string());
+            }
+            Ok(self.page(anchor_seq, count))
+        }
+    }
+
+    fn group_peer() -> Peer {
+        Peer {
+            chat_type: 2,
+            peer_uid: "group-1".to_string(),
+            guild_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn first_batch_anchor_seeks_to_end_time_instead_of_walking_from_latest() {
+        // 20 万条消息、每条相隔 1 分钟；导出区间只覆盖 seq 1000 附近的一小段。
+        let api = Arc::new(SyntheticHistory::new(200_000, 60_000));
+        let fetcher = BatchMessageFetcher::new(
+            Arc::clone(&api) as Arc<dyn MessageFetchApi>,
+            BatchFetchConfig::default(),
+        );
+        let filter = MessageFilter {
+            start_time: Some(api.time_at(900)),
+            end_time: Some(api.time_at(1000)),
+            ..MessageFilter::default()
+        };
+
+        // 像导出流程那样把分页跑完。
+        let mut previous = None;
+        let mut seqs: Vec<i64> = Vec::new();
+        let mut batches = 0;
+        while let Some(batch) = fetcher
+            .fetch_next_batch(&group_peer(), &filter, previous.as_ref())
+            .await
+            .expect("batch")
+        {
+            seqs.extend(batch.messages.iter().filter_map(loose_msg_seq));
+            batches += 1;
+            assert!(batches < 20, "分页未按预期收敛");
+            previous = Some(batch);
+        }
+
+        // 区间内消息全部到位，且不包含区间之外的消息。
+        seqs.sort_unstable();
+        assert_eq!(seqs, (900..=1000).collect::<Vec<i64>>());
+        // 定位成本是对数级：远小于线性回溯所需的约 400 页。
+        assert!(
+            api.call_count() <= u64::from(SEEK_MAX_PROBES) + 5,
+            "锚点定位调用次数过多: {}",
+            api.call_count()
+        );
+    }
+
+    /// issue #666：探测失败不得被当成「目标在更高序列」的证据——否则二分
+    /// 会把下界推过目标区间，整段历史消息会静默丢失。
+    #[tokio::test]
+    async fn anchor_seek_does_not_lose_messages_when_probes_fail() {
+        // 让目标区间（900..=1000）附近的探测全部失败。
+        let api = Arc::new(SyntheticHistory::new(20_000, 60_000).with_failing_range(300, 2_000));
+        let fetcher = BatchMessageFetcher::new(
+            Arc::clone(&api) as Arc<dyn MessageFetchApi>,
+            BatchFetchConfig {
+                retry_count: 0,
+                retry_interval_ms: 0,
+                ..BatchFetchConfig::default()
+            },
+        );
+        let filter = MessageFilter {
+            start_time: Some(api.time_at(400)),
+            end_time: Some(api.time_at(500)),
+            ..MessageFilter::default()
+        };
+
+        let mut previous = None;
+        let mut seqs: Vec<i64> = Vec::new();
+        let mut batches = 0;
+        while let Some(batch) = fetcher
+            .fetch_next_batch(&group_peer(), &filter, previous.as_ref())
+            .await
+            .expect("batch")
+        {
+            seqs.extend(batch.messages.iter().filter_map(loose_msg_seq));
+            batches += 1;
+            assert!(batches < 4_000, "分页未按预期收敛");
+            previous = Some(batch);
+        }
+
+        seqs.sort_unstable();
+        assert_eq!(seqs, (400..=500).collect::<Vec<i64>>());
+    }
+
+    #[tokio::test]
+    async fn first_batch_skips_anchor_seek_when_end_time_is_recent() {
+        let api = Arc::new(SyntheticHistory::new(5_000, 60_000));
+        let fetcher = BatchMessageFetcher::new(
+            Arc::clone(&api) as Arc<dyn MessageFetchApi>,
+            BatchFetchConfig::default(),
+        );
+        let filter = MessageFilter {
+            start_time: Some(api.time_at(1)),
+            end_time: Some(now_ms()),
+            ..MessageFilter::default()
+        };
+
+        fetcher
+            .fetch_messages(&group_peer(), &filter, None, None)
+            .await
+            .expect("first batch");
+
+        assert_eq!(api.call_count(), 1, "范围到最新消息时不应做锚点定位");
     }
 
     #[test]

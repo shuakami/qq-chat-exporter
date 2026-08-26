@@ -1,6 +1,7 @@
 use crate::base::escape_html;
 use crate::bloom::{fnv1a32, BloomFilter};
 use crate::error::{ExportError, ExportResultT};
+use crate::message_source::{CleanMessageSource, SliceMessageSource};
 use crate::modern_html_templates::{
     render_template, MODERN_CHUNKED_APP_JS, MODERN_CHUNKED_INDEX_HTML_TEMPLATE, MODERN_CSS,
     MODERN_FOOTER_HTML, MODERN_SINGLE_HTML_BOTTOM_TEMPLATE, MODERN_SINGLE_HTML_TOP_TEMPLATE,
@@ -473,6 +474,26 @@ impl ModernHtmlExporter {
         chat_info: &ChatInfo,
         options: &ChunkedHtmlExportOptions,
     ) -> ExportResultT<ChunkedHtmlExportResult> {
+        let mut source = SliceMessageSource::new(messages);
+        self.export_chunked_source(&mut source, chat_info, options)
+            .await
+    }
+
+    /// Chunked Viewer 流式导出（issue #666）。
+    ///
+    /// 与 [`Self::export_chunked`] 输出完全一致，但消息由 [`CleanMessageSource`]
+    /// 按批提供：百万级会话不需要把全部 [`CleanMessage`] 常驻内存。数据源会被读
+    /// 两遍（建 reply 跳转索引 + 写 chunk），必须支持 `restart`。
+    ///
+    /// # Errors
+    /// 输出文件 / 目录 I/O 失败时返回 [`ExportError::Io`]；数据源读取失败时透传其错误。
+    #[allow(clippy::too_many_lines)]
+    pub async fn export_chunked_source<S: CleanMessageSource>(
+        &mut self,
+        source: &mut S,
+        chat_info: &ChatInfo,
+        options: &ChunkedHtmlExportOptions,
+    ) -> ExportResultT<ChunkedHtmlExportResult> {
         let output_path = self.options.output_path.clone();
         let output_dir = output_path
             .parent()
@@ -599,56 +620,64 @@ impl ModernHtmlExporter {
         // setup exporter state
         self.current_chat_info = Some(chat_info.clone());
         self.last_rendered_date = None;
-        self.prepare_reply_targets(messages);
+        // 第一遍：只建 reply 跳转索引（不渲染，内存与消息体无关）。
+        self.begin_reply_targets();
+        source.restart().await?;
+        while let Some(batch) = source.next_batch().await? {
+            self.extend_reply_targets(&batch);
+        }
+        source.restart().await?;
 
         // For chunked viewer, resource href base should be "resources"
         let old_resource_base_href =
             std::mem::replace(&mut self.resource_base_href, "resources".to_owned());
 
         let result = self
-            .export_chunked_inner(ChunkedRunArgs {
-                messages,
-                chat_info,
-                output_dir: &output_dir,
-                output_path: &output_path,
-                data_dir: &data_dir,
-                chunks_dir: &chunks_dir,
-                dir_names: DirNames {
-                    assets: assets_dir_name,
-                    data: data_dir_name,
-                    chunks: chunks_dir_name,
-                    index: index_dir_name,
+            .export_chunked_inner(
+                source,
+                ChunkedRunArgs {
+                    chat_info,
+                    output_dir: &output_dir,
+                    output_path: &output_path,
+                    data_dir: &data_dir,
+                    chunks_dir: &chunks_dir,
+                    dir_names: DirNames {
+                        assets: assets_dir_name,
+                        data: data_dir_name,
+                        chunks: chunks_dir_name,
+                        index: index_dir_name,
+                    },
+                    limits: ChunkLimits {
+                        max_messages_per_chunk,
+                        max_chunk_bytes,
+                        enable_text_bloom,
+                        bloom_text_bits,
+                        bloom_text_hashes,
+                        bloom_sender_bits,
+                        bloom_sender_hashes,
+                        bloom_max_chars_per_message,
+                        store_text_max_chars,
+                        msg_id_index_bucket_count,
+                        write_manifest_json,
+                    },
+                    bucket_file_prefix,
+                    bucket_file_ext,
+                    concurrency,
+                    running: &mut running,
+                    copied_resources: &mut copied_resources,
+                    chunks_meta: &mut chunks_meta,
+                    senders_by_uid: &mut senders_by_uid,
+                    total_messages: &mut total_messages,
+                    first_time: &mut first_time,
+                    last_time: &mut last_time,
+                    min_date_key: &mut min_date_key,
+                    max_date_key: &mut max_date_key,
+                    bucket_streams: &mut bucket_streams,
+                    bucket_paths: &bucket_paths,
+                    bucket_first: &mut bucket_first,
+                    chunk: &mut chunk,
                 },
-                limits: ChunkLimits {
-                    max_messages_per_chunk,
-                    max_chunk_bytes,
-                    enable_text_bloom,
-                    bloom_text_bits,
-                    bloom_text_hashes,
-                    bloom_sender_bits,
-                    bloom_sender_hashes,
-                    bloom_max_chars_per_message,
-                    store_text_max_chars,
-                    msg_id_index_bucket_count,
-                    write_manifest_json,
-                },
-                bucket_file_prefix,
-                bucket_file_ext,
-                concurrency,
-                running: &mut running,
-                copied_resources: &mut copied_resources,
-                chunks_meta: &mut chunks_meta,
-                senders_by_uid: &mut senders_by_uid,
-                total_messages: &mut total_messages,
-                first_time: &mut first_time,
-                last_time: &mut last_time,
-                min_date_key: &mut min_date_key,
-                max_date_key: &mut max_date_key,
-                bucket_streams: &mut bucket_streams,
-                bucket_paths: &bucket_paths,
-                bucket_first: &mut bucket_first,
-                chunk: &mut chunk,
-            })
+            )
             .await;
 
         // restore
@@ -662,12 +691,12 @@ impl ModernHtmlExporter {
 
     /// `export_chunked` 主体（拆分出来以便 finally 语义下恢复 `resource_base_href`）。
     #[allow(clippy::too_many_lines)]
-    async fn export_chunked_inner(
+    async fn export_chunked_inner<S: CleanMessageSource>(
         &mut self,
+        source: &mut S,
         args: ChunkedRunArgs<'_>,
     ) -> ExportResultT<ChunkedHtmlExportResult> {
         let ChunkedRunArgs {
-            messages,
             chat_info,
             output_dir,
             output_path,
@@ -697,165 +726,171 @@ impl ModernHtmlExporter {
             |id: &str| -> String { format!("{}/{}/{id}.js", dir_names.data, dir_names.chunks) };
 
         // stream process messages
-        for message in messages {
-            if !self.options.include_system_messages && is_system_message(message) {
-                continue;
-            }
-
-            let ts = message_ts_ms(message).unwrap_or(0);
-            let date_key = message_date_key(message).unwrap_or_default();
-
-            // global stats
-            if let Some(t) = message_ts_ms(message) {
-                if first_time.is_none_or(|f| t < f) {
-                    *first_time = Some(t);
+        while let Some(batch) = source.next_batch().await? {
+            for message in &batch {
+                if !self.options.include_system_messages && is_system_message(message) {
+                    continue;
                 }
-                if last_time.is_none_or(|l| t > l) {
-                    *last_time = Some(t);
-                }
-            }
-            if !date_key.is_empty() {
-                if min_date_key
-                    .as_deref()
-                    .is_none_or(|m| date_key.as_str() < m)
-                {
-                    *min_date_key = Some(date_key.clone());
-                }
-                if max_date_key
-                    .as_deref()
-                    .is_none_or(|m| date_key.as_str() > m)
-                {
-                    *max_date_key = Some(date_key.clone());
-                }
-            }
 
-            // sender stats
-            let sender_uid = sender_uid_of(message);
-            let sender_name = get_display_name(message);
-            let sender_name_lower = sender_name.to_lowercase();
-            if !sender_uid.is_empty() {
-                let sender_uin = message.sender.uin.clone().filter(|s| !s.is_empty());
-                let info = senders_by_uid
-                    .entry(sender_uid.clone())
-                    .or_insert_with(|| SenderInfo {
-                        names: indexmap::IndexSet::new(),
-                        display_name: sender_name.clone(),
-                        count: 0,
-                        uin: None,
-                    });
-                info.names.insert(sender_name.clone());
-                info.count += 1;
-                if info.display_name.is_empty() {
-                    info.display_name = sender_name.clone();
-                }
-                if info.uin.is_none() {
-                    info.uin = sender_uin;
-                }
-            }
+                let ts = message_ts_ms(message).unwrap_or(0);
+                let date_key = message_date_key(message).unwrap_or_default();
 
-            // ensure chunk
-            if chunk.writer.is_none() {
-                start_chunk(chunk, chunks_dir, &limits).await?;
-            }
-
-            // set chunk boundary stats
-            if chunk.count == 0 {
-                chunk.start_ts = ts;
-                chunk.start_date = date_key.clone();
-                chunk.first_msg_id = format!("msg-{}", message.id);
-            }
-            chunk.end_ts = ts;
-            chunk.end_date = date_key.clone();
-            chunk.last_msg_id = format!("msg-{}", message.id);
-
-            // data URI 内联模式：渲染前预载本条消息的资源
-            if self.options.include_resource_links && self.options.embed_resources_as_data_uri {
-                for res in iter_resources(message) {
-                    self.preload_data_uri(&res).await;
-                }
-            }
-
-            // render HTML
-            let html = self.render_message(message);
-
-            // extract plain text
-            let plain = extract_plain_text(message);
-            let plain_lower_full = plain.to_lowercase();
-            let plain_units: Vec<u16> = plain_lower_full.encode_utf16().collect();
-            let stored_units = &plain_units[..plain_units.len().min(limits.store_text_max_chars)];
-            let stored_text = String::from_utf16_lossy(stored_units);
-            let text_truncated = plain_units.len() > limits.store_text_max_chars;
-
-            // bloom update
-            if !sender_uid.is_empty() {
-                if let Some(sb) = chunk.sender_bloom.as_mut() {
-                    sb.add(&sender_uid);
-                }
-            }
-            if limits.enable_text_bloom {
-                if let Some(tb) = chunk.text_bloom.as_mut() {
-                    let mut bloom_units = plain_units.clone();
-                    bloom_units.push(u16::from(b' '));
-                    bloom_units.extend(sender_name_lower.encode_utf16());
-                    if bloom_units.len() > limits.bloom_max_chars_per_message {
-                        chunk.text_bloom_incomplete = true;
-                        bloom_units.truncate(limits.bloom_max_chars_per_message);
+                // global stats
+                if let Some(t) = message_ts_ms(message) {
+                    if first_time.is_none_or(|f| t < f) {
+                        *first_time = Some(t);
                     }
-                    add_text_to_bloom(tb, &bloom_units);
-                }
-            }
-
-            // write msgId -> chunkId mapping (bucketed)
-            let dom_msg_id = format!("msg-{}", message.id);
-            let bucket =
-                (fnv1a32(&dom_msg_id, 0x811c_9dc5) % limits.msg_id_index_bucket_count) as usize;
-            let pair = json!([dom_msg_id, chunk.id]).to_string();
-            let sep = if bucket_first[bucket] { "" } else { ",\n" };
-            bucket_first[bucket] = false;
-            let line = format!("{sep}{pair}");
-            write_chunk(&mut bucket_streams[bucket], &bucket_paths[bucket], &line).await?;
-
-            // build record
-            let record = json!({
-                "id": dom_msg_id,
-                "ts": ts,
-                "date": date_key,
-                "uid": sender_uid,
-                "name": sender_name,
-                "nameLower": sender_name_lower,
-                "text": stored_text,
-                "textTruncated": text_truncated,
-                "html": html,
-            });
-            let json_str = record.to_string();
-            let prefix = if chunk.is_first_record { "" } else { ",\n" };
-            chunk.is_first_record = false;
-
-            let payload = format!("{prefix}{json_str}");
-            let chunk_path = chunk.path.clone();
-            if let Some(writer) = chunk.writer.as_mut() {
-                write_chunk(writer, &chunk_path, &payload).await?;
-            }
-            chunk.bytes += payload.len() as u64;
-
-            *total_messages += 1;
-            chunk.count += 1;
-
-            // resource copy
-            if self.options.include_resource_links && !self.options.embed_resources_as_data_uri {
-                for res in iter_resources(message) {
-                    while running.len() >= concurrency {
-                        drain_one_copy(running, copied_resources).await;
+                    if last_time.is_none_or(|l| t > l) {
+                        *last_time = Some(t);
                     }
-                    let output_dir = output_dir.to_path_buf();
-                    running.spawn(async move { copy_resource_file(&res, &output_dir).await });
                 }
-            }
+                if !date_key.is_empty() {
+                    if min_date_key
+                        .as_deref()
+                        .is_none_or(|m| date_key.as_str() < m)
+                    {
+                        *min_date_key = Some(date_key.clone());
+                    }
+                    if max_date_key
+                        .as_deref()
+                        .is_none_or(|m| date_key.as_str() > m)
+                    {
+                        *max_date_key = Some(date_key.clone());
+                    }
+                }
 
-            // rotate chunk
-            if chunk.count >= limits.max_messages_per_chunk || chunk.bytes >= limits.max_chunk_bytes
-            {
-                finish_chunk(chunk, chunks_meta, &chunk_file_rel).await?;
+                // sender stats
+                let sender_uid = sender_uid_of(message);
+                let sender_name = get_display_name(message);
+                let sender_name_lower = sender_name.to_lowercase();
+                if !sender_uid.is_empty() {
+                    let sender_uin = message.sender.uin.clone().filter(|s| !s.is_empty());
+                    let info =
+                        senders_by_uid
+                            .entry(sender_uid.clone())
+                            .or_insert_with(|| SenderInfo {
+                                names: indexmap::IndexSet::new(),
+                                display_name: sender_name.clone(),
+                                count: 0,
+                                uin: None,
+                            });
+                    info.names.insert(sender_name.clone());
+                    info.count += 1;
+                    if info.display_name.is_empty() {
+                        info.display_name = sender_name.clone();
+                    }
+                    if info.uin.is_none() {
+                        info.uin = sender_uin;
+                    }
+                }
+
+                // ensure chunk
+                if chunk.writer.is_none() {
+                    start_chunk(chunk, chunks_dir, &limits).await?;
+                }
+
+                // set chunk boundary stats
+                if chunk.count == 0 {
+                    chunk.start_ts = ts;
+                    chunk.start_date = date_key.clone();
+                    chunk.first_msg_id = format!("msg-{}", message.id);
+                }
+                chunk.end_ts = ts;
+                chunk.end_date = date_key.clone();
+                chunk.last_msg_id = format!("msg-{}", message.id);
+
+                // data URI 内联模式：渲染前预载本条消息的资源
+                if self.options.include_resource_links && self.options.embed_resources_as_data_uri {
+                    for res in iter_resources(message) {
+                        self.preload_data_uri(&res).await;
+                    }
+                }
+
+                // render HTML
+                let html = self.render_message(message);
+
+                // extract plain text
+                let plain = extract_plain_text(message);
+                let plain_lower_full = plain.to_lowercase();
+                let plain_units: Vec<u16> = plain_lower_full.encode_utf16().collect();
+                let stored_units =
+                    &plain_units[..plain_units.len().min(limits.store_text_max_chars)];
+                let stored_text = String::from_utf16_lossy(stored_units);
+                let text_truncated = plain_units.len() > limits.store_text_max_chars;
+
+                // bloom update
+                if !sender_uid.is_empty() {
+                    if let Some(sb) = chunk.sender_bloom.as_mut() {
+                        sb.add(&sender_uid);
+                    }
+                }
+                if limits.enable_text_bloom {
+                    if let Some(tb) = chunk.text_bloom.as_mut() {
+                        let mut bloom_units = plain_units.clone();
+                        bloom_units.push(u16::from(b' '));
+                        bloom_units.extend(sender_name_lower.encode_utf16());
+                        if bloom_units.len() > limits.bloom_max_chars_per_message {
+                            chunk.text_bloom_incomplete = true;
+                            bloom_units.truncate(limits.bloom_max_chars_per_message);
+                        }
+                        add_text_to_bloom(tb, &bloom_units);
+                    }
+                }
+
+                // write msgId -> chunkId mapping (bucketed)
+                let dom_msg_id = format!("msg-{}", message.id);
+                let bucket =
+                    (fnv1a32(&dom_msg_id, 0x811c_9dc5) % limits.msg_id_index_bucket_count) as usize;
+                let pair = json!([dom_msg_id, chunk.id]).to_string();
+                let sep = if bucket_first[bucket] { "" } else { ",\n" };
+                bucket_first[bucket] = false;
+                let line = format!("{sep}{pair}");
+                write_chunk(&mut bucket_streams[bucket], &bucket_paths[bucket], &line).await?;
+
+                // build record
+                let record = json!({
+                    "id": dom_msg_id,
+                    "ts": ts,
+                    "date": date_key,
+                    "uid": sender_uid,
+                    "name": sender_name,
+                    "nameLower": sender_name_lower,
+                    "text": stored_text,
+                    "textTruncated": text_truncated,
+                    "html": html,
+                });
+                let json_str = record.to_string();
+                let prefix = if chunk.is_first_record { "" } else { ",\n" };
+                chunk.is_first_record = false;
+
+                let payload = format!("{prefix}{json_str}");
+                let chunk_path = chunk.path.clone();
+                if let Some(writer) = chunk.writer.as_mut() {
+                    write_chunk(writer, &chunk_path, &payload).await?;
+                }
+                chunk.bytes += payload.len() as u64;
+
+                *total_messages += 1;
+                chunk.count += 1;
+
+                // resource copy
+                if self.options.include_resource_links && !self.options.embed_resources_as_data_uri
+                {
+                    for res in iter_resources(message) {
+                        while running.len() >= concurrency {
+                            drain_one_copy(running, copied_resources).await;
+                        }
+                        let output_dir = output_dir.to_path_buf();
+                        running.spawn(async move { copy_resource_file(&res, &output_dir).await });
+                    }
+                }
+
+                // rotate chunk
+                if chunk.count >= limits.max_messages_per_chunk
+                    || chunk.bytes >= limits.max_chunk_bytes
+                {
+                    finish_chunk(chunk, chunks_meta, &chunk_file_rel).await?;
+                }
             }
         }
 
@@ -1584,8 +1619,18 @@ impl ModernHtmlExporter {
     }
 
     fn prepare_reply_targets(&mut self, messages: &[CleanMessage]) {
+        self.begin_reply_targets();
+        self.extend_reply_targets(messages);
+    }
+
+    /// 清空 reply 跳转索引（流式导出时先建索引再写 chunk）。
+    fn begin_reply_targets(&mut self) {
         self.rendered_message_ids.clear();
         self.message_id_by_time_sender.clear();
+    }
+
+    /// 把一批消息并入 reply 跳转索引。
+    fn extend_reply_targets(&mut self, messages: &[CleanMessage]) {
         for message in messages {
             if message.id.trim().is_empty() {
                 continue;
@@ -1707,7 +1752,6 @@ struct ChunkLimits {
 
 /// `export_chunked_inner` 的借用参数打包（避免形参过多）。
 struct ChunkedRunArgs<'a> {
-    messages: &'a [CleanMessage],
     chat_info: &'a ChatInfo,
     output_dir: &'a Path,
     output_path: &'a Path,
@@ -2566,10 +2610,9 @@ fn market_face_alternate_url(url: &str) -> Option<String> {
         .map_or((url, None), |(path, query)| (path, Some(query)));
     let alternate = if let Some(base) = path.strip_suffix("/raw300.gif") {
         format!("{base}/raw300.png")
-    } else if let Some(base) = path.strip_suffix("/raw300.png") {
-        format!("{base}/raw300.gif")
     } else {
-        return None;
+        let base = path.strip_suffix("/raw300.png")?;
+        format!("{base}/raw300.gif")
     };
     Some(query.map_or(alternate.clone(), |query| format!("{alternate}?{query}")))
 }
