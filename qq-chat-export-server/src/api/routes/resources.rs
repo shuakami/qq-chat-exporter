@@ -1684,6 +1684,61 @@ fn parse_manual_export_file_name(file_name: &str) -> Option<ManualExportInfo> {
     })
 }
 
+/// 定时备份文件名解析结果。
+struct ScheduledExportInfo {
+    /// 分组键：现行格式为 `{chatType}_{chatId}`；遗留格式为任务名。
+    group_key: String,
+    /// 展示名：现行格式为会话名（缺省时退回 chatId）；遗留格式为任务名。
+    task_name: String,
+    /// 时间戳：现行格式为 `YYYY-MM-DD HH:MM:SS`（毫秒丢弃，无 T 以便前端直出显示）；
+    /// 遗留格式为 `YYYY-MM-DDTHH-MM-SS`。
+    timestamp: String,
+}
+
+/// 解析定时备份文件名。
+///
+/// 现行格式由 `scheduled_executor::scheduled_export_file_name` 生成：
+/// `{chatType}_{会话名}_{peer}_{YYYYMMDD}_{HHMMSSmmm}.{ext}`，同目录重名时带 `_N`
+/// 碰撞后缀；直接复用 `parse_export_file_name`（兼容碰撞后缀与 `_NNN_TEMP`）。
+/// 不满足时退回早期版本的 `任务名_YYYY-MM-DDTHH-MM-SS` 格式。
+fn parse_scheduled_export_file_name(file_name: &str) -> Option<ScheduledExportInfo> {
+    if let Some(info) = parse_export_file_name(file_name) {
+        let chat_type = info.get("chatType")?.as_str()?.to_string();
+        let chat_id = info.get("chatId")?.as_str()?.to_string();
+        let display_name = info
+            .get("displayName")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let timestamp = info
+            .get("exportDate")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        return Some(ScheduledExportInfo {
+            group_key: format!("{chat_type}_{chat_id}"),
+            task_name: if display_name.is_empty() {
+                chat_id
+            } else {
+                display_name
+            },
+            timestamp,
+        });
+    }
+
+    static RE_LEGACY: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re_legacy = RE_LEGACY.get_or_init(|| {
+        regex::Regex::new(r"^(.+)_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.(html|json)$")
+            .expect("valid regex")
+    });
+    let caps = re_legacy.captures(file_name)?;
+    Some(ScheduledExportInfo {
+        group_key: caps[1].to_string(),
+        task_name: caps[1].to_string(),
+        timestamp: caps[2].to_string(),
+    })
+}
+
 // GET /api/merge-resources/available-tasks
 
 /// 获取可用于合并的备份列表（定时备份 + 手动导出，按会话分组）。
@@ -1691,13 +1746,8 @@ pub async fn merge_available_tasks(
     State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
 ) -> Response {
-    // 1. 定时备份：任务名_时间戳.格式。
-    static RE_SCHEDULED: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re_scheduled = RE_SCHEDULED.get_or_init(|| {
-        regex::Regex::new(r"^(.+)_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.(html|json)$")
-            .expect("valid regex")
-    });
-
+    // 1. 定时备份：现行文件名 {chatType}_{会话名}_{peer}_{YYYYMMDD}_{HHMMSSmmm}.{ext}
+    //    （scheduled_executor 生成，重名带 _N 后缀），兼容早期“任务名_YYYY-MM-DDTHH-MM-SS”。
     let mut scheduled_groups: HashMap<String, Vec<Value>> = HashMap::new();
     let scheduled_dir = state.path_manager.scheduled_exports_dir();
     if let Ok(entries) = std::fs::read_dir(&scheduled_dir) {
@@ -1706,18 +1756,18 @@ pub async fn merge_available_tasks(
             if !name.ends_with(".html") && !name.ends_with(".json") {
                 continue;
             }
-            let Some(caps) = re_scheduled.captures(&name) else {
+            let Some(info) = parse_scheduled_export_file_name(&name) else {
                 continue;
             };
             let Ok(meta) = entry.metadata() else { continue };
             let created_at = meta.modified().map(iso).unwrap_or_default();
             scheduled_groups
-                .entry(caps[1].to_string())
+                .entry(info.group_key)
                 .or_default()
                 .push(json!({
                     "fileName": name,
-                    "taskName": &caps[1],
-                    "timestamp": &caps[2],
+                    "taskName": info.task_name,
+                    "timestamp": info.timestamp,
                     "createdAt": created_at,
                     "fileSize": meta.len(),
                 }));
@@ -1726,13 +1776,18 @@ pub async fn merge_available_tasks(
 
     let mut scheduled_tasks: Vec<Value> = scheduled_groups
         .into_iter()
-        .map(|(task_name, mut backups)| {
+        .map(|(group_key, mut backups)| {
             backups.sort_by(|a, b| {
                 let time_a = a.get("createdAt").and_then(Value::as_str).unwrap_or("");
                 let time_b = b.get("createdAt").and_then(Value::as_str).unwrap_or("");
                 time_b.cmp(time_a)
             });
             let latest = backups.first().cloned().unwrap_or(Value::Null);
+            let task_name = latest
+                .get("taskName")
+                .and_then(Value::as_str)
+                .unwrap_or(&group_key)
+                .to_string();
             json!({
                 "taskName": task_name,
                 "backupCount": backups.len(),
@@ -2239,8 +2294,8 @@ pub async fn merge_resources(
 mod metadata_tests {
     use super::{
         apply_file_metadata, avatar_url, extract_html_time_range, parse_export_file_name,
-        parse_manifest_metadata, parse_manual_export_file_name, should_select_in_file_manager,
-        valid_export_file_name, windows_explorer_args,
+        parse_manifest_metadata, parse_manual_export_file_name, parse_scheduled_export_file_name,
+        should_select_in_file_manager, valid_export_file_name, windows_explorer_args,
     };
     use serde_json::json;
     use std::fs;
@@ -2369,5 +2424,51 @@ mod metadata_tests {
         .unwrap();
         assert_eq!(uid_fallback.peer_uid, "u_UPWhwEIrK6nqDmJUmoYq3Q");
         assert_eq!(uid_fallback.session_name.as_deref(), Some("联系人"));
+    }
+
+    #[test]
+    fn scheduled_file_names_parse_current_and_legacy_formats() {
+        // 现行格式（真实线上样例）：{chatType}_{会话名}_{peer}_{YYYYMMDD}_{HHMMSSmmm}.json
+        let current =
+            parse_scheduled_export_file_name("group_胡椒玉米汤_647668860_20260830_020047608.json")
+                .unwrap();
+        assert_eq!(current.group_key, "group_647668860");
+        assert_eq!(current.task_name, "胡椒玉米汤");
+        assert_eq!(current.timestamp, "2026-08-30 02:00:47");
+
+        // 好友会话 + 碰撞后缀 _2；下划线会话名尽力还原为空格。
+        let friend = parse_scheduled_export_file_name(
+            "friend_笨蛋_Darf_v2_1687657986_20260713_002703456_2.html",
+        )
+        .unwrap();
+        assert_eq!(friend.group_key, "friend_1687657986");
+        assert_eq!(friend.task_name, "笨蛋 Darf v2");
+        assert_eq!(friend.timestamp, "2026-07-13 00:27:03");
+
+        // HTML 与 JSON 扩展名均可解析。
+        assert!(parse_scheduled_export_file_name(
+            "group_黑猫燦炎上指挥部_814219720_20260830_020055645.html"
+        )
+        .is_some());
+
+        // 遗留格式：任务名_YYYY-MM-DDTHH-MM-SS。
+        let legacy =
+            parse_scheduled_export_file_name("我的每日备份_2025-11-28T06-24-13.html").unwrap();
+        assert_eq!(legacy.group_key, "我的每日备份");
+        assert_eq!(legacy.task_name, "我的每日备份");
+        assert_eq!(legacy.timestamp, "2025-11-28T06-24-13");
+
+        // 无法解析的文件名：ZIP/JSONL、非导出文件、缺时间戳。
+        for rejected in [
+            "group_胡椒玉米汤_647668860_20260830_020047608_streaming.zip",
+            "group_胡椒玉米汤_647668860_20260830_020047608_chunked_jsonl",
+            "随便.txt",
+            "not-a-parseable-name.html",
+        ] {
+            assert!(
+                parse_scheduled_export_file_name(rejected).is_none(),
+                "{rejected}"
+            );
+        }
     }
 }
