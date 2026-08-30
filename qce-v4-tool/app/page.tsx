@@ -1221,6 +1221,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     sourceTaskIds: string[]  // 文件名列表
     deleteSourceFiles: boolean
     deduplicateMessages: boolean
+    formats?: string[]  // 输出格式:json / html
   }) => {
     const loadingId = addNotification('info', '正在合并', '合并任务已开始，请稍候...')
     
@@ -1262,7 +1263,13 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
         if (skipped.length > 0) {
           lines.push(`跳过:${skipped.map(s => s.fileName).join('、')}（每个聊天至少 2 个备份才会合并）`)
         }
-        const message = `成功合并 ${result.sourceCount} 个备份文件，共 ${result.totalMessages} 条消息${result.deduplicatedMessages > 0 ? `（去重 ${result.deduplicatedMessages} 条）` : ''}\n\n${lines.join('\n')}\n\n每个聊天已生成 JSON 和 HTML 文件`
+        const formats = config.formats || []
+        const formatLabel = formats.includes('json') && formats.includes('html')
+          ? 'JSON 和 HTML'
+          : formats.includes('json')
+            ? 'JSON'
+            : 'HTML'
+        const message = `成功合并 ${result.sourceCount} 个备份文件，共 ${result.totalMessages} 条消息${result.deduplicatedMessages > 0 ? `（去重 ${result.deduplicatedMessages} 条）` : ''}\n\n${lines.join('\n')}\n\n每个聊天已生成 ${formatLabel} 文件`
         
         addNotification(
           'success',
@@ -1275,7 +1282,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                 await fetch('/api/open-file-location', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ filePath: g.jsonPath })
+                  body: JSON.stringify({ filePath: g.jsonPath || g.htmlPath })
                 })
               } catch (error) {
                 console.error('打开文件位置失败:', error)

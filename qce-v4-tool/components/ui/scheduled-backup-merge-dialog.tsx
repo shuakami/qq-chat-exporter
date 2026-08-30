@@ -51,6 +51,7 @@ interface ScheduledBackupMergeDialogProps {
     sourceTaskIds: string[]  // 实际是文件名列表
     deleteSourceFiles: boolean
     deduplicateMessages: boolean
+    formats: string[]  // 输出格式:json / html
   }) => Promise<void>
 }
 
@@ -65,6 +66,7 @@ export function ScheduledBackupMergeDialog({
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const [deduplicateMessages, setDeduplicateMessages] = useState(true)
   const [deleteSourceFiles, setDeleteSourceFiles] = useState(false)
+  const [formats, setFormats] = useState<{ json: boolean; html: boolean }>({ json: true, html: true })
   const [merging, setMerging] = useState(false)
 
   const toggleTask = (taskName: string) => {
@@ -111,12 +113,21 @@ export function ScheduledBackupMergeDialog({
       return
     }
 
+    const selectedFormats = [
+      ...(formats.json ? ['json'] : []),
+      ...(formats.html ? ['html'] : [])
+    ]
+    if (selectedFormats.length === 0) {
+      return
+    }
+
     setMerging(true)
     try {
       await onMerge({
         sourceTaskIds: Array.from(selectedBackups),
         deleteSourceFiles,
-        deduplicateMessages
+        deduplicateMessages,
+        formats: selectedFormats
       })
       
       setSelectedBackups(new Set())
@@ -356,6 +367,30 @@ export function ScheduledBackupMergeDialog({
                     <Switch checked={deduplicateMessages} disabled={merging} onCheckedChange={setDeduplicateMessages} />
                   </div>
 
+                  <div className="flex items-center justify-between gap-6 p-3.5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04]">
+                    <div className="flex flex-col gap-0.5 flex-1 pr-4">
+                      <div className="text-[13px] font-medium text-foreground">生成 JSON 文件</div>
+                      <div className="text-[12px] text-muted-foreground leading-snug mt-0.5">适合程序处理与二次分析，保留完整消息数据</div>
+                    </div>
+                    <Switch
+                      checked={formats.json}
+                      disabled={merging}
+                      onCheckedChange={(checked) => setFormats(prev => ({ ...prev, json: checked === true }))}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-6 p-3.5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04]">
+                    <div className="flex flex-col gap-0.5 flex-1 pr-4">
+                      <div className="text-[13px] font-medium text-foreground">生成 HTML 文件</div>
+                      <div className="text-[12px] text-muted-foreground leading-snug mt-0.5">适合浏览器直接查看，带消息气泡与图片样式</div>
+                    </div>
+                    <Switch
+                      checked={formats.html}
+                      disabled={merging}
+                      onCheckedChange={(checked) => setFormats(prev => ({ ...prev, html: checked === true }))}
+                    />
+                  </div>
+
                   <div className="flex items-center justify-between gap-6 p-3.5 rounded-2xl bg-red-50/70 dark:bg-red-950/25">
                     <div className="flex flex-col gap-0.5 flex-1 pr-4">
                       <div className="text-[13px] font-medium text-red-700 dark:text-red-400">合并后删除源文件</div>
@@ -386,7 +421,7 @@ export function ScheduledBackupMergeDialog({
             </Button>
             <Button
               onClick={handleMerge}
-              disabled={selectedBackups.size < 2 || merging}
+              disabled={selectedBackups.size < 2 || merging || (!formats.json && !formats.html)}
               className="rounded-full text-[13px] h-8 px-6 bg-[#317CFF] text-white hover:bg-[#2867d6]"
             >
               {merging ? '合并中...' : `开始合并 (${selectedBackups.size})`}

@@ -428,9 +428,11 @@ fn parse_json_metadata(file_path: &FsPath) -> FileMetadata {
         message_count,
         chat_name,
         time_range,
-        peer_uid: metadata_string(&data, "/chatInfo/peerUid"),
+        peer_uid: metadata_string(&data, "/chatInfo/peerUid")
+            .or_else(|| metadata_string(&data, "/metadata/chatId")),
         peer_uin: metadata_string(&data, "/chatInfo/peerUin"),
-        avatar_url: metadata_string(&data, "/chatInfo/avatar"),
+        avatar_url: metadata_string(&data, "/chatInfo/avatar")
+            .or_else(|| metadata_string(&data, "/metadata/avatarUrl")),
     }
 }
 
@@ -679,13 +681,18 @@ async fn scan_merged_export_dir(state: &SharedState, files: &mut Vec<Value>) {
             "description": format!("合并于 {display_time}"),
             "format": if is_json { "JSON" } else { "HTML" },
         });
-        // 仅 JSON 解析内容取 messageCount（与普通导出扫描一致）；HTML 不解析（避免读大文件）。
-        if is_json {
-            let metadata = parse_json_metadata(&file_path);
-            if let Some(count) = metadata.message_count {
-                file_info["messageCount"] = json!(count);
-            }
+        // JSON 全量解析;HTML 只读 4KB 头部 QCE_METADATA(含 messageCount/avatarUrl/peerUid)。
+        let metadata = if is_json {
+            parse_json_metadata(&file_path)
+        } else {
+            parse_html_metadata(&file_path)
+        };
+        // 聊天对象 ID 来自产物元数据(旧格式无此字段时保持 "merged"),
+        // friend + u_xxx 的行随后由 fix_avatar_urls 走 UID→UIN 映射补头像。
+        if let Some(peer_uid) = &metadata.peer_uid {
+            file_info["chatId"] = json!(peer_uid);
         }
+        apply_file_metadata(&mut file_info, metadata);
 
         let (create_time, modify_time) = file_times(&meta);
         let mut item = json!({
@@ -2131,6 +2138,7 @@ struct MergeSource {
 /// 一个按聊天分组的待合并集合。
 struct MergeGroup {
     chat_type: String,
+    chat_id: Option<String>,
     display_name: String,
     file_names: Vec<String>,
     sources: Vec<MergeSource>,
@@ -2151,26 +2159,30 @@ fn group_merge_sources(
     let mut groups: Vec<MergeGroup> = Vec::new();
 
     for (file_name, source) in file_names.iter().zip(sources) {
-        let (group_key, chat_type, display_name) =
+        let (group_key, chat_type, chat_id, display_name) =
             if let Some(info) = parse_scheduled_export_file_name(file_name) {
-                // 现行定时备份名可额外解析出 chatType;遗留格式无法解析时按群聊处理。
-                let chat_type = parse_export_file_name(file_name)
-                    .and_then(|value| {
-                        value
-                            .get("chatType")
-                            .and_then(Value::as_str)
-                            .map(String::from)
-                    })
-                    .unwrap_or_else(|| "group".to_string());
-                (info.group_key, chat_type, info.task_name)
+                // 现行定时备份名可额外解析出 chatType/chatId;遗留格式无法解析时按群聊处理。
+                let export_info = parse_export_file_name(file_name);
+                let chat_type = export_info
+                    .as_ref()
+                    .and_then(|value| value.get("chatType").and_then(Value::as_str))
+                    .unwrap_or("group")
+                    .to_string();
+                let chat_id = export_info
+                    .as_ref()
+                    .and_then(|value| value.get("chatId").and_then(Value::as_str))
+                    .map(String::from);
+                (info.group_key, chat_type, chat_id, info.task_name)
             } else if let Some(info) = parse_manual_export_file_name(file_name) {
                 let display_name = info
                     .session_name
                     .clone()
                     .unwrap_or_else(|| info.peer_uid.clone());
+                let chat_id = Some(info.peer_uid.clone());
                 (
                     format!("{}_{}", info.chat_type, info.peer_uid),
                     info.chat_type,
+                    chat_id,
                     display_name,
                 )
             } else {
@@ -2178,6 +2190,7 @@ fn group_merge_sources(
                 (
                     "__unclassified__".to_string(),
                     "group".to_string(),
+                    None,
                     "合并的聊天记录".to_string(),
                 )
             };
@@ -2188,6 +2201,7 @@ fn group_merge_sources(
             let new_index = groups.len();
             groups.push(MergeGroup {
                 chat_type,
+                chat_id,
                 display_name,
                 file_names: Vec::new(),
                 sources: Vec::new(),
@@ -2389,12 +2403,20 @@ fn merge_resource_files(
     Ok((total, mapping))
 }
 
+/// 单组合并写盘参数。
+struct MergedWriteOptions<'a> {
+    chat_name: &'a str,
+    chat_type: &'a str,
+    chat_id: Option<&'a str>,
+    generate_json: bool,
+    generate_html: bool,
+}
+
 async fn write_merged_data(
     output_path: &FsPath,
     messages: &[Value],
     mapping: &[(String, String)],
-    chat_name: &str,
-    chat_type: &str,
+    options: &MergedWriteOptions<'_>,
 ) -> Result<(PathBuf, PathBuf), String> {
     tokio::fs::create_dir_all(output_path)
         .await
@@ -2407,51 +2429,80 @@ async fn write_merged_data(
         .take(19)
         .collect::<String>();
 
-    // 1. JSON。
-    let (json_name, html_name) = merged_output_names(output_path, chat_type, chat_name, &timestamp);
-    let json_path = output_path.join(&json_name);
-    let json_data = json!({
-        "metadata": {
-            "mergedAt": Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-            "messageCount": messages.len(),
-            "resourceCount": mapping.len(),
-        },
-        "messages": messages,
-        "resources": mapping.iter().map(|(md5, path)| json!({ "md5": md5, "path": path })).collect::<Vec<_>>(),
-    });
-    let json_text = serde_json::to_string_pretty(&json_data).map_err(|e| e.to_string())?;
-    tokio::fs::write(&json_path, json_text)
-        .await
-        .map_err(|e| format!("写入JSON失败: {e}"))?;
+    let (json_name, html_name) = merged_output_names(
+        output_path,
+        options.chat_type,
+        options.chat_name,
+        &timestamp,
+    );
+    let avatar = options
+        .chat_id
+        .and_then(|id| avatar_url(options.chat_type, id));
 
-    // 2. HTML（失败时仅保留 JSON）。
-    let html_path = output_path.join(&html_name);
-    let clean_messages: Vec<CleanMessage> = messages
-        .iter()
-        .filter_map(|m| serde_json::from_value(m.clone()).ok())
-        .collect();
-    let chat_info = ChatInfo {
-        name: chat_name.to_string(),
-        chat_type: chat_type.to_string(),
-        self_name: Some("合并导出".to_string()),
-        ..ChatInfo::default()
-    };
-    let mut exporter = ModernHtmlExporter::new(HtmlExportOptions {
-        output_path: html_path.clone(),
-        include_resource_links: true,
-        include_system_messages: true,
-        exporter_version: Some(crate::version::VERSION.get().to_string()),
-        ..HtmlExportOptions::default()
-    });
-    let html_result = exporter
-        .export_single_inline(&clean_messages, &chat_info)
-        .await;
-    let final_html = if html_result.is_ok() {
-        html_path
+    // 1. JSON(可选)。
+    let json_path = if options.generate_json {
+        let json_path = output_path.join(&json_name);
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            "mergedAt".to_string(),
+            json!(Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
+        );
+        metadata.insert("messageCount".to_string(), json!(messages.len()));
+        metadata.insert("resourceCount".to_string(), json!(mapping.len()));
+        if let Some(id) = options.chat_id {
+            metadata.insert("chatId".to_string(), json!(id));
+        }
+        if let Some(url) = avatar.as_ref() {
+            metadata.insert("avatarUrl".to_string(), json!(url));
+        }
+        let json_data = json!({
+            "metadata": metadata,
+            "messages": messages,
+            "resources": mapping.iter().map(|(md5, path)| json!({ "md5": md5, "path": path })).collect::<Vec<_>>(),
+        });
+        let json_text = serde_json::to_string_pretty(&json_data).map_err(|e| e.to_string())?;
+        tokio::fs::write(&json_path, json_text)
+            .await
+            .map_err(|e| format!("写入JSON失败: {e}"))?;
+        json_path
     } else {
         PathBuf::new()
     };
-    Ok((json_path, final_html))
+
+    // 2. HTML(可选,失败时仅保留 JSON)。
+    let html_path = if options.generate_html {
+        let html_path = output_path.join(&html_name);
+        let clean_messages: Vec<CleanMessage> = messages
+            .iter()
+            .filter_map(|m| serde_json::from_value(m.clone()).ok())
+            .collect();
+        let chat_info = ChatInfo {
+            name: options.chat_name.to_string(),
+            chat_type: options.chat_type.to_string(),
+            self_name: Some("合并导出".to_string()),
+            avatar,
+            peer_uid: options.chat_id.map(String::from),
+            ..ChatInfo::default()
+        };
+        let mut exporter = ModernHtmlExporter::new(HtmlExportOptions {
+            output_path: html_path.clone(),
+            include_resource_links: true,
+            include_system_messages: true,
+            exporter_version: Some(crate::version::VERSION.get().to_string()),
+            ..HtmlExportOptions::default()
+        });
+        let html_result = exporter
+            .export_single_inline(&clean_messages, &chat_info)
+            .await;
+        if html_result.is_ok() {
+            html_path
+        } else {
+            PathBuf::new()
+        }
+    } else {
+        PathBuf::new()
+    };
+    Ok((json_path, html_path))
 }
 
 fn cleanup_merge_sources(sources: &[MergeSource]) {
@@ -2464,6 +2515,33 @@ fn cleanup_merge_sources(sources: &[MergeSource]) {
             let _ = std::fs::remove_dir_all(&source.resource_dir);
         }
     }
+}
+
+/// 解析合并输出格式:`body.formats` 数组(值小写归一);缺省 `["json","html"]`。
+/// 返回 (generate_json, generate_html);非法值或全空返回错误。
+fn parse_merge_formats(body: &Value) -> Result<(bool, bool), String> {
+    let formats: Vec<String> = body.get("formats").and_then(Value::as_array).map_or_else(
+        || vec!["json".to_string(), "html".to_string()],
+        |array| {
+            array
+                .iter()
+                .filter_map(|value| value.as_str().map(str::to_lowercase))
+                .collect()
+        },
+    );
+    if formats.is_empty() {
+        return Err("至少选择一种输出格式".to_string());
+    }
+    if formats
+        .iter()
+        .any(|format| format != "json" && format != "html")
+    {
+        return Err("输出格式仅支持 json/html".to_string());
+    }
+    Ok((
+        formats.iter().any(|format| format == "json"),
+        formats.iter().any(|format| format == "html"),
+    ))
 }
 
 /// 合并多个备份任务的资源为单一资源。
@@ -2497,6 +2575,13 @@ pub async fn merge_resources(
         .get("deduplicateMessages")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+    let (generate_json, generate_html) = match parse_merge_formats(&body) {
+        Ok(formats) => formats,
+        Err(message) => {
+            let err = ApiError::validation(message, "INVALID_FORMATS");
+            return response::error(&err, &request_id);
+        }
+    };
     let requested_output_path = body
         .get("outputPath")
         .and_then(Value::as_str)
@@ -2610,8 +2695,13 @@ pub async fn merge_resources(
             &output_path,
             &messages,
             &mapping,
-            &group.display_name,
-            &group.chat_type,
+            &MergedWriteOptions {
+                chat_name: &group.display_name,
+                chat_type: &group.chat_type,
+                chat_id: group.chat_id.as_deref(),
+                generate_json,
+                generate_html,
+            },
         )
         .await
         {
@@ -2687,9 +2777,9 @@ mod metadata_tests {
     use super::{
         apply_file_metadata, avatar_url, extract_html_time_range, group_merge_sources,
         merged_export_display_time, merged_output_names, parse_export_file_name,
-        parse_manifest_metadata, parse_manual_export_file_name, parse_merged_export_file_name,
-        parse_scheduled_export_file_name, should_select_in_file_manager, valid_export_file_name,
-        windows_explorer_args, MergeSource,
+        parse_manifest_metadata, parse_manual_export_file_name, parse_merge_formats,
+        parse_merged_export_file_name, parse_scheduled_export_file_name,
+        should_select_in_file_manager, valid_export_file_name, windows_explorer_args, MergeSource,
     };
     use serde_json::json;
     use std::fs;
@@ -2940,6 +3030,7 @@ mod metadata_tests {
 
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].chat_type, "group");
+        assert_eq!(groups[0].chat_id.as_deref(), Some("647668860"));
         assert_eq!(groups[0].display_name, "胡椒玉米汤");
         assert_eq!(groups[0].sources.len(), 2);
 
@@ -2958,9 +3049,46 @@ mod metadata_tests {
             vec!["weird_one.html".to_string(), "weird_two.json".to_string()];
         let (groups, skipped) = group_merge_sources(&odd_names, vec![mk("e"), mk("f")]);
         assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].chat_id, None);
         assert_eq!(groups[0].display_name, "合并的聊天记录");
         assert_eq!(groups[0].sources.len(), 2);
         assert!(skipped.is_empty());
+
+        // 手动导出名:chat_id 取 peer_uid。
+        let manual_names: Vec<String> = vec![
+            "group_AxT_鸽子窝_960420904_20260713_002703456.json".to_string(),
+            "group_AxT_鸽子窝_960420904_20260713_002703456_2.json".to_string(),
+        ];
+        let (groups, skipped) = group_merge_sources(&manual_names, vec![mk("g"), mk("h")]);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].chat_id.as_deref(), Some("960420904"));
+        assert!(skipped.is_empty());
+
+        // 遗留定时名(任务名_时间):无 chat_id。
+        let legacy_names: Vec<String> = vec![
+            "我的每日备份_2025-11-28T06-24-13.html".to_string(),
+            "我的每日备份_2025-11-29T06-24-13.html".to_string(),
+        ];
+        let (groups, skipped) = group_merge_sources(&legacy_names, vec![mk("i"), mk("j")]);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].chat_id, None);
+        assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn merge_formats_parse_defaults_and_validate() {
+        let default = parse_merge_formats(&json!({})).unwrap();
+        assert_eq!(default, (true, true));
+
+        let html_only = parse_merge_formats(&json!({ "formats": ["html"] })).unwrap();
+        assert_eq!(html_only, (false, true));
+
+        let upper = parse_merge_formats(&json!({ "formats": ["JSON", "Html"] })).unwrap();
+        assert_eq!(upper, (true, true));
+
+        assert!(parse_merge_formats(&json!({ "formats": [] })).is_err());
+        assert!(parse_merge_formats(&json!({ "formats": ["xlsx"] })).is_err());
+        assert!(parse_merge_formats(&json!({ "formats": ["json", "zip"] })).is_err());
     }
 
     #[test]
