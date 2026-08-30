@@ -112,35 +112,67 @@ struct ResolvedExportFile {
     path: PathBuf,
     base_dir: PathBuf,
     is_scheduled: bool,
+    is_merged: bool,
 }
 
-/// Resolves an existing top-level export file without permitting traversal or symlink escape.
-fn resolve_export_file(state: &SharedState, file_name: &str) -> Option<ResolvedExportFile> {
+/// Resolves an existing export file inside a single base directory without
+/// permitting traversal or symlink escape.
+fn resolve_within_base(
+    base_dir: PathBuf,
+    is_scheduled: bool,
+    is_merged: bool,
+    file_name: &str,
+) -> Option<ResolvedExportFile> {
     if !valid_export_file_name(file_name) {
         return None;
     }
 
-    for (base_dir, is_scheduled) in [
-        (state.path_manager.exports_dir(), false),
-        (state.path_manager.scheduled_exports_dir(), true),
-    ] {
-        let candidate = base_dir.join(file_name);
-        if !candidate.is_file() {
-            continue;
-        }
-        let (Ok(path), Ok(canonical_base)) = (candidate.canonicalize(), base_dir.canonicalize())
-        else {
-            continue;
-        };
-        if path.starts_with(&canonical_base) {
-            return Some(ResolvedExportFile {
-                path,
-                base_dir,
-                is_scheduled,
-            });
-        }
+    let candidate = base_dir.join(file_name);
+    if !candidate.is_file() {
+        return None;
+    }
+    let (Ok(path), Ok(canonical_base)) = (candidate.canonicalize(), base_dir.canonicalize()) else {
+        return None;
+    };
+    if path.starts_with(&canonical_base) {
+        return Some(ResolvedExportFile {
+            path,
+            base_dir,
+            is_scheduled,
+            is_merged,
+        });
     }
     None
+}
+
+/// Resolves an existing top-level export file without permitting traversal or symlink escape.
+fn resolve_export_file(state: &SharedState, file_name: &str) -> Option<ResolvedExportFile> {
+    resolve_within_base(state.path_manager.exports_dir(), false, false, file_name).or_else(|| {
+        resolve_within_base(
+            state.path_manager.scheduled_exports_dir(),
+            true,
+            false,
+            file_name,
+        )
+    })
+}
+
+/// Resolves an existing merged export file under `exports/merged`（不进普通导出目录）。
+fn resolve_merged_export_file(state: &SharedState, file_name: &str) -> Option<ResolvedExportFile> {
+    resolve_within_base(
+        state.path_manager.merged_exports_dir(),
+        false,
+        true,
+        file_name,
+    )
+}
+
+/// Resolves a top-level export file first, then falls back to the merged directory.
+fn resolve_export_or_merged_file(
+    state: &SharedState,
+    file_name: &str,
+) -> Option<ResolvedExportFile> {
+    resolve_export_file(state, file_name).or_else(|| resolve_merged_export_file(state, file_name))
 }
 
 // 导出文件名解析（Issue #216 新旧格式兼容）
@@ -373,7 +405,11 @@ fn parse_json_metadata(file_path: &FsPath) -> FileMetadata {
     };
     let message_count = data
         .pointer("/statistics/totalMessages")
-        .and_then(Value::as_i64);
+        .and_then(Value::as_i64)
+        .or_else(|| {
+            data.pointer("/metadata/messageCount")
+                .and_then(Value::as_i64)
+        });
     let chat_name = data
         .pointer("/chatInfo/name")
         .and_then(Value::as_str)
@@ -609,6 +645,58 @@ async fn scan_export_dir(
 
 // GET /api/exports/files
 
+/// 扫描合并导出目录 `exports/merged`，把识别出的合并产物（HTML/JSON 一对）加入 `files`。
+async fn scan_merged_export_dir(state: &SharedState, files: &mut Vec<Value>) {
+    let merged_dir = state.path_manager.merged_exports_dir();
+    let Ok(entries) = std::fs::read_dir(&merged_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        let Some((format, timestamp)) = parse_merged_export_file_name(&file_name) else {
+            continue;
+        };
+        let file_path = entry.path();
+        let Ok(meta) = entry.metadata() else { continue };
+        if !meta.is_file() {
+            continue;
+        }
+
+        let mut file_info = json!({
+            "chatType": "group",
+            "chatId": "merged",
+            "displayName": "合并的聊天记录",
+            "exportDate": merged_export_display_time(&timestamp),
+            "description": format!("合并于 {}", merged_export_display_time(&timestamp)),
+            "format": if format == "json" { "JSON" } else { "HTML" },
+        });
+        // 仅 JSON 解析内容取 messageCount（与普通导出扫描一致）；HTML 不解析（避免读大文件）。
+        if format == "json" {
+            let metadata = parse_json_metadata(&file_path);
+            if let Some(count) = metadata.message_count {
+                file_info["messageCount"] = json!(count);
+            }
+        }
+
+        let (create_time, modify_time) = file_times(&meta);
+        let mut item = json!({
+            "fileName": file_name,
+            "filePath": file_path.to_string_lossy(),
+            "relativePath": format!("/downloads/merged/{file_name}"),
+            "size": meta.len(),
+            "createTime": create_time,
+            "modifyTime": modify_time,
+            "isMerged": true,
+        });
+        if let (Some(obj), Some(extra)) = (item.as_object_mut(), file_info.as_object()) {
+            for (key, value) in extra {
+                obj.insert(key.clone(), value.clone());
+            }
+        }
+        files.push(item);
+    }
+}
+
 /// 获取导出文件列表（聊天记录索引页面）。
 pub async fn list_export_files(
     State(state): State<SharedState>,
@@ -623,6 +711,7 @@ pub async fn list_export_files(
         &mut files,
     )
     .await;
+    scan_merged_export_dir(&state, &mut files).await;
     // 将 u_xxx 形式的 peerUid 解析为 QQ 号码以生成正确的头像 URL。
     let uid_to_uin = build_uid_to_uin_map(&state).await;
     fix_avatar_urls(&mut files, &uid_to_uin);
@@ -642,13 +731,27 @@ pub async fn export_file_info(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(file_name): Path<String>,
 ) -> Response {
-    let Some(resolved) = resolve_export_file(&state, &file_name) else {
+    let Some(resolved) = resolve_export_or_merged_file(&state, &file_name) else {
         let err = ApiError::validation("导出文件不存在", "FILE_NOT_FOUND");
         return response::error(&err, &request_id);
     };
     let file_path = resolved.path;
     let is_scheduled = resolved.is_scheduled;
-    let Some(basic_info) = parse_export_file_name(&file_name) else {
+    let is_merged = resolved.is_merged;
+    let basic_info = if is_merged {
+        parse_merged_export_file_name(&file_name).map(|(format, timestamp)| {
+            json!({
+                "chatType": "group",
+                "chatId": "merged",
+                "displayName": "合并的聊天记录",
+                "exportDate": merged_export_display_time(&timestamp),
+                "format": if format == "json" { "JSON" } else { "HTML" },
+            })
+        })
+    } else {
+        parse_export_file_name(&file_name)
+    };
+    let Some(basic_info) = basic_info else {
         let err = ApiError::validation("无效的文件名格式", "INVALID_FILENAME");
         return response::error(&err, &request_id);
     };
@@ -667,12 +770,20 @@ pub async fn export_file_info(
                 if let Some(name) = data.pointer("/chatInfo/name").and_then(Value::as_str) {
                     detailed.insert("displayName".into(), json!(name));
                 }
-                if let Some(time) = data.pointer("/metadata/exportTime").and_then(Value::as_str) {
+                if let Some(time) = data
+                    .pointer("/metadata/exportTime")
+                    .and_then(Value::as_str)
+                    .or_else(|| data.pointer("/metadata/mergedAt").and_then(Value::as_str))
+                {
                     detailed.insert("exportTime".into(), json!(time));
                 }
                 if let Some(count) = data
                     .pointer("/statistics/totalMessages")
                     .and_then(Value::as_i64)
+                    .or_else(|| {
+                        data.pointer("/metadata/messageCount")
+                            .and_then(Value::as_i64)
+                    })
                 {
                     detailed.insert("messageCount".into(), json!(count));
                 }
@@ -724,6 +835,8 @@ pub async fn export_file_info(
     let (create_time, modify_time) = file_times(&meta);
     let prefix = if is_scheduled {
         "/scheduled-downloads"
+    } else if is_merged {
+        "/downloads/merged"
     } else {
         "/downloads"
     };
@@ -735,6 +848,7 @@ pub async fn export_file_info(
         "createTime": create_time,
         "modifyTime": modify_time,
         "isScheduled": is_scheduled,
+        "isMerged": is_merged,
     });
     if let Some(obj) = result.as_object_mut() {
         if let Some(basic) = basic_info.as_object() {
@@ -757,7 +871,7 @@ pub async fn delete_export_file(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(file_name): Path<String>,
 ) -> Response {
-    let Some(resolved) = resolve_export_file(&state, &file_name) else {
+    let Some(resolved) = resolve_export_or_merged_file(&state, &file_name) else {
         let err = ApiError::validation("文件不存在", "FILE_NOT_FOUND");
         return response::error(&err, &request_id);
     };
@@ -768,6 +882,9 @@ pub async fn delete_export_file(
     let base_name = re.replace(&file_name, "").into_owned();
     let html_path = base_dir.join(format!("{base_name}.html"));
     let json_path = base_dir.join(format!("{base_name}.json"));
+    // merged 产物的资源为共享目录 `exports/merged/resources/`（不按文件区分），
+    // 命名与 `resources_{base_name}` 不同，天然不会被这里的删除逻辑误删；
+    // 保留该共享目录供其他合并产物继续使用。
     let resources_dir = base_dir.join(format!("resources_{base_name}"));
 
     let mut deleted: Vec<&str> = Vec::new();
@@ -844,7 +961,7 @@ pub async fn preview_export_file(
     Path(file_name): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
-    let Some(resolved) = resolve_export_file(&state, &file_name) else {
+    let Some(resolved) = resolve_export_or_merged_file(&state, &file_name) else {
         let err = ApiError::validation("导出文件不存在", "FILE_NOT_FOUND");
         return response::error(&err, &request_id);
     };
@@ -1071,6 +1188,14 @@ async fn find_export_local_resource(
         let jsonl_dir = scheduled_dir.join(base_name);
         if jsonl_dir.is_dir() {
             resource_dir = jsonl_dir.join("resources");
+        }
+    }
+    // 合并导出产物共享 `exports/merged/resources/` 目录（HTML 里的相对链接统一
+    // 指向 resources/...，不按文件区分）。
+    if !resource_dir.exists() && base_name.starts_with("merged_") {
+        let merged_resources = state.path_manager.merged_exports_dir().join("resources");
+        if merged_resources.is_dir() {
+            resource_dir = merged_resources;
         }
     }
     if !resource_dir.exists() {
@@ -1684,6 +1809,23 @@ fn parse_manual_export_file_name(file_name: &str) -> Option<ManualExportInfo> {
     })
 }
 
+/// 解析合并导出文件名 `merged_{YYYY-MM-DDTHH-MM-SS}.{html|json}`，返回 (格式小写, 时间戳)。
+fn parse_merged_export_file_name(file_name: &str) -> Option<(String, String)> {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(r"^merged_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.(html|json)$")
+            .expect("valid regex")
+    });
+    let caps = re.captures(file_name)?;
+    Some((caps[2].to_lowercase(), caps[1].to_string()))
+}
+
+/// 把合并文件名时间戳 `YYYY-MM-DDTHH-MM-SS` 转为展示格式 `YYYY-MM-DD HH:MM:SS`。
+fn merged_export_display_time(timestamp: &str) -> String {
+    let (date, time) = timestamp.split_once('T').unwrap_or((timestamp, ""));
+    format!("{date} {}", time.replace('-', ":"))
+}
+
 /// 定时备份文件名解析结果。
 struct ScheduledExportInfo {
     /// 分组键：现行格式为 `{chatType}_{chatId}`；遗留格式为任务名。
@@ -2190,10 +2332,7 @@ pub async fn merge_resources(
         .get("outputPath")
         .and_then(Value::as_str)
         .filter(|p| !p.is_empty())
-        .map_or_else(
-            || state.path_manager.exports_dir().join("merged"),
-            PathBuf::from,
-        );
+        .map_or_else(|| state.path_manager.merged_exports_dir(), PathBuf::from);
     let roots = [
         state.path_manager.exports_dir(),
         state.path_manager.scheduled_exports_dir(),
@@ -2293,8 +2432,9 @@ pub async fn merge_resources(
 #[cfg(test)]
 mod metadata_tests {
     use super::{
-        apply_file_metadata, avatar_url, extract_html_time_range, parse_export_file_name,
-        parse_manifest_metadata, parse_manual_export_file_name, parse_scheduled_export_file_name,
+        apply_file_metadata, avatar_url, extract_html_time_range, merged_export_display_time,
+        parse_export_file_name, parse_manifest_metadata, parse_manual_export_file_name,
+        parse_merged_export_file_name, parse_scheduled_export_file_name,
         should_select_in_file_manager, valid_export_file_name, windows_explorer_args,
     };
     use serde_json::json;
@@ -2424,6 +2564,41 @@ mod metadata_tests {
         .unwrap();
         assert_eq!(uid_fallback.peer_uid, "u_UPWhwEIrK6nqDmJUmoYq3Q");
         assert_eq!(uid_fallback.session_name.as_deref(), Some("联系人"));
+    }
+
+    #[test]
+    fn merged_file_names_parse_timestamp_and_format() {
+        assert_eq!(
+            parse_merged_export_file_name("merged_2026-08-30T14-07-16.json"),
+            Some(("json".to_string(), "2026-08-30T14-07-16".to_string()))
+        );
+        assert_eq!(
+            parse_merged_export_file_name("merged_2026-08-30T14-07-16.html"),
+            Some(("html".to_string(), "2026-08-30T14-07-16".to_string()))
+        );
+
+        for rejected in [
+            "merged_2026-08-30T14-07-16.zip",
+            "merged_20260830.json",
+            "group_x_123_20260830_020047608.json",
+            "merged_.json",
+        ] {
+            assert!(
+                parse_merged_export_file_name(rejected).is_none(),
+                "{rejected}"
+            );
+        }
+
+        // 命名空间隔离：merged 文件名不进入普通导出/手动导出解析器，
+        // 因此不会出现在合并源候选（available-tasks）或作为再合并源。
+        assert!(parse_export_file_name("merged_2026-08-30T14-07-16.json").is_none());
+        assert!(parse_manual_export_file_name("merged_2026-08-30T14-07-16.json").is_none());
+
+        // 展示时间：T 换空格，时间部分连字符换冒号。
+        assert_eq!(
+            merged_export_display_time("2026-08-30T14-07-16"),
+            "2026-08-30 14:07:16"
+        );
     }
 
     #[test]

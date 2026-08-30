@@ -140,6 +140,11 @@ impl PathManager {
         self.default_export_root_dir().join("scheduled-exports")
     }
 
+    /// 合并导出目录（合并产物写入 exports/merged，独立于普通导出）。
+    pub fn merged_exports_dir(&self) -> PathBuf {
+        self.exports_dir().join("merged")
+    }
+
     /// 导出目录允许的根集合。
     ///
     /// Issue #644：任务级自定义导出目录可以位于默认导出根之外（例如另一个盘），
