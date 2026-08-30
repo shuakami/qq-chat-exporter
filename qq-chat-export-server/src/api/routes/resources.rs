@@ -19,6 +19,7 @@ use crate::api::path_security::{
 };
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
+use crate::paths::sanitize_task_name;
 
 // 通用小工具
 
@@ -653,7 +654,7 @@ async fn scan_merged_export_dir(state: &SharedState, files: &mut Vec<Value>) {
     };
     for entry in entries.flatten() {
         let file_name = entry.file_name().to_string_lossy().into_owned();
-        let Some((format, timestamp)) = parse_merged_export_file_name(&file_name) else {
+        let Some(parsed) = parse_merged_export_file_name(&file_name) else {
             continue;
         };
         let file_path = entry.path();
@@ -662,16 +663,24 @@ async fn scan_merged_export_dir(state: &SharedState, files: &mut Vec<Value>) {
             continue;
         }
 
+        let MergedExportName {
+            format,
+            timestamp,
+            chat_type,
+            display_name,
+        } = parsed;
+        let is_json = format == "json";
+        let display_time = merged_export_display_time(&timestamp);
         let mut file_info = json!({
-            "chatType": "group",
+            "chatType": chat_type,
             "chatId": "merged",
-            "displayName": "合并的聊天记录",
-            "exportDate": merged_export_display_time(&timestamp),
-            "description": format!("合并于 {}", merged_export_display_time(&timestamp)),
-            "format": if format == "json" { "JSON" } else { "HTML" },
+            "displayName": display_name,
+            "exportDate": display_time,
+            "description": format!("合并于 {display_time}"),
+            "format": if is_json { "JSON" } else { "HTML" },
         });
         // 仅 JSON 解析内容取 messageCount（与普通导出扫描一致）；HTML 不解析（避免读大文件）。
-        if format == "json" {
+        if is_json {
             let metadata = parse_json_metadata(&file_path);
             if let Some(count) = metadata.message_count {
                 file_info["messageCount"] = json!(count);
@@ -739,13 +748,20 @@ pub async fn export_file_info(
     let is_scheduled = resolved.is_scheduled;
     let is_merged = resolved.is_merged;
     let basic_info = if is_merged {
-        parse_merged_export_file_name(&file_name).map(|(format, timestamp)| {
+        parse_merged_export_file_name(&file_name).map(|parsed| {
+            let MergedExportName {
+                format,
+                timestamp,
+                chat_type,
+                display_name,
+            } = parsed;
+            let is_json = format == "json";
             json!({
-                "chatType": "group",
+                "chatType": chat_type,
                 "chatId": "merged",
-                "displayName": "合并的聊天记录",
+                "displayName": display_name,
                 "exportDate": merged_export_display_time(&timestamp),
-                "format": if format == "json" { "JSON" } else { "HTML" },
+                "format": if is_json { "JSON" } else { "HTML" },
             })
         })
     } else {
@@ -1809,21 +1825,80 @@ fn parse_manual_export_file_name(file_name: &str) -> Option<ManualExportInfo> {
     })
 }
 
-/// 解析合并导出文件名 `merged_{YYYY-MM-DDTHH-MM-SS}.{html|json}`，返回 (格式小写, 时间戳)。
-fn parse_merged_export_file_name(file_name: &str) -> Option<(String, String)> {
-    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re = RE.get_or_init(|| {
+/// 合并导出文件名解析结果。
+struct MergedExportName {
+    format: String,
+    timestamp: String,
+    chat_type: String,
+    display_name: String,
+}
+
+/// 解析合并导出文件名。
+///
+/// 新格式(按聊天合并):`merged_{chatType}_{聊天名}_{YYYY-MM-DDTHH-MM-SS}.{html|json}`,
+/// 同名冲突带 `_N` 后缀;旧格式:`merged_{YYYY-MM-DDTHH-MM-SS}.{html|json}`(历史产物,
+/// 显示名「合并的聊天记录」,chatType 视为 group)。
+fn parse_merged_export_file_name(file_name: &str) -> Option<MergedExportName> {
+    static RE_NEW: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re_new = RE_NEW.get_or_init(|| {
+        regex::Regex::new(
+            r"(?i)^merged_(friend|group)_(.+)_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})(?:_\d+)?\.(html|json)$",
+        )
+        .expect("valid regex")
+    });
+    if let Some(caps) = re_new.captures(file_name) {
+        return Some(MergedExportName {
+            format: caps[4].to_lowercase(),
+            timestamp: caps[3].to_string(),
+            chat_type: caps[1].to_lowercase(),
+            display_name: caps[2].replace('_', " "),
+        });
+    }
+
+    static RE_LEGACY: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re_legacy = RE_LEGACY.get_or_init(|| {
         regex::Regex::new(r"^merged_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.(html|json)$")
             .expect("valid regex")
     });
-    let caps = re.captures(file_name)?;
-    Some((caps[2].to_lowercase(), caps[1].to_string()))
+    let caps = re_legacy.captures(file_name)?;
+    Some(MergedExportName {
+        format: caps[2].to_lowercase(),
+        timestamp: caps[1].to_string(),
+        chat_type: "group".to_string(),
+        display_name: "合并的聊天记录".to_string(),
+    })
 }
 
 /// 把合并文件名时间戳 `YYYY-MM-DDTHH-MM-SS` 转为展示格式 `YYYY-MM-DD HH:MM:SS`。
 fn merged_export_display_time(timestamp: &str) -> String {
     let (date, time) = timestamp.split_once('T').unwrap_or((timestamp, ""));
     format!("{date} {}", time.replace('-', ":"))
+}
+
+/// 生成合并导出文件名对(json/html 同一 base,保证成对);目标对任一存在则递增 `_N` 后缀(从 `_2` 起)。
+fn merged_output_names(
+    output_path: &FsPath,
+    chat_type: &str,
+    chat_name: &str,
+    timestamp: &str,
+) -> (String, String) {
+    let base = format!(
+        "merged_{chat_type}_{}_{timestamp}",
+        sanitize_task_name(chat_name, 40)
+    );
+    let json_name = format!("{base}.json");
+    let html_name = format!("{base}.html");
+    if !output_path.join(&json_name).exists() && !output_path.join(&html_name).exists() {
+        return (json_name, html_name);
+    }
+    for suffix in 2u32..1000 {
+        let json_name = format!("{base}_{suffix}.json");
+        let html_name = format!("{base}_{suffix}.html");
+        if !output_path.join(&json_name).exists() && !output_path.join(&html_name).exists() {
+            return (json_name, html_name);
+        }
+    }
+    (format!("{base}.json"), format!("{base}.html"))
 }
 
 /// 定时备份文件名解析结果。
@@ -1844,6 +1919,11 @@ struct ScheduledExportInfo {
 /// 碰撞后缀；直接复用 `parse_export_file_name`（兼容碰撞后缀与 `_NNN_TEMP`）。
 /// 不满足时退回早期版本的 `任务名_YYYY-MM-DDTHH-MM-SS` 格式。
 fn parse_scheduled_export_file_name(file_name: &str) -> Option<ScheduledExportInfo> {
+    // 合并产物(merged_ 前缀)不是可合并源;虽然 merged 目录本就不被 available-tasks
+    // 扫描,这里加一道防线,防止未来扫描范围变化时被当成备份任务泄漏进合并源。
+    if file_name.starts_with("merged_") {
+        return None;
+    }
     if let Some(info) = parse_export_file_name(file_name) {
         let chat_type = info.get("chatType")?.as_str()?.to_string();
         let chat_id = info.get("chatId")?.as_str()?.to_string();
@@ -2048,6 +2128,92 @@ struct MergeSource {
     resource_dir: PathBuf,
 }
 
+/// 一个按聊天分组的待合并集合。
+struct MergeGroup {
+    chat_type: String,
+    display_name: String,
+    file_names: Vec<String>,
+    sources: Vec<MergeSource>,
+}
+
+/// 因该聊天文件数不足 2 而被跳过的源。
+struct SkippedMergeSource {
+    file_name: String,
+    reason: String,
+}
+
+/// 按聊天把源文件分组;每组至少 2 个文件才合并,单文件组跳过并报告。
+fn group_merge_sources(
+    file_names: &[String],
+    sources: Vec<MergeSource>,
+) -> (Vec<MergeGroup>, Vec<SkippedMergeSource>) {
+    let mut index: HashMap<String, usize> = HashMap::new();
+    let mut groups: Vec<MergeGroup> = Vec::new();
+
+    for (file_name, source) in file_names.iter().zip(sources) {
+        let (group_key, chat_type, display_name) =
+            if let Some(info) = parse_scheduled_export_file_name(file_name) {
+                // 现行定时备份名可额外解析出 chatType;遗留格式无法解析时按群聊处理。
+                let chat_type = parse_export_file_name(file_name)
+                    .and_then(|value| {
+                        value
+                            .get("chatType")
+                            .and_then(Value::as_str)
+                            .map(String::from)
+                    })
+                    .unwrap_or_else(|| "group".to_string());
+                (info.group_key, chat_type, info.task_name)
+            } else if let Some(info) = parse_manual_export_file_name(file_name) {
+                let display_name = info
+                    .session_name
+                    .clone()
+                    .unwrap_or_else(|| info.peer_uid.clone());
+                (
+                    format!("{}_{}", info.chat_type, info.peer_uid),
+                    info.chat_type,
+                    display_name,
+                )
+            } else {
+                // 兜底:无法识别的文件名(正常 UI 流程不会出现)合并为一组,沿用旧行为。
+                (
+                    "__unclassified__".to_string(),
+                    "group".to_string(),
+                    "合并的聊天记录".to_string(),
+                )
+            };
+
+        let group_idx = if let Some(&existing) = index.get(&group_key) {
+            existing
+        } else {
+            let new_index = groups.len();
+            groups.push(MergeGroup {
+                chat_type,
+                display_name,
+                file_names: Vec::new(),
+                sources: Vec::new(),
+            });
+            index.insert(group_key, new_index);
+            new_index
+        };
+        groups[group_idx].file_names.push(file_name.clone());
+        groups[group_idx].sources.push(source);
+    }
+
+    let mut merged = Vec::new();
+    let mut skipped = Vec::new();
+    for group in groups {
+        if group.sources.len() >= 2 {
+            merged.push(group);
+        } else if let Some(file_name) = group.file_names.first() {
+            skipped.push(SkippedMergeSource {
+                file_name: file_name.clone(),
+                reason: "该聊天只有 1 个备份文件,无法合并".to_string(),
+            });
+        }
+    }
+    (merged, skipped)
+}
+
 fn broadcast_merge_progress(
     state: &SharedState,
     phase: &str,
@@ -2227,6 +2393,8 @@ async fn write_merged_data(
     output_path: &FsPath,
     messages: &[Value],
     mapping: &[(String, String)],
+    chat_name: &str,
+    chat_type: &str,
 ) -> Result<(PathBuf, PathBuf), String> {
     tokio::fs::create_dir_all(output_path)
         .await
@@ -2240,7 +2408,8 @@ async fn write_merged_data(
         .collect::<String>();
 
     // 1. JSON。
-    let json_path = output_path.join(format!("merged_{timestamp}.json"));
+    let (json_name, html_name) = merged_output_names(output_path, chat_type, chat_name, &timestamp);
+    let json_path = output_path.join(&json_name);
     let json_data = json!({
         "metadata": {
             "mergedAt": Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -2256,14 +2425,14 @@ async fn write_merged_data(
         .map_err(|e| format!("写入JSON失败: {e}"))?;
 
     // 2. HTML（失败时仅保留 JSON）。
-    let html_path = output_path.join(format!("merged_{timestamp}.html"));
+    let html_path = output_path.join(&html_name);
     let clean_messages: Vec<CleanMessage> = messages
         .iter()
         .filter_map(|m| serde_json::from_value(m.clone()).ok())
         .collect();
     let chat_info = ChatInfo {
-        name: "合并的聊天记录".to_string(),
-        chat_type: "group".to_string(),
+        name: chat_name.to_string(),
+        chat_type: chat_type.to_string(),
         self_name: Some("合并导出".to_string()),
         ..ChatInfo::default()
     };
@@ -2366,62 +2535,146 @@ pub async fn merge_resources(
     };
     broadcast_merge_progress(&state, "validate", total, total, "源文件验证完成");
 
-    // Phase 2: 合并消息。
-    broadcast_merge_progress(&state, "merge", 0, 100, "读取消息数据...");
-    let (messages, deduplicated) = merge_source_messages(&sources, deduplicate);
-    broadcast_merge_progress(
-        &state,
-        "merge",
-        50,
-        100,
-        &format!("合并消息完成，共 {} 条", messages.len()),
-    );
+    // 按聊天分组;每组至少 2 个文件才合并,单文件组跳过。
+    let (groups, skipped) = group_merge_sources(&source_task_ids, sources);
+    if groups.is_empty() {
+        let err = ApiError::validation(
+            "没有可合并的聊天:每个聊天至少需要 2 个备份文件",
+            "TOO_FEW_SOURCES_PER_CHAT",
+        );
+        return response::error(&err, &request_id);
+    }
+    let group_count = groups.len();
 
-    // Phase 3: 合并资源文件。
-    broadcast_merge_progress(&state, "resources", 0, 100, "合并资源文件...");
-    let (resource_count, mapping) = match merge_resource_files(&sources, &output_path) {
-        Ok(result) => result,
-        Err(message) => {
-            let err = ApiError::internal(message, "MERGE_RESOURCES_FAILED");
-            return response::error(&err, &request_id);
+    // Phase 2-5: 逐聊天合并(消息 → 资源 → 写入 → 可选清理)。
+    let mut group_results: Vec<Value> = Vec::new();
+    let mut merged_source_count = 0usize;
+    let mut merged_message_count = 0usize;
+    let mut merged_deduplicated = 0usize;
+    let mut merged_resource_count = 0usize;
+    for (index, group) in groups.iter().enumerate() {
+        let label = format!(
+            "正在合并 {} ({}/{})",
+            group.display_name,
+            index + 1,
+            group_count
+        );
+        broadcast_merge_progress(&state, "merge", index, group_count, &label);
+        let (messages, deduplicated) = merge_source_messages(&group.sources, deduplicate);
+        broadcast_merge_progress(
+            &state,
+            "merge",
+            index + 1,
+            group_count,
+            &format!(
+                "{} 消息合并完成，共 {} 条",
+                group.display_name,
+                messages.len()
+            ),
+        );
+
+        broadcast_merge_progress(&state, "resources", index, group_count, "合并资源文件...");
+        let (resource_count, mapping) = match merge_resource_files(&group.sources, &output_path) {
+            Ok(result) => result,
+            Err(message) => {
+                broadcast_merge_progress(
+                    &state,
+                    "resources",
+                    index + 1,
+                    group_count,
+                    &format!("{} 资源合并失败", group.display_name),
+                );
+                group_results.push(json!({
+                    "chatType": group.chat_type.clone(),
+                    "displayName": group.display_name.clone(),
+                    "sourceCount": group.sources.len(),
+                    "status": "failed",
+                    "error": message,
+                }));
+                continue;
+            }
+        };
+        broadcast_merge_progress(
+            &state,
+            "resources",
+            index + 1,
+            group_count,
+            &format!(
+                "{} 资源文件合并完成，共 {} 个文件",
+                group.display_name, resource_count
+            ),
+        );
+
+        broadcast_merge_progress(&state, "write", index, group_count, "写入合并数据...");
+        let (json_path, html_path) = match write_merged_data(
+            &output_path,
+            &messages,
+            &mapping,
+            &group.display_name,
+            &group.chat_type,
+        )
+        .await
+        {
+            Ok(paths) => paths,
+            Err(message) => {
+                group_results.push(json!({
+                    "chatType": group.chat_type.clone(),
+                    "displayName": group.display_name.clone(),
+                    "sourceCount": group.sources.len(),
+                    "status": "failed",
+                    "error": message,
+                }));
+                continue;
+            }
+        };
+        broadcast_merge_progress(&state, "write", index + 1, group_count, "数据写入完成");
+
+        // 该组写盘成功后清理该组源文件;失败组保留源文件。
+        if delete_source_files {
+            broadcast_merge_progress(&state, "cleanup", index, group_count, "清理源文件...");
+            cleanup_merge_sources(&group.sources);
+            broadcast_merge_progress(&state, "cleanup", index + 1, group_count, "清理完成");
         }
-    };
-    broadcast_merge_progress(
-        &state,
-        "resources",
-        100,
-        100,
-        &format!("资源文件合并完成，共 {resource_count} 个文件"),
-    );
 
-    // Phase 4: 写入合并数据。
-    broadcast_merge_progress(&state, "write", 0, 100, "写入合并数据...");
-    let (json_path, html_path) = match write_merged_data(&output_path, &messages, &mapping).await {
-        Ok(paths) => paths,
-        Err(message) => {
-            let err = ApiError::internal(message, "MERGE_WRITE_FAILED");
-            return response::error(&err, &request_id);
-        }
-    };
-    broadcast_merge_progress(&state, "write", 100, 100, "数据写入完成");
+        merged_source_count += group.sources.len();
+        merged_message_count += messages.len();
+        merged_deduplicated += deduplicated;
+        merged_resource_count += resource_count;
+        group_results.push(json!({
+            "chatType": group.chat_type.clone(),
+            "displayName": group.display_name.clone(),
+            "sourceCount": group.sources.len(),
+            "totalMessages": messages.len(),
+            "deduplicatedMessages": deduplicated,
+            "totalResources": resource_count,
+            "jsonPath": json_path.to_string_lossy(),
+            "htmlPath": html_path.to_string_lossy(),
+            "status": "success",
+        }));
+    }
 
-    // Phase 5: 清理源文件。
-    if delete_source_files {
-        broadcast_merge_progress(&state, "cleanup", 0, total, "清理源文件...");
-        cleanup_merge_sources(&sources);
-        broadcast_merge_progress(&state, "cleanup", total, total, "清理完成");
+    let succeeded = group_results
+        .iter()
+        .filter(|group| group.get("status").and_then(Value::as_str) == Some("success"))
+        .count();
+    if succeeded == 0 {
+        let err = ApiError::internal("所有聊天合并均失败", "MERGE_FAILED");
+        return response::error(&err, &request_id);
     }
 
     let (_, total_size) = scan_directory_stats(&output_path);
     let result = json!({
         "mergeTaskId": merge_task_id,
         "outputPath": output_path.to_string_lossy(),
-        "jsonPath": json_path.to_string_lossy(),
-        "htmlPath": html_path.to_string_lossy(),
-        "sourceCount": total,
-        "totalMessages": messages.len(),
-        "deduplicatedMessages": deduplicated,
-        "totalResources": resource_count,
+        "groups": group_results,
+        "skipped": skipped.iter().map(|skip| json!({
+            "fileName": skip.file_name.clone(),
+            "reason": skip.reason.clone(),
+        })).collect::<Vec<_>>(),
+        "sourceCount": merged_source_count,
+        "totalMessages": merged_message_count,
+        "deduplicatedMessages": merged_deduplicated,
+        "totalResources": merged_resource_count,
         "totalSize": total_size,
         "mergeTime": start_time.elapsed().as_millis() as i64,
         "completedAt": Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -2432,13 +2685,15 @@ pub async fn merge_resources(
 #[cfg(test)]
 mod metadata_tests {
     use super::{
-        apply_file_metadata, avatar_url, extract_html_time_range, merged_export_display_time,
-        parse_export_file_name, parse_manifest_metadata, parse_manual_export_file_name,
-        parse_merged_export_file_name, parse_scheduled_export_file_name,
-        should_select_in_file_manager, valid_export_file_name, windows_explorer_args,
+        apply_file_metadata, avatar_url, extract_html_time_range, group_merge_sources,
+        merged_export_display_time, merged_output_names, parse_export_file_name,
+        parse_manifest_metadata, parse_manual_export_file_name, parse_merged_export_file_name,
+        parse_scheduled_export_file_name, should_select_in_file_manager, valid_export_file_name,
+        windows_explorer_args, MergeSource,
     };
     use serde_json::json;
     use std::fs;
+    use std::path::PathBuf;
 
     #[test]
     fn private_avatar_rejects_uid_and_zero_values() {
@@ -2567,15 +2822,30 @@ mod metadata_tests {
     }
 
     #[test]
-    fn merged_file_names_parse_timestamp_and_format() {
-        assert_eq!(
-            parse_merged_export_file_name("merged_2026-08-30T14-07-16.json"),
-            Some(("json".to_string(), "2026-08-30T14-07-16".to_string()))
-        );
-        assert_eq!(
-            parse_merged_export_file_name("merged_2026-08-30T14-07-16.html"),
-            Some(("html".to_string(), "2026-08-30T14-07-16".to_string()))
-        );
+    fn merged_file_names_parse_per_chat_and_legacy_formats() {
+        // 新格式(按聊天合并):group / 多词聊天名 / 碰撞后缀。
+        let group =
+            parse_merged_export_file_name("merged_group_胡椒玉米汤_2026-08-30T14-07-16.json")
+                .unwrap();
+        assert_eq!(group.format, "json");
+        assert_eq!(group.timestamp, "2026-08-30T14-07-16");
+        assert_eq!(group.chat_type, "group");
+        assert_eq!(group.display_name, "胡椒玉米汤");
+
+        let friend =
+            parse_merged_export_file_name("merged_friend_笨蛋_Darf_v2_2026-08-30T14-07-16_2.html")
+                .unwrap();
+        assert_eq!(friend.format, "html");
+        assert_eq!(friend.timestamp, "2026-08-30T14-07-16");
+        assert_eq!(friend.chat_type, "friend");
+        assert_eq!(friend.display_name, "笨蛋 Darf v2");
+
+        // 旧格式(历史产物)仍可解析,显示名保持「合并的聊天记录」。
+        let legacy = parse_merged_export_file_name("merged_2026-08-30T14-07-16.json").unwrap();
+        assert_eq!(legacy.format, "json");
+        assert_eq!(legacy.timestamp, "2026-08-30T14-07-16");
+        assert_eq!(legacy.chat_type, "group");
+        assert_eq!(legacy.display_name, "合并的聊天记录");
 
         for rejected in [
             "merged_2026-08-30T14-07-16.zip",
@@ -2589,16 +2859,108 @@ mod metadata_tests {
             );
         }
 
-        // 命名空间隔离：merged 文件名不进入普通导出/手动导出解析器，
-        // 因此不会出现在合并源候选（available-tasks）或作为再合并源。
-        assert!(parse_export_file_name("merged_2026-08-30T14-07-16.json").is_none());
-        assert!(parse_manual_export_file_name("merged_2026-08-30T14-07-16.json").is_none());
+        // 命名空间隔离:merged 文件名不进入普通/手动/定时解析器,
+        // 不会出现在合并源候选(available-tasks)或作为再合并源。
+        for merged_name in [
+            "merged_group_胡椒玉米汤_2026-08-30T14-07-16.json",
+            "merged_2026-08-30T14-07-16.json",
+        ] {
+            assert!(
+                parse_export_file_name(merged_name).is_none(),
+                "{merged_name}"
+            );
+            assert!(
+                parse_manual_export_file_name(merged_name).is_none(),
+                "{merged_name}"
+            );
+            assert!(
+                parse_scheduled_export_file_name(merged_name).is_none(),
+                "{merged_name}"
+            );
+        }
 
-        // 展示时间：T 换空格，时间部分连字符换冒号。
+        // 展示时间:T 换空格,时间部分连字符换冒号。
         assert_eq!(
             merged_export_display_time("2026-08-30T14-07-16"),
             "2026-08-30 14:07:16"
         );
+    }
+
+    #[test]
+    fn merged_output_names_sanitize_chat_names_and_avoid_collisions() {
+        let base = std::env::temp_dir().join(format!(
+            "qce-merged-names-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(&base).unwrap();
+
+        // 聊天名消毒:空格/斜杠转下划线并折叠。
+        let (json_name, html_name) =
+            merged_output_names(&base, "group", "胡椒 玉米汤/老群", "2026-08-30T14-07-16");
+        assert_eq!(
+            json_name,
+            "merged_group_胡椒_玉米汤_老群_2026-08-30T14-07-16.json"
+        );
+        assert_eq!(
+            html_name,
+            "merged_group_胡椒_玉米汤_老群_2026-08-30T14-07-16.html"
+        );
+
+        // 任一成员已存在时递增后缀,json/html 成对一致。
+        fs::write(base.join(&json_name), b"x").unwrap();
+        let (json_name_2, html_name_2) =
+            merged_output_names(&base, "group", "胡椒 玉米汤/老群", "2026-08-30T14-07-16");
+        assert_eq!(
+            json_name_2,
+            "merged_group_胡椒_玉米汤_老群_2026-08-30T14-07-16_2.json"
+        );
+        assert_eq!(
+            html_name_2,
+            "merged_group_胡椒_玉米汤_老群_2026-08-30T14-07-16_2.html"
+        );
+
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn group_merge_sources_groups_by_chat_and_skips_single_file_chats() {
+        let mk = |name: &str| MergeSource {
+            html_file: PathBuf::from(format!("/tmp/{name}.html")),
+            json_file: Some(PathBuf::from(format!("/tmp/{name}.json"))),
+            resource_dir: PathBuf::from(format!("/tmp/resources_{name}")),
+        };
+        let file_names: Vec<String> = vec![
+            "group_胡椒玉米汤_647668860_20260830_020047608.json".to_string(),
+            "group_胡椒玉米汤_647668860_20260829_020047608.json".to_string(),
+            "group_黑猫燦炎上指挥部_814219720_20260830_020055645.html".to_string(),
+            "friend_笨蛋_Darf_v2_1687657986_20260713_002703456.html".to_string(),
+        ];
+        let sources = vec![mk("a"), mk("b"), mk("c"), mk("d")];
+        let (groups, skipped) = group_merge_sources(&file_names, sources);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].chat_type, "group");
+        assert_eq!(groups[0].display_name, "胡椒玉米汤");
+        assert_eq!(groups[0].sources.len(), 2);
+
+        assert_eq!(skipped.len(), 2);
+        assert_eq!(
+            skipped[0].file_name,
+            "group_黑猫燦炎上指挥部_814219720_20260830_020055645.html"
+        );
+        assert_eq!(
+            skipped[1].file_name,
+            "friend_笨蛋_Darf_v2_1687657986_20260713_002703456.html"
+        );
+
+        // 无法识别的文件名归入兜底组(保持旧行为)。
+        let odd_names: Vec<String> =
+            vec!["weird_one.html".to_string(), "weird_two.json".to_string()];
+        let (groups, skipped) = group_merge_sources(&odd_names, vec![mk("e"), mk("f")]);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].display_name, "合并的聊天记录");
+        assert_eq!(groups[0].sources.len(), 2);
+        assert!(skipped.is_empty());
     }
 
     #[test]

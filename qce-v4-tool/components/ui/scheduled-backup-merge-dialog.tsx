@@ -165,7 +165,7 @@ export function ScheduledBackupMergeDialog({
           {/* 左侧 - 备份列表 */}
           <div className="w-2/5 max-w-[500px] min-w-[300px] flex-shrink-0 flex flex-col pt-12 pl-12 pr-8 pb-6">
             <h1 className="text-[20px] font-semibold text-foreground mb-2">合并备份</h1>
-            <p className="text-[13px] text-muted-foreground mb-8 leading-relaxed">至少选择 2 个备份文件进行合并；定时备份和手动导出可以混合选择。</p>
+            <p className="text-[13px] text-muted-foreground mb-8 leading-relaxed">同一聊天的备份会分别合并成一个文件并按聊天名命名；每个聊天需至少 2 个备份才会合并。定时备份和手动导出可以混合选择。</p>
 
             <div className="flex-1 overflow-hidden">
               {scheduledTasks.length === 0 && manualTasks.length === 0 ? (
