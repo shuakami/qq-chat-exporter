@@ -1,3 +1,4 @@
+
 #!/usr/bin/env node
 /**
  * 生成 Release Update Banner。
