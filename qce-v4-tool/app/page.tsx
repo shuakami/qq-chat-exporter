@@ -1221,6 +1221,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
     sourceTaskIds: string[]  // 文件名列表
     deleteSourceFiles: boolean
     deduplicateMessages: boolean
+    formats?: string[]  // 输出格式:json / html
   }) => {
     const loadingId = addNotification('info', '正在合并', '合并任务已开始，请稍候...')
     
@@ -1237,29 +1238,57 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
         const result = data.data.result
         removeNotification(loadingId)
         
-        // 构建简洁的成功消息
-        const message = `成功合并 ${result.sourceCount} 个备份文件，共 ${result.totalMessages} 条消息${result.deduplicatedMessages > 0 ? `（去重 ${result.deduplicatedMessages} 条）` : ''}\n\n已生成 JSON${result.htmlPath ? ' 和 HTML' : ''} 文件`
+        // 按聊天分组的结果:每组一条成功消息 + 一个「打开文件位置」动作。
+        const groups: Array<{
+          chatType?: string
+          displayName?: string
+          sourceCount?: number
+          totalMessages?: number
+          deduplicatedMessages?: number
+          jsonPath?: string
+          htmlPath?: string
+          status?: string
+          error?: string
+        }> = result.groups || []
+        const skipped: Array<{ fileName?: string; reason?: string }> = result.skipped || []
+
+        const successGroups = groups.filter(g => g.status === 'success')
+        const failedGroups = groups.filter(g => g.status === 'failed')
+        const lines = successGroups.map(g =>
+          `${g.displayName}:合并 ${g.sourceCount} 个备份 → ${g.totalMessages} 条消息${g.deduplicatedMessages ? `（去重 ${g.deduplicatedMessages} 条）` : ''}`
+        )
+        if (failedGroups.length > 0) {
+          lines.push(`失败:${failedGroups.map(g => `${g.displayName}（${g.error || '未知错误'}）`).join('、')}`)
+        }
+        if (skipped.length > 0) {
+          lines.push(`跳过:${skipped.map(s => s.fileName).join('、')}（每个聊天至少 2 个备份才会合并）`)
+        }
+        const formats = config.formats || []
+        const formatLabel = formats.includes('json') && formats.includes('html')
+          ? 'JSON 和 HTML'
+          : formats.includes('json')
+            ? 'JSON'
+            : 'HTML'
+        const message = `成功合并 ${result.sourceCount} 个备份文件，共 ${result.totalMessages} 条消息${result.deduplicatedMessages > 0 ? `（去重 ${result.deduplicatedMessages} 条）` : ''}\n\n${lines.join('\n')}\n\n每个聊天已生成 ${formatLabel} 文件`
         
         addNotification(
           'success',
           '合并完成',
           message,
-          [
-            {
-              label: '打开文件位置',
-              onClick: async () => {
-                try {
-                  await fetch('/api/open-file-location', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filePath: result.jsonPath })
-                  })
-                } catch (error) {
-                  console.error('打开文件位置失败:', error)
-                }
+          successGroups.map(g => ({
+            label: `打开文件位置:${g.displayName}`,
+            onClick: async () => {
+              try {
+                await fetch('/api/open-file-location', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ filePath: g.jsonPath || g.htmlPath })
+                })
+              } catch (error) {
+                console.error('打开文件位置失败:', error)
               }
             }
-          ],
+          })),
           0 // 不自动关闭，需要用户手动关闭
         )
         setIsScheduledMergeDialogOpen(false)

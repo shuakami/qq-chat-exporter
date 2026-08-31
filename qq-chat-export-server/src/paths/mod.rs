@@ -140,6 +140,11 @@ impl PathManager {
         self.default_export_root_dir().join("scheduled-exports")
     }
 
+    /// 合并导出目录（合并产物写入 exports/merged，独立于普通导出）。
+    pub fn merged_exports_dir(&self) -> PathBuf {
+        self.exports_dir().join("merged")
+    }
+
     /// 导出目录允许的根集合。
     ///
     /// Issue #644：任务级自定义导出目录可以位于默认导出根之外（例如另一个盘），
@@ -236,6 +241,56 @@ impl PathManager {
         .await
         .map_err(io::Error::other)?
     }
+}
+
+/// 文件名组件消毒:空格与非法字符折叠为 `_`,限长、去首尾空白,空名回退 `unknown`,
+/// 并规避 Windows 保留设备名(CON/PRN/AUX/NUL/COMx/LPTx)。
+///
+/// 定时导出文件名(scheduled_executor)与合并导出文件名(resources.rs)共用。
+#[must_use]
+pub fn sanitize_task_name(name: &str, max_length: usize) -> String {
+    let mut safe = String::new();
+    let mut last_underscore = false;
+    for ch in name.chars() {
+        let mapped = match ch {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            value if (value as u32) < 0x20 || value == '\u{7f}' => '_',
+            value if value.is_whitespace() => '_',
+            value => value,
+        };
+        if mapped == '_' {
+            if !last_underscore {
+                safe.push(mapped);
+            }
+            last_underscore = true;
+        } else {
+            safe.push(mapped);
+            last_underscore = false;
+        }
+        if safe.chars().count() >= max_length {
+            break;
+        }
+    }
+    let mut safe = safe.trim_matches([' ', '.', '_']).to_string();
+    if safe.is_empty() {
+        safe = "unknown".to_string();
+    }
+    let device_name = safe
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    if matches!(device_name.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || device_name.strip_prefix("COM").is_some_and(|value| {
+            matches!(value, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+        })
+        || device_name.strip_prefix("LPT").is_some_and(|value| {
+            matches!(value, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+        })
+    {
+        safe.insert(0, '_');
+    }
+    safe
 }
 
 fn move_directory_contents(source: &Path, destination: &Path) -> io::Result<()> {

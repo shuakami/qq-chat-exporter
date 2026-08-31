@@ -20,7 +20,7 @@ use qce_server::fetcher::{
 };
 use qce_server::napcat::NapCatBridgeClient;
 use qce_server::parser::{ForwardFetcher, SimpleMessageParser, SimpleParserOptions};
-use qce_server::paths::PathManager;
+use qce_server::paths::{sanitize_task_name, PathManager};
 use qce_server::resource::ResourceHandler;
 use qce_server::scheduler::{ExecutionOutcome, ScheduledExportExecutor};
 use qce_server::storage::ResourceInfo;
@@ -350,6 +350,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
                         .get("enableVirtualScroll")
                         .and_then(Value::as_bool)
                         != Some(false),
+                    resource_dir_name: None,
                     exporter_version: Some(qce_server::version::VERSION.get().to_string()),
                 });
                 exporter
@@ -402,51 +403,6 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             note: None,
         })
     }
-}
-
-fn sanitize_task_name(name: &str, max_length: usize) -> String {
-    let mut safe = String::new();
-    let mut last_underscore = false;
-    for ch in name.chars() {
-        let mapped = match ch {
-            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
-            value if (value as u32) < 0x20 || value == '\u{7f}' => '_',
-            value if value.is_whitespace() => '_',
-            value => value,
-        };
-        if mapped == '_' {
-            if !last_underscore {
-                safe.push(mapped);
-            }
-            last_underscore = true;
-        } else {
-            safe.push(mapped);
-            last_underscore = false;
-        }
-        if safe.chars().count() >= max_length {
-            break;
-        }
-    }
-    let mut safe = safe.trim_matches([' ', '.', '_']).to_string();
-    if safe.is_empty() {
-        safe = "unknown".to_string();
-    }
-    let device_name = safe
-        .split('.')
-        .next()
-        .unwrap_or_default()
-        .to_ascii_uppercase();
-    if matches!(device_name.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || device_name.strip_prefix("COM").is_some_and(|value| {
-            matches!(value, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
-        })
-        || device_name.strip_prefix("LPT").is_some_and(|value| {
-            matches!(value, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
-        })
-    {
-        safe.insert(0, '_');
-    }
-    safe
 }
 
 fn scheduled_export_file_name(
@@ -599,8 +555,9 @@ fn resolve_scheduled_output_dir(
 mod tests {
     use super::{
         reserve_scheduled_file_name, resolve_for_creation_within, resolve_scheduled_output_dir,
-        sanitize_task_name, scheduled_export_file_name, PathBuf, PathManager,
+        scheduled_export_file_name, PathBuf, PathManager,
     };
+    use qce_server::paths::sanitize_task_name;
 
     #[test]
     fn scheduled_output_dir_accepts_configured_dirs_outside_default_roots() {
