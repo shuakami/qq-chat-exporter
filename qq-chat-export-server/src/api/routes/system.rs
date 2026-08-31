@@ -132,13 +132,18 @@ pub async fn health(
     State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
 ) -> Response {
-    let online = match state.napcat.self_info().await {
-        Ok(info) => info.get("online").and_then(Value::as_bool).unwrap_or(false),
-        Err(_) => false,
+    let online = if state.is_standalone() {
+        false
+    } else {
+        match state.napcat.self_info().await {
+            Ok(info) => info.get("online").and_then(Value::as_bool).unwrap_or(false),
+            Err(_) => false,
+        }
     };
     response::success(
         json!({
             "status": "healthy",
+            "mode": state.run_mode.as_str(),
             "online": online,
             "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             "uptime": state.uptime_secs(),
@@ -152,7 +157,12 @@ pub async fn system_info(
     State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
 ) -> Response {
-    let self_info = state.napcat.self_info().await.unwrap_or(Value::Null);
+    // issue #668：独立模式下不碰 bridge，避免 120s 超时和误导性传输错误。
+    let self_info = if state.is_standalone() {
+        Value::Null
+    } else {
+        state.napcat.self_info().await.unwrap_or(Value::Null)
+    };
     let uin = self_info.get("uin").and_then(Value::as_str).unwrap_or("");
     let avatar_url = self_info
         .get("avatarUrl")
@@ -171,13 +181,14 @@ pub async fn system_info(
             "name": APP_NAME,
             "copyright": APP_COPYRIGHT,
             "version": VERSION,
-            // issue #340：前端用这个字段区分插件 / 独立两种后端
-            "mode": "plugin",
+            // issue #340：前端用这个字段区分插件 / 独立两种后端。
+            // 独立模式由 `QCE_STANDALONE_MODE` 标记（issue #668）。
+            "mode": state.run_mode.as_str(),
             "napcat": {
-                "version": "unknown",
+                "version": if state.is_standalone() { "N/A" } else { "unknown" },
                 "online": self_info.get("online").and_then(Value::as_bool).unwrap_or(false),
-                "workingEnv": "shell",
-                "workingEnvLabel": "Shell (独立无头模式)",
+                "workingEnv": if state.is_standalone() { "standalone" } else { "shell" },
+                "workingEnvLabel": if state.is_standalone() { "独立模式（无 NapCat）" } else { "Shell (独立无头模式)" },
                 "selfInfo": {
                     "uid": self_info.get("uid").and_then(Value::as_str).unwrap_or(""),
                     "uin": uin,
@@ -209,13 +220,18 @@ pub async fn system_status(
     State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
 ) -> Response {
-    let online = match state.napcat.self_info().await {
-        Ok(info) => info.get("online").and_then(Value::as_bool).unwrap_or(false),
-        Err(_) => false,
+    let online = if state.is_standalone() {
+        false
+    } else {
+        match state.napcat.self_info().await {
+            Ok(info) => info.get("online").and_then(Value::as_bool).unwrap_or(false),
+            Err(_) => false,
+        }
     };
     response::success(
         json!({
             "online": online,
+            "mode": state.run_mode.as_str(),
             "websocketConnections": state.ws_connection_count(),
             "memoryUsage": memory_usage(),
             "uptime": state.uptime_secs(),

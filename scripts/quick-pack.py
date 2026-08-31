@@ -949,6 +949,7 @@ async function main() {
         env: {
             ...process.env,
             QCE_SERVER_PORT: String(port),
+            QCE_STANDALONE_MODE: '1',
             QCE_LOG_DIR: logDir,
             QCE_LOG_FILE: logFile
         },

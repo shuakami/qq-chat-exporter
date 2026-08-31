@@ -1551,10 +1551,21 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                 {systemInfo?.napcat.selfInfo ? (
                   <div className="flex items-center gap-2.5 min-w-0">
                     <Avatar className="w-7 h-7 flex-shrink-0 rounded-full">
-                      <AvatarImage src={`http://q.qlogo.cn/g?b=qq&nk=${systemInfo.napcat.selfInfo.uin}&s=100`} className="rounded-full" />
-                      <AvatarFallback className="text-[11px] rounded-full">{systemInfo.napcat.selfInfo.nick?.[0] || 'Q'}</AvatarFallback>
+                      <AvatarImage
+                        src={
+                          systemInfo.napcat.selfInfo.uin
+                            ? `http://q.qlogo.cn/g?b=qq&nk=${systemInfo.napcat.selfInfo.uin}&s=100`
+                            : "/static/qce/qce-logo.png"
+                        }
+                        className="rounded-full"
+                      />
+                      <AvatarFallback className="text-[11px] rounded-full">
+                        {systemInfo.napcat.selfInfo.nick?.[0] || "Q"}
+                      </AvatarFallback>
                     </Avatar>
-                    <span className="text-[13px] font-semibold text-foreground truncate">{systemInfo.napcat.selfInfo.nick}</span>
+                    <span className="text-[13px] font-semibold text-foreground truncate">
+                      {systemInfo.napcat.selfInfo.nick || "QQ Chat Exporter"}
+                    </span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2.5">
@@ -1898,13 +1909,28 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                 {systemInfo?.napcat.selfInfo && (
                   <div className="flex items-center gap-4">
                     <Avatar className="w-12 h-12 rounded-full">
-                      <AvatarImage src={`http://q.qlogo.cn/g?b=qq&nk=${systemInfo.napcat.selfInfo.uin}&s=100`} className="rounded-full" />
-                      <AvatarFallback className="rounded-full text-sm">{systemInfo.napcat.selfInfo.nick?.[0] || 'Q'}</AvatarFallback>
+                      <AvatarImage
+                        src={
+                          systemInfo.napcat.selfInfo.uin
+                            ? `http://q.qlogo.cn/g?b=qq&nk=${systemInfo.napcat.selfInfo.uin}&s=100`
+                            : "/static/qce/qce-logo.png"
+                        }
+                        className="rounded-full"
+                      />
+                      <AvatarFallback className="rounded-full text-sm">
+                        {systemInfo.napcat.selfInfo.nick?.[0] || "Q"}
+                      </AvatarFallback>
                     </Avatar>
                     <div>
-                      <h2 className="text-lg font-semibold text-foreground">{systemInfo.napcat.selfInfo.nick}</h2>
+                      <h2 className="text-lg font-semibold text-foreground">
+                        {systemInfo.napcat.selfInfo.nick || "QQ Chat Exporter"}
+                      </h2>
                       <div className="flex items-center gap-2 mt-0.5 text-sm text-muted-foreground">
-                        <span>QQ {systemInfo.napcat.selfInfo.uin}</span>
+                        {systemInfo.napcat.selfInfo.uin ? (
+                          <span>QQ {systemInfo.napcat.selfInfo.uin}</span>
+                        ) : (
+                          <span>独立模式 · 未登录 QQ</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2019,19 +2045,13 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                     data-testid="sessions-standalone-banner"
                     className="rounded-xl bg-card p-6 space-y-4"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 flex items-center justify-center flex-shrink-0">
-                        <Database className="w-[18px] h-[18px]" />
-                      </div>
-                      <div className="space-y-1.5 min-w-0">
-                        <h3 className="text-[15px] font-semibold text-foreground">
-                          当前是独立模式
-                        </h3>
-                        <p className="text-[13px] text-muted-foreground/80 leading-relaxed">
-                          独立模式下没有运行 NapCat / 登录 QQ，无法获取群组和好友列表，也无法发起新的导出。
-                          已经导出的聊天记录、资源画廊、表情包都可以照常浏览。
-                        </p>
-                      </div>
+                    <div className="space-y-1.5 min-w-0">
+                      <h3 className="text-[15px] font-semibold text-foreground">
+                        独立模式：仅可浏览已导出的内容
+                      </h3>
+                      <p className="text-[13px] text-muted-foreground/80 leading-relaxed">
+                        独立模式下暂时无法预览群聊、好友列表。如需导出新记录，请用完整模式启动并登录 QQ。
+                      </p>
                     </div>
                     <div className="flex flex-wrap gap-2 pt-1">
                       <Button
@@ -2049,19 +2069,6 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                         onClick={() => setActiveTab("stickers")}
                       >
                         表情包
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 text-[13px] rounded-full px-3"
-                        onClick={() =>
-                          window.open(
-                            "https://github.com/shuakami/qq-chat-exporter#standalone",
-                            "_blank",
-                          )
-                        }
-                      >
-                        切换到完整模式
                       </Button>
                     </div>
                   </div>

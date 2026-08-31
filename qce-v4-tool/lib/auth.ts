@@ -3,6 +3,7 @@
  */
 
 const TOKEN_KEY = 'qce_access_token';
+const PREVIEW_TOKEN_COOKIE = 'qce_preview_token';
 
 export class AuthManager {
   private static instance: AuthManager;
@@ -40,6 +41,12 @@ export class AuthManager {
       window.history.replaceState({}, '', newUrl);
     }
 
+    // localStorage 里的令牌在页面重载后不会经过 setToken，这里同步一次
+    // 预览 Cookie，保证 /resources/ 静态资源能通过鉴权。
+    if (this.token) {
+      this.syncPreviewCookie(this.token);
+    }
+
     // 拦截所有fetch请求，自动添加认证头
     this.interceptFetch();
   }
@@ -51,7 +58,17 @@ export class AuthManager {
     this.token = token;
     if (typeof window !== 'undefined') {
       localStorage.setItem(TOKEN_KEY, token);
+      this.syncPreviewCookie(token);
     }
+  }
+
+  /**
+   * 把令牌同步到预览 Cookie，供 <img>/<audio> 等带不上 Authorization 头的
+   * 静态资源请求（/resources/…）通过鉴权。与后端 auth_middleware 的
+   * Cookie 兜底路径保持一致。
+   */
+  private syncPreviewCookie(token: string) {
+    document.cookie = `${PREVIEW_TOKEN_COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=86400; SameSite=Strict`;
   }
 
   /**
@@ -68,6 +85,7 @@ export class AuthManager {
     this.token = null;
     if (typeof window !== 'undefined') {
       localStorage.removeItem(TOKEN_KEY);
+      document.cookie = `${PREVIEW_TOKEN_COOKIE}=; Path=/; Max-Age=0; SameSite=Strict`;
     }
   }
 

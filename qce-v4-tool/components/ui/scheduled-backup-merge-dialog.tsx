@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { AlertCircle, FolderOpen, ChevronDown, ChevronRight } from "lucide-react"
+import { AlertCircle, ChevronDown, ChevronRight } from "lucide-react"
 
 const SECTION_TITLE = "text-[14px] font-medium text-foreground mb-5"
 
@@ -203,9 +203,6 @@ export function ScheduledBackupMergeDialog({
                             checked={isTaskFullySelected(task)}
                             onCheckedChange={(checked) => handleSelectAllInTask(task, checked)}
                           />
-                          <div className="flex-shrink-0">
-                            <FolderOpen className="w-5 h-5 text-blue-600" />
-                          </div>
                           <button
                             onClick={() => toggleTask(task.taskName)}
                             className="flex-1 text-left min-w-0"
@@ -237,24 +234,22 @@ export function ScheduledBackupMergeDialog({
                             {task.backups.map(backup => (
                               <div
                                 key={backup.fileName}
-                                className="flex items-center gap-3 p-3 pl-11 hover:bg-card transition-colors"
+                                className="flex items-center gap-3 px-3 py-2.5 pl-11 hover:bg-card transition-colors"
                               >
                                 <Checkbox
                                   checked={selectedBackups.has(backup.fileName)}
                                   onCheckedChange={(checked) => handleBackupSelection(backup.fileName, checked)}
                                 />
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium text-foreground">
+                                <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                                  <p className="text-sm text-foreground truncate" title={backup.fileName}>
                                     {formatTimestamp(backup.timestamp)}
-                                  </p>
-                                  <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="text-xs text-muted-foreground">
+                                    <span className="ml-2 text-xs font-normal text-muted-foreground whitespace-nowrap">
                                       {formatFileSize(backup.fileSize)}
                                     </span>
-                                    <span className="text-xs text-muted-foreground/60 truncate">
-                                      {backup.fileName}
-                                    </span>
-                                  </div>
+                                  </p>
+                                  <p className="text-xs text-muted-foreground/70 truncate" title={backup.fileName}>
+                                    {backup.fileName}
+                                  </p>
                                 </div>
                               </div>
                             ))}
@@ -279,9 +274,6 @@ export function ScheduledBackupMergeDialog({
                               checked={isTaskFullySelected(task)}
                               onCheckedChange={(checked) => handleSelectAllInTask(task, checked)}
                             />
-                            <div className="flex-shrink-0">
-                              <FolderOpen className="w-5 h-5 text-emerald-600" />
-                            </div>
                             <button
                               onClick={() => toggleTask(expandKey)}
                               className="flex-1 text-left min-w-0"
@@ -321,24 +313,22 @@ export function ScheduledBackupMergeDialog({
                               {task.backups.map(backup => (
                                 <div
                                   key={backup.fileName}
-                                  className="flex items-center gap-3 p-3 pl-11 hover:bg-card transition-colors"
+                                  className="flex items-center gap-3 px-3 py-2.5 pl-11 hover:bg-card transition-colors"
                                 >
                                   <Checkbox
                                     checked={selectedBackups.has(backup.fileName)}
                                     onCheckedChange={(checked) => handleBackupSelection(backup.fileName, checked)}
                                   />
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-foreground">
+                                  <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                                    <p className="text-sm text-foreground truncate" title={backup.fileName}>
                                       {formatTimestamp(backup.timestamp)}
-                                    </p>
-                                    <div className="flex items-center gap-2 mt-0.5">
-                                      <span className="text-xs text-muted-foreground">
+                                      <span className="ml-2 text-xs font-normal text-muted-foreground whitespace-nowrap">
                                         {formatFileSize(backup.fileSize)}
                                       </span>
-                                      <span className="text-xs text-muted-foreground/60 truncate">
-                                        {backup.fileName}
-                                      </span>
-                                    </div>
+                                    </p>
+                                    <p className="text-xs text-muted-foreground/70 truncate" title={backup.fileName}>
+                                      {backup.fileName}
+                                    </p>
                                   </div>
                                 </div>
                               ))}

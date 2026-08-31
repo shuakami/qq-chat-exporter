@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use crate::api::helpers::lookup_user_by_uin;
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
+use crate::api::routes::groups::standalone_guard;
 use crate::api::state::SharedState;
 
 /// `GET /api/users/lookup?uin=` — 按 QQ 号反查用户（issue #204）。
@@ -21,6 +22,9 @@ pub async fn lookup_user(
         let err = ApiError::validation("uin 参数不能为空", "INVALID_UIN");
         return response::error(&err, &request_id);
     }
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     let result = lookup_user_by_uin(uin, &state.napcat).await;
     response::success(result, &request_id)
 }
@@ -33,6 +37,9 @@ pub async fn user_detail(
 ) -> Response {
     if uid.is_empty() {
         let err = ApiError::validation("用户ID不能为空", "INVALID_UID");
+        return response::error(&err, &request_id);
+    }
+    if let Some(err) = standalone_guard(&state) {
         return response::error(&err, &request_id);
     }
     match state.napcat.get_user_detail_info(&uid).await {

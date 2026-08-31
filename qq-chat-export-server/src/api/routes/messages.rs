@@ -24,7 +24,8 @@ use crate::api::helpers::{
     resolve_session_name, PeerUinResolver,
 };
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
-use crate::api::state::{MessageCacheEntry, SharedState, CACHE_EXPIRE_TIME_MS};
+use crate::api::routes::groups::standalone_guard;
+use crate::api::state::{MessageCacheEntry, RunMode, SharedState, CACHE_EXPIRE_TIME_MS};
 
 const MAX_ACTIVE_EXPORT_TASKS: usize = 32;
 const MAX_MESSAGE_CACHE_ENTRIES: usize = 64;
@@ -410,6 +411,14 @@ fn should_apply_task_patch(task: &Value, patch: &Value) -> bool {
         || patch.get("status").and_then(Value::as_str) == Some("cancelled")
 }
 
+/// issue #668：独立模式下没有 bridge，实时数据接口直接返回
+/// `503 STANDALONE_MODE`，而不是误导性的「bridge 传输错误」。
+fn standalone_guard_with(state: &SharedState, feature: &str) -> Option<ApiError> {
+    state
+        .is_standalone()
+        .then(|| RunMode::standalone_mode_error(feature))
+}
+
 /// 广播导出进度。
 fn broadcast_progress(
     state: &SharedState,
@@ -436,6 +445,9 @@ pub async fn fetch_messages(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     let Some((chat_type, peer_uid)) = parse_peer(&body) else {
         let err = ApiError::validation("peer参数不完整", "INVALID_PEER");
         return response::error(&err, &request_id);
@@ -853,6 +865,9 @@ pub async fn export_messages(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Some(err) = standalone_guard_with(&state, "导出新聊天记录") {
+        return response::error(&err, &request_id);
+    }
     let req = match prepare_export_request(&state, &body).await {
         Ok(req) => req,
         Err(err) => return response::error(&err, &request_id),
@@ -948,6 +963,9 @@ pub async fn export_streaming_zip(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Some(err) = standalone_guard_with(&state, "导出新聊天记录") {
+        return response::error(&err, &request_id);
+    }
     let req = match prepare_export_request(&state, &body).await {
         Ok(req) => req,
         Err(err) => return response::error(&err, &request_id),
@@ -1042,6 +1060,9 @@ pub async fn export_streaming_jsonl(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Some(err) = standalone_guard_with(&state, "导出新聊天记录") {
+        return response::error(&err, &request_id);
+    }
     let req = match prepare_export_request(&state, &body).await {
         Ok(req) => req,
         Err(err) => return response::error(&err, &request_id),

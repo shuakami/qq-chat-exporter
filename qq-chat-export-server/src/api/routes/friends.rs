@@ -7,6 +7,7 @@ use futures_util::future::join_all;
 use serde_json::{json, Value};
 
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
+use crate::api::routes::groups::standalone_guard;
 use crate::api::state::SharedState;
 
 /// 分页参数解析（page 默认 1、limit 默认 999）。
@@ -346,6 +347,9 @@ pub async fn list_friends(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     let (page, limit) = page_and_limit(&params);
     let force_refresh = params.get("forceRefresh").map(String::as_str) == Some("true");
 
@@ -395,6 +399,9 @@ pub async fn friend_detail(
         let err = ApiError::validation("用户ID不能为空", "INVALID_UID");
         return response::error(&err, &request_id);
     }
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     let _no_cache = params.get("no_cache").map(String::as_str) == Some("true");
     match state.napcat.get_user_detail_info(&uid).await {
         Ok(Value::Null) => {
@@ -415,6 +422,9 @@ pub async fn recent_contacts(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     let limit = recent_contact_limit(&params);
     let include_all = params.get("includeAll").map(String::as_str) == Some("true");
 

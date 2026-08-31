@@ -18,7 +18,7 @@ use qce_server::api::routes::{
     albums, files, friends, group_files, groups, messages, resources, scheduled, security,
     stickers, system, tasks, users,
 };
-use qce_server::api::state::{AppState, SharedState};
+use qce_server::api::state::{AppState, RunMode, SharedState};
 use qce_server::api::ws;
 use qce_server::napcat::NapCatBridgeClient;
 use qce_server::paths::PathManager;
@@ -81,6 +81,7 @@ async fn run() -> Result<(), String> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(40653);
+    let run_mode = RunMode::from_env();
     let bridge_endpoint = std::env::var("QCE_BRIDGE_ENDPOINT")
         .unwrap_or_else(|_| "http://127.0.0.1:40654".to_string());
 
@@ -105,7 +106,11 @@ async fn run() -> Result<(), String> {
     // NapCat bridge 客户端
     let napcat = NapCatBridgeClient::new(&bridge_endpoint, 120_000)
         .map_err(|e| format!("创建 bridge 客户端失败: {e}"))?;
-    tracing::info!("[QCE] NapCat bridge: {bridge_endpoint}");
+    if run_mode == RunMode::Standalone {
+        tracing::info!("[QCE] Standalone mode: no NapCat bridge, live-data APIs will return STANDALONE_MODE (issue #668)");
+    } else {
+        tracing::info!("[QCE] NapCat bridge: {bridge_endpoint}");
+    }
 
     // 资源处理器
     let resource_handler = Arc::new(
@@ -148,6 +153,7 @@ async fn run() -> Result<(), String> {
     let (ws_tx, _) = broadcast::channel(1024);
     let state: SharedState = Arc::new(AppState {
         napcat,
+        run_mode,
         db,
         resource_handler,
         progress_tracker,

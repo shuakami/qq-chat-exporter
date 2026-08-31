@@ -159,12 +159,23 @@ pub fn timestamp_slug() -> String {
     Local::now().format("%Y%m%d_%H%M%S%3f").to_string()
 }
 
+/// issue #668：独立模式下没有 bridge，实时数据接口直接返回
+/// `503 STANDALONE_MODE`，而不是误导性的「bridge 传输错误」。
+pub fn standalone_guard(state: &SharedState) -> Option<ApiError> {
+    state
+        .is_standalone()
+        .then(|| state.standalone_mode_error("获取群组数据"))
+}
+
 /// `GET /api/groups` — 群列表（分页 + 头像）。
 pub async fn list_groups(
     State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     let force_refresh = params.get("forceRefresh").map(String::as_str) == Some("true");
     let (page, limit) = page_and_limit(&params);
 
@@ -238,6 +249,9 @@ pub async fn group_detail(
         let err = ApiError::validation("群组代码不能为空", "INVALID_GROUP_CODE");
         return response::error(&err, &request_id);
     }
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     match state.napcat.fetch_group_detail(&group_code).await {
         Ok(Value::Null) => {
             let err = ApiError::new(ErrorType::Api, "群组不存在", "GROUP_NOT_FOUND");
@@ -277,6 +291,9 @@ pub async fn group_members(
         let err = ApiError::validation("群组代码不能为空", "INVALID_GROUP_CODE");
         return response::error(&err, &request_id);
     }
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     let force_refresh = params.get("forceRefresh").map(String::as_str) == Some("true");
     match state
         .napcat
@@ -296,6 +313,9 @@ pub async fn group_system_notify(
     State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     match state.napcat.get_group_system_msg().await {
         Ok(data) => response::success(normalize_group_system_notify(&data), &request_id),
         Err(error) => {
@@ -313,6 +333,9 @@ pub async fn group_join_requests(
 ) -> Response {
     if group_code.is_empty() {
         let err = ApiError::validation("群组代码不能为空", "INVALID_GROUP_CODE");
+        return response::error(&err, &request_id);
+    }
+    if let Some(err) = standalone_guard(&state) {
         return response::error(&err, &request_id);
     }
     let data = match state.napcat.get_group_system_msg().await {

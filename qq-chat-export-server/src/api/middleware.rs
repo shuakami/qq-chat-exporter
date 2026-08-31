@@ -138,10 +138,10 @@ pub async fn auth_middleware(
                 .map(ToString::to_string)
         })
         .or_else(|| {
-            // 导出预览 iframe 里由前端脚本运行时渲染的图片 / 语音等资源请求带不上
-            // `?token=`，改由 preview 下发的 Cookie 兜底。限定在导出文件资源路径下，
-            // 避免把 Cookie 变成通用 CSRF 凭证。
-            if path.starts_with("/api/exports/files/") {
+            // 导出预览 iframe / <img> 标签带不上 `?token=` 或 Authorization 头：
+            // 预览页与前端登录时都会把访问令牌写入 Cookie，这里用它兜底。
+            // 只在资源只读路径下认 Cookie，避免变成通用 CSRF 凭证。
+            if path.starts_with("/api/exports/files/") || path.starts_with("/resources/") {
                 request
                     .headers()
                     .get(axum::http::header::COOKIE)

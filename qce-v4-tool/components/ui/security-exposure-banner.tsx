@@ -139,9 +139,9 @@ export function SecurityExposureBanner() {
           >
             {isCritical
               ? wildcard
-                ? "通配规则让白名单形同虚设，只剩 Token 在守门，聊天记录一旦泄露就危险了，建议改成只放行你自己的 IP QAQ"
+                ? "你有危险的通配规则噢！建议改成只放行你自己的 IP QAQ"
                 : "目前只有 Token 在做保护，一旦泄露聊天记录就危险了，强烈建议开启 IP 白名单 QAQ"
-              : "要是机器暴露在公网，光靠 Token 守门还是有点慌，最好加个 IP 白名单限制一下~"}
+              : "要是机器暴露在公网，最好加个 IP 白名单限制一下~"}
             {showClientIp && (
               <>
                 {" "}当前来源 IP <span className="font-medium">{data!.currentClientIP}</span>。

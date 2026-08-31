@@ -132,6 +132,52 @@ test('standalone script stays quiet when the server never comes up', { skip: pos
 });
 
 /**
+ * Issue #668: standalone mode used to spawn qce-server without any marker, so
+ * the Rust server fell back to the default bridge endpoint and reported every
+ * live-data call as a misleading "bridge 传输错误". The launcher must set
+ * QCE_STANDALONE_MODE=1 so the server reports `mode: standalone` and returns
+ * 503 STANDALONE_MODE instead.
+ */
+test('standalone script marks the server process with QCE_STANDALONE_MODE (issue #668)', { skip: posixOnly ?? false }, () => {
+    const tmp = createTempDir('qce-standalone-668-');
+    try {
+        const packDir = path.join(tmp.path, 'pack');
+        const configDir = path.join(tmp.path, 'config');
+        fs.mkdirSync(packDir, { recursive: true });
+        fs.mkdirSync(configDir, { recursive: true });
+        fs.writeFileSync(path.join(packDir, 'qce-standalone.mjs'), extractStandaloneScript());
+
+        // Fake server: listens on the port (so the launcher is satisfied) and
+        // records the environment it was handed.
+        const envLog = path.join(tmp.path, 'env.log');
+        fs.writeFileSync(
+            path.join(packDir, 'qce-server'),
+            `#!/bin/sh
+echo "QCE_STANDALONE_MODE=$QCE_STANDALONE_MODE" > "${envLog}"
+exec "${process.execPath}" -e 'require("net").createServer().listen(Number(process.env.QCE_SERVER_PORT),"127.0.0.1",()=>setTimeout(()=>process.exit(0),3000))'
+`,
+            { mode: 0o755 },
+        );
+
+        const result = spawnSync(
+            process.execPath,
+            [path.join(packDir, 'qce-standalone.mjs'), '23460'],
+            {
+                env: { ...process.env, QCE_CONFIG_DIR: configDir, QCE_NO_AUTO_OPEN: '1' },
+                encoding: 'utf8',
+                timeout: 30_000,
+            },
+        );
+
+        assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+        const envLine = fs.readFileSync(envLog, 'utf8').trim();
+        assert.equal(envLine, 'QCE_STANDALONE_MODE=1', `qce-server must be marked as standalone, got: ${envLine}`);
+    } finally {
+        tmp.cleanup();
+    }
+});
+
+/**
  * userConfigPath() in the generated script always resolves under the real
  * home dir (matching qq-chat-export-server's PathManager::default_base_dir(),
  * which — unlike security.json's path — does not honor QCE_CONFIG_DIR). These
