@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path as FsPath, PathBuf};
 
 use axum::extract::{Extension, Path, Query, State};
@@ -92,6 +92,35 @@ fn mime_type_from_ext(ext: &str) -> &'static str {
 fn html_json_re() -> &'static regex::Regex {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     RE.get_or_init(|| regex::Regex::new(r"(?i)\.(html|json)$").expect("valid regex"))
+}
+
+fn is_merged_base_name(base_name: &str) -> bool {
+    base_name
+        .get(.."merged_".len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("merged_"))
+}
+
+fn find_sibling_file_ci(base_dir: &FsPath, base_name: &str, extension: &str) -> Option<PathBuf> {
+    let expected = format!("{base_name}.{extension}");
+    let exact = base_dir.join(&expected);
+    let candidate = if exact.is_file() {
+        exact
+    } else {
+        std::fs::read_dir(base_dir)
+            .ok()?
+            .flatten()
+            .find(|entry| {
+                entry.file_type().is_ok_and(|kind| kind.is_file())
+                    && entry
+                        .file_name()
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(&expected)
+            })
+            .map(|entry| entry.path())?
+    };
+    let resolved = candidate.canonicalize().ok()?;
+    let canonical_base = base_dir.canonicalize().ok()?;
+    resolved.starts_with(canonical_base).then_some(resolved)
 }
 
 fn ext_of(name: &str) -> String {
@@ -552,6 +581,16 @@ fn scan_jsonl_directory(dir: &FsPath) -> (i64, i64) {
     (resource_count, resource_size)
 }
 
+fn merged_resource_dir_for_file(merged_dir: &FsPath, base_name: &str) -> Option<PathBuf> {
+    let isolated = merged_resource_dir(merged_dir, base_name);
+    if isolated.is_dir() {
+        Some(isolated)
+    } else {
+        let shared = merged_dir.join("resources");
+        shared.is_dir().then_some(shared)
+    }
+}
+
 /// 扫描单个导出目录，把识别出的文件加入 `files`。
 async fn scan_export_dir(
     state: &SharedState,
@@ -901,13 +940,13 @@ pub async fn delete_export_file(
     let base_dir = resolved.base_dir;
 
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re = RE.get_or_init(|| regex::Regex::new(r"\.(html|json)$").expect("valid regex"));
+    let re = RE.get_or_init(|| regex::Regex::new(r"(?i)\.(html|json)$").expect("valid regex"));
     let base_name = re.replace(&file_name, "").into_owned();
-    let html_path = base_dir.join(format!("{base_name}.html"));
-    let json_path = base_dir.join(format!("{base_name}.json"));
-    // merged 产物的资源为共享目录 `exports/merged/resources/`（不按文件区分），
-    // 命名与 `resources_{base_name}` 不同，天然不会被这里的删除逻辑误删；
-    // 保留该共享目录供其他合并产物继续使用。
+    let html_path = find_sibling_file_ci(&base_dir, &base_name, "html")
+        .unwrap_or_else(|| base_dir.join(format!("{base_name}.html")));
+    let json_path = find_sibling_file_ci(&base_dir, &base_name, "json")
+        .unwrap_or_else(|| base_dir.join(format!("{base_name}.json")));
+    // 合并产物使用按文件隔离的资源目录；旧版共享目录不随单个文件删除。
     let resources_dir = base_dir.join(format!("resources_{base_name}"));
 
     let mut deleted: Vec<&str> = Vec::new();
@@ -1041,9 +1080,10 @@ pub async fn preview_export_file(
             .filter(|token| !token.is_empty())
             .map(|token| format!("?token={}", encode_uri_component(token)))
             .unwrap_or_default();
-        let resource_re =
-            regex::Regex::new(r#"(?P<attr>src|href)=\"(?:\./|\.\./)?resources/(?P<path>[^\"]*)\""#)
-                .expect("valid resource URL regex");
+        let resource_re = regex::Regex::new(
+            r#"(?P<attr>src|href)=\"(?:\./|\.\./)?resources(?:_[^/\"]+)?/(?P<path>[^\"]*)\""#,
+        )
+        .expect("valid resource URL regex");
         content = resource_re
             .replace_all(&content, |captures: &regex::Captures<'_>| {
                 format!(
@@ -1196,31 +1236,30 @@ async fn find_export_local_resource(
     let scheduled_dir = state.path_manager.scheduled_exports_dir();
 
     let dir_name = format!("resources_{base_name}");
-    let mut resource_dir = exports_dir.join(&dir_name);
-    if !resource_dir.exists() {
-        resource_dir = scheduled_dir.join(&dir_name);
-    }
-    // chunked jsonl 方案：exports/{base_name}/resources/
-    if !resource_dir.exists() {
-        let jsonl_dir = exports_dir.join(base_name);
-        if jsonl_dir.is_dir() {
-            resource_dir = jsonl_dir.join("resources");
+    let resource_dir = if is_merged_base_name(base_name) {
+        let merged_dir = state.path_manager.merged_exports_dir();
+        merged_resource_dir_for_file(&merged_dir, base_name)
+            .unwrap_or_else(|| merged_dir.join(&dir_name))
+    } else {
+        let mut resource_dir = exports_dir.join(&dir_name);
+        if !resource_dir.exists() {
+            resource_dir = scheduled_dir.join(&dir_name);
         }
-    }
-    if !resource_dir.exists() {
-        let jsonl_dir = scheduled_dir.join(base_name);
-        if jsonl_dir.is_dir() {
-            resource_dir = jsonl_dir.join("resources");
+        // chunked jsonl 方案：exports/{base_name}/resources/
+        if !resource_dir.exists() {
+            let jsonl_dir = exports_dir.join(base_name);
+            if jsonl_dir.is_dir() {
+                resource_dir = jsonl_dir.join("resources");
+            }
         }
-    }
-    // 合并导出产物共享 `exports/merged/resources/` 目录（HTML 里的相对链接统一
-    // 指向 resources/...，不按文件区分）。
-    if !resource_dir.exists() && base_name.starts_with("merged_") {
-        let merged_resources = state.path_manager.merged_exports_dir().join("resources");
-        if merged_resources.is_dir() {
-            resource_dir = merged_resources;
+        if !resource_dir.exists() {
+            let jsonl_dir = scheduled_dir.join(base_name);
+            if jsonl_dir.is_dir() {
+                resource_dir = jsonl_dir.join("resources");
+            }
         }
-    }
+        resource_dir
+    };
     if !resource_dir.exists() {
         return None;
     }
@@ -1309,6 +1348,7 @@ pub async fn resources_index(
 
     // 2. 扫描导出目录。
     let mut exports: Vec<Value> = Vec::new();
+    let mut counted_resource_dirs: HashSet<PathBuf> = HashSet::new();
     for dir in [&exports_dir, &scheduled_dir] {
         let Ok(entries) = std::fs::read_dir(dir) else {
             continue;
@@ -1391,10 +1431,78 @@ pub async fn resources_index(
                         "chatId": info.as_ref().and_then(|i| i.get("chatId")).cloned(),
                         "displayName": info.as_ref().and_then(|i| i.get("displayName")).cloned(),
                     }));
-                    if resource_count > 0 {
+                    if counted_resource_dirs.insert(resource_dir) && resource_count > 0 {
                         total_resources += resource_count;
                         total_size += resource_size;
                         bump(&mut by_source, format, resource_count, resource_size);
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. 扫描合并产物；HTML/JSON 成对存在时共享同一资源目录，只计入汇总一次。
+    let merged_dir = state.path_manager.merged_exports_dir();
+    let mut counted_merged_dirs: HashSet<PathBuf> = HashSet::new();
+    if let Ok(entries) = std::fs::read_dir(&merged_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(parsed) = parse_merged_export_file_name(&name) else {
+                continue;
+            };
+            let full_path = entry.path();
+            let Ok(meta) = entry.metadata() else { continue };
+            if !meta.is_file() {
+                continue;
+            }
+
+            let mut info = json!({
+                "chatType": parsed.chat_type,
+                "chatId": "merged",
+                "displayName": parsed.display_name,
+                "format": parsed.format,
+            });
+            let is_json = name.to_lowercase().ends_with(".json");
+            let metadata = if is_json {
+                parse_json_metadata(&full_path)
+            } else {
+                parse_html_metadata(&full_path)
+            };
+            if let Some(peer_uid) = &metadata.peer_uid {
+                info["chatId"] = json!(peer_uid);
+            }
+            apply_file_metadata(&mut info, metadata);
+
+            let base_name = html_json_re().replace(&name, "").into_owned();
+            let resource_dir = merged_resource_dir_for_file(&merged_dir, &base_name);
+            let (resource_count, resource_size) = resource_dir
+                .as_deref()
+                .map(scan_directory_stats)
+                .unwrap_or((0, 0));
+            exports.push(json!({
+                "fileName": name,
+                "format": if is_json { "json" } else { "html" },
+                "resourceCount": resource_count,
+                "resourceSize": resource_size,
+                "chatType": info.get("chatType").cloned(),
+                "chatId": info.get("chatId").cloned(),
+                "displayName": info.get("displayName").cloned(),
+            }));
+
+            let Some(resource_dir) = resource_dir else {
+                continue;
+            };
+            if !counted_merged_dirs.insert(resource_dir.clone()) {
+                continue;
+            }
+            if resource_count > 0 || resource_size > 0 {
+                total_resources += resource_count;
+                total_size += resource_size;
+                bump(&mut by_source, "merged", resource_count, resource_size);
+                for type_name in ["images", "videos", "audios", "files"] {
+                    let (count, size) = scan_directory_stats(&resource_dir.join(type_name));
+                    if count > 0 || size > 0 {
+                        bump(&mut by_type, type_name, count, size);
                     }
                 }
             }
@@ -1443,22 +1551,29 @@ pub async fn export_file_resources(
         re.replace(&file_name, "").into_owned()
     };
 
-    let mut resource_dir = exports_dir.join(format!("resources_{base_name}"));
-    if !resource_dir.exists() {
-        resource_dir = scheduled_dir.join(format!("resources_{base_name}"));
-    }
-    if !resource_dir.exists() {
-        let jsonl_dir = exports_dir.join(&base_name);
-        if jsonl_dir.is_dir() {
-            resource_dir = jsonl_dir.join("resources");
+    let resource_dir = if parse_merged_export_file_name(&file_name).is_some() {
+        let merged_dir = state.path_manager.merged_exports_dir();
+        merged_resource_dir_for_file(&merged_dir, &base_name)
+            .unwrap_or_else(|| merged_dir.join(format!("resources_{base_name}")))
+    } else {
+        let mut resource_dir = exports_dir.join(format!("resources_{base_name}"));
+        if !resource_dir.exists() {
+            resource_dir = scheduled_dir.join(format!("resources_{base_name}"));
         }
-    }
-    if !resource_dir.exists() {
-        let jsonl_dir = scheduled_dir.join(&base_name);
-        if jsonl_dir.is_dir() {
-            resource_dir = jsonl_dir.join("resources");
+        if !resource_dir.exists() {
+            let jsonl_dir = exports_dir.join(&base_name);
+            if jsonl_dir.is_dir() {
+                resource_dir = jsonl_dir.join("resources");
+            }
         }
-    }
+        if !resource_dir.exists() {
+            let jsonl_dir = scheduled_dir.join(&base_name);
+            if jsonl_dir.is_dir() {
+                resource_dir = jsonl_dir.join("resources");
+            }
+        }
+        resource_dir
+    };
 
     let mut resources: Vec<Value> = Vec::new();
     if resource_dir.exists() {
@@ -1864,7 +1979,7 @@ fn parse_merged_export_file_name(file_name: &str) -> Option<MergedExportName> {
 
     static RE_LEGACY: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re_legacy = RE_LEGACY.get_or_init(|| {
-        regex::Regex::new(r"^merged_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.(html|json)$")
+        regex::Regex::new(r"(?i)^merged_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.(html|json)$")
             .expect("valid regex")
     });
     let caps = re_legacy.captures(file_name)?;
@@ -1895,13 +2010,21 @@ fn merged_output_names(
     );
     let json_name = format!("{base}.json");
     let html_name = format!("{base}.html");
-    if !output_path.join(&json_name).exists() && !output_path.join(&html_name).exists() {
+    let resource_dir = output_path.join(format!("resources_{base}"));
+    if !output_path.join(&json_name).exists()
+        && !output_path.join(&html_name).exists()
+        && !resource_dir.exists()
+    {
         return (json_name, html_name);
     }
     for suffix in 2u32..1000 {
         let json_name = format!("{base}_{suffix}.json");
         let html_name = format!("{base}_{suffix}.html");
-        if !output_path.join(&json_name).exists() && !output_path.join(&html_name).exists() {
+        let resource_dir = output_path.join(format!("resources_{base}_{suffix}"));
+        if !output_path.join(&json_name).exists()
+            && !output_path.join(&html_name).exists()
+            && !resource_dir.exists()
+        {
             return (json_name, html_name);
         }
     }
@@ -1928,7 +2051,7 @@ struct ScheduledExportInfo {
 fn parse_scheduled_export_file_name(file_name: &str) -> Option<ScheduledExportInfo> {
     // 合并产物(merged_ 前缀)不是可合并源;虽然 merged 目录本就不被 available-tasks
     // 扫描,这里加一道防线,防止未来扫描范围变化时被当成备份任务泄漏进合并源。
-    if file_name.starts_with("merged_") {
+    if is_merged_base_name(file_name) {
         return None;
     }
     if let Some(info) = parse_export_file_name(file_name) {
@@ -2261,7 +2384,7 @@ fn validate_merge_sources(
     let mut sources = Vec::new();
 
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re = RE.get_or_init(|| regex::Regex::new(r"\.(html|json)$").expect("valid regex"));
+    let re = RE.get_or_init(|| regex::Regex::new(r"(?i)\.(html|json)$").expect("valid regex"));
 
     for file_name in file_names {
         if !valid_export_file_name(file_name) {
@@ -2276,15 +2399,30 @@ fn validate_merge_sources(
         let task_dir = resolved.base_dir;
 
         let base_name = re.replace(file_name, "").into_owned();
-        let json_file = format!("{base_name}.json");
-        let json_in_exports = export_dir.join(&json_file);
-        let json_in_scheduled = scheduled_dir.join(&json_file);
-        let json_path = if json_in_exports.exists() {
-            Some(json_in_exports)
-        } else if json_in_scheduled.exists() {
-            Some(json_in_scheduled)
+        let json_path = if found_path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+        {
+            Some(found_path.clone())
         } else {
-            None
+            find_sibling_file_ci(&task_dir, &base_name, "json")
+                .or_else(|| find_sibling_file_ci(&export_dir, &base_name, "json"))
+                .or_else(|| find_sibling_file_ci(&scheduled_dir, &base_name, "json"))
+        };
+        let html_file = {
+            if found_path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))
+            {
+                found_path.clone()
+            } else {
+                find_sibling_file_ci(&task_dir, &base_name, "html")
+                    .or_else(|| find_sibling_file_ci(&export_dir, &base_name, "html"))
+                    .or_else(|| find_sibling_file_ci(&scheduled_dir, &base_name, "html"))
+                    .unwrap_or_else(|| found_path.clone())
+            }
         };
 
         let resource_candidate = task_dir.join(format!("resources_{base_name}"));
@@ -2295,7 +2433,7 @@ fn validate_merge_sources(
             resource_candidate
         };
         sources.push(MergeSource {
-            html_file: found_path,
+            html_file,
             json_file: json_path,
             resource_dir,
         });
@@ -2303,24 +2441,57 @@ fn validate_merge_sources(
     Ok(sources)
 }
 
-fn merge_source_messages(sources: &[MergeSource], deduplicate: bool) -> (Vec<Value>, usize) {
+fn merge_source_messages(
+    sources: &[MergeSource],
+    deduplicate: bool,
+) -> Result<(Vec<Value>, usize), String> {
     let mut all_messages: Vec<Value> = Vec::new();
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen: HashSet<String> = HashSet::new();
     let mut deduplicated = 0usize;
+    let mut readable_json = 0usize;
+    let mut failures = Vec::new();
 
-    for source in sources {
+    for (index, source) in sources.iter().enumerate() {
+        let source_name = source
+            .html_file
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| format!("第{}个源", index + 1));
         let Some(json_path) = &source.json_file else {
+            failures.push(format!("{source_name} 缺少 JSON 消息数据"));
             continue;
         };
-        let Ok(content) = std::fs::read_to_string(json_path) else {
-            continue;
+        let content = match std::fs::read_to_string(json_path) {
+            Ok(content) => content,
+            Err(error) => {
+                let json_name = json_path
+                    .file_name()
+                    .map(|name| name.to_string_lossy())
+                    .unwrap_or_else(|| source_name.clone().into());
+                failures.push(format!("{json_name} 读取失败: {error}"));
+                continue;
+            }
         };
-        let Ok(data) = serde_json::from_str::<Value>(&content) else {
-            continue;
+        let data = match serde_json::from_str::<Value>(&content) {
+            Ok(data) => data,
+            Err(error) => {
+                let json_name = json_path
+                    .file_name()
+                    .map(|name| name.to_string_lossy())
+                    .unwrap_or_else(|| source_name.clone().into());
+                failures.push(format!("{json_name} 解析失败: {error}"));
+                continue;
+            }
         };
         let Some(messages) = data.get("messages").and_then(Value::as_array) else {
+            let json_name = json_path
+                .file_name()
+                .map(|name| name.to_string_lossy())
+                .unwrap_or_else(|| source_name.clone().into());
+            failures.push(format!("{json_name} 缺少 messages 数组"));
             continue;
         };
+        readable_json += 1;
         for message in messages {
             if deduplicate {
                 let id = message.get("id").and_then(Value::as_str).unwrap_or("");
@@ -2338,13 +2509,28 @@ fn merge_source_messages(sources: &[MergeSource], deduplicate: bool) -> (Vec<Val
         }
     }
 
+    if readable_json == 0 {
+        if failures
+            .iter()
+            .all(|failure| failure.contains("缺少 JSON 消息数据"))
+        {
+            return Err("缺少可合并的 JSON 消息数据".to_string());
+        }
+        return Err(format!(
+            "缺少可合并的 JSON 消息数据: {}",
+            failures.join("；")
+        ));
+    }
+    if !failures.is_empty() {
+        return Err(format!("部分 JSON 消息数据不可用: {}", failures.join("；")));
+    }
     all_messages.sort_by_key(|m| {
         m.get("timestamp")
             .and_then(Value::as_i64)
             .or_else(|| m.get("time").and_then(Value::as_i64))
             .unwrap_or(0)
     });
-    (all_messages, deduplicated)
+    Ok((all_messages, deduplicated))
 }
 
 fn md5_of_file(path: &FsPath) -> Option<String> {
@@ -2354,11 +2540,16 @@ fn md5_of_file(path: &FsPath) -> Option<String> {
     Some(format!("{:x}", hasher.finalize()))
 }
 
+fn merged_resource_dir(output_path: &FsPath, base_name: &str) -> PathBuf {
+    output_path.join(format!("resources_{base_name}"))
+}
+
 fn merge_resource_files(
     sources: &[MergeSource],
     output_path: &FsPath,
+    base_name: &str,
 ) -> Result<(usize, Vec<(String, String)>), String> {
-    let target_resource_path = output_path.join("resources");
+    let target_resource_path = merged_resource_dir(output_path, base_name);
     for type_name in ["images", "videos", "audios", "files"] {
         std::fs::create_dir_all(target_resource_path.join(type_name))
             .map_err(|e| format!("创建资源目录失败: {e}"))?;
@@ -2389,11 +2580,21 @@ fn merge_resource_files(
                     continue;
                 }
                 let file_name = entry.file_name().to_string_lossy().into_owned();
-                let target = target_resource_path.join(type_name).join(&file_name);
-                if std::fs::copy(&source_path, &target).is_err() {
+                let type_dir = target_resource_path.join(type_name);
+                let mut target_name = file_name.clone();
+                let mut target = type_dir.join(&target_name);
+                if target.is_file() && md5_of_file(&target).as_deref() != Some(md5.as_str()) {
+                    target_name = format!("{md5}_{file_name}");
+                    target = type_dir.join(&target_name);
+                }
+                if target.is_file() {
+                    if md5_of_file(&target).as_deref() != Some(md5.as_str()) {
+                        continue;
+                    }
+                } else if std::fs::copy(&source_path, &target).is_err() {
                     continue;
                 }
-                let relative = format!("resources/{type_name}/{file_name}");
+                let relative = format!("resources_{base_name}/{type_name}/{target_name}");
                 copied.insert(md5.clone(), relative.clone());
                 mapping.push((md5, relative));
                 total += 1;
@@ -2401,6 +2602,140 @@ fn merge_resource_files(
         }
     }
     Ok((total, mapping))
+}
+
+fn merged_resource_type_dir(resource_type: &str) -> &'static str {
+    match resource_type {
+        "image" => "images",
+        "video" => "videos",
+        "audio" => "audios",
+        _ => "files",
+    }
+}
+
+fn rewrite_merged_resource_paths(
+    messages: &mut [Value],
+    mapping: &[(String, String)],
+    output_path: &FsPath,
+    absolute: bool,
+) {
+    let mut by_md5 = HashMap::new();
+    let mut by_type_name = HashMap::new();
+    for (md5, relative) in mapping {
+        by_md5.insert(md5.as_str(), relative.as_str());
+        let path = FsPath::new(relative);
+        let Some(type_dir) = path
+            .parent()
+            .and_then(FsPath::file_name)
+            .map(|name| name.to_string_lossy().into_owned())
+        else {
+            continue;
+        };
+        let Some(target_name) = path.file_name().map(|name| name.to_string_lossy()) else {
+            continue;
+        };
+        by_type_name.insert(
+            (type_dir.clone(), target_name.to_string()),
+            relative.as_str(),
+        );
+        if let Some(source_name) = target_name.strip_prefix(&format!("{md5}_")) {
+            by_type_name
+                .entry((type_dir, source_name.to_string()))
+                .or_insert(relative.as_str());
+        }
+    }
+
+    fn rewrite_value(
+        value: &mut Value,
+        inherited_type: Option<&str>,
+        by_md5: &HashMap<&str, &str>,
+        by_type_name: &HashMap<(String, String), &str>,
+        output_path: &FsPath,
+        absolute: bool,
+    ) {
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    rewrite_value(
+                        item,
+                        inherited_type,
+                        by_md5,
+                        by_type_name,
+                        output_path,
+                        absolute,
+                    );
+                }
+            }
+            Value::Object(object) => {
+                let resource_type = object
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .or(inherited_type)
+                    .map(str::to_owned);
+                let local_path = object
+                    .get("localPath")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let file_name = object
+                    .get("filename")
+                    .or_else(|| object.get("fileName"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .or_else(|| {
+                        local_path.as_deref().and_then(|path| {
+                            FsPath::new(path)
+                                .file_name()
+                                .map(|name| name.to_string_lossy().into_owned())
+                        })
+                    });
+                let md5 = object.get("md5").and_then(Value::as_str);
+                let relative = md5
+                    .and_then(|value| by_md5.get(value).copied())
+                    .or_else(|| {
+                        resource_type.as_deref().and_then(|kind| {
+                            file_name.as_deref().and_then(|name| {
+                                by_type_name
+                                    .get(&(
+                                        merged_resource_type_dir(kind).to_owned(),
+                                        name.to_owned(),
+                                    ))
+                                    .copied()
+                            })
+                        })
+                    });
+                if let Some(relative) = relative {
+                    let path = if absolute {
+                        output_path.join(relative).to_string_lossy().into_owned()
+                    } else {
+                        relative.to_owned()
+                    };
+                    object.insert("localPath".to_string(), Value::String(path));
+                    if object
+                        .get("url")
+                        .and_then(Value::as_str)
+                        .is_some_and(|url| url.starts_with("resources"))
+                    {
+                        object.insert("url".to_string(), Value::String(relative.to_owned()));
+                    }
+                }
+                for child in object.values_mut() {
+                    rewrite_value(
+                        child,
+                        resource_type.as_deref(),
+                        by_md5,
+                        by_type_name,
+                        output_path,
+                        absolute,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for message in messages {
+        rewrite_value(message, None, &by_md5, &by_type_name, output_path, absolute);
+    }
 }
 
 /// 单组合并写盘参数。
@@ -2412,42 +2747,65 @@ struct MergedWriteOptions<'a> {
     generate_html: bool,
 }
 
+#[derive(Debug)]
+struct MergedWritePaths {
+    json_path: PathBuf,
+    html_path: PathBuf,
+}
+
+struct MergedWriteError {
+    message: String,
+    json_path: PathBuf,
+    html_path: PathBuf,
+}
+
+fn existing_file_path(path: &FsPath) -> String {
+    path.is_file()
+        .then(|| path.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+fn export_error_reason(error: &qce_exporter::ExportError) -> String {
+    match error {
+        qce_exporter::ExportError::Io { source, .. } => source.to_string(),
+        qce_exporter::ExportError::OutputDirConflict(_) => "输出目录冲突".to_string(),
+        _ => error.to_string(),
+    }
+}
+
 async fn write_merged_data(
     output_path: &FsPath,
+    json_name: &str,
+    html_name: &str,
+    resource_dir_name: &str,
     messages: &[Value],
     mapping: &[(String, String)],
     options: &MergedWriteOptions<'_>,
-) -> Result<(PathBuf, PathBuf), String> {
+) -> Result<MergedWritePaths, MergedWriteError> {
     tokio::fs::create_dir_all(output_path)
         .await
-        .map_err(|e| format!("创建输出目录失败: {e}"))?;
+        .map_err(|e| MergedWriteError {
+            message: format!("创建输出目录失败: {e}"),
+            json_path: PathBuf::new(),
+            html_path: PathBuf::new(),
+        })?;
 
-    let timestamp = Utc::now()
-        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-        .replace([':', '.'], "-")
-        .chars()
-        .take(19)
-        .collect::<String>();
-
-    let (json_name, html_name) = merged_output_names(
-        output_path,
-        options.chat_type,
-        options.chat_name,
-        &timestamp,
-    );
     let avatar = options
         .chat_id
         .and_then(|id| avatar_url(options.chat_type, id));
+    let mut merged_messages = messages.to_vec();
+    rewrite_merged_resource_paths(&mut merged_messages, mapping, output_path, false);
 
     // 1. JSON(可选)。
-    let json_path = if options.generate_json {
-        let json_path = output_path.join(&json_name);
+    let mut written_json_path = PathBuf::new();
+    if options.generate_json {
+        let json_path = output_path.join(json_name);
         let mut metadata = serde_json::Map::new();
         metadata.insert(
             "mergedAt".to_string(),
             json!(Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
         );
-        metadata.insert("messageCount".to_string(), json!(messages.len()));
+        metadata.insert("messageCount".to_string(), json!(merged_messages.len()));
         metadata.insert("resourceCount".to_string(), json!(mapping.len()));
         if let Some(id) = options.chat_id {
             metadata.insert("chatId".to_string(), json!(id));
@@ -2457,25 +2815,43 @@ async fn write_merged_data(
         }
         let json_data = json!({
             "metadata": metadata,
-            "messages": messages,
+            "messages": merged_messages.clone(),
             "resources": mapping.iter().map(|(md5, path)| json!({ "md5": md5, "path": path })).collect::<Vec<_>>(),
         });
-        let json_text = serde_json::to_string_pretty(&json_data).map_err(|e| e.to_string())?;
-        tokio::fs::write(&json_path, json_text)
-            .await
-            .map_err(|e| format!("写入JSON失败: {e}"))?;
-        json_path
-    } else {
-        PathBuf::new()
-    };
+        let json_text = serde_json::to_string_pretty(&json_data).map_err(|e| MergedWriteError {
+            message: format!("生成JSON失败: {e}"),
+            json_path: PathBuf::new(),
+            html_path: PathBuf::new(),
+        })?;
+        if let Err(error) = tokio::fs::write(&json_path, json_text).await {
+            let _ = tokio::fs::remove_file(&json_path).await;
+            return Err(MergedWriteError {
+                message: format!("写入JSON失败: {error}"),
+                json_path: PathBuf::new(),
+                html_path: PathBuf::new(),
+            });
+        }
+        written_json_path = json_path;
+    }
 
-    // 2. HTML(可选,失败时仅保留 JSON)。
-    let html_path = if options.generate_html {
-        let html_path = output_path.join(&html_name);
-        let clean_messages: Vec<CleanMessage> = messages
+    // 2. HTML(可选)。
+    let mut written_html_path = PathBuf::new();
+    if options.generate_html {
+        let html_path = output_path.join(html_name);
+        let mut html_messages = merged_messages.clone();
+        rewrite_merged_resource_paths(&mut html_messages, mapping, output_path, true);
+        let clean_messages: Vec<CleanMessage> = html_messages
             .iter()
-            .filter_map(|m| serde_json::from_value(m.clone()).ok())
-            .collect();
+            .enumerate()
+            .map(|(index, message)| {
+                serde_json::from_value(message.clone()).map_err(|error| (index + 1, error))
+            })
+            .collect::<Result<_, _>>()
+            .map_err(|(index, error)| MergedWriteError {
+                message: format!("写入HTML失败: 第{index}条消息数据无效: {error}"),
+                json_path: written_json_path.clone(),
+                html_path: PathBuf::new(),
+            })?;
         let chat_info = ChatInfo {
             name: options.chat_name.to_string(),
             chat_type: options.chat_type.to_string(),
@@ -2486,6 +2862,7 @@ async fn write_merged_data(
         };
         let mut exporter = ModernHtmlExporter::new(HtmlExportOptions {
             output_path: html_path.clone(),
+            resource_dir_name: Some(resource_dir_name.to_string()),
             include_resource_links: true,
             include_system_messages: true,
             exporter_version: Some(crate::version::VERSION.get().to_string()),
@@ -2494,15 +2871,20 @@ async fn write_merged_data(
         let html_result = exporter
             .export_single_inline(&clean_messages, &chat_info)
             .await;
-        if html_result.is_ok() {
-            html_path
-        } else {
-            PathBuf::new()
+        if let Err(error) = html_result {
+            let _ = tokio::fs::remove_file(&html_path).await;
+            return Err(MergedWriteError {
+                message: format!("写入HTML失败: {}", export_error_reason(&error)),
+                json_path: written_json_path,
+                html_path: PathBuf::new(),
+            });
         }
-    } else {
-        PathBuf::new()
-    };
-    Ok((json_path, html_path))
+        written_html_path = html_path;
+    }
+    Ok(MergedWritePaths {
+        json_path: written_json_path,
+        html_path: written_html_path,
+    })
 }
 
 fn cleanup_merge_sources(sources: &[MergeSource]) {
@@ -2520,15 +2902,19 @@ fn cleanup_merge_sources(sources: &[MergeSource]) {
 /// 解析合并输出格式:`body.formats` 数组(值小写归一);缺省 `["json","html"]`。
 /// 返回 (generate_json, generate_html);非法值或全空返回错误。
 fn parse_merge_formats(body: &Value) -> Result<(bool, bool), String> {
-    let formats: Vec<String> = body.get("formats").and_then(Value::as_array).map_or_else(
-        || vec!["json".to_string(), "html".to_string()],
-        |array| {
-            array
-                .iter()
-                .filter_map(|value| value.as_str().map(str::to_lowercase))
-                .collect()
-        },
-    );
+    let formats: Vec<String> = match body.get("formats") {
+        None => vec!["json".to_string(), "html".to_string()],
+        Some(Value::Array(array)) => array
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_lowercase)
+                    .ok_or_else(|| "输出格式必须是字符串".to_string())
+            })
+            .collect::<Result<_, _>>()?,
+        Some(_) => return Err("formats 必须是数组".to_string()),
+    };
     if formats.is_empty() {
         return Err("至少选择一种输出格式".to_string());
     }
@@ -2645,7 +3031,21 @@ pub async fn merge_resources(
             group_count
         );
         broadcast_merge_progress(&state, "merge", index, group_count, &label);
-        let (messages, deduplicated) = merge_source_messages(&group.sources, deduplicate);
+        let (messages, deduplicated) = match merge_source_messages(&group.sources, deduplicate) {
+            Ok(result) => result,
+            Err(message) => {
+                group_results.push(json!({
+                    "chatType": group.chat_type.clone(),
+                    "displayName": group.display_name.clone(),
+                    "sourceCount": group.sources.len(),
+                    "jsonPath": "",
+                    "htmlPath": "",
+                    "status": "failed",
+                    "error": message,
+                }));
+                continue;
+            }
+        };
         broadcast_merge_progress(
             &state,
             "merge",
@@ -2659,26 +3059,42 @@ pub async fn merge_resources(
         );
 
         broadcast_merge_progress(&state, "resources", index, group_count, "合并资源文件...");
-        let (resource_count, mapping) = match merge_resource_files(&group.sources, &output_path) {
-            Ok(result) => result,
-            Err(message) => {
-                broadcast_merge_progress(
-                    &state,
-                    "resources",
-                    index + 1,
-                    group_count,
-                    &format!("{} 资源合并失败", group.display_name),
-                );
-                group_results.push(json!({
-                    "chatType": group.chat_type.clone(),
-                    "displayName": group.display_name.clone(),
-                    "sourceCount": group.sources.len(),
-                    "status": "failed",
-                    "error": message,
-                }));
-                continue;
-            }
-        };
+        let timestamp = Utc::now()
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            .replace([':', '.'], "-")
+            .chars()
+            .take(19)
+            .collect::<String>();
+        let (json_name, html_name) = merged_output_names(
+            &output_path,
+            &group.chat_type,
+            &group.display_name,
+            &timestamp,
+        );
+        let resource_base_name = json_name.strip_suffix(".json").unwrap_or(&json_name);
+        let (resource_count, mapping) =
+            match merge_resource_files(&group.sources, &output_path, resource_base_name) {
+                Ok(result) => result,
+                Err(message) => {
+                    broadcast_merge_progress(
+                        &state,
+                        "resources",
+                        index + 1,
+                        group_count,
+                        &format!("{} 资源合并失败", group.display_name),
+                    );
+                    group_results.push(json!({
+                        "chatType": group.chat_type.clone(),
+                        "displayName": group.display_name.clone(),
+                        "sourceCount": group.sources.len(),
+                        "jsonPath": "",
+                        "htmlPath": "",
+                        "status": "failed",
+                        "error": message,
+                    }));
+                    continue;
+                }
+            };
         broadcast_merge_progress(
             &state,
             "resources",
@@ -2691,8 +3107,11 @@ pub async fn merge_resources(
         );
 
         broadcast_merge_progress(&state, "write", index, group_count, "写入合并数据...");
-        let (json_path, html_path) = match write_merged_data(
+        let paths = match write_merged_data(
             &output_path,
+            &json_name,
+            &html_name,
+            &format!("resources_{resource_base_name}"),
             &messages,
             &mapping,
             &MergedWriteOptions {
@@ -2706,14 +3125,25 @@ pub async fn merge_resources(
         .await
         {
             Ok(paths) => paths,
-            Err(message) => {
-                group_results.push(json!({
+            Err(error) => {
+                let mut result = json!({
                     "chatType": group.chat_type.clone(),
                     "displayName": group.display_name.clone(),
                     "sourceCount": group.sources.len(),
+                    "jsonPath": "",
+                    "htmlPath": "",
                     "status": "failed",
-                    "error": message,
-                }));
+                    "error": error.message,
+                });
+                let json_path = existing_file_path(&error.json_path);
+                if !json_path.is_empty() {
+                    result["jsonPath"] = json!(json_path);
+                }
+                let html_path = existing_file_path(&error.html_path);
+                if !html_path.is_empty() {
+                    result["htmlPath"] = json!(html_path);
+                }
+                group_results.push(result);
                 continue;
             }
         };
@@ -2737,8 +3167,8 @@ pub async fn merge_resources(
             "totalMessages": messages.len(),
             "deduplicatedMessages": deduplicated,
             "totalResources": resource_count,
-            "jsonPath": json_path.to_string_lossy(),
-            "htmlPath": html_path.to_string_lossy(),
+            "jsonPath": existing_file_path(&paths.json_path),
+            "htmlPath": existing_file_path(&paths.html_path),
             "status": "success",
         }));
     }
@@ -2775,11 +3205,14 @@ pub async fn merge_resources(
 #[cfg(test)]
 mod metadata_tests {
     use super::{
-        apply_file_metadata, avatar_url, extract_html_time_range, group_merge_sources,
-        merged_export_display_time, merged_output_names, parse_export_file_name,
-        parse_manifest_metadata, parse_manual_export_file_name, parse_merge_formats,
-        parse_merged_export_file_name, parse_scheduled_export_file_name,
-        should_select_in_file_manager, valid_export_file_name, windows_explorer_args, MergeSource,
+        apply_file_metadata, avatar_url, extract_html_time_range, find_sibling_file_ci,
+        existing_file_path, group_merge_sources, is_merged_base_name, merge_resource_files,
+        merge_source_messages,
+        merged_export_display_time, merged_output_names, merged_resource_dir_for_file,
+        parse_export_file_name, parse_manifest_metadata, parse_manual_export_file_name,
+        parse_merge_formats, parse_merged_export_file_name, parse_scheduled_export_file_name,
+        rewrite_merged_resource_paths, should_select_in_file_manager, valid_export_file_name,
+        windows_explorer_args, write_merged_data, MergeSource, MergedWriteOptions,
     };
     use serde_json::json;
     use std::fs;
@@ -2806,6 +3239,46 @@ mod metadata_tests {
         ] {
             assert!(!valid_export_file_name(invalid), "{invalid}");
         }
+    }
+
+    #[test]
+    fn merged_resource_helpers_match_case_insensitively() {
+        let base =
+            std::env::temp_dir().join(format!("qce-merge-case-{}", uuid::Uuid::new_v4().simple()));
+        fs::create_dir_all(&base).unwrap();
+        fs::write(base.join("chat.HTML"), b"html").unwrap();
+
+        let sibling = find_sibling_file_ci(&base, "chat", "html").unwrap();
+        assert_eq!(
+            sibling.file_name().and_then(|name| name.to_str()),
+            Some("chat.HTML")
+        );
+        assert!(is_merged_base_name(
+            "MERGED_group_name_2026-08-30T14-07-16.HTML"
+        ));
+
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn merge_response_paths_only_include_real_files() {
+        let base = std::env::temp_dir().join(format!(
+            "qce-merge-response-paths-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let file = base.join("merged.json");
+        fs::create_dir_all(&base).unwrap();
+        fs::write(&file, b"{}").unwrap();
+        fs::create_dir(base.join("merged.html")).unwrap();
+
+        assert_eq!(
+            existing_file_path(&file),
+            file.to_string_lossy().into_owned()
+        );
+        assert_eq!(existing_file_path(&base.join("merged.html")), "");
+        assert_eq!(existing_file_path(&base.join("missing.html")), "");
+
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
@@ -3086,9 +3559,211 @@ mod metadata_tests {
         let upper = parse_merge_formats(&json!({ "formats": ["JSON", "Html"] })).unwrap();
         assert_eq!(upper, (true, true));
 
-        assert!(parse_merge_formats(&json!({ "formats": [] })).is_err());
-        assert!(parse_merge_formats(&json!({ "formats": ["xlsx"] })).is_err());
-        assert!(parse_merge_formats(&json!({ "formats": ["json", "zip"] })).is_err());
+        assert_eq!(
+            parse_merge_formats(&json!({ "formats": [] })),
+            Err("至少选择一种输出格式".to_string())
+        );
+        assert_eq!(
+            parse_merge_formats(&json!({ "formats": "html" })),
+            Err("formats 必须是数组".to_string())
+        );
+        assert_eq!(
+            parse_merge_formats(&json!({ "formats": [1, "html"] })),
+            Err("输出格式必须是字符串".to_string())
+        );
+        assert_eq!(
+            parse_merge_formats(&json!({ "formats": [null] })),
+            Err("输出格式必须是字符串".to_string())
+        );
+        assert_eq!(
+            parse_merge_formats(&json!({ "formats": ["xlsx"] })),
+            Err("输出格式仅支持 json/html".to_string())
+        );
+        assert_eq!(
+            parse_merge_formats(&json!({ "formats": ["json", "zip"] })),
+            Err("输出格式仅支持 json/html".to_string())
+        );
+    }
+
+    #[test]
+    fn merge_source_messages_rejects_unavailable_and_accepts_empty_json() {
+        let base = std::env::temp_dir().join(format!(
+            "qce-merge-messages-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(&base).unwrap();
+        let valid = base.join("valid.json");
+        fs::write(&valid, r#"{"messages":[{"id":"1","timestamp":1}]}"#).unwrap();
+        let missing = base.join("missing.json");
+        let source = |json_file| MergeSource {
+            html_file: PathBuf::new(),
+            json_file,
+            resource_dir: PathBuf::new(),
+        };
+
+        let error = merge_source_messages(&[source(None)], true).unwrap_err();
+        assert_eq!(error, "缺少可合并的 JSON 消息数据");
+
+        let error =
+            merge_source_messages(&[source(Some(valid.clone())), source(Some(missing))], true)
+                .unwrap_err();
+        assert!(error.contains("部分 JSON 消息数据不可用"));
+        assert!(!error.contains(base.to_string_lossy().as_ref()));
+
+        fs::write(&valid, "not json").unwrap();
+        let error = merge_source_messages(&[source(Some(valid))], true).unwrap_err();
+        assert!(error.contains("解析失败"));
+        assert!(!error.contains(base.to_string_lossy().as_ref()));
+
+        let unreadable = base.join("unreadable.json");
+        fs::create_dir(&unreadable).unwrap();
+        let error = merge_source_messages(&[source(Some(unreadable))], true).unwrap_err();
+        assert!(error.contains("读取失败"));
+
+        let empty = base.join("empty.json");
+        fs::write(&empty, r#"{"messages":[]}"#).unwrap();
+        let (messages, deduplicated) = merge_source_messages(&[source(Some(empty))], true).unwrap();
+        assert!(messages.is_empty());
+        assert_eq!(deduplicated, 0);
+
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn merged_resource_directories_do_not_share_same_named_files() {
+        let base = std::env::temp_dir().join(format!(
+            "qce-merge-resources-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let source_a = base.join("source-a");
+        let source_b = base.join("source-b");
+        fs::create_dir_all(source_a.join("images")).unwrap();
+        fs::create_dir_all(source_b.join("images")).unwrap();
+        fs::write(source_a.join("images/same.bin"), b"a").unwrap();
+        fs::write(source_b.join("images/same.bin"), b"b").unwrap();
+        let source = |resource_dir| MergeSource {
+            html_file: PathBuf::new(),
+            json_file: None,
+            resource_dir,
+        };
+
+        merge_resource_files(&[source(source_a)], &base, "merged_group_a").unwrap();
+        merge_resource_files(&[source(source_b)], &base, "merged_group_b").unwrap();
+        assert_eq!(
+            fs::read(base.join("resources_merged_group_a/images/same.bin")).unwrap(),
+            b"a"
+        );
+        assert_eq!(
+            fs::read(base.join("resources_merged_group_b/images/same.bin")).unwrap(),
+            b"b"
+        );
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn merged_resource_collision_rewrites_message_reference() {
+        let md5 = "0123456789abcdef0123456789abcdef";
+        let relative = format!("resources_merged/images/{md5}_same.png");
+        let mut messages = vec![json!({
+            "content": {
+                "elements": [{
+                    "type": "image",
+                    "data": {"filename": "same.png", "md5": md5}
+                }]
+            }
+        })];
+
+        rewrite_merged_resource_paths(
+            &mut messages,
+            &[(md5.to_string(), relative.clone())],
+            std::path::Path::new("/tmp/merged"),
+            false,
+        );
+
+        assert_eq!(
+            messages[0]["content"]["elements"][0]["data"]["localPath"],
+            json!(relative)
+        );
+    }
+
+    #[test]
+    fn merged_resource_lookup_supports_isolated_and_legacy_directories() {
+        let base = std::env::temp_dir().join(format!(
+            "qce-merge-resource-lookup-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(base.join("resources")).unwrap();
+        assert_eq!(
+            merged_resource_dir_for_file(&base, "merged_old"),
+            Some(base.join("resources"))
+        );
+
+        let isolated = base.join("resources_merged_new");
+        fs::create_dir_all(&isolated).unwrap();
+        assert_eq!(
+            merged_resource_dir_for_file(&base, "merged_new"),
+            Some(isolated)
+        );
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[tokio::test]
+    async fn html_write_failure_reports_json_path() {
+        let base =
+            std::env::temp_dir().join(format!("qce-merge-write-{}", uuid::Uuid::new_v4().simple()));
+        fs::create_dir_all(base.join("merged.html")).unwrap();
+        let result = write_merged_data(
+            &base,
+            "merged.json",
+            "merged.html",
+            "resources_merged",
+            &[],
+            &[],
+            &MergedWriteOptions {
+                chat_name: "合并",
+                chat_type: "group",
+                chat_id: None,
+                generate_json: true,
+                generate_html: true,
+            },
+        )
+        .await;
+        let error = result.unwrap_err();
+        assert!(error.message.contains("写入HTML失败"));
+        assert!(!error.message.contains(base.to_string_lossy().as_ref()));
+        assert_eq!(error.json_path, base.join("merged.json"));
+        assert!(base.join("merged.json").is_file());
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[tokio::test]
+    async fn html_write_failure_reports_invalid_message_data() {
+        let base = std::env::temp_dir().join(format!(
+            "qce-merge-invalid-message-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let result = write_merged_data(
+            &base,
+            "merged.json",
+            "merged.html",
+            "resources_merged",
+            &[json!({ "id": "missing-sender" })],
+            &[],
+            &MergedWriteOptions {
+                chat_name: "合并",
+                chat_type: "group",
+                chat_id: None,
+                generate_json: false,
+                generate_html: true,
+            },
+        )
+        .await;
+        let error = result.unwrap_err();
+        assert!(error.message.contains("写入HTML失败: 第1条消息数据无效"));
+        assert!(error.json_path.as_os_str().is_empty());
+        assert!(error.html_path.as_os_str().is_empty());
+        assert!(!base.join("merged.html").exists());
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

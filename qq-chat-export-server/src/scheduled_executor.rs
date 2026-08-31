@@ -350,6 +350,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
                         .get("enableVirtualScroll")
                         .and_then(Value::as_bool)
                         != Some(false),
+                    resource_dir_name: None,
                     exporter_version: Some(qce_server::version::VERSION.get().to_string()),
                 });
                 exporter

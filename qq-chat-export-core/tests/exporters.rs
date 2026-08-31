@@ -560,6 +560,32 @@ async fn modern_html_embeds_resources_and_respects_fallbacks() {
 }
 
 #[tokio::test]
+async fn modern_html_chunked_manifest_uses_custom_resource_directory() {
+    let temp = TestDir::new("custom-resource-dir");
+    let output_dir = temp.join("chunked");
+    fs::create_dir_all(&output_dir).expect("create output directory");
+    let mut exporter = ModernHtmlExporter::new(HtmlExportOptions {
+        output_path: output_dir.join("index.html"),
+        resource_dir_name: Some("resources_merged_group".to_owned()),
+        ..HtmlExportOptions::default()
+    });
+
+    exporter
+        .export_chunked(
+            &[message("m_custom_resource_dir", 1_718_454_840_000, vec![])],
+            &chat_info(),
+            &ChunkedHtmlExportOptions::default(),
+        )
+        .await
+        .expect("chunked export");
+
+    let manifest =
+        fs::read_to_string(output_dir.join("data/manifest.json")).expect("read manifest");
+    let manifest: Value = serde_json::from_str(&manifest).expect("parse manifest");
+    assert_eq!(manifest["paths"]["resourcesDir"], "resources_merged_group");
+}
+
+#[tokio::test]
 async fn modern_html_renders_nested_forwards_and_print_options() {
     let temp = TestDir::new("modern-options");
     let nested = message(

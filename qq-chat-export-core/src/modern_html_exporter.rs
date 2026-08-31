@@ -26,6 +26,8 @@ use tokio::task::JoinSet;
 pub struct HtmlExportOptions {
     /// 输出文件路径（单文件模式为 HTML 文件，chunked 模式为 index.html）。
     pub output_path: PathBuf,
+    /// 资源目录名（默认 `resources`，用于需要隔离资源的导出产物）。
+    pub resource_dir_name: Option<String>,
     /// 是否包含资源链接（默认 true）。
     pub include_resource_links: bool,
     /// 是否包含系统消息（默认 true）。
@@ -50,6 +52,7 @@ impl Default for HtmlExportOptions {
     fn default() -> Self {
         Self {
             output_path: PathBuf::new(),
+            resource_dir_name: None,
             include_resource_links: true,
             include_system_messages: true,
             embed_resources_as_data_uri: false,
@@ -168,6 +171,12 @@ impl ModernHtmlExporter {
     /// 新建导出器。
     #[must_use]
     pub fn new(options: HtmlExportOptions) -> Self {
+        let resource_dir_name = options
+            .resource_dir_name
+            .as_deref()
+            .filter(|name| !name.is_empty())
+            .unwrap_or("resources")
+            .to_owned();
         Self {
             options,
             current_chat_info: None,
@@ -176,8 +185,16 @@ impl ModernHtmlExporter {
             data_uri_misses: HashSet::new(),
             rendered_message_ids: HashSet::new(),
             message_id_by_time_sender: HashMap::new(),
-            resource_base_href: "./resources".to_owned(),
+            resource_base_href: format!("./{resource_dir_name}"),
         }
+    }
+
+    fn resource_dir_name(&self) -> &str {
+        self.options
+            .resource_dir_name
+            .as_deref()
+            .filter(|name| !name.is_empty())
+            .unwrap_or("resources")
     }
 
     /// 导出聊天记录为单文件 HTML（流式）。返回已复制的资源相对路径列表。
@@ -193,6 +210,8 @@ impl ModernHtmlExporter {
         let output_dir = output_path
             .parent()
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+        let resource_dir_name = self.resource_dir_name().to_owned();
+        self.resource_base_href = format!("./{resource_dir_name}");
         fs::create_dir_all(&output_dir)
             .await
             .map_err(|e| ExportError::io("mkdir", &output_dir, e))?;
@@ -221,7 +240,7 @@ impl ModernHtmlExporter {
             self.options.include_resource_links && self.options.embed_resources_as_data_uri;
         if self.options.include_resource_links && !use_data_uri {
             for type_dir in ["images", "videos", "audios", "files"] {
-                let dir = output_dir.join("resources").join(type_dir);
+                let dir = output_dir.join(&resource_dir_name).join(type_dir);
                 fs::create_dir_all(&dir)
                     .await
                     .map_err(|e| ExportError::io("mkdir", &dir, e))?;
@@ -295,7 +314,10 @@ impl ModernHtmlExporter {
                         drain_one_copy(&mut running, &mut copied_resources).await;
                     }
                     let output_dir = output_dir.clone();
-                    running.spawn(async move { copy_resource_file(&res, &output_dir).await });
+                    let resource_dir_name = resource_dir_name.clone();
+                    running.spawn(async move {
+                        copy_resource_file(&res, &output_dir, &resource_dir_name).await
+                    });
                 }
             }
         }
@@ -389,9 +411,10 @@ impl ModernHtmlExporter {
         };
 
         // 2) resources/ 移动到最终 HTML 同级（data URI 内联模式下不存在）
-        let temp_resources = temp_dir.join("resources");
+        let resource_dir_name = self.resource_dir_name().to_owned();
+        let temp_resources = temp_dir.join(&resource_dir_name);
         if fs::try_exists(&temp_resources).await.unwrap_or(false) {
-            move_dir_merge(&temp_resources, &output_dir.join("resources")).await?;
+            move_dir_merge(&temp_resources, &output_dir.join(&resource_dir_name)).await?;
         }
 
         // 3) 拼装单文件 HTML：外壳 head + 内联数据脚本 + 内联 app.js + 外壳尾部
@@ -534,7 +557,7 @@ impl ModernHtmlExporter {
             self.options.include_resource_links && self.options.embed_resources_as_data_uri;
         if self.options.include_resource_links && !use_data_uri {
             for type_dir in ["images", "videos", "audios", "files"] {
-                let dir = output_dir.join("resources").join(type_dir);
+                let dir = output_dir.join(self.resource_dir_name()).join(type_dir);
                 fs::create_dir_all(&dir)
                     .await
                     .map_err(|e| ExportError::io("mkdir", &dir, e))?;
@@ -629,8 +652,9 @@ impl ModernHtmlExporter {
         source.restart().await?;
 
         // For chunked viewer, resource href base should be "resources"
+        let resource_dir_name = self.resource_dir_name().to_owned();
         let old_resource_base_href =
-            std::mem::replace(&mut self.resource_base_href, "resources".to_owned());
+            std::mem::replace(&mut self.resource_base_href, resource_dir_name.clone());
 
         let result = self
             .export_chunked_inner(
@@ -641,6 +665,7 @@ impl ModernHtmlExporter {
                     output_path: &output_path,
                     data_dir: &data_dir,
                     chunks_dir: &chunks_dir,
+                    resource_dir_name: &resource_dir_name,
                     dir_names: DirNames {
                         assets: assets_dir_name,
                         data: data_dir_name,
@@ -702,6 +727,7 @@ impl ModernHtmlExporter {
             output_path,
             data_dir,
             chunks_dir,
+            resource_dir_name,
             dir_names,
             limits,
             bucket_file_prefix,
@@ -881,7 +907,10 @@ impl ModernHtmlExporter {
                             drain_one_copy(running, copied_resources).await;
                         }
                         let output_dir = output_dir.to_path_buf();
-                        running.spawn(async move { copy_resource_file(&res, &output_dir).await });
+                        let resource_dir_name = resource_dir_name.to_owned();
+                        running.spawn(async move {
+                            copy_resource_file(&res, &output_dir, &resource_dir_name).await
+                        });
                     }
                 }
 
@@ -990,7 +1019,7 @@ impl ModernHtmlExporter {
                 "dataDir": dir_names.data,
                 "chunksDir": format!("{}/{}", dir_names.data, dir_names.chunks),
                 "indexDir": format!("{}/{}", dir_names.data, dir_names.index),
-                "resourcesDir": "resources",
+                "resourcesDir": resource_dir_name,
             },
             "senders": senders,
             "chunks": chunks_meta,
@@ -1757,6 +1786,7 @@ struct ChunkedRunArgs<'a> {
     output_path: &'a Path,
     data_dir: &'a Path,
     chunks_dir: &'a Path,
+    resource_dir_name: &'a str,
     dir_names: DirNames<'a>,
     limits: ChunkLimits,
     bucket_file_prefix: &'a str,
@@ -2028,14 +2058,18 @@ fn iter_resources(message: &CleanMessage) -> Vec<ResourceTask> {
 /// 流式复制单个资源到导出目录。
 ///
 /// 返回成功复制（或已存在）的相对路径；失败 / 找不到时返回 `None`（静默跳过）。
-async fn copy_resource_file(resource: &ResourceTask, output_dir: &Path) -> Option<String> {
+async fn copy_resource_file(
+    resource: &ResourceTask,
+    output_dir: &Path,
+    resource_dir_name: &str,
+) -> Option<String> {
     let source_absolute_path = resolve_resource_source_path(resource).await?;
 
     // 目标路径（按 HTML 中引用规则）
     let type_dir = normalize_type_dir(&resource.resource_type);
-    let target_relative = format!("resources/{type_dir}/{}", resource.file_name);
+    let target_relative = format!("{resource_dir_name}/{type_dir}/{}", resource.file_name);
     let target_absolute = output_dir
-        .join("resources")
+        .join(resource_dir_name)
         .join(type_dir)
         .join(&resource.file_name);
 
