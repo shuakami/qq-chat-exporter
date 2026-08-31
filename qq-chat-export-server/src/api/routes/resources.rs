@@ -1266,7 +1266,7 @@ async fn find_export_local_resource(
 
     let candidate = resource_dir.join(resource_path);
     if candidate.is_file() {
-        return resolve_existing_within(&candidate, &[resource_dir.clone()]);
+        return resolve_existing_within(&candidate, std::slice::from_ref(&resource_dir));
     }
 
     // 带 MD5 前缀匹配：目录下文件名为 `md5_originalName.ext`
@@ -1290,11 +1290,11 @@ async fn find_export_local_resource(
         }
         let file_name = entry.file_name().to_string_lossy().into_owned();
         if file_name == short_name {
-            return resolve_existing_within(&entry.path(), &[resource_dir.clone()]);
+            return resolve_existing_within(&entry.path(), std::slice::from_ref(&resource_dir));
         }
         if let Some(idx) = file_name.find('_') {
             if idx > 0 && file_name[idx + 1..] == short_name {
-                return resolve_existing_within(&entry.path(), &[resource_dir.clone()]);
+                return resolve_existing_within(&entry.path(), std::slice::from_ref(&resource_dir));
             }
         }
     }
@@ -1475,10 +1475,8 @@ pub async fn resources_index(
 
             let base_name = html_json_re().replace(&name, "").into_owned();
             let resource_dir = merged_resource_dir_for_file(&merged_dir, &base_name);
-            let (resource_count, resource_size) = resource_dir
-                .as_deref()
-                .map(scan_directory_stats)
-                .unwrap_or((0, 0));
+            let (resource_count, resource_size) =
+                resource_dir.as_deref().map_or((0, 0), scan_directory_stats);
             exports.push(json!({
                 "fileName": name,
                 "format": if is_json { "json" } else { "html" },
@@ -2452,11 +2450,10 @@ fn merge_source_messages(
     let mut failures = Vec::new();
 
     for (index, source) in sources.iter().enumerate() {
-        let source_name = source
-            .html_file
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| format!("第{}个源", index + 1));
+        let source_name = source.html_file.file_name().map_or_else(
+            || format!("第{}个源", index + 1),
+            |name| name.to_string_lossy().into_owned(),
+        );
         let Some(json_path) = &source.json_file else {
             failures.push(format!("{source_name} 缺少 JSON 消息数据"));
             continue;
@@ -2466,8 +2463,7 @@ fn merge_source_messages(
             Err(error) => {
                 let json_name = json_path
                     .file_name()
-                    .map(|name| name.to_string_lossy())
-                    .unwrap_or_else(|| source_name.clone().into());
+                    .map_or_else(|| source_name.clone().into(), |name| name.to_string_lossy());
                 failures.push(format!("{json_name} 读取失败: {error}"));
                 continue;
             }
@@ -2477,8 +2473,7 @@ fn merge_source_messages(
             Err(error) => {
                 let json_name = json_path
                     .file_name()
-                    .map(|name| name.to_string_lossy())
-                    .unwrap_or_else(|| source_name.clone().into());
+                    .map_or_else(|| source_name.clone().into(), |name| name.to_string_lossy());
                 failures.push(format!("{json_name} 解析失败: {error}"));
                 continue;
             }
@@ -2486,8 +2481,7 @@ fn merge_source_messages(
         let Some(messages) = data.get("messages").and_then(Value::as_array) else {
             let json_name = json_path
                 .file_name()
-                .map(|name| name.to_string_lossy())
-                .unwrap_or_else(|| source_name.clone().into());
+                .map_or_else(|| source_name.clone().into(), |name| name.to_string_lossy());
             failures.push(format!("{json_name} 缺少 messages 数组"));
             continue;
         };
@@ -2760,9 +2754,11 @@ struct MergedWriteError {
 }
 
 fn existing_file_path(path: &FsPath) -> String {
-    path.is_file()
-        .then(|| path.to_string_lossy().into_owned())
-        .unwrap_or_default()
+    if path.is_file() {
+        path.to_string_lossy().into_owned()
+    } else {
+        String::new()
+    }
 }
 
 fn export_error_reason(error: &qce_exporter::ExportError) -> String {
@@ -3205,14 +3201,14 @@ pub async fn merge_resources(
 #[cfg(test)]
 mod metadata_tests {
     use super::{
-        apply_file_metadata, avatar_url, extract_html_time_range, find_sibling_file_ci,
-        existing_file_path, group_merge_sources, is_merged_base_name, merge_resource_files,
-        merge_source_messages,
-        merged_export_display_time, merged_output_names, merged_resource_dir_for_file,
-        parse_export_file_name, parse_manifest_metadata, parse_manual_export_file_name,
-        parse_merge_formats, parse_merged_export_file_name, parse_scheduled_export_file_name,
-        rewrite_merged_resource_paths, should_select_in_file_manager, valid_export_file_name,
-        windows_explorer_args, write_merged_data, MergeSource, MergedWriteOptions,
+        apply_file_metadata, avatar_url, existing_file_path, extract_html_time_range,
+        find_sibling_file_ci, group_merge_sources, is_merged_base_name, merge_resource_files,
+        merge_source_messages, merged_export_display_time, merged_output_names,
+        merged_resource_dir_for_file, parse_export_file_name, parse_manifest_metadata,
+        parse_manual_export_file_name, parse_merge_formats, parse_merged_export_file_name,
+        parse_scheduled_export_file_name, rewrite_merged_resource_paths,
+        should_select_in_file_manager, valid_export_file_name, windows_explorer_args,
+        write_merged_data, MergeSource, MergedWriteOptions,
     };
     use serde_json::json;
     use std::fs;
