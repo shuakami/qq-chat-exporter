@@ -27,8 +27,8 @@ use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::routes::groups::standalone_guard;
 use crate::api::state::{MessageCacheEntry, RunMode, SharedState, CACHE_EXPIRE_TIME_MS};
 
-const MAX_ACTIVE_EXPORT_TASKS: usize = 32;
 const MAX_MESSAGE_CACHE_ENTRIES: usize = 64;
+const MAX_QUEUED_TASKS: usize = 1000;
 const MAX_CACHED_MESSAGES_PER_ENTRY: usize = 20_000;
 use crate::clean_message_spool::{CleanMessageSpool, SpooledCleanMessageSource};
 use crate::export_debug::ExportDebugSession;
@@ -423,6 +423,7 @@ fn standalone_guard_with(state: &SharedState, feature: &str) -> Option<ApiError>
 fn broadcast_progress(
     state: &SharedState,
     task_id: &str,
+    status: &str,
     progress: i64,
     message: &str,
     count: usize,
@@ -431,7 +432,7 @@ fn broadcast_progress(
         "type": "export_progress",
         "data": {
             "taskId": task_id,
-            "status": "running",
+            "status": status,
             "progress": progress,
             "message": message,
             "messageCount": count,
@@ -844,11 +845,11 @@ async fn register_task(state: &SharedState, task: &Value) -> bool {
             .filter(|value| {
                 matches!(
                     value.get("status").and_then(Value::as_str),
-                    Some("pending" | "running")
+                    Some("queued" | "pending" | "running")
                 )
             })
             .count();
-        if active_count >= MAX_ACTIVE_EXPORT_TASKS {
+        if active_count >= MAX_QUEUED_TASKS {
             return false;
         }
         tasks.insert(task_id, task.clone());
@@ -912,7 +913,8 @@ pub async fn export_messages(
         "fileName": file_name,
         "downloadUrl": download_url,
         "messageCount": 0,
-        "status": "running",
+        "status": "queued",             // 初始状态设为 queued
+        "message": "正在排队中...",      // 初始消息设为 正在排队中...
         "progress": 0,
         "createdAt": now_iso(),
         "format": format,
@@ -922,7 +924,7 @@ pub async fn export_messages(
     if !register_task(&state, &task).await {
         let err = ApiError::new(
             ErrorType::Api,
-            "运行中的导出任务已达到上限",
+            "排队中的导出任务已达到上限",
             "EXPORT_TASK_LIMIT_REACHED",
         )
         .with_status(axum::http::StatusCode::TOO_MANY_REQUESTS);
@@ -936,7 +938,7 @@ pub async fn export_messages(
         "downloadUrl": download_url,
         "filePath": file_path.to_string_lossy(),
         "messageCount": 0,
-        "status": "running",
+        "status": "queued",
         "startTime": req.filter.get("startTime").cloned().unwrap_or(Value::Null),
         "endTime": req.filter.get("endTime").cloned().unwrap_or(Value::Null),
     });
@@ -1008,7 +1010,8 @@ pub async fn export_streaming_zip(
         "fileName": file_name,
         "downloadUrl": download_url,
         "messageCount": 0,
-        "status": "running",
+        "status": "queued",             // 初始状态设为 queued
+        "message": "正在排队中...",      // 初始消息设为 正在排队中...
         "progress": 0,
         "createdAt": now_iso(),
         "format": "STREAMING_ZIP",
@@ -1018,7 +1021,7 @@ pub async fn export_streaming_zip(
     if !register_task(&state, &task).await {
         let err = ApiError::new(
             ErrorType::Api,
-            "运行中的导出任务已达到上限",
+            "排队中的导出任务已达到上限",
             "EXPORT_TASK_LIMIT_REACHED",
         )
         .with_status(axum::http::StatusCode::TOO_MANY_REQUESTS);
@@ -1032,7 +1035,7 @@ pub async fn export_streaming_zip(
         "downloadUrl": download_url,
         "filePath": file_path.to_string_lossy(),
         "messageCount": 0,
-        "status": "running",
+        "status": "queued",
         "startTime": req.filter.get("startTime").cloned().unwrap_or(Value::Null),
         "endTime": req.filter.get("endTime").cloned().unwrap_or(Value::Null),
         "streamingMode": true,
@@ -1100,7 +1103,8 @@ pub async fn export_streaming_jsonl(
         "fileName": dir_name,
         "downloadUrl": download_url,
         "messageCount": 0,
-        "status": "running",
+        "status": "queued",             // 初始状态设为 queued
+        "message": "正在排队中...",      // 初始消息设为 正在排队中...
         "progress": 0,
         "createdAt": now_iso(),
         "format": "STREAMING_JSONL",
@@ -1110,7 +1114,7 @@ pub async fn export_streaming_jsonl(
     if !register_task(&state, &task).await {
         let err = ApiError::new(
             ErrorType::Api,
-            "运行中的导出任务已达到上限",
+            "排队中的导出任务已达到上限",
             "EXPORT_TASK_LIMIT_REACHED",
         )
         .with_status(axum::http::StatusCode::TOO_MANY_REQUESTS);
@@ -1124,7 +1128,7 @@ pub async fn export_streaming_jsonl(
         "downloadUrl": download_url,
         "filePath": dir_path.to_string_lossy(),
         "messageCount": 0,
-        "status": "running",
+        "status": "queued",
         "startTime": req.filter.get("startTime").cloned().unwrap_or(Value::Null),
         "endTime": req.filter.get("endTime").cloned().unwrap_or(Value::Null),
         "streamingMode": true,
@@ -1157,7 +1161,7 @@ enum ExportMode {
     StreamingJsonl,
 }
 
-/// 后台导出主流程包装：负责取消 / 失败态与清理。
+/// 后台导出主流程包装：负责获取排队许可 / 取消 / 失败态与清理。
 async fn run_export_task(
     state: SharedState,
     task_id: String,
@@ -1177,28 +1181,49 @@ async fn run_export_task(
         flags.insert(task_id.clone(), Arc::clone(&cancel_flag));
     }
 
-    let result = if cancelled_before_registration {
+    // 收敛所有执行分支的结果：末尾统一释放路径、下发终态、清理跟踪状态。
+    // 排队前 / 排队中 / 执行中的「取消」统一交给末尾的 is_cancelled 判定。
+    let result: Result<(), String> = if cancelled_before_registration {
         Err("任务已被用户停止".to_string())
     } else {
-        process_export_task(
+        // 广播当前任务已进入排队状态
+        update_task(
             &state,
             &task_id,
-            &req,
-            &format,
-            &file_name,
-            mode,
-            &cancel_flag,
+            json!({
+                "status": "queued",
+                "progress": 0,
+                "message": "正在排队中..."
+            }),
         )
-        .await
+        .await;
+        broadcast_progress(&state, &task_id, "queued", 0, "正在排队中...", 0);
+
+        // 排队：异步获取并发名额，_permit 生命周期覆盖整个导出过程。
+        // 当前面的任务结束时自动唤醒队列中排在最前方的任务。
+        if let Ok(_permit) = state.export_semaphore.acquire().await {
+            if is_cancelled(&state, &task_id, &cancel_flag).await {
+                Err("任务已被用户停止".to_string())
+            } else {
+                process_export_task(
+                    &state,
+                    &task_id,
+                    &req,
+                    &format,
+                    &file_name,
+                    mode,
+                    &cancel_flag,
+                )
+                .await
+            }
+        } else {
+            Err("导出服务已关闭".to_string())
+        }
     };
     release_export_path(&req.output_dir.join(&file_name));
 
     if let Err(error) = result {
-        let was_cancelled = {
-            let cancelled = state.cancelled_task_ids.lock().await;
-            cancelled.contains(&task_id) || cancel_flag.load(Ordering::SeqCst)
-        };
-        if was_cancelled {
+        if is_cancelled(&state, &task_id, &cancel_flag).await {
             tracing::info!("[ApiServer] 导出任务已被用户停止: {task_id}");
             update_task(
                 &state,
@@ -1642,7 +1667,7 @@ async fn process_export_task(
         json!({ "status": "running", "progress": 0, "message": "开始获取消息..." }),
     )
     .await;
-    broadcast_progress(state, task_id, 0, "开始获取消息...", 0);
+    broadcast_progress(state, task_id, "running", 0, "开始获取消息...", 0);
     let debug_session = if req.options.get("debugExport").and_then(Value::as_bool) == Some(true) {
         let session = ExportDebugSession::start(&req.output_dir, file_name).await?;
         session
@@ -1732,7 +1757,7 @@ async fn process_export_task(
             json!({ "progress": progress, "messageCount": spool.count(), "message": message }),
         )
         .await;
-        broadcast_progress(state, task_id, progress, &message, spool.count());
+        broadcast_progress(state, task_id, "running", progress, &message, spool.count());
         previous = Some(batch);
     }
 
@@ -1771,7 +1796,14 @@ async fn process_export_task(
         json!({ "progress": 55, "message": "正在解析消息...", "messageCount": spool.count() }),
     )
     .await;
-    broadcast_progress(state, task_id, 55, "正在解析消息...", spool.count());
+    broadcast_progress(
+        state,
+        task_id,
+        "running",
+        55,
+        "正在解析消息...",
+        spool.count(),
+    );
 
     let sender_title_resolver = title_map.map(|map| {
         let map = Arc::new(map);
@@ -1921,6 +1953,7 @@ async fn process_export_task(
                     broadcast_progress(
                         &state_cb,
                         &task_id_cb,
+                        "running",
                         percent,
                         &progress.message,
                         count_cb,
@@ -1950,7 +1983,14 @@ async fn process_export_task(
             json!({ "progress": progress_next, "message": message, "messageCount": parsed_count }),
         )
         .await;
-        broadcast_progress(state, task_id, progress_next, &message, parsed_count);
+        broadcast_progress(
+            state,
+            task_id,
+            "running",
+            progress_next,
+            &message,
+            parsed_count,
+        );
     }
     drop(reader);
     drop(spool);
@@ -1991,7 +2031,14 @@ async fn process_export_task(
         json!({ "progress": 85, "message": "正在生成文件...", "messageCount": parsed_count }),
     )
     .await;
-    broadcast_progress(state, task_id, 85, "正在生成文件...", parsed_count);
+    broadcast_progress(
+        state,
+        task_id,
+        "running",
+        85,
+        "正在生成文件...",
+        parsed_count,
+    );
 
     // Issue #30 / #192：确保输出目录存在。
     tokio::fs::create_dir_all(&req.output_dir)
@@ -2147,13 +2194,27 @@ async fn process_export_task(
                             == Some(true),
                         ..JsonFormatOptions::default()
                     };
-                    broadcast_progress(state, task_id, 90, "正在写入JSON文件...", message_count);
+                    broadcast_progress(
+                        state,
+                        task_id,
+                        "running",
+                        90,
+                        "正在写入JSON文件...",
+                        message_count,
+                    );
                     let exporter = JsonExporter::new(export_options, json_options);
                     exporter
                         .export(clean_messages, &chat_info)
                         .await
                         .map_err(|e| e.to_string())?;
-                    broadcast_progress(state, task_id, 95, "JSON文件写入完成", message_count);
+                    broadcast_progress(
+                        state,
+                        task_id,
+                        "running",
+                        95,
+                        "JSON文件写入完成",
+                        message_count,
+                    );
                 }
                 "EXCEL" => {
                     let exporter =
@@ -2208,7 +2269,14 @@ async fn process_export_task(
                     json!({ "progress": 95, "message": "正在打包ZIP文件..." }),
                 )
                 .await;
-                broadcast_progress(state, task_id, 95, "正在打包ZIP文件...", message_count);
+                broadcast_progress(
+                    state,
+                    task_id,
+                    "running",
+                    95,
+                    "正在打包ZIP文件...",
+                    message_count,
+                );
 
                 let base_zip_file_name = if let Some(stripped) = file_name
                     .strip_suffix(".html")
@@ -2315,7 +2383,14 @@ async fn process_export_task(
                 json!({ "progress": 95, "message": "正在打包ZIP文件..." }),
             )
             .await;
-            broadcast_progress(state, task_id, 95, "正在打包ZIP文件...", message_count);
+            broadcast_progress(
+                state,
+                task_id,
+                "running",
+                95,
+                "正在打包ZIP文件...",
+                message_count,
+            );
             create_zip_from_dir(temp_dir.clone(), file_path.clone()).await?;
             let _ = tokio::fs::remove_dir_all(&temp_dir).await;
         }
@@ -2594,5 +2669,244 @@ mod file_name_tests {
         release_export_path(&base.join(concurrent));
         release_export_path(&base.join(concurrent_2));
         std::fs::remove_dir_all(base).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod task_queue_tests {
+    use super::*;
+    use serde_json::json;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    struct DummyExecutor;
+    #[async_trait::async_trait]
+    impl crate::scheduler::manager::ScheduledExportExecutor for DummyExecutor {
+        async fn execute(
+            &self,
+            _task: &Value,
+            _start_time_sec: i64,
+            _end_time_sec: i64,
+        ) -> Result<crate::scheduler::manager::ExecutionOutcome, String> {
+            Ok(crate::scheduler::manager::ExecutionOutcome {
+                message_count: 0,
+                file_path: None,
+                file_size: None,
+                resource_summary: None,
+                note: None,
+            })
+        }
+    }
+
+    async fn create_test_state() -> (crate::api::state::SharedState, std::path::PathBuf) {
+        let temp =
+            std::env::temp_dir().join(format!("qce-test-queue-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&temp).expect("create temp dir");
+        let db = Arc::new(crate::storage::DatabaseManager::new(&temp.join("qce.db")));
+        db.initialize().await.expect("init db");
+        let (ws_tx, _) = tokio::sync::broadcast::channel(16);
+        let path_manager = Arc::new(crate::paths::PathManager::new());
+        let napcat =
+            crate::napcat::NapCatBridgeClient::new("http://127.0.0.1:40654", 10_000).unwrap();
+        let resource_handler = Arc::new(
+            crate::resource::ResourceHandler::new(
+                Arc::new(napcat.clone()),
+                None,
+                Arc::clone(&db),
+                crate::resource::ResourceHandlerConfig {
+                    storage_root: temp.join("resources"),
+                    ..crate::resource::ResourceHandlerConfig::default()
+                },
+            )
+            .await,
+        );
+        let progress_tracker = Arc::new(crate::progress::ProgressTracker::new(Arc::clone(&db)));
+        let security_manager = Arc::new(crate::security::SecurityManager::new().unwrap());
+        let scheduled_export_manager = Arc::new(crate::scheduler::ScheduledExportManager::new(
+            Arc::clone(&db),
+            Arc::new(DummyExecutor),
+        ));
+        let state = Arc::new(crate::api::state::AppState {
+            napcat,
+            run_mode: crate::api::state::RunMode::Plugin,
+            db,
+            resource_handler,
+            progress_tracker,
+            scheduled_export_manager,
+            security_manager,
+            path_manager,
+            ws_tx,
+            export_tasks: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            export_semaphore: Arc::new(tokio::sync::Semaphore::new(
+                crate::api::state::MAX_ACTIVE_EXPORT_TASKS,
+            )),
+            cancelled_task_ids: tokio::sync::Mutex::new(std::collections::HashSet::new()),
+            running_export_cancel_flags: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            resource_file_cache: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            message_cache: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            started_at: std::time::Instant::now(),
+            static_dir: temp.clone(),
+            port: 0,
+        });
+        (state, temp)
+    }
+
+    #[tokio::test]
+    async fn queue_handles_hundreds_of_tasks_without_dropping_requests() {
+        let (state, temp) = create_test_state().await;
+
+        // 旧版本上限为 MAX_ACTIVE_EXPORT_TASKS (32)，只要活跃任务达到 32，后续请求就会被忽略。
+        // 新版本上限为 MAX_QUEUED_TASKS (1000)，能够容纳数百个导出任务排队。
+        const BATCH_SIZE: usize = 300;
+        let mut registered_ids = Vec::with_capacity(BATCH_SIZE);
+
+        for i in 0..BATCH_SIZE {
+            let task_id = format!("test-task-{i}");
+            let task = json!({
+                "taskId": task_id,
+                "peer": { "chatType": 1, "peerUid": format!("user_{i}") },
+                "sessionName": format!("会话_{i}"),
+                "status": "queued",
+                "message": "正在排队中...",
+                "progress": 0,
+                "createdAt": now_iso(),
+            });
+            let success = register_task(&state, &task).await;
+            assert!(success, "任务 {i} 应该成功进入队列");
+            registered_ids.push(task_id);
+        }
+
+        // 验证任务总数达到 300 个，全部状态为 queued
+        let tasks = state.export_tasks.lock().await;
+        assert_eq!(tasks.len(), BATCH_SIZE);
+        for id in &registered_ids {
+            assert_eq!(
+                tasks
+                    .get(id)
+                    .and_then(|t| t.get("status"))
+                    .and_then(Value::as_str),
+                Some("queued")
+            );
+        }
+        drop(tasks);
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
+    async fn semaphore_limits_concurrent_running_tasks_while_draining_queue() {
+        let (state, temp) = create_test_state().await;
+
+        const TOTAL_TASKS: usize = 100;
+        let currently_running = Arc::new(AtomicUsize::new(0));
+        let peak_running = Arc::new(AtomicUsize::new(0));
+        let completed_count = Arc::new(AtomicUsize::new(0));
+
+        let mut handles = Vec::with_capacity(TOTAL_TASKS);
+
+        for _ in 0..TOTAL_TASKS {
+            let state_clone = Arc::clone(&state);
+            let currently_running_clone = Arc::clone(&currently_running);
+            let peak_running_clone = Arc::clone(&peak_running);
+            let completed_count_clone = Arc::clone(&completed_count);
+
+            let handle = tokio::spawn(async move {
+                // 模拟 run_export_task 中的信号量排队获取
+                let _permit = state_clone.export_semaphore.acquire().await.unwrap();
+
+                // 模拟获取到许可，任务开始执行
+                let cur = currently_running_clone.fetch_add(1, Ordering::SeqCst) + 1;
+                peak_running_clone.fetch_max(cur, Ordering::SeqCst);
+
+                // 确保任何时刻并发运行的任务数均不超过 MAX_ACTIVE_EXPORT_TASKS (32)
+                assert!(
+                    cur <= crate::api::state::MAX_ACTIVE_EXPORT_TASKS,
+                    "并发任务数 {cur} 超过了上限 32"
+                );
+
+                // 模拟耗时任务
+                tokio::time::sleep(Duration::from_millis(5)).await;
+
+                currently_running_clone.fetch_sub(1, Ordering::SeqCst);
+                completed_count_clone.fetch_add(1, Ordering::SeqCst);
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        assert_eq!(
+            completed_count.load(Ordering::SeqCst),
+            TOTAL_TASKS,
+            "所有100个任务均应顺利完成"
+        );
+        assert_eq!(
+            currently_running.load(Ordering::SeqCst),
+            0,
+            "全部完成后运行中任务数应为0"
+        );
+        let peak = peak_running.load(Ordering::SeqCst);
+        assert!(
+            peak <= crate::api::state::MAX_ACTIVE_EXPORT_TASKS,
+            "峰值并发 {peak} 不得超出 32"
+        );
+        assert_eq!(
+            state.export_semaphore.available_permits(),
+            crate::api::state::MAX_ACTIVE_EXPORT_TASKS,
+            "全部完成后信号量许可应全数归还"
+        );
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[tokio::test]
+    async fn queued_task_cancelled_before_acquire_does_not_execute() {
+        let (state, temp) = create_test_state().await;
+
+        let task_id = "test-cancel-in-queue";
+        let task = json!({
+            "taskId": task_id,
+            "status": "queued",
+            "progress": 0,
+        });
+        register_task(&state, &task).await;
+
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        {
+            let mut flags = state.running_export_cancel_flags.lock().await;
+            flags.insert(task_id.to_string(), Arc::clone(&cancel_flag));
+        }
+
+        // 用户在排队期间取消了任务
+        cancel_flag.store(true, Ordering::SeqCst);
+        {
+            let mut cancelled = state.cancelled_task_ids.lock().await;
+            cancelled.insert(task_id.to_string());
+        }
+
+        // 模拟 run_export_task 的许可获取与取消检查逻辑
+        let mut executed_export = false;
+        if let Ok(_permit) = state.export_semaphore.acquire().await {
+            if is_cancelled(&state, task_id, &cancel_flag).await {
+                // 正确识别取消，不执行实际导出
+            } else {
+                executed_export = true;
+            }
+        }
+
+        assert!(
+            !executed_export,
+            "排队中被取消的任务获取到许可后不应执行导出操作"
+        );
+        assert_eq!(
+            state.export_semaphore.available_permits(),
+            crate::api::state::MAX_ACTIVE_EXPORT_TASKS,
+            "许可必须立刻归还"
+        );
+
+        let _ = std::fs::remove_dir_all(temp);
     }
 }
