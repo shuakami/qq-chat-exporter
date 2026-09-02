@@ -5,6 +5,7 @@ pub mod group_files;
 pub mod groups;
 pub mod messages;
 pub mod resources;
+pub mod roaming;
 pub mod scheduled;
 pub mod security;
 pub mod stickers;

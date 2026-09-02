@@ -53,8 +53,20 @@ export function useApi() {
     return data
   }, [])
 
-  const downloadFile = useCallback(async (fileName: string) => {
-    const response = await fetch(`${API_BASE}/downloads/${fileName}`)
+  const downloadFile = useCallback(async (fileName: string, downloadUrl?: string) => {
+    const target = new URL(downloadUrl || `/downloads/${fileName}`, API_BASE)
+    if (target.origin !== new URL(API_BASE).origin) {
+      throw new Error("下载地址不属于当前服务")
+    }
+    const token = AuthManager.getInstance().getToken()
+    const response = await fetch(target, {
+      headers: token
+        ? {
+            Authorization: `Bearer ${token}`,
+            "X-Access-Token": token,
+          }
+        : undefined,
+    })
     if (response.ok) {
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)

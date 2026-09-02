@@ -6,17 +6,33 @@ export interface BuiltExportRequest {
   body: CreateTaskRequest
 }
 
+export const DEFAULT_ROAMING_MAX_MESSAGES = 50_000
+export const DEFAULT_ROAMING_MAX_SEQUENCE_QUERIES = 50_000
+
 function splitCsv(value?: string): string[] | undefined {
   if (!value) return undefined
   const items = value.split(",").map((item) => item.trim()).filter(Boolean)
   return items.length > 0 ? items : undefined
 }
 
+function toUnixSeconds(value: string, includeSelectedMinute = false): number {
+  const seconds = Math.floor(new Date(value).getTime() / 1000)
+  // DateRangePicker emits minute-precision local values. For the bounded roaming
+  // endpoint the selected end minute is inclusive, so 23:59 covers the full day.
+  return includeSelectedMinute && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)
+    ? seconds + 59
+    : seconds
+}
+
 /** 单次、批量和可复用导出任务共用的请求构造。 */
 export function buildExportRequest(form: CreateTaskForm): BuiltExportRequest {
   const useStreamingMode = form.streamingZipMode === true
   const isJsonFormat = form.format === "JSON"
-  const keywords = splitCsv(form.keywords)
+  const isRoamingExport = form.historySource === "roaming"
+  // The roaming scan uses native QQ history queries and currently supports the
+  // time/sender filters only. Do not serialize a keyword filter that the task
+  // pipeline cannot honor.
+  const keywords = isRoamingExport ? undefined : splitCsv(form.keywords)
   const excludeUserUins = splitCsv(form.excludeUserUins)
   const includeUserUins = splitCsv(form.includeUserUins)
 
@@ -32,8 +48,8 @@ export function buildExportRequest(form: CreateTaskForm): BuiltExportRequest {
       ? (isJsonFormat ? "STREAMING_JSONL" : "STREAMING_ZIP")
       : form.format,
     filter: {
-      ...(form.startTime && { startTime: Math.floor(new Date(form.startTime).getTime() / 1000) }),
-      ...(form.endTime && { endTime: Math.floor(new Date(form.endTime).getTime() / 1000) }),
+      ...(form.startTime && { startTime: toUnixSeconds(form.startTime) }),
+      ...(form.endTime && { endTime: toUnixSeconds(form.endTime, isRoamingExport) }),
       ...(keywords && { keywords }),
       ...(excludeUserUins && { excludeUserUins }),
       ...(includeUserUins && { includeUserUins }),
@@ -57,11 +73,19 @@ export function buildExportRequest(form: CreateTaskForm): BuiltExportRequest {
         skipDownloadResourceTypes: form.skipDownloadResourceTypes,
       }),
     },
+    ...(isRoamingExport && {
+      roaming: {
+        maxMessages: DEFAULT_ROAMING_MAX_MESSAGES,
+        maxSequenceQueries: DEFAULT_ROAMING_MAX_SEQUENCE_QUERIES,
+      },
+    }),
   }
 
-  const endpoint = useStreamingMode
-    ? (isJsonFormat ? "/api/messages/export-streaming-jsonl" : "/api/messages/export-streaming-zip")
-    : "/api/messages/export"
+  const endpoint = isRoamingExport
+    ? "/api/messages/roaming/export"
+    : useStreamingMode
+      ? (isJsonFormat ? "/api/messages/export-streaming-jsonl" : "/api/messages/export-streaming-zip")
+      : "/api/messages/export"
 
   return { endpoint, body }
 }

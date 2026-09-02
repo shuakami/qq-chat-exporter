@@ -18,6 +18,7 @@ PAGES = [
     ('docker-napcat-deployment.md', 'docker-napcat-deployment.html', 'Docker NapCat 部署', 'Docker NapCat 部署', '部署'),
     ('feedback.md', 'feedback.html', '如何反馈问题', '如何反馈问题', '参与'),
     ('contributing.md', 'contributing.html', '如何贡献', '如何贡献', '参与'),
+    ('roaming-api.md', 'roaming-api.html', '实验性漫游 API', '实验性私聊漫游导出与查询 API', '开发'),
 ]
  
 CSS = '''

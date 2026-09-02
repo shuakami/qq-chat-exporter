@@ -144,6 +144,36 @@ export interface RecentContactsResponse {
 }
 
 // Task Types
+export type MessageHistorySource = "local" | "roaming"
+
+export interface RoamingScanSummary {
+  bounded: true
+  calendarAdvisory: true
+  requestedDays: number
+  probedDays: number
+  scannedDays: number
+  calendarQueries: number
+  calendarErrors?: number
+  anchorDays: number
+  exactQueries: number
+  latestQueries: number
+  sequenceQueries: number
+  emptySequenceQueries: number
+  gapCount: number
+  mismatchedAnchors: number
+  unresolvedAnchors: number
+  untimestampedMessages: number
+  rawMessagesSeen: number
+  messageCount: number
+  maxMessages: number
+  maxSequenceQueries: number
+  closingAnchorFound: boolean
+  partial: boolean
+  stopReason: string
+  currentDate?: string | null
+  serverCompletenessProven: false
+}
+
 export interface ExportTask {
   id: string
   peer: {
@@ -153,7 +183,7 @@ export interface ExportTask {
     guildId: string
   }
   sessionName: string
-  status: "pending" | "running" | "completed" | "failed" | "cancelled"
+  status: "queued" | "pending" | "running" | "completed" | "failed" | "cancelled"
   progress: number
   format: string
   startTime?: number
@@ -163,6 +193,8 @@ export interface ExportTask {
   messageCount?: number
   /** 当前进度消息 */
   progressMessage?: string
+  /** 后端任务持久化使用的字段名；加载时会归一为 progressMessage。 */
+  message?: string
   filePath?: string
   fileName?: string
   fileSize?: number
@@ -179,6 +211,10 @@ export interface ExportTask {
    * 后端在 `processMessageResources` 完成后填充；纯文字消息或显式跳过资源下载时为 undefined。
    */
   resourceSummary?: ExportResourceSummary
+  /** 普通本地历史导出或实验性漫游导出。旧任务未包含该字段时按普通导出显示。 */
+  taskKind?: "standard_export" | "roaming_export"
+  /** 漫游扫描进度/边界摘要；不包含消息正文或账号凭据。 */
+  roamingScan?: RoamingScanSummary
 }
 
 /**
@@ -202,6 +238,8 @@ export interface ExportResourceSummary {
 }
 
 export interface CreateTaskForm {
+  /** 消息来源；旧调用方未传时保持原有本地历史导出。 */
+  historySource?: MessageHistorySource
   chatType: number
   peerUid: string
   /** 已知 QQ 号；用于生成可读文件名，避免后端重复查询。 */
@@ -285,6 +323,11 @@ export interface CreateTaskRequest {
     /** 仅保留元数据、跳过下载的资源类型（Issue #341） */
     skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
   }
+  /** 仅 `/api/messages/roaming/export` 使用的有界扫描配置。 */
+  roaming?: {
+    maxMessages: number
+    maxSequenceQueries?: number
+  }
 }
 
 // WebSocket Types
@@ -309,6 +352,13 @@ export interface NotificationMessage {
   }
 }
 
+export interface TaskDeletedMessage {
+  type: "task_deleted"
+  data: {
+    taskId: string
+  }
+}
+
 // Tasks API Response Types
 export interface TasksResponse {
   tasks: ExportTask[]
@@ -321,9 +371,16 @@ export interface TaskResponse {
 
 export interface CreateTaskResponse {
   taskId: string
+  taskKind?: "standard_export" | "roaming_export"
+  sessionName?: string
+  status?: "queued" | "pending" | "running" | "completed" | "failed" | "cancelled"
+  startTime?: number
+  endTime?: number
   messageCount?: number
   fileName?: string
+  filePath?: string
   downloadUrl?: string
+  roamingScan?: RoamingScanSummary
 }
 
 // WebSocket Progress Message Types  
@@ -331,8 +388,8 @@ export interface WebSocketProgressMessage {
   type: "export_progress" | "export_complete" | "export_error" | "task_cancelled"
   data: {
     taskId: string
-    progress: number
-    status: "running" | "completed" | "failed" | "cancelled"
+    progress?: number
+    status: "queued" | "pending" | "running" | "completed" | "failed" | "cancelled"
     error?: string
     fileName?: string
     filePath?: string
@@ -345,13 +402,16 @@ export interface WebSocketProgressMessage {
     chunkCount?: number
     message?: string
     messageCount?: number
+    taskKind?: "standard_export" | "roaming_export"
+    roamingScan?: RoamingScanSummary
   }
 }
 
 /**
  * Issue #144: WebSocket 连接刚建立时，服务端会下发一份 in-memory 任务
  * 状态快照，让网页端能立刻把进度条接上，而不必等下一条 export_progress
- * 推送。仅含前端真正用得到的字段，不传 peer / filter / 文件路径。
+ * 推送。仅含前端真正用得到的字段，不传 peer / filter / 文件路径；新服务端
+ * 会附带漫游任务的类型与扫描摘要，字段可选以兼容旧服务端。
  */
 export interface WebSocketTaskResyncMessage {
   type: "task_resync"
@@ -362,6 +422,8 @@ export interface WebSocketTaskResyncMessage {
       progress: number
       messageCount: number
       error?: string
+      taskKind?: "standard_export" | "roaming_export"
+      roamingScan?: RoamingScanSummary
     }>
   }
 }

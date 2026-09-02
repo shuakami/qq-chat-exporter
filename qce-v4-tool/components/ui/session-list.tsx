@@ -26,7 +26,7 @@ import {
   DropdownMenuItem,
 } from "./dropdown-menu"
 import { PillDropdown } from "./pill-dropdown"
-import type { Group, Friend } from "@/types/api"
+import type { CreateTaskForm, Group, Friend } from "@/types/api"
 import {
   useSessionFilter,
   PAGE_SIZE_OPTIONS,
@@ -44,7 +44,14 @@ import { QqLookupCard } from "./qq-lookup-card"
 import { specialKindLabel } from "@/lib/special-contacts"
 
 const UIN_PATTERN = /^\d{4,12}$/
+const NUMERIC_PEER_UID_PATTERN = /^\d+$/
 const EMPTY_SELECTED_ITEMS = new Set<string>()
+
+function isRoamingEligiblePrivate(item: SessionItem): boolean {
+  if (item.type !== "friend") return false
+  const friend = item.raw as Friend
+  return (friend.chatType ?? 1) === 1 && !NUMERIC_PEER_UID_PATTERN.test(item.id)
+}
 
 /** 会话元信息之间的细分隔线（取代旧的中点分隔符，统一列表分隔样式）。 */
 const META_DIVIDER = <span aria-hidden className="h-2.5 w-px shrink-0 bg-current opacity-20" />
@@ -127,7 +134,10 @@ export interface SessionListProps {
   onSelectMany?: (ids: Set<string>, mode: 'add' | 'remove') => void
   onOpenBatchExportDialog?: () => void
   onPreviewChat?: (type: 'group' | 'friend', id: string, name: string, peer: { chatType: number, peerUid: string }) => void
-  onOpenTaskWizard?: (preset: { chatType: number, peerUid: string, peerUin?: string, sessionName: string }) => void
+  onOpenTaskWizard?: (
+    preset: Pick<CreateTaskForm, "chatType" | "peerUid" | "sessionName"> &
+      Partial<Pick<CreateTaskForm, "peerUin" | "historySource">>
+  ) => void
   onExportGroupAvatars?: (groupCode: string, groupName: string) => void
   onOpenEssenceModal?: (groupCode: string, groupName: string) => void
   onOpenGroupFilesModal?: (groupCode: string, groupName: string) => void
@@ -285,6 +295,16 @@ function SessionListComponent({
   }, [search, setSearch, batchMode, onToggleBatchMode, page, setPage, hasPrevPage, hasNextPage])
 
   const hasActiveFilters = search || type !== 'all'
+  const normalizedSearch = search.trim()
+  const hasExactRoamingSession = filteredItems.some((item) => {
+    if (!isRoamingEligiblePrivate(item)) return false
+    const friend = item.raw as Friend
+    return friend.uin > 0 && String(friend.uin) === normalizedSearch
+  })
+  const showQqLookupCard =
+    UIN_PATTERN.test(normalizedSearch) &&
+    Boolean(onOpenTaskWizard) &&
+    !hasExactRoamingSession
 
   const renderSessionItem = useCallback((item: SessionItem, index: number, items: SessionItem[]) => {
     const isSelected = selectedItems.has(`${item.type}_${item.id}`)
@@ -295,6 +315,8 @@ function SessionListComponent({
     const isGroup = item.type === 'group'
     const group = isGroup ? (item.raw as Group) : null
     const friend = !isGroup ? (item.raw as Friend) : null
+    const chatType = isGroup ? 2 : friend?.chatType ?? 1
+    const canStartRoaming = isRoamingEligiblePrivate(item)
 
     return (
       <div
@@ -342,7 +364,7 @@ function SessionListComponent({
               onClick={(e: React.MouseEvent) => {
                 e.stopPropagation()
                 onPreviewChat?.(item.type, item.id, item.name, {
-                  chatType: isGroup ? 2 : 1,
+                  chatType,
                   peerUid: item.id,
                 })
               }}
@@ -390,13 +412,56 @@ function SessionListComponent({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
+            ) : friend && canStartRoaming ? (
+              <div className="flex items-center bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.04)] rounded-full overflow-hidden hover:border-black/10 transition-all">
+                <button
+                  className="inline-flex items-center justify-center h-7 pl-3 pr-2 text-[12px] font-medium text-neutral-700 dark:text-neutral-200 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-50 dark:hover:bg-white/5 transition-colors border-r border-neutral-200/80 dark:border-white/10"
+                  onClick={(e: React.MouseEvent) => {
+                    e.stopPropagation()
+                    onOpenTaskWizard?.({
+                      chatType: 1,
+                      peerUid: item.id,
+                      peerUin: String(friend.uin || ""),
+                      sessionName: item.name,
+                    })
+                  }}
+                >
+                  导出
+                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      aria-label={`更多导出方式：${item.name}`}
+                      className="inline-flex items-center justify-center h-7 pl-1.5 pr-2 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-50 dark:hover:bg-white/5 transition-colors outline-none"
+                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuItem
+                      onClick={() =>
+                        onOpenTaskWizard?.({
+                          historySource: "roaming",
+                          chatType: 1,
+                          peerUid: item.id,
+                          peerUin: String(friend.uin || ""),
+                          sessionName: item.name,
+                        })
+                      }
+                    >
+                      漫游导出
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             ) : (
               <button
                 className="inline-flex items-center justify-center h-7 px-3 text-[12px] font-medium text-neutral-700 dark:text-neutral-200 bg-white dark:bg-neutral-900 border border-black/5 dark:border-white/10 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:border-black/10 hover:bg-neutral-50 dark:hover:bg-white/5 hover:text-neutral-900 dark:hover:text-white rounded-full transition-all"
                 onClick={(e: React.MouseEvent) => {
                   e.stopPropagation()
                   onOpenTaskWizard?.({
-                    chatType: isGroup ? 2 : 1,
+                    chatType,
                     peerUid: item.id,
                     peerUin: isGroup
                       ? item.id
@@ -514,18 +579,6 @@ function SessionListComponent({
                   清除筛选
                 </button>
               </p>
-              {/*
-                * Issue #204：搜索词是合法 QQ 号但好友/群/最近联系人都搜不到时，
-                * 把搜索框里的数字直接喂给 /api/users/lookup，让用户能定位到
-                * 已注销 / 已删好友的历史会话。
-                */}
-              {UIN_PATTERN.test(search.trim()) && onOpenTaskWizard && (
-                <QqLookupCard
-                  initialUin={search.trim()}
-                  onStartExport={(preset) => onOpenTaskWizard(preset)}
-                  onPreview={onPreviewChat ? (peer, name) => onPreviewChat('friend', peer.peerUid, name, peer) : undefined}
-                />
-              )}
             </>
           )}
         </div>
@@ -533,6 +586,22 @@ function SessionListComponent({
         <div className="flex flex-col mt-4">
           {paginatedItems.map(renderSessionItem)}
         </div>
+      )}
+
+      {/*
+       * Issue #204：合法 QQ 号没有命中可直接漫游的普通私聊时，始终保留
+       * /api/users/lookup 入口。这样空列表、非好友以及服务/临时会话命中搜索时，
+       * 都仍可先解析为 NTQQ 私聊 peerUid，再进入漫游导出。
+       */}
+      {showQqLookupCard && onOpenTaskWizard && (
+        <QqLookupCard
+          initialUin={search.trim()}
+          onStartExport={(preset) => onOpenTaskWizard(preset)}
+          onStartRoamingExport={(preset) =>
+            onOpenTaskWizard({ ...preset, historySource: "roaming" })
+          }
+          onPreview={onPreviewChat ? (peer, name) => onPreviewChat('friend', peer.peerUid, name, peer) : undefined}
+        />
       )}
 
       {/* Floating Batch Toolbar */}

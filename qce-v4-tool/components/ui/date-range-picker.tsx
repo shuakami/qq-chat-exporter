@@ -17,6 +17,8 @@ export interface DateRangePickerProps {
   endTime?: string
   onChange?: (start: string, end: string) => void
   className?: string
+  /** 未选择日期时的按钮文案；调用方可覆盖不适用的“留空导出全部”提示。 */
+  emptyLabel?: string
 }
 
 function parseDate(value?: string): Date | undefined {
@@ -50,7 +52,13 @@ function startOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 1)
 }
 
-export function DateRangePicker({ startTime, endTime, onChange, className }: DateRangePickerProps) {
+export function DateRangePicker({
+  startTime,
+  endTime,
+  onChange,
+  className,
+  emptyLabel = "选择时间范围（留空导出全部）",
+}: DateRangePickerProps) {
   const [isOpen, setIsOpen] = React.useState(false)
 
   const from = parseDate(startTime)
@@ -124,7 +132,7 @@ export function DateRangePicker({ startTime, endTime, onChange, className }: Dat
               )}
             </span>
           ) : (
-            <span className="text-muted-foreground/70">选择时间范围（留空导出全部）</span>
+            <span className="text-muted-foreground/70">{emptyLabel}</span>
           )}
         </button>
       </PopoverTrigger>

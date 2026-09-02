@@ -12,7 +12,7 @@
  * 就能调出对应聊天，并把它当成一条普通会话直接送进任务向导导出。
  */
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Button } from "./button"
 import { Input } from "./input"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
@@ -36,18 +36,40 @@ interface QqLookupCardProps {
     initialUin?: string
     /** 用户点击「导出聊天记录」时回调，给上层去打开任务向导。 */
     onStartExport: (preset: { chatType: number; peerUid: string; peerUin?: string; sessionName: string }) => void
+    /** 用户点击「漫游导出」时回调；不传则隐藏实验性漫游入口。 */
+    onStartRoamingExport?: (preset: { chatType: number; peerUid: string; peerUin?: string; sessionName: string }) => void
     /** 用户点击「预览」时回调；不传则不展示预览按钮。 */
     onPreview?: (peer: { chatType: number; peerUid: string }, sessionName: string) => void
 }
 
 const UIN_REGEX = /^\d{4,12}$/
 
-export function QqLookupCard({ initialUin = "", onStartExport, onPreview }: QqLookupCardProps) {
+export function QqLookupCard({ initialUin = "", onStartExport, onStartRoamingExport, onPreview }: QqLookupCardProps) {
     const { apiCall } = useApi()
     const [uin, setUin] = useState(initialUin)
     const [loading, setLoading] = useState(false)
     const [result, setResult] = useState<UserLookupResult | null>(null)
     const [error, setError] = useState<string | null>(null)
+    const lookupRequestRef = useRef(0)
+
+    useEffect(() => {
+        // The parent keeps this card mounted while the session search changes
+        // from one unmatched QQ number to another. Keep the card in sync so an
+        // old lookup result can never be exported under a newly typed number.
+        lookupRequestRef.current += 1
+        setUin(initialUin.trim())
+        setResult(null)
+        setError(null)
+        setLoading(false)
+    }, [initialUin])
+
+    const handleUinChange = useCallback((value: string) => {
+        lookupRequestRef.current += 1
+        setUin(value)
+        setResult(null)
+        setError(null)
+        setLoading(false)
+    }, [])
 
     const submit = useCallback(async () => {
         const trimmed = uin.trim()
@@ -59,13 +81,20 @@ export function QqLookupCard({ initialUin = "", onStartExport, onPreview }: QqLo
         setError(null)
         setResult(null)
         setLoading(true)
+        const requestId = ++lookupRequestRef.current
         try {
             const resp = await apiCall<UserLookupResult>(`/api/users/lookup?uin=${encodeURIComponent(trimmed)}`)
-            setResult(resp.data ?? null)
+            if (lookupRequestRef.current === requestId) {
+                setResult(resp.data ?? null)
+            }
         } catch (err) {
-            setError(err instanceof Error ? err.message : String(err))
+            if (lookupRequestRef.current === requestId) {
+                setError(err instanceof Error ? err.message : String(err))
+            }
         } finally {
-            setLoading(false)
+            if (lookupRequestRef.current === requestId) {
+                setLoading(false)
+            }
         }
     }, [apiCall, uin])
 
@@ -91,7 +120,7 @@ export function QqLookupCard({ initialUin = "", onStartExport, onPreview }: QqLo
                     pattern="\\d*"
                     placeholder="QQ 号 (例如 123456789)"
                     value={uin}
-                    onChange={(e) => setUin(e.target.value)}
+                    onChange={(e) => handleUinChange(e.target.value)}
                     onKeyDown={onKeyDown}
                     className="flex-1 h-9 text-sm rounded-lg"
                 />
@@ -176,6 +205,22 @@ export function QqLookupCard({ initialUin = "", onStartExport, onPreview }: QqLo
                         >
                             导出
                         </Button>
+                        {onStartRoamingExport && (
+                            <Button
+                                size="sm"
+                                className="h-8 px-3 text-xs rounded-full"
+                                onClick={() =>
+                                    onStartRoamingExport({
+                                        chatType: 1,
+                                        peerUid: result.uid!,
+                                        peerUin: result.uin,
+                                        sessionName: result.remark || result.nick || result.uin,
+                                    })
+                                }
+                            >
+                                漫游导出
+                            </Button>
+                        )}
                     </div>
                 </div>
             )}

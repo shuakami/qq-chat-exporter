@@ -2,6 +2,7 @@ pub mod batch_fetcher;
 pub mod chat_type;
 pub mod sequence_integrity;
 
+pub(crate) use batch_fetcher::{acquire_history_query_permit, try_history_query_permit};
 pub use batch_fetcher::{
     ApiCallStats, BatchFetchConfig, BatchFetchResult, BatchMessageFetcher, FetchError,
     FetchStrategy, MessageFetchApi, MessageFilter, MessageTypeFilter, Peer,

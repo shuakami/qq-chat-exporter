@@ -165,6 +165,10 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         }
 
         // 阶段 2：资源下载（issue #341 跳过类型）
+        // 与交互式普通/漫游导出共享 ResourceHandler；其配置、回调与摘要必须在
+        // 完整任务级资源阶段内保持一致。guard 在任何错误/提前返回时自动释放。
+        let resource_session_guard = self.resource_handler.acquire_export_session().await;
+        self.resource_handler.set_progress_callback(None).await;
         let requested_skip_types: Vec<String> = options
             .get("skipDownloadResourceTypes")
             .and_then(Value::as_array)
@@ -207,7 +211,9 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         let resource_summary =
             serde_json::to_value(self.resource_handler.last_batch_summary().await).ok();
         // 重置共享 ResourceHandler 的状态，避免影响后续任务。
+        self.resource_handler.set_progress_callback(None).await;
         self.resource_handler.set_skip_download_types(None).await;
+        drop(resource_session_guard);
 
         // 阶段 3：文件名 / 输出目录
         tokio::fs::create_dir_all(&output_dir)

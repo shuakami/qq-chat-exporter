@@ -5,7 +5,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{AcquireError, Mutex, Semaphore, SemaphorePermit, TryAcquireError};
 
 use crate::fetcher::chat_type::is_private_like_chat_type;
 
@@ -61,6 +61,20 @@ const SEEK_NEIGHBOR_STEP: i64 = GROUP_SEQ_PAGE_MAX;
 fn history_fetch_gate() -> &'static Semaphore {
     static GATE: OnceLock<Semaphore> = OnceLock::new();
     GATE.get_or_init(|| Semaphore::new(1))
+}
+
+/// 尝试进入进程级历史查询门控，不等待排队。
+pub(crate) fn try_history_query_permit() -> Result<SemaphorePermit<'static>, TryAcquireError> {
+    history_fetch_gate().try_acquire()
+}
+
+/// 等待进入进程级历史查询门控。
+///
+/// 后台导出先取得自身的并发许可，再等待此门控，避免排队任务提前占住历史查询
+/// 许可并与运行中的普通导出互相等待。
+pub(crate) async fn acquire_history_query_permit() -> Result<SemaphorePermit<'static>, AcquireError>
+{
+    history_fetch_gate().acquire().await
 }
 
 /// 聊天对象（对应 NapCat `Peer`）。
@@ -1744,6 +1758,16 @@ mod tests {
         a.expect("call a succeeds");
         b.expect("call b succeeds");
         assert_eq!(api.max_active.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn nonblocking_history_permit_uses_the_process_gate() {
+        let permit = history_fetch_gate()
+            .acquire()
+            .await
+            .expect("history permit");
+        assert!(try_history_query_permit().is_err());
+        drop(permit);
     }
 
     #[test]

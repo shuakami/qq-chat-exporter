@@ -76,7 +76,11 @@ pub async fn root(
                 ],
                 "消息处理": [
                     "POST /api/messages/fetch - 批量获取消息",
-                    "POST /api/messages/export - 导出消息（支持过滤纯图片消息）"
+                    "POST /api/messages/export - 导出消息（支持过滤纯图片消息）",
+                    "POST /api/messages/roaming/calendar - 查询私聊漫游月份提示（实验性）",
+                    "POST /api/messages/roaming/first - 查询私聊漫游锚点（实验性）",
+                    "POST /api/messages/roaming/exact - 按漫游锚点查询原始消息（实验性）",
+                    "POST /api/messages/roaming/export - 创建有界私聊漫游扫描与正式导出任务（实验性）"
                 ],
                 "任务管理": [
                     "GET /api/tasks - 获取所有导出任务",
@@ -85,6 +89,7 @@ pub async fn root(
                     "DELETE /api/tasks/:taskId/original-files - 删除ZIP导出的原始文件"
                 ],
                 "用户信息": [
+                    "GET /api/users/lookup?uin=:uin - 按 QQ 号查询 peerUid",
                     "GET /api/users/:uid - 获取用户信息"
                 ],
                 "系统信息": [
