@@ -15,6 +15,7 @@ import {
   sessionTaskStatsKey,
   type SessionTaskStats,
 } from "@/lib/session-sort"
+import { isActiveExportTaskStatus } from "@/lib/export-task-state"
 
 const TaskWizard = lazy(() => import("@/components/ui/task-wizard").then(m => ({ default: m.TaskWizard })))
 const ScheduledExportWizard = lazy(() => import("@/components/ui/scheduled-export-wizard").then(m => ({ default: m.ScheduledExportWizard })))
@@ -1377,6 +1378,8 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
 
   const getStatusText = (status: string) => {
     switch (status) {
+      case "queued": return "排队中"
+      case "pending": return "等待中"
       case "running": return "进行中"
       case "completed": return "已完成"
       case "failed": return "失败"
@@ -2014,7 +2017,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                               className={`text-[11px] px-1.5 py-0 rounded-full border-0 ${
                                 task.status === "completed"
                                   ? "text-green-700 bg-green-50 dark:text-green-300 dark:bg-green-950/40"
-                                  : task.status === "running"
+                                  : isActiveExportTaskStatus(task.status)
                                   ? "text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/40"
                                   : task.status === "failed"
                                   ? "text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/40"
@@ -2042,7 +2045,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                             )}
                           </div>
                           <div className="ml-4 flex items-center gap-2 flex-shrink-0">
-                            {task.status === "running" && (
+                            {isActiveExportTaskStatus(task.status) && (
                               <>
                                 <Progress value={task.progress} shimmer={true} className="w-20 h-1.5 rounded-full" />
                                 <span className="text-xs text-muted-foreground font-medium tabular-nums">{task.progress}%</span>
@@ -2160,7 +2163,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                             className={`text-[11px] px-1.5 py-0 rounded-full border-0 ${
                               task.status === "completed"
                                 ? "text-green-700 bg-green-50 dark:text-green-300 dark:bg-green-950/40"
-                                : task.status === "running"
+                                : isActiveExportTaskStatus(task.status)
                                 ? "text-blue-700 bg-blue-50 dark:text-blue-300 dark:bg-blue-950/40"
                                 : task.status === "failed"
                                 ? "text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-950/40"
@@ -2250,10 +2253,10 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                                       </div>
                                     )}
                                     <div className="text-xs opacity-80">
-                                      {task.status === "running" ||
-                                      task.status === "pending" ||
-                                      task.roamingScan.stopReason === "running"
-                                        ? "有界漫游扫描正在进行中。"
+                                      {task.status === "queued" || task.status === "pending"
+                                        ? "漫游任务正在等待开始扫描。"
+                                        : task.status === "running"
+                                          ? "有界漫游扫描正在进行中。"
                                         : task.roamingScan.partial
                                           ? `任务已按边界停止（${formatRoamingStopReason(task.roamingScan.stopReason)}），结果可能不完整。`
                                           : "任务已完成所选日期的有界扫描。"}
@@ -2273,13 +2276,13 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                                 : `到 ${new Date(task.endTime! * 1000).toLocaleDateString()}`}
                             </span>
                           )}
-                          {task.status === "running" && task.progressMessage && (
+                          {isActiveExportTaskStatus(task.status) && task.progressMessage && (
                             <span className="text-muted-foreground/40">{task.progressMessage}</span>
                           )}
                         </div>
 
                         {/* Running progress inline */}
-                        {task.status === "running" && (
+                        {isActiveExportTaskStatus(task.status) && (
                           <div className="mt-1.5 flex items-center gap-2">
                             <Progress
                               value={task.progress}
@@ -2301,7 +2304,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
 
                       <div className="ml-3 flex items-center gap-1.5 flex-shrink-0">
                         {/* issue #446：运行中的任务可以停止，打断分页抓取，不必干等。 */}
-                        {(task.status === "running" || task.status === "pending") && (
+                        {isActiveExportTaskStatus(task.status) && (
                           <Button
                             size="sm"
                             variant="ghost"

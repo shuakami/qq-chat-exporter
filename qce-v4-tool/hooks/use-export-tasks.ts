@@ -13,6 +13,7 @@ import {
   mergeExportTaskUpdate,
   mergePendingExportTaskUpdate,
   mergeRemoteExportTasks,
+  getExportTaskStats,
   type ExportTaskResync,
   type ExportTaskUpdate,
 } from "@/lib/export-task-state"
@@ -21,7 +22,7 @@ import { buildExportRequest } from "@/lib/export-request"
 
 const GITHUB_URL = "https://github.com/shuakami/qq-chat-exporter"
 
-type TaskStatus = "running" | "completed" | "failed" | "cancelled"
+type TaskStatus = ExportTask["status"]
 
 type ProgressPayload = ExportTaskUpdate
 
@@ -49,7 +50,11 @@ function isStreamingZipFile(fileName?: string) {
 }
 
 function buildRunningToastDescription(task: ExportTask, data?: ProgressPayload) {
-  return data?.message || task.progressMessage || (task.taskKind === "roaming_export"
+  const currentMessage = data?.status === task.status ? data.message : undefined
+  if (task.status === "queued") {
+    return currentMessage || task.progressMessage || "正在排队中..."
+  }
+  return currentMessage || task.progressMessage || (task.taskKind === "roaming_export"
     ? "漫游任务已创建，正在等待扫描进度"
     : "导出任务已创建，正在等待进度更新")
 }
@@ -285,7 +290,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     let toastId = taskToastIdsRef.current.get(task.id)
 
     if (!toastId) {
-      toastId = toast.loading("正在导出", {
+      toastId = toast.loading(task.status === "queued" ? "正在排队" : "正在导出", {
         description: buildRunningToastDescription(task, data),
         duration: Infinity,
       })
@@ -354,7 +359,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
 
     toast.update(toastId, {
       type: "loading",
-      title: "正在导出",
+      title: task.status === "queued" ? "正在排队" : "正在导出",
       description: buildRunningToastDescription(task, data),
       actions: undefined,
       duration: Infinity,
@@ -547,7 +552,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           id: taskId,
           peer: requestBody.peer,
           sessionName: form.sessionName,
-          status: "running",
+          status: response.data.status ?? "running",
           progress: 0,
           format: form.format,
           startTime: response.data.startTime ?? (form.startTime ? Math.floor(new Date(form.startTime).getTime() / 1000) : undefined),
@@ -561,9 +566,11 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           createdAt: new Date().toISOString(),
           taskKind: response.data.taskKind ?? (form.historySource === "roaming" ? "roaming_export" : "standard_export"),
           roamingScan: response.data.roamingScan,
-          progressMessage: form.historySource === "roaming"
-            ? "漫游任务已创建，正在等待扫描进度"
-            : "导出任务已创建，正在等待进度更新",
+          progressMessage: response.data.status === "queued"
+            ? "正在排队中..."
+            : form.historySource === "roaming"
+              ? "漫游任务已创建，正在等待扫描进度"
+              : "导出任务已创建，正在等待进度更新",
         }
 
         const existingTask = tasksRef.current.find((task) => task.id === taskId)
@@ -580,7 +587,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
         if (!completedToastIdsRef.current.has(taskId)) {
           toast.update(toastId, {
             type: "loading",
-            title: "正在导出",
+            title: resolvedTask.status === "queued" ? "正在排队" : "正在导出",
             description: resolvedTask.progressMessage,
             duration: Infinity,
           })
@@ -815,15 +822,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
   }, [deleteOriginalFilesInternal])
 
   const taskStats = useMemo(() => {
-    let running = 0
-    let completed = 0
-    let failed = 0
-    for (const task of tasks) {
-      if (task.status === "running") running += 1
-      else if (task.status === "completed") completed += 1
-      else if (task.status === "failed") failed += 1
-    }
-    return { total: running + completed + failed, running, completed, failed }
+    return getExportTaskStats(tasks)
   }, [tasks])
   const getTaskStats = useCallback(() => taskStats, [taskStats])
 

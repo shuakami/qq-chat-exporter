@@ -872,6 +872,84 @@ test.describe('Session list — QQ lookup (issue #204)', () => {
     });
 });
 
+test.describe('Queued export tasks', () => {
+    test('queued task is active, cancellable, and not deletable before cancellation', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+
+        const queuedTask = {
+            id: 'queued-fixture-task',
+            peer: { chatType: 1, peerUid: 'u_queued_fixture', guildId: '' },
+            sessionName: '排队测试会话',
+            status: 'queued',
+            progress: 0,
+            progressMessage: '正在排队中...',
+            format: 'JSON',
+            messageCount: 0,
+            createdAt: '2026-09-02T00:00:00.000Z',
+        };
+        let cancelRequested = false;
+
+        await page.route('**/api/tasks', async (route, request) => {
+            if (request.method() !== 'GET') {
+                await route.continue();
+                return;
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: { tasks: [queuedTask], totalCount: 1 },
+                }),
+            });
+        });
+        await page.route('**/api/tasks/queued-fixture-task/cancel', async (route) => {
+            cancelRequested = true;
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: {
+                        ...queuedTask,
+                        status: 'cancelled',
+                        progressMessage: '任务已停止',
+                        completedAt: '2026-09-02T00:00:01.000Z',
+                    },
+                }),
+            });
+        });
+
+        const response = await page.goto(`${FRONTEND_BASE}${SHELL_PATH}`).catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        const skipBtn = page.getByRole('button', { name: '跳过' }).first();
+        if (await skipBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await skipBtn.click().catch(() => null);
+        }
+        await page.getByRole('button', { name: '任务', exact: true }).click();
+
+        const taskRow = page.getByText('排队测试会话', { exact: true }).locator('xpath=../../..');
+        await expect(taskRow.getByText('排队中', { exact: true })).toBeVisible({ timeout: 10_000 });
+        await expect(taskRow.getByText('正在排队中...', { exact: true })).toBeVisible();
+        await expect(taskRow.getByTitle('停止')).toBeVisible();
+        await expect(taskRow.getByTitle('删除')).toHaveCount(0);
+
+        await taskRow.getByTitle('停止').click();
+        await page.getByRole('button', { name: '确认删除', exact: true }).click();
+        await expect.poll(() => cancelRequested).toBe(true);
+        await expect(taskRow.getByText('已停止', { exact: true })).toBeVisible();
+        await expect(taskRow.getByTitle('停止')).toHaveCount(0);
+        await expect(taskRow.getByTitle('删除')).toBeVisible();
+    });
+});
+
 test.describe('Roaming export tasks', () => {
     test('task list shows bounded scan progress and completeness disclaimer', async ({ page }) => {
         await clearLocalStorage(page);

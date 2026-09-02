@@ -79,6 +79,18 @@ export class AuthManager {
   }
 
   /**
+   * 浏览器 WebSocket 无法设置认证头，使用同源 URL 的查询参数传递当前令牌。
+   */
+  getWebSocketUrl(): string {
+    const url = new URL('/', window.location.origin);
+    url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    if (this.token) {
+      url.searchParams.set('token', this.token);
+    }
+    return url.toString();
+  }
+
+  /**
    * 清除token
    */
   clearToken() {

@@ -162,6 +162,9 @@ async fn run() -> Result<(), String> {
         path_manager: Arc::clone(&path_manager),
         ws_tx,
         export_tasks: Mutex::new(export_tasks),
+        export_semaphore: Arc::new(tokio::sync::Semaphore::new(
+            qce_server::api::state::MAX_ACTIVE_EXPORT_TASKS,
+        )),
         cancelled_task_ids: Mutex::new(std::collections::HashSet::new()),
         running_export_cancel_flags: Mutex::new(HashMap::new()),
         resource_file_cache: Mutex::new(HashMap::new()),
@@ -562,7 +565,7 @@ async fn load_custom_dirs(path_manager: &PathManager) {
     }
 }
 
-/// issue #144：把重启后仍是 `running` / `pending` 的孤儿任务拍成 `failed`，
+/// issue #144：把重启后仍是 `queued` / `pending` / `running` 的孤儿任务拍成 `failed`，
 /// 并把全部任务加载进内存任务表。
 async fn reconcile_and_load_tasks(db: &Arc<DatabaseManager>) -> HashMap<String, Value> {
     const ORPHAN_TASK_ERROR_MESSAGE: &str =
@@ -589,7 +592,7 @@ async fn reconcile_and_load_tasks(db: &Arc<DatabaseManager>) -> HashMap<String, 
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        if status == "running" || status == "pending" {
+        if is_orphaned_task_status(&status) {
             orphan_count += 1;
             let has_error = merged
                 .get("error")
@@ -618,6 +621,10 @@ async fn reconcile_and_load_tasks(db: &Arc<DatabaseManager>) -> HashMap<String, 
         tracing::info!("[QCE] Marked {orphan_count} orphaned tasks as failed (issue #144)");
     }
     tasks
+}
+
+fn is_orphaned_task_status(status: &str) -> bool {
+    matches!(status, "queued" | "pending" | "running")
 }
 
 /// 重启中断的漫游任务不再保留“扫描中”摘要；已有计数继续保留，终态字段与
@@ -757,10 +764,20 @@ fn resolve_static_dir() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::reconcile_and_load_tasks;
+    use super::{is_orphaned_task_status, reconcile_and_load_tasks};
     use qce_server::storage::DatabaseManager;
     use serde_json::json;
     use std::sync::Arc;
+
+    #[test]
+    fn restart_reconciles_every_active_task_status() {
+        for status in ["queued", "pending", "running"] {
+            assert!(is_orphaned_task_status(status));
+        }
+        for status in ["completed", "failed", "cancelled"] {
+            assert!(!is_orphaned_task_status(status));
+        }
+    }
 
     #[tokio::test]
     async fn restart_reconciles_and_persists_orphaned_roaming_scan_summary() {

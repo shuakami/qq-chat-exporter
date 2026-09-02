@@ -89,7 +89,7 @@ curl -sS \
   "data": {
     "taskId": "roaming_export_...",
     "taskKind": "roaming_export",
-    "status": "running",
+    "status": "queued",
     "fileName": "friend_历史私聊_example_20260902_120000000.json",
     "downloadUrl": "/downloads/friend_历史私聊_example_20260902_120000000.json",
     "startTime": 1672574400,
@@ -130,6 +130,7 @@ curl -sS \
 该任务复用现有任务生命周期，不另建一套浏览器状态：
 
 - `GET /api/tasks/:taskId` 查询单个任务，`GET /api/tasks` 可在重连后恢复任务列表；任务状态和 `roamingScan` 会持久化到 QCE 数据库。
+- 新任务先进入 `queued`，取得通用导出并发名额后，漫游任务以 `pending` 可取消地等待历史查询独占门控；开始扫描时进入 `running`。三种活动状态都可以停止，但不能直接删除。
 - WebSocket 继续发送 `export_progress`、`export_complete`、`export_error`，前端也可沿用现有轮询兜底。
 - `POST /api/tasks/:taskId/cancel` 会设置现有导出取消信号。扫描会在每个原生调用、重试退避和序列批次之间检查取消；正在进行的单次 QQ 原生调用仍受 bridge 自身超时约束。
 - 运行中或等待中的任务不能直接删除；`DELETE /api/tasks/:taskId` 会返回 `409 TASK_STILL_RUNNING`，应先调用取消接口，确认任务进入 `cancelled` 后再删除。
@@ -155,7 +156,7 @@ curl -sS \
 - 找不到可信尾界、锚点序列不单调、锚点消息无法由 exact 或受限 single 回退恢复、或消息缺少时间戳时，也会通过计数字段和 `partial` 明示，绝不静默宣称完整。
 - `serverCompletenessProven` 始终为 `false`；`partial: false` 只表示本次有界算法走完了请求范围，不代表腾讯服务端保存完整。
 
-创建任务时若历史查询门控被占用，同步返回 `429 HISTORY_QUERY_BUSY`。任务运行中的 calendar、first、exact、latest、single 五类原生查询会对 connect/timeout/request/body 传输错误及明确的瞬时 Worker/RPC 错误最多重试 3 次，采用 120/240/480 ms 的可取消退避；一旦成功便停止重试。URL 构造错误、JSON 解码错误、原生方法不存在、响应结构异常、非零 QQ 业务码和普通 TypeError 都不会进入重试。`2004000`/`2004007` 的单序号空结果同样不会重试；exact 的 raw/RPC 空码会进入上述单序号端点回退，而不是直接丢弃锚点。日历重试全部失败仍只计为一次逻辑 `calendarQueries` 和一次 `calendarErrors`。
+后台漫游导出会在取得通用导出名额后等待历史查询门控，等待过程可以取消，也不会提前占住门控阻塞已经运行的普通导出。三个低层漫游查询端点仍在门控被占用时同步返回 `429 HISTORY_QUERY_BUSY`。任务运行中的 calendar、first、exact、latest、single 五类原生查询会对 connect/timeout/request/body 传输错误及明确的瞬时 Worker/RPC 错误最多重试 3 次，采用 120/240/480 ms 的可取消退避；一旦成功便停止重试。URL 构造错误、JSON 解码错误、原生方法不存在、响应结构异常、非零 QQ 业务码和普通 TypeError 都不会进入重试。`2004000`/`2004007` 的单序号空结果同样不会重试；exact 的 raw/RPC 空码会进入上述单序号端点回退，而不是直接丢弃锚点。日历重试全部失败仍只计为一次逻辑 `calendarQueries` 和一次 `calendarErrors`。
 
 若 QQ/NapCat 缺少必需的原生方法，任务进入 `failed`，并持久化/广播 `errorCode: ROAMING_API_UNAVAILABLE`、`errorHttpStatus: 501`；重试耗尽的 bridge 传输错误、TypeError 等 Worker 内部错误、未列入允许范围的 QQ 业务码或封装失败对应 `ROAMING_QUERY_FAILED`/`502`，返回结构不兼容对应 `INVALID_ROAMING_RESPONSE`/`502`。任务层把 `0` 和无消息码 `2004000` 作为空的 first 结果；exact 的 `0`/`2004000`/`2004007` 空结果会尝试 single 端点回退。若响应带有有效锚点或消息则保留其载荷，其他非零码不能被误判为“没有历史”。日历仍只是 advisory，其业务码异常只增加 `calendarErrors`。single 的 `2004000`/`2004007`（包括 RPC 文本中严格的 `qq_result_...` 形式）仅折叠为对应整数序号为空。
 

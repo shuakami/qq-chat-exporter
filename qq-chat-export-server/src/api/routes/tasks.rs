@@ -47,7 +47,7 @@ fn normalize_task_for_frontend(task: &Value) -> Value {
 fn active_task_delete_error(task: &Value) -> Option<ApiError> {
     matches!(
         task.get("status").and_then(Value::as_str),
-        Some("pending" | "running")
+        Some("queued" | "pending" | "running")
     )
     .then(|| {
         ApiError::new(
@@ -93,7 +93,7 @@ async fn remove_original_export_path(path: &FsPath) -> std::io::Result<()> {
 /// 任务锁的一方能提交终态，取消端不会用第二次查表覆盖已经完成的任务。
 fn transition_task_to_cancelled(task: &mut Value, completed_at: &str) -> Result<Value, ApiError> {
     let status = task.get("status").and_then(Value::as_str);
-    if !matches!(status, Some("pending" | "running")) {
+    if !matches!(status, Some("queued" | "pending" | "running")) {
         return Err(ApiError::validation("任务已结束", "TASK_ALREADY_FINISHED"));
     }
     if let Some(obj) = task.as_object_mut() {
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn delete_requires_active_tasks_to_be_cancelled_first() {
-        for status in ["pending", "running"] {
+        for status in ["queued", "pending", "running"] {
             let error = active_task_delete_error(&json!({"status": status}))
                 .expect("active task must conflict");
             assert_eq!(error.status, StatusCode::CONFLICT);
@@ -378,7 +378,7 @@ mod tests {
 
     #[test]
     fn cancellation_transition_is_atomic_and_never_overwrites_a_terminal_task() {
-        for status in ["pending", "running"] {
+        for status in ["queued", "pending", "running"] {
             let mut task = json!({
                 "taskId": "export_fixture",
                 "taskKind": "roaming_export",

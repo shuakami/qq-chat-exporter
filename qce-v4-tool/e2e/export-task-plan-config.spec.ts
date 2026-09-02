@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test"
 
 import { buildExportRequest, exportTaskPlanToForm } from "@/lib/export-request"
 import {
+  getExportTaskStats,
+  isActiveExportTaskStatus,
   mergeCreatedExportTask,
   mergeExportTaskResync,
   mergeExportTaskUpdate,
@@ -276,6 +278,64 @@ test.describe("export task creation races", () => {
     expect(merged).toBe(task)
   })
 
+  test("a terminal task cannot be replaced by a different terminal result", () => {
+    const completed = {
+      id: "fixture_task",
+      peer: { chatType: 1, peerUid: "u_fixture_peer", guildId: "" },
+      sessionName: "测试会话",
+      status: "completed" as const,
+      progress: 100,
+      format: "JSON",
+      createdAt: "2026-09-02T00:00:00.000Z",
+    }
+    const failed = { ...completed, status: "failed" as const, progress: 80 }
+
+    expect(mergeExportTaskUpdate(completed, {
+      taskId: completed.id,
+      status: "failed",
+      progress: 80,
+    })).toBe(completed)
+    expect(mergeExportTaskUpdate(failed, {
+      taskId: failed.id,
+      status: "completed",
+      progress: 100,
+    })).toBe(failed)
+    expect(mergeRemoteExportTasks([completed], [failed])).toEqual([completed])
+  })
+
+  test("queued is active but cannot regress running or revive terminal tasks", () => {
+    const queued = {
+      id: "queued_fixture",
+      peer: { chatType: 1, peerUid: "u_fixture_peer", guildId: "" },
+      sessionName: "排队任务",
+      status: "queued" as const,
+      progress: 0,
+      format: "JSON",
+      createdAt: "2026-09-02T00:00:00.000Z",
+    }
+    const pending = { ...queued, status: "pending" as const, progress: 10 }
+    const running = { ...queued, status: "running" as const, progress: 20 }
+    const completed = { ...queued, status: "completed" as const, progress: 100 }
+
+    expect(isActiveExportTaskStatus(queued.status)).toBe(true)
+    expect(getExportTaskStats([queued, running, completed])).toEqual({
+      total: 3,
+      running: 2,
+      completed: 1,
+      failed: 0,
+    })
+    expect(mergeExportTaskUpdate(pending, { taskId: pending.id, status: "queued", progress: 0 })).toBe(pending)
+    expect(mergeExportTaskUpdate(running, { taskId: running.id, status: "queued", progress: 0 })).toBe(running)
+    expect(mergeExportTaskUpdate(completed, { taskId: completed.id, status: "queued", progress: 0 })).toBe(completed)
+    expect(mergeExportTaskResync(completed, {
+      taskId: completed.id,
+      status: "queued",
+      progress: 0,
+      messageCount: 0,
+    })).toBe(completed)
+    expect(mergeRemoteExportTasks([completed], [queued])).toEqual([completed])
+  })
+
   test("a stale task-list refresh cannot revive a terminal task", () => {
     const completed = {
       id: "fixture_task",
@@ -344,6 +404,27 @@ test.describe("export task creation races", () => {
     // terminal task returned by REST.
     expect(mergePendingExportTaskUpdate(pendingCompleted, staleRunning)).toEqual(
       pendingCompleted,
+    )
+  })
+
+  test("a pending lifecycle event wins over an older queued REST snapshot", () => {
+    const queued = {
+      id: "fixture_task",
+      peer: { chatType: 1, peerUid: "u_fixture_peer", guildId: "" },
+      sessionName: "测试会话",
+      status: "queued" as const,
+      progress: 0,
+      format: "JSON",
+      createdAt: "2026-09-02T00:00:00.000Z",
+    }
+    const waitingForHistory = {
+      ...queued,
+      status: "pending" as const,
+      progressMessage: "已取得导出名额，正在等待历史查询...",
+    }
+
+    expect(mergePendingExportTaskUpdate(queued, waitingForHistory)).toEqual(
+      waitingForHistory,
     )
   })
 

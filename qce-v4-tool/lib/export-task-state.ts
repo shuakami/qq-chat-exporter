@@ -3,7 +3,7 @@ import type { ExportTask, RoamingScanSummary } from "../types/api"
 export type ExportTaskUpdate = {
   taskId: string
   progress?: number
-  status: "running" | "completed" | "failed" | "cancelled"
+  status: ExportTask["status"]
   message?: string
   messageCount?: number
   error?: string
@@ -17,6 +17,32 @@ export type ExportTaskUpdate = {
   roamingScan?: RoamingScanSummary
 }
 
+export function isActiveExportTaskStatus(status: ExportTask["status"]): boolean {
+  return status === "queued" || status === "pending" || status === "running"
+}
+
+function isTerminalExportTaskStatus(status: ExportTask["status"]): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled"
+}
+
+function activeExportTaskStatusRank(status: ExportTask["status"]): number | undefined {
+  if (status === "queued") return 0
+  if (status === "pending") return 1
+  if (status === "running") return 2
+  return undefined
+}
+
+/** Keep lifecycle updates monotonic when REST and WebSocket delivery races. */
+function shouldRejectLifecycleRegression(
+  current: ExportTask["status"],
+  incoming: ExportTask["status"],
+): boolean {
+  if (isTerminalExportTaskStatus(current)) return incoming !== current
+  const currentRank = activeExportTaskStatusRank(current)
+  const incomingRank = activeExportTaskStatusRank(incoming)
+  return currentRank !== undefined && incomingRank !== undefined && incomingRank < currentRank
+}
+
 export type ExportTaskResync = {
   taskId: string
   status: string
@@ -28,10 +54,7 @@ export type ExportTaskResync = {
 }
 
 export function mergeExportTaskUpdate(task: ExportTask, data: ExportTaskUpdate): ExportTask {
-  if (
-    ["completed", "failed", "cancelled"].includes(task.status) &&
-    data.status === "running"
-  ) {
+  if (shouldRejectLifecycleRegression(task.status, data.status)) {
     return task
   }
   return {
@@ -62,7 +85,7 @@ export function mergePendingExportTaskUpdate(
   remote: ExportTask,
   pending?: ExportTask,
 ): ExportTask {
-  if (!pending || pending.status === "pending") return remote
+  if (!pending) return remote
   return mergeExportTaskUpdate(remote, {
     taskId: pending.id,
     status: pending.status,
@@ -87,6 +110,7 @@ export function mergeExportTaskResync(
   remote: ExportTaskResync,
 ): ExportTask {
   const knownStatuses: ExportTask["status"][] = [
+    "queued",
     "pending",
     "running",
     "completed",
@@ -96,10 +120,7 @@ export function mergeExportTaskResync(
   const remoteStatus = knownStatuses.includes(remote.status as ExportTask["status"])
     ? remote.status as ExportTask["status"]
     : task.status
-  if (
-    ["completed", "failed", "cancelled"].includes(task.status) &&
-    ["pending", "running"].includes(remoteStatus)
-  ) {
+  if (shouldRejectLifecycleRegression(task.status, remoteStatus)) {
     return task
   }
 
@@ -145,12 +166,7 @@ export function mergeRemoteExportTasks(
   )
   const mergedRemote = remote.map((task) => {
     const local = currentById.get(task.id)
-    if (local?.status === "cancelled" && task.status !== "cancelled") return local
-    if (
-      local &&
-      ["completed", "failed"].includes(local.status) &&
-      ["pending", "running"].includes(task.status)
-    ) {
+    if (local && shouldRejectLifecycleRegression(local.status, task.status)) {
       return local
     }
     return {
@@ -164,6 +180,18 @@ export function mergeRemoteExportTasks(
   // request started. Do not let it remove a local task created while the
   // request was in flight; a later refresh/WS event will reconcile that task.
   return [...locallyCreatedWhileLoading, ...mergedRemote]
+}
+
+export function getExportTaskStats(tasks: readonly ExportTask[]) {
+  let running = 0
+  let completed = 0
+  let failed = 0
+  for (const task of tasks) {
+    if (isActiveExportTaskStatus(task.status)) running += 1
+    else if (task.status === "completed") completed += 1
+    else if (task.status === "failed") failed += 1
+  }
+  return { total: running + completed + failed, running, completed, failed }
 }
 
 /** Preserve progress that can arrive over WebSocket before the create request resolves. */

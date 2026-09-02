@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import AuthManager from '@/lib/auth';
 
 export interface SearchProgress {
   searchId: string;
@@ -130,9 +131,7 @@ export function useStreamSearch(options: UseStreamSearchOptions = {}) {
       return;
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
-    const socket = new WebSocket(wsUrl);
+    const socket = new WebSocket(AuthManager.getInstance().getWebSocketUrl());
     wsRef.current = socket;
 
     socket.onopen = () => {

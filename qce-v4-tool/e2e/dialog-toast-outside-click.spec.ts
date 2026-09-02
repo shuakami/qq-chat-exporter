@@ -19,6 +19,8 @@ async function clearLocalStorage(page: import('@playwright/test').Page) {
 
 test.describe('Dialog vs completion toast outside click', () => {
   test('clicking a toast does not dismiss the task wizard', async ({ page }) => {
+    // This UI-only test injects its own toast; isolate broadcasts from other export tests.
+    await page.routeWebSocket('**', () => {});
     await clearLocalStorage(page);
     await page.evaluate((value) => {
       localStorage.setItem('qce_access_token', value);

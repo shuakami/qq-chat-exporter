@@ -183,7 +183,7 @@ export interface ExportTask {
     guildId: string
   }
   sessionName: string
-  status: "pending" | "running" | "completed" | "failed" | "cancelled"
+  status: "queued" | "pending" | "running" | "completed" | "failed" | "cancelled"
   progress: number
   format: string
   startTime?: number
@@ -373,7 +373,7 @@ export interface CreateTaskResponse {
   taskId: string
   taskKind?: "standard_export" | "roaming_export"
   sessionName?: string
-  status?: "running" | "completed" | "failed" | "cancelled"
+  status?: "queued" | "pending" | "running" | "completed" | "failed" | "cancelled"
   startTime?: number
   endTime?: number
   messageCount?: number
@@ -389,7 +389,7 @@ export interface WebSocketProgressMessage {
   data: {
     taskId: string
     progress?: number
-    status: "running" | "completed" | "failed" | "cancelled"
+    status: "queued" | "pending" | "running" | "completed" | "failed" | "cancelled"
     error?: string
     fileName?: string
     filePath?: string
