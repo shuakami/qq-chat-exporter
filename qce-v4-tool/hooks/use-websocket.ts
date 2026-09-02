@@ -6,6 +6,7 @@ import type {
   WebSocketProgressMessage,
   WebSocketTaskResyncMessage,
   ExportTask,
+  TaskDeletedMessage,
 } from "@/types/api"
 
 interface UseWebSocketProps {
@@ -20,6 +21,7 @@ interface UseWebSocketProps {
    */
   onTaskResync?: (data: WebSocketTaskResyncMessage['data']) => void
   onTaskCancelled?: (data: ExportTask) => void
+  onTaskDeleted?: (data: TaskDeletedMessage['data']) => void
   onError?: (error: string | null) => void
 }
 
@@ -33,6 +35,7 @@ export function useWebSocket({
   onNotification,
   onTaskResync,
   onTaskCancelled,
+  onTaskDeleted,
   onError,
 }: UseWebSocketProps = {}) {
   const [ws, setWs] = useState<WebSocket | null>(null)
@@ -52,6 +55,7 @@ export function useWebSocket({
     onNotification,
     onTaskResync,
     onTaskCancelled,
+    onTaskDeleted,
     onError,
   })
   
@@ -64,9 +68,10 @@ export function useWebSocket({
       onNotification,
       onTaskResync,
       onTaskCancelled,
+      onTaskDeleted,
       onError,
     }
-  }, [onMessage, onExportProgress, onProgressUpdate, onNotification, onTaskResync, onTaskCancelled, onError])
+  }, [onMessage, onExportProgress, onProgressUpdate, onNotification, onTaskResync, onTaskCancelled, onTaskDeleted, onError])
 
   const connect = useCallback(() => {
     // Don't create new connection if one already exists
@@ -108,6 +113,8 @@ export function useWebSocket({
           callbacksRef.current.onTaskResync?.(data.data)
         } else if (data.type === "task_cancelled") {
           callbacksRef.current.onTaskCancelled?.(data.data)
+        } else if (data.type === "task_deleted") {
+          callbacksRef.current.onTaskDeleted?.(data.data)
         } else if (data.type === "notification") {
           callbacksRef.current.onNotification?.(data.data)
         }

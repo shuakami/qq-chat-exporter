@@ -36,6 +36,9 @@ export function useQCE(props?: { onNotification?: UseExportTasksProps['onNotific
     onTaskCancelled: (data) => {
       exportTasks.handleTaskCancelled(data)
     },
+    onTaskDeleted: (data) => {
+      exportTasks.handleTaskDeleted(data.taskId)
+    },
     onError: (error) => {
       if (error) {
         console.error("[QCE] WebSocket error:", error)

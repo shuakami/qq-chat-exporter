@@ -150,6 +150,28 @@ function formatTaskPeerLabel(peer?: { chatType?: number; peerUid?: string; peerU
   return ""
 }
 
+function formatRoamingStopReason(reason: string): string {
+  const labels: Record<string, string> = {
+    message_limit_reached: "达到消息数量上限",
+    sequence_query_limit_reached: "达到逐序号查询上限",
+    closing_anchor_not_found: "结束边界后未找到锚点",
+    sequence_gaps_encountered: "部分消息序号不可读取",
+    unresolved_anchors: "部分日期锚点无法解析",
+    untimestamped_messages: "部分消息缺少有效时间",
+    non_monotonic_anchor_sequence: "锚点序列顺序异常",
+    sequence_cursor_stalled: "消息序号游标未推进",
+    bounded_partial_result: "仅获得有界部分结果",
+    requested_range_scanned: "已扫描所选日期范围",
+    running: "扫描中",
+    cancelled: "任务已取消",
+    scan_failed: "扫描失败",
+    native_api_unavailable: "当前 QQ/NapCat 不支持所需接口",
+    native_query_failed: "QQ 原生查询失败",
+    invalid_native_response: "QQ 原生响应结构异常",
+  }
+  return labels[reason] ?? reason
+}
+
 /** 元信息之间的细分隔线（取代旧的中点分隔符）。 */
 const INLINE_DIVIDER = (
   <span aria-hidden className="mx-0.5 inline-block h-3 w-px translate-y-[2px] bg-current opacity-20" />
@@ -2003,6 +2025,16 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                             >
                               {getStatusText(task.status)}
                             </Badge>
+                            {task.taskKind === "roaming_export" && (
+                              <Badge className="border-0 bg-violet-500/10 px-1.5 py-0 text-[11px] text-violet-700 dark:text-violet-300">
+                                漫游
+                              </Badge>
+                            )}
+                            {task.taskKind === "roaming_export" && task.roamingScan?.partial && (
+                              <Badge className="border-0 bg-amber-500/10 px-1.5 py-0 text-[11px] text-amber-700 dark:text-amber-300">
+                                结果可能不完整
+                              </Badge>
+                            )}
                             <TaskFormatLabel format={task.format} className="text-xs text-muted-foreground" />
                             <span className="text-xs text-muted-foreground">{new Date(task.createdAt).toLocaleDateString()}</span>
                             {task.messageCount !== undefined && task.messageCount > 0 && (
@@ -2018,7 +2050,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                             )}
                             {task.status === "completed" && (
                               <>
-                                <Button size="sm" variant="ghost" className="h-8 rounded-lg px-2" onClick={() => openFileLocation(task.filePath)} title="打开文件位置">
+                                <Button size="sm" variant="ghost" className="h-8 rounded-lg px-2" onClick={() => openTaskFileLocation(task)} title="打开文件位置">
                                   <FolderOpen className="w-4 h-4" />
                                 </Button>
                                 <Button size="sm" variant="ghost" className="h-8 rounded-lg px-2" onClick={() => downloadTask(task)} title={isJsonlExport(task) ? "打开文件夹" : "下载"}>
@@ -2139,6 +2171,16 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                           >
                             {getStatusText(task.status)}
                           </Badge>
+                          {task.taskKind === "roaming_export" && (
+                            <Badge className="border-0 bg-violet-500/10 px-1.5 py-0 text-[11px] text-violet-700 dark:text-violet-300">
+                              漫游
+                            </Badge>
+                          )}
+                          {task.taskKind === "roaming_export" && task.roamingScan?.partial && (
+                            <Badge className="border-0 bg-amber-500/10 px-1.5 py-0 text-[11px] text-amber-700 dark:text-amber-300">
+                              结果可能不完整
+                            </Badge>
+                          )}
                         </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground/50">
                           {formatTaskPeerLabel(task.peer) && (
@@ -2146,7 +2188,8 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                           )}
                           <TaskFormatLabel format={task.format} />
                           <span>{new Date(task.createdAt).toLocaleDateString()}</span>
-                          {task.messageCount !== undefined && task.messageCount > 0 && (
+                          {task.messageCount !== undefined &&
+                            (task.messageCount > 0 || task.taskKind === "roaming_export") && (
                             <span className="inline-flex items-center gap-1 whitespace-nowrap">
                               <span>{task.messageCount.toLocaleString()} 条消息</span>
                               {task.status === "completed" && task.resourceSummary && task.resourceSummary.failed > 0 && (
@@ -2174,6 +2217,51 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                                   </TooltipContent>
                                 </Tooltip>
                               )}
+                            </span>
+                          )}
+                          {task.taskKind === "roaming_export" && task.roamingScan && (
+                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                              <span>
+                                已扫描 {task.roamingScan.scannedDays}/{task.roamingScan.requestedDays} 天
+                              </span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground/60 outline-none transition-colors hover:bg-violet-500/10 hover:text-violet-700 focus-visible:ring-2 focus-visible:ring-ring dark:hover:text-violet-300"
+                                    aria-label="查看漫游扫描说明"
+                                  >
+                                    <HelpCircle className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" sideOffset={6} className="max-w-80">
+                                  <div className="space-y-1">
+                                    <div className="font-medium">
+                                      日期锚点 {task.roamingScan.anchorDays} 个，逐序号核对 {task.roamingScan.sequenceQueries} 次
+                                    </div>
+                                    {!!task.roamingScan.emptySequenceQueries && (
+                                      <div className="text-xs opacity-80">
+                                        其中 {task.roamingScan.emptySequenceQueries} 个序号没有可读取消息，扫描已继续。
+                                      </div>
+                                    )}
+                                    {!!task.roamingScan.calendarErrors && (
+                                      <div className="text-xs opacity-80">
+                                        月历提示查询失败 {task.roamingScan.calendarErrors} 次；逐日扫描仍已继续。
+                                      </div>
+                                    )}
+                                    <div className="text-xs opacity-80">
+                                      {task.status === "running" ||
+                                      task.status === "pending" ||
+                                      task.roamingScan.stopReason === "running"
+                                        ? "有界漫游扫描正在进行中。"
+                                        : task.roamingScan.partial
+                                          ? `任务已按边界停止（${formatRoamingStopReason(task.roamingScan.stopReason)}），结果可能不完整。`
+                                          : "任务已完成所选日期的有界扫描。"}
+                                      腾讯接口不会证明服务端记录完整，请以当前账号和客户端实际可见结果为准。
+                                    </div>
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
                             </span>
                           )}
                           {(task.startTime || task.endTime) && (
@@ -2219,10 +2307,14 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                             variant="ghost"
                             className="h-8 w-8 rounded-full p-0 text-muted-foreground/60 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
                             onClick={() => {
-                              showDeleteConfirmationToast(`停止任务「${task.sessionName}」？`, "已获取的消息不会保存", async () => {
-                                const success = await cancelTask(task.id)
-                                if (!success) throw new Error("停止失败")
-                              })
+                              showDeleteConfirmationToast(
+                                `停止任务「${task.sessionName}」？`,
+                                "任务不会标记为完成；任务会尽快停止，正在执行的单次查询或写盘可能需要稍候，已写入磁盘的中间文件或结果文件可能保留",
+                                async () => {
+                                  const success = await cancelTask(task.id)
+                                  if (!success) throw new Error("停止失败")
+                                },
+                              )
                             }}
                             title="停止"
                           >
@@ -2235,7 +2327,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                               size="sm"
                               variant="ghost"
                               className="h-8 w-8 rounded-full p-0"
-                              onClick={() => openFileLocation(task.filePath)}
+                              onClick={() => openTaskFileLocation(task)}
                               title="打开文件位置"
                             >
                               <FolderOpen className="w-4 h-4" />
@@ -3502,7 +3594,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
               <div className={onboardingPanelClass} style={{ width: 340 }}>
                 <p className="text-sm font-medium mb-1">第 2 步：选择并导出</p>
                 <p className="text-muted-foreground text-xs mb-3">
-                  在列表中找到想导出的群聊或好友，点击右侧的「导出」按钮
+                  普通导出可直接点「导出」；私聊漫游记录请点右侧箭头选择「漫游导出」。列表里找不到联系人时，可在搜索框输入 QQ 号反查。
                 </p>
                 <div className="flex gap-2">
                   <button

@@ -26,6 +26,10 @@ import {
 import { toggleSkipResourceType } from "@/lib/skip-resource-types"
 import { EXPORT_OPTION_TOOLTIPS } from "@/lib/export-option-tooltips"
 import {
+  DEFAULT_ROAMING_MAX_MESSAGES,
+  DEFAULT_ROAMING_MAX_SEQUENCE_QUERIES,
+} from "@/lib/export-request"
+import {
   sortSessionTargets,
   type SessionTaskStats,
 } from "@/lib/session-sort"
@@ -35,6 +39,8 @@ const PILL_INPUT =
   "h-[36px] px-3.5 rounded-full border-0 bg-black/[0.04] dark:bg-white/[0.06] text-[13px] outline-none placeholder:text-muted-foreground/70 focus:bg-black/[0.06] dark:focus:bg-white/[0.09] transition-colors"
 const SECTION_TITLE = "text-[14px] font-medium text-foreground mb-5"
 const ADVANCED_PREFERENCES_KEY = "qce.taskWizard.advancedPreferences.v1"
+const MAX_ROAMING_RANGE_DAYS = 1461
+const DAY_MS = 86_400_000
 
 type SkipDownloadResourceType = NonNullable<CreateTaskForm["skipDownloadResourceTypes"]>[number]
 
@@ -54,6 +60,7 @@ interface AdvancedPreferences {
 }
 
 const createDefaultForm = (): CreateTaskForm => ({
+  historySource: "local",
   chatType: 2,
   peerUid: "",
   peerUin: "",
@@ -133,9 +140,16 @@ const selectAdvancedPreferences = (form: CreateTaskForm): AdvancedPreferences =>
 
 const writeAdvancedPreferences = (form: CreateTaskForm) => {
   try {
+    const preferences = selectAdvancedPreferences(form)
+    if (form.historySource === "roaming") {
+      // Roaming exports deliberately disable the hidden streaming switch for
+      // this task, but opening the dialog must not erase the user's regular
+      // export preference.
+      preferences.streamingZipMode = readAdvancedPreferences().streamingZipMode ?? false
+    }
     window.localStorage.setItem(
       ADVANCED_PREFERENCES_KEY,
-      JSON.stringify(selectAdvancedPreferences(form))
+      JSON.stringify(preferences)
     )
   } catch {
     // Browser storage may be unavailable in restricted or private contexts.
@@ -148,6 +162,7 @@ const mergePrefilledForm = (
 ): CreateTaskForm => {
   if (!prefilledData) return base
   return {
+    historySource: prefilledData.historySource ?? base.historySource,
     chatType: prefilledData.chatType ?? base.chatType,
     peerUid: prefilledData.peerUid ?? base.peerUid,
     peerUin: prefilledData.peerUin ?? base.peerUin,
@@ -179,6 +194,28 @@ const mergePrefilledForm = (
       prefilledData.preferGroupMemberName ?? base.preferGroupMemberName,
     debugExport: prefilledData.debugExport ?? base.debugExport,
   }
+}
+
+const toLocalDateTimeInput = (date: Date): string => {
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+const localDayNumber = (date: Date): number =>
+  Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS
+
+const roamingRangeError = (form: CreateTaskForm): string | null => {
+  if (form.historySource !== "roaming") return null
+  if (!form.startTime || !form.endTime) return "漫游导出必须选择开始和结束时间"
+  const start = new Date(form.startTime)
+  const end = new Date(form.endTime)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return "日期范围无效"
+  if (end.getTime() < start.getTime()) return "结束时间不能早于开始时间"
+  const inclusiveDays = localDayNumber(end) - localDayNumber(start) + 1
+  if (inclusiveDays > MAX_ROAMING_RANGE_DAYS) {
+    return `单次漫游导出最多 ${MAX_ROAMING_RANGE_DAYS} 天，请拆分范围后重试`
+  }
+  return null
 }
 
 interface TaskWizardProps {
@@ -254,10 +291,32 @@ export function TaskWizard({
   useEffect(() => {
     if (!isOpen) return
     setPreferencesReady(false)
-    const nextForm = mergePrefilledForm(
+    let nextForm = mergePrefilledForm(
       { ...createDefaultForm(), ...readAdvancedPreferences() },
       prefilledData
     )
+    if (nextForm.historySource === "roaming") {
+      if (!nextForm.startTime || !nextForm.endTime) {
+        const end = new Date()
+        const start = new Date(end)
+        start.setMonth(start.getMonth() - 3)
+        start.setHours(0, 0, 0, 0)
+        end.setHours(23, 59, 0, 0)
+        nextForm = {
+          ...nextForm,
+          startTime: toLocalDateTimeInput(start),
+          endTime: toLocalDateTimeInput(end),
+          streamingZipMode: false,
+        }
+      } else {
+        nextForm = { ...nextForm, streamingZipMode: false }
+      }
+      setTimeRangeMode("custom")
+    } else if (nextForm.startTime && nextForm.endTime) {
+      setTimeRangeMode("custom")
+    } else {
+      setTimeRangeMode("all")
+    }
     setForm(nextForm)
     setPreferencesReady(true)
   }, [prefilledData, isOpen])
@@ -296,6 +355,16 @@ export function TaskWizard({
       })
       if (found) {
         setSelectedTarget(found)
+        setShowTargetSelector(false)
+        didInitTargetRef.current = true
+      } else if (prefilledData.chatType === 1 && prefilledData.sessionName) {
+        const fallbackFriend: Friend = {
+          uid: prefilledData.peerUid,
+          uin: Number(prefilledData.peerUin || 0),
+          nick: prefilledData.sessionName,
+          remark: prefilledData.sessionName,
+        }
+        setSelectedTarget(fallbackFriend)
         setShowTargetSelector(false)
         didInitTargetRef.current = true
       }
@@ -742,7 +811,11 @@ export function TaskWizard({
     }
   }, [manualGroupCode, manualSessionName, apiCall])
 
-  const canSubmit = () => selectedTarget !== null && form.sessionName.trim() !== ""
+  const currentRoamingRangeError = roamingRangeError(form)
+  const canSubmit = () =>
+    selectedTarget !== null &&
+    form.sessionName.trim() !== "" &&
+    currentRoamingRangeError === null
 
   // ---------------- UI pieces ----------------
   const renderTargetSelector = () => {
@@ -1013,13 +1086,24 @@ export function TaskWizard({
 
   const renderConfigPanel = () => {
     const configuredFilterCount = [
-      form.keywords,
+      form.historySource === "roaming" ? "" : form.keywords,
       form.excludeUserUins,
       form.includeUserUins,
     ].filter((value) => value?.trim()).length
 
     return (
       <div className="space-y-10">
+        {form.historySource === "roaming" && (
+          <div
+            data-testid="roaming-export-notice"
+            className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-[13px] leading-relaxed text-foreground/80"
+          >
+            <p className="font-medium text-foreground">实验性私聊漫游导出</p>
+            <p className="mt-1 text-muted-foreground">
+              将在当前 QQ 登录环境中按日期有界扫描。单任务默认最多导出 {DEFAULT_ROAMING_MAX_MESSAGES.toLocaleString("en-US")} 条消息、逐序号查询 {DEFAULT_ROAMING_MAX_SEQUENCE_QUERIES.toLocaleString("en-US")} 次。结果只代表当前账号和客户端可见内容，不保证腾讯服务端记录完整；扫描期间可在任务列表查看进度或取消。
+            </p>
+          </div>
+        )}
         {/* 基础配置 */}
         <section>
           <h2 className={SECTION_TITLE}>基础配置</h2>
@@ -1067,16 +1151,25 @@ export function TaskWizard({
 
             <div className="space-y-2">
               <label className="text-[13px] font-medium text-foreground/80 flex items-center gap-1.5">
-                时间范围
+                {form.historySource === "roaming" ? "漫游日期范围（必填）" : "时间范围"}
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
+                    <button
+                      type="button"
+                      aria-label={form.historySource === "roaming" ? "查看漫游日期范围说明" : "查看时间范围说明"}
+                      className="inline-flex rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-pointer" />
+                    </button>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-[250px]">
-                    {EXPORT_OPTION_TOOLTIPS.allMessages}
+                    {form.historySource === "roaming"
+                      ? "开始和结束日期均为必填；扫描只覆盖所选范围，且不能证明腾讯服务端记录完整。"
+                      : EXPORT_OPTION_TOOLTIPS.allMessages}
                   </TooltipContent>
                 </Tooltip>
               </label>
+              {form.historySource !== "roaming" && (
               <div className="inline-flex items-center flex-wrap gap-1 p-1 rounded-[20px] bg-black/[0.04] dark:bg-white/[0.06] w-fit max-w-full">
                 {([
                   { value: 'all', label: '全部消息' },
@@ -1115,12 +1208,19 @@ export function TaskWizard({
                   )
                 })}
               </div>
-              {timeRangeMode === 'custom' && (
+              )}
+              {(form.historySource === "roaming" || timeRangeMode === 'custom') && (
                 <DateRangePicker
                   startTime={form.startTime}
                   endTime={form.endTime}
                   onChange={(start, end) => setForm((p) => ({ ...p, startTime: start, endTime: end }))}
+                  emptyLabel={form.historySource === "roaming" ? "选择漫游日期范围（必填）" : undefined}
                 />
+              )}
+              {form.historySource === "roaming" && (
+                <p className={currentRoamingRangeError ? "text-xs text-destructive" : "text-xs text-muted-foreground/60"}>
+                  {currentRoamingRangeError || `单次最多 ${MAX_ROAMING_RANGE_DAYS} 天、${DEFAULT_ROAMING_MAX_MESSAGES.toLocaleString("en-US")} 条消息；达到查询安全上限时会标记为可能不完整。`}
+                </p>
               )}
             </div>
           </div>
@@ -1155,16 +1255,18 @@ export function TaskWizard({
 
           {filtersOpen && (
             <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-[13px] font-medium text-foreground/80">关键词过滤</label>
-                <Input
-                  id="keywords"
-                  placeholder="用逗号分隔多个关键词，如：重要,会议,通知"
-                  value={form.keywords}
-                  onChange={(e) => setForm((p) => ({ ...p, keywords: e.target.value }))}
-                  className={PILL_INPUT + " w-full"}
-                />
-              </div>
+              {form.historySource !== "roaming" && (
+                <div className="space-y-2">
+                  <label className="text-[13px] font-medium text-foreground/80">关键词过滤</label>
+                  <Input
+                    id="keywords"
+                    placeholder="用逗号分隔多个关键词，如：重要,会议,通知"
+                    value={form.keywords}
+                    onChange={(e) => setForm((p) => ({ ...p, keywords: e.target.value }))}
+                    className={PILL_INPUT + " w-full"}
+                  />
+                </div>
+              )}
 
               {/* 屏蔽用户 */}
               <div className="space-y-2">
@@ -1232,7 +1334,9 @@ export function TaskWizard({
                   ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式，适合导出超大群聊记录。"
                   : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式，适合导出超大群聊记录。",
                 tip: EXPORT_OPTION_TOOLTIPS.streaming,
-                visible: form.format === "HTML" || form.format === "JSON",
+                visible:
+                  form.historySource !== "roaming" &&
+                  (form.format === "HTML" || form.format === "JSON"),
                 highlight: true,
                 group: "性能与处理"
               },
@@ -1426,13 +1530,21 @@ export function TaskWizard({
         overlayClassName="bg-background/80 dark:bg-background/80"
         className="inset-4 w-auto h-auto rounded-[24px] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.14)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col p-0"
       >
-        <DialogTitle className="sr-only">创建导出任务</DialogTitle>
+        <DialogTitle className="sr-only">
+          {form.historySource === "roaming" ? "创建漫游导出任务" : "创建导出任务"}
+        </DialogTitle>
 
         <div className="flex-1 flex min-h-0 w-full">
           {/* 左侧 */}
           <div className="w-2/5 max-w-[500px] min-w-[300px] flex-shrink-0 flex flex-col pt-12 pl-12 pr-8 pb-6">
-            <h1 className="text-[20px] font-semibold text-foreground mb-2">创建导出任务</h1>
-            <p className="text-[13px] text-muted-foreground mb-8 leading-relaxed">配置您的导出偏好，确认无误后即可开始导出。</p>
+            <h1 className="text-[20px] font-semibold text-foreground mb-2">
+              {form.historySource === "roaming" ? "创建漫游导出任务" : "创建导出任务"}
+            </h1>
+            <p className="text-[13px] text-muted-foreground mb-8 leading-relaxed">
+              {form.historySource === "roaming"
+                ? "选择日期范围，后台会扫描当前账号可见的私聊漫游记录并生成导出文件。"
+                : "配置您的导出偏好，确认无误后即可开始导出。"}
+            </p>
 
             <div className="flex-1 min-h-0 overflow-hidden">
               {showTargetSelector || !selectedTarget ? (
@@ -1449,10 +1561,12 @@ export function TaskWizard({
                       : selectedTarget.remark || selectedTarget.nick}
                   </p>
                   <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={handleChangeTarget} className="rounded-full text-[13px]">
-                      重新选择
-                    </Button>
-                    {onPreview && (
+                    {form.historySource !== "roaming" && (
+                      <Button variant="outline" size="sm" onClick={handleChangeTarget} className="rounded-full text-[13px]">
+                        重新选择
+                      </Button>
+                    )}
+                    {onPreview && form.historySource !== "roaming" && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -1504,7 +1618,9 @@ export function TaskWizard({
         {/* 底部 */}
         <div className="h-[72px] flex items-center justify-between px-10 flex-shrink-0">
           <div className="text-[13px] font-medium text-muted-foreground">
-            {canSubmit() ? <span className="text-foreground">配置就绪</span> : <span>请完成所有必填项</span>}
+            {canSubmit()
+              ? <span className="text-foreground">配置就绪</span>
+              : <span>{currentRoamingRangeError || "请完成所有必填项"}</span>}
           </div>
           <div className="flex items-center gap-3">
             <Button variant="outline" onClick={onClose} className="rounded-full text-[13px] h-8">取消</Button>
@@ -1513,7 +1629,7 @@ export function TaskWizard({
               disabled={!canSubmit() || isLoading}
               className="rounded-full text-[13px] h-8 px-6 bg-[#317CFF] text-white hover:bg-[#2867d6]"
             >
-              {isLoading ? '创建中...' : '创建任务'}
+              {isLoading ? '创建中...' : form.historySource === "roaming" ? '开始漫游导出' : '创建任务'}
             </Button>
           </div>
         </div>

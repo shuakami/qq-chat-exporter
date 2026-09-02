@@ -8,8 +8,12 @@ import type {
 } from "@/types/api"
 import { toast, type ToastAction } from "@/components/ui/toast"
 import {
+  mergeCreatedExportTask,
+  mergeExportTaskResync,
   mergeExportTaskUpdate,
+  mergePendingExportTaskUpdate,
   mergeRemoteExportTasks,
+  type ExportTaskResync,
   type ExportTaskUpdate,
 } from "@/lib/export-task-state"
 import { useApi } from "./use-api"
@@ -45,7 +49,9 @@ function isStreamingZipFile(fileName?: string) {
 }
 
 function buildRunningToastDescription(task: ExportTask, data?: ProgressPayload) {
-  return data?.message || task.progressMessage || "导出任务已创建，正在等待进度更新"
+  return data?.message || task.progressMessage || (task.taskKind === "roaming_export"
+    ? "漫游任务已创建，正在等待扫描进度"
+    : "导出任务已创建，正在等待进度更新")
 }
 
 function buildCompletedToastDescription(task: ExportTask, data: ProgressPayload): ReactNode {
@@ -55,6 +61,7 @@ function buildCompletedToastDescription(task: ExportTask, data: ProgressPayload)
   const isZipExport = data.isZipExport ?? task.isZipExport
   const originalFilePath = data.originalFilePath ?? task.originalFilePath
   const isHtmlExport = task.format?.toUpperCase() === "HTML" && !isStreamingZip
+  const isPartialRoaming = task.taskKind === "roaming_export" && task.roamingScan?.partial === true
 
   let prefix = ""
   if (isStreamingJsonl) {
@@ -70,6 +77,9 @@ function buildCompletedToastDescription(task: ExportTask, data: ProgressPayload)
   return createElement(
     Fragment,
     null,
+    isPartialRoaming
+      ? "漫游扫描已完成，但结果可能不完整；请到任务页查看停止原因和扫描说明。 "
+      : null,
     prefix ? `${prefix} ` : null,
     "如果有帮助到你，给我点个 ",
     createElement(
@@ -100,7 +110,7 @@ function createFallbackTask(data: ProgressPayload): ExportTask {
     },
     sessionName: "导出任务",
     status: data.status,
-    progress: data.progress,
+    progress: data.progress ?? (data.status === "completed" ? 100 : 0),
     format: "",
     messageCount: data.messageCount,
     progressMessage: data.message,
@@ -112,6 +122,8 @@ function createFallbackTask(data: ProgressPayload): ExportTask {
     completedAt: data.completedAt,
     isZipExport: data.isZipExport,
     originalFilePath: data.originalFilePath,
+    taskKind: data.taskKind,
+    roamingScan: data.roamingScan,
   }
 }
 
@@ -124,6 +136,25 @@ export function useExportTasks(_props?: UseExportTasksProps) {
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null)
   const taskToastIdsRef = useRef(new Map<string, string>())
   const tasksRef = useRef<ExportTask[]>([])
+  const pendingTaskUpdatesRef = useRef(new Map<string, ExportTask>())
+  const deletedTaskTombstonesRef = useRef(new Set<string>())
+
+  const isTaskDeleted = useCallback((taskId: string) => {
+    return deletedTaskTombstonesRef.current.has(taskId)
+  }, [])
+
+  const rememberDeletedTask = useCallback((taskId: string) => {
+    // Task ids are unique. Keep a bounded, session-long tombstone set so a
+    // delayed native call (whose timeout may exceed a minute) cannot recreate
+    // a task/toast after deletion. Set iteration order gives us a tiny FIFO.
+    deletedTaskTombstonesRef.current.delete(taskId)
+    deletedTaskTombstonesRef.current.add(taskId)
+    while (deletedTaskTombstonesRef.current.size > 1024) {
+      const oldest = deletedTaskTombstonesRef.current.values().next().value
+      if (!oldest) break
+      deletedTaskTombstonesRef.current.delete(oldest)
+    }
+  }, [])
 
   useEffect(() => {
     tasksRef.current = tasks
@@ -293,10 +324,13 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       }
 
       const actions = buildCompletedActions(task, payload)
+      const isPartialRoaming = task.taskKind === "roaming_export" && task.roamingScan?.partial === true
 
       toast.update(toastId, {
-        type: "success",
-        title: "导出完成",
+        type: isPartialRoaming ? "warning" : "success",
+        title: isPartialRoaming
+          ? "导出完成（结果可能不完整）"
+          : "导出完成",
         description: buildCompletedToastDescription(task, payload),
         actions,
         duration: actions.length > 0 ? Infinity : 8000,
@@ -328,6 +362,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
   }, [buildCompletedActions])
 
   const loadTasks = useCallback(async (): Promise<boolean> => {
+    const taskIdsAtRequestStart = new Set(tasksRef.current.map((task) => task.id))
     try {
       setLoading(true)
       setError(null)
@@ -335,8 +370,21 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       const response = await apiCall("/api/tasks") as APIResponse<TasksResponse>
 
       if (response.success && response.data) {
+        const remoteTasks = response.data.tasks
+          .filter((task) => !isTaskDeleted(task.id))
+          .map((task) => {
+            const pending = pendingTaskUpdatesRef.current.get(task.id)
+            const merged = mergePendingExportTaskUpdate(task, pending)
+            if (pending) pendingTaskUpdatesRef.current.delete(task.id)
+            return merged
+          })
         setTasks((prev) => {
-          const next = mergeRemoteExportTasks(prev, response.data!.tasks)
+          const tasksCreatedWhileLoading = new Set(
+            prev
+              .filter((task) => !taskIdsAtRequestStart.has(task.id))
+              .map((task) => task.id),
+          )
+          const next = mergeRemoteExportTasks(prev, remoteTasks, tasksCreatedWhileLoading)
           tasksRef.current = next
           return next
         })
@@ -354,17 +402,31 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     } finally {
       setLoading(false)
     }
-  }, [apiCall])
+  }, [apiCall, isTaskDeleted])
 
   const refreshTasks = useCallback(async (): Promise<boolean> => {
+    const taskIdsAtRequestStart = new Set(tasksRef.current.map((task) => task.id))
     try {
       setError(null)
 
       const response = await apiCall("/api/tasks") as APIResponse<TasksResponse>
 
       if (response.success && response.data) {
+        const remoteTasks = response.data.tasks
+          .filter((task) => !isTaskDeleted(task.id))
+          .map((task) => {
+            const pending = pendingTaskUpdatesRef.current.get(task.id)
+            const merged = mergePendingExportTaskUpdate(task, pending)
+            if (pending) pendingTaskUpdatesRef.current.delete(task.id)
+            return merged
+          })
         setTasks((prev) => {
-          const next = mergeRemoteExportTasks(prev, response.data!.tasks)
+          const tasksCreatedWhileLoading = new Set(
+            prev
+              .filter((task) => !taskIdsAtRequestStart.has(task.id))
+              .map((task) => task.id),
+          )
+          const next = mergeRemoteExportTasks(prev, remoteTasks, tasksCreatedWhileLoading)
           tasksRef.current = next
           return next
         })
@@ -378,7 +440,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       console.warn("[QCE] Silent refresh error:", err instanceof Error ? err.message : "未知错误")
       return false
     }
-  }, [apiCall])
+  }, [apiCall, isTaskDeleted])
 
   const deleteTask = useCallback(async (taskId: string): Promise<boolean> => {
     try {
@@ -389,8 +451,10 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       })
 
       if (response.success) {
+        rememberDeletedTask(taskId)
         dismissTaskToast(taskId)
         completedToastIdsRef.current.delete(taskId)
+        pendingTaskUpdatesRef.current.delete(taskId)
         setTasks((prev) => prev.filter((task) => task.id !== taskId))
         return true
       }
@@ -403,7 +467,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
       console.error("[QCE] Delete task error:", err)
       return false
     }
-  }, [apiCall, dismissTaskToast])
+  }, [apiCall, dismissTaskToast, rememberDeletedTask])
 
   // issue #446：停止一个运行中的导出任务。后端会打断分页抓取并把任务标记为 cancelled。
   const cancelTask = useCallback(async (taskId: string): Promise<boolean> => {
@@ -472,6 +536,13 @@ export function useExportTasks(_props?: UseExportTasksProps) {
 
       if (response.success && response.data) {
         const taskId = response.data.taskId || `task_${Date.now()}`
+        if (isTaskDeleted(taskId)) {
+          // Another client may delete a very short task before this POST
+          // response arrives. The task_deleted tombstone is authoritative.
+          toast.dismiss(creatingToastId)
+          pendingTaskUpdatesRef.current.delete(taskId)
+          return true
+        }
         const newTask: ExportTask = {
           id: taskId,
           peer: requestBody.peer,
@@ -479,17 +550,25 @@ export function useExportTasks(_props?: UseExportTasksProps) {
           status: "running",
           progress: 0,
           format: form.format,
-          startTime: form.startTime ? Math.floor(new Date(form.startTime).getTime() / 1000) : undefined,
-          endTime: form.endTime ? Math.floor(new Date(form.endTime).getTime() / 1000) : undefined,
-          keywords: form.keywords || undefined,
+          startTime: response.data.startTime ?? (form.startTime ? Math.floor(new Date(form.startTime).getTime() / 1000) : undefined),
+          endTime: response.data.endTime ?? (form.endTime ? Math.floor(new Date(form.endTime).getTime() / 1000) : undefined),
+          keywords: form.historySource === "roaming" ? undefined : form.keywords || undefined,
           includeRecalled: form.includeRecalled,
           messageCount: response.data.messageCount,
           fileName: response.data.fileName,
+          filePath: response.data.filePath,
           downloadUrl: response.data.downloadUrl,
           createdAt: new Date().toISOString(),
-          progressMessage: "导出任务已创建，正在等待进度更新",
+          taskKind: response.data.taskKind ?? (form.historySource === "roaming" ? "roaming_export" : "standard_export"),
+          roamingScan: response.data.roamingScan,
+          progressMessage: form.historySource === "roaming"
+            ? "漫游任务已创建，正在等待扫描进度"
+            : "导出任务已创建，正在等待进度更新",
         }
 
+        const existingTask = tasksRef.current.find((task) => task.id === taskId)
+          ?? pendingTaskUpdatesRef.current.get(taskId)
+        const resolvedTask = mergeCreatedExportTask(newTask, existingTask)
         const existingToastId = taskToastIdsRef.current.get(taskId)
         const toastId = existingToastId || creatingToastId
 
@@ -498,14 +577,26 @@ export function useExportTasks(_props?: UseExportTasksProps) {
         }
 
         taskToastIdsRef.current.set(taskId, toastId)
-        toast.update(toastId, {
-          type: "loading",
-          title: "正在导出",
-          description: "导出任务已创建，正在等待进度更新",
-          duration: Infinity,
-        })
+        if (!completedToastIdsRef.current.has(taskId)) {
+          toast.update(toastId, {
+            type: "loading",
+            title: "正在导出",
+            description: resolvedTask.progressMessage,
+            duration: Infinity,
+          })
+        }
 
-        setTasks((prev) => [newTask, ...prev])
+        setTasks((prev) => {
+          const latest = prev.find((task) => task.id === taskId)
+            ?? pendingTaskUpdatesRef.current.get(taskId)
+          const next = [
+            mergeCreatedExportTask(newTask, latest),
+            ...prev.filter((task) => task.id !== taskId),
+          ]
+          pendingTaskUpdatesRef.current.delete(taskId)
+          tasksRef.current = next
+          return next
+        })
         return true
       }
 
@@ -532,7 +623,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     } finally {
       setLoading(false)
     }
-  }, [apiCall])
+  }, [apiCall, isTaskDeleted])
 
   const updateTaskProgress = useCallback((
     taskId: string,
@@ -565,15 +656,24 @@ export function useExportTasks(_props?: UseExportTasksProps) {
   }, [])
 
   const handleWebSocketProgress = useCallback((data: ProgressPayload) => {
+    if (isTaskDeleted(data.taskId)) return
     console.log("[QCE] handleWebSocketProgress received:", {
       taskId: data.taskId,
       status: data.status,
-      filePath: data.filePath,
-      fileName: data.fileName,
       hasFilePath: !!data.filePath,
     })
 
     let updatedTask: ExportTask | undefined
+    const knownTask = tasksRef.current.find((task) => task.id === data.taskId)
+    const eagerlyUpdatedTask = knownTask ? mergeExportTaskUpdate(knownTask, data) : undefined
+    let pendingTask: ExportTask | undefined
+    if (!knownTask) {
+      const previousPending = pendingTaskUpdatesRef.current.get(data.taskId)
+      pendingTask = previousPending
+        ? mergeExportTaskUpdate(previousPending, data)
+        : createFallbackTask(data)
+      pendingTaskUpdatesRef.current.set(data.taskId, pendingTask)
+    }
 
     setTasks((prev) => {
       const next = prev.map((task) => {
@@ -582,57 +682,69 @@ export function useExportTasks(_props?: UseExportTasksProps) {
         updatedTask = nextTask
         return nextTask
       })
+      if (updatedTask) pendingTaskUpdatesRef.current.delete(data.taskId)
       tasksRef.current = next
       return next
     })
 
     const resolvedTask = updatedTask
-      || tasksRef.current.find((task) => task.id === data.taskId)
+      || eagerlyUpdatedTask
+      || pendingTask
       || createFallbackTask(data)
 
     syncTaskToast(resolvedTask, data)
-  }, [syncTaskToast])
+    if (data.status === "completed" || data.status === "failed" || data.status === "cancelled") {
+      // 终态事件只带通用导出字段；立即拉取完整任务，避免短漫游任务在首次 8 秒
+      // 轮询前结束后一直停留在创建响应的 0 天扫描摘要。
+      void refreshTasks()
+    }
+  }, [isTaskDeleted, refreshTasks, syncTaskToast])
 
   const handleTaskCancelled = useCallback((task: ExportTask) => {
     const taskId = task.id
-    if (!taskId) return
-    const payload: ProgressPayload = {
+    if (!taskId || isTaskDeleted(taskId)) return
+    handleWebSocketProgress({
       taskId,
       progress: task.progress ?? 0,
       status: "cancelled",
       message: task.progressMessage || "任务已停止",
+      messageCount: task.messageCount,
+      error: task.error,
+      fileName: task.fileName,
+      filePath: task.filePath,
+      downloadUrl: task.downloadUrl,
       completedAt: task.completedAt,
-    }
-    let cancelledTask: ExportTask | undefined
+      isZipExport: task.isZipExport,
+      originalFilePath: task.originalFilePath,
+      taskKind: task.taskKind,
+      roamingScan: task.roamingScan,
+    })
+  }, [handleWebSocketProgress, isTaskDeleted])
+
+  const handleTaskDeleted = useCallback((taskId: string) => {
+    if (!taskId) return
+    rememberDeletedTask(taskId)
+    dismissTaskToast(taskId)
+    completedToastIdsRef.current.delete(taskId)
+    pendingTaskUpdatesRef.current.delete(taskId)
     setTasks((prev) => {
-      const next = prev.map((current) => {
-        if (current.id !== taskId) return current
-        cancelledTask = { ...current, ...task, status: "cancelled" }
-        return cancelledTask
-      })
+      const next = prev.filter((task) => task.id !== taskId)
       tasksRef.current = next
       return next
     })
-    const resolvedTask = cancelledTask || tasksRef.current.find((current) => current.id === taskId)
-    if (resolvedTask) syncTaskToast(resolvedTask, payload)
-  }, [syncTaskToast])
+  }, [dismissTaskToast, rememberDeletedTask])
 
   /**
    * Issue #144: WebSocket 一连上服务端就会推 task_resync。这里只把已知
-   * 任务的 status / progress / messageCount / error 对齐到服务端的真值，
+   * 任务的 status / progress / messageCount / error 对齐到服务端的真值；
+   * 新服务端同时携带 taskKind / roamingScan，旧服务端缺字段时保留本地摘要，
    * 避免「网页一直转圈但服务进程其实早跑完 / 早挂掉」的状态错位。
    *
    * 注意：服务端可能存在前端还没拉到的任务（多端同时操作时）。这种情
    * 况这里不会乱建 ExportTask 对象，而是交给紧随其后的 loadTasks 把完
    * 整字段一并取回，避免下载链接 / 文件名等字段缺失。
    */
-  const applyTaskResync = useCallback((tasks: Array<{
-    taskId: string
-    status: string
-    progress: number
-    messageCount: number
-    error?: string
-  }>) => {
+  const applyTaskResync = useCallback((tasks: ExportTaskResync[]) => {
     if (!Array.isArray(tasks) || tasks.length === 0) return
 
     setTasks((prev) => {
@@ -646,38 +758,9 @@ export function useExportTasks(_props?: UseExportTasksProps) {
         const remote = indexById.get(task.id)
         if (!remote) return task
 
-        const remoteStatus = (remote.status as ExportTask['status']) ?? task.status
-        const nextStatus =
-          task.status === "cancelled" && remoteStatus !== "cancelled"
-            ? "cancelled"
-            : remoteStatus
-        const nextProgress =
-          typeof remote.progress === 'number' && Number.isFinite(remote.progress)
-            ? remote.progress
-            : task.progress
-        const nextMessageCount =
-          typeof remote.messageCount === 'number' && Number.isFinite(remote.messageCount)
-            ? remote.messageCount
-            : task.messageCount
-        const nextError = remote.error ?? task.error
-
-        if (
-          nextStatus === task.status &&
-          nextProgress === task.progress &&
-          nextMessageCount === task.messageCount &&
-          nextError === task.error
-        ) {
-          return task
-        }
-
-        changed = true
-        return {
-          ...task,
-          status: nextStatus,
-          progress: nextProgress,
-          messageCount: nextMessageCount,
-          error: nextError,
-        }
+        const merged = mergeExportTaskResync(task, remote)
+        if (merged !== task) changed = true
+        return merged
       })
 
       if (!changed) return prev
@@ -719,7 +802,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     }
 
     try {
-      await downloadFile(task.fileName)
+      await downloadFile(task.fileName, task.downloadUrl)
     } catch (err) {
       const errorMessage = `下载失败: ${err instanceof Error ? err.message : "未知错误"}`
       setError(errorMessage)
@@ -797,6 +880,7 @@ export function useExportTasks(_props?: UseExportTasksProps) {
     updateTaskProgress,
     handleWebSocketProgress,
     handleTaskCancelled,
+    handleTaskDeleted,
     applyTaskResync,
     downloadTask,
     deleteOriginalFiles,

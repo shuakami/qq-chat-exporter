@@ -217,6 +217,68 @@ async function openSessionsTab(page: import('@playwright/test').Page) {
     return searchBox;
 }
 
+async function mockSessionSources(
+    page: import('@playwright/test').Page,
+    {
+        groups = [],
+        friends = [],
+        contacts = [],
+    }: {
+        groups?: Array<Record<string, unknown>>;
+        friends?: Array<Record<string, unknown>>;
+        contacts?: Array<Record<string, unknown>>;
+    } = {},
+) {
+    await page.route('**/api/groups?**', async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                data: {
+                    groups,
+                    totalCount: groups.length,
+                    currentPage: 1,
+                    totalPages: 1,
+                    hasNext: false,
+                    hasPrev: false,
+                },
+            }),
+        });
+    });
+    await page.route('**/api/friends?**', async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                data: {
+                    friends,
+                    totalCount: friends.length,
+                    currentPage: 1,
+                    totalPages: 1,
+                    hasNext: false,
+                    hasPrev: false,
+                },
+            }),
+        });
+    });
+    await page.route('**/api/recent-contacts?**', async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+                success: true,
+                data: {
+                    contacts,
+                    totalCount: contacts.length,
+                    rawCount: contacts.length,
+                },
+            }),
+        });
+    });
+}
+
 test.describe('Session list — batch toolbar and pagination', () => {
     test('keeps the selected sessions while pagination remains visible and clickable', async ({ page }) => {
         await clearLocalStorage(page);
@@ -349,6 +411,149 @@ test.describe('Session list — batch toolbar and pagination', () => {
 });
 
 test.describe('Session list — QQ lookup (issue #204)', () => {
+    test('regular private sessions expose roaming export in the export menu', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+            localStorage.setItem(
+                'qce.taskWizard.advancedPreferences.v1',
+                JSON.stringify({ streamingZipMode: true }),
+            );
+        }, TOKEN);
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}${SHELL_PATH}`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        const searchBox = await openSessionsTab(page);
+        await searchBox.fill('Alice');
+
+        const moreExportMethods = page.getByRole('button', {
+            name: /更多导出方式：Alice/,
+        });
+        await expect(moreExportMethods).toBeVisible({ timeout: 10_000 });
+        await moreExportMethods.click();
+        await page.getByRole('menuitem', { name: '漫游导出', exact: true }).click();
+
+        await expect(page.getByTestId('roaming-export-notice')).toBeVisible();
+        const startRoamingExport = page.getByRole('button', { name: '开始漫游导出', exact: true });
+        await expect(startRoamingExport).toBeEnabled();
+
+        const rangeHelp = page.getByRole('button', { name: '查看漫游日期范围说明' });
+        await rangeHelp.hover();
+        await expect(page.getByRole('tooltip')).toContainText('开始和结束日期均为必填');
+        await expect(page.getByRole('tooltip')).not.toContainText('全部消息');
+
+        const rangeButton = page.getByRole('button', {
+            name: /\d{4}\/\d{2}\/\d{2}\s*-\s*\d{4}\/\d{2}\/\d{2}/,
+        });
+        await rangeButton.click();
+        await page.getByRole('button', { name: '清除', exact: true }).click();
+        await page.getByRole('button', { name: '应用', exact: true }).click();
+        await expect(page.getByRole('button', { name: '选择漫游日期范围（必填）' })).toBeVisible();
+        await expect(page.getByText('漫游导出必须选择开始和结束时间', { exact: true }).first()).toBeVisible();
+        await expect(startRoamingExport).toBeDisabled();
+
+        await page.waitForTimeout(350); // allow the preferences debounce to run
+        await page.getByRole('button', { name: '取消', exact: true }).click();
+        const streamingPreference = await page.evaluate(() => {
+            const raw = localStorage.getItem('qce.taskWizard.advancedPreferences.v1');
+            return raw ? JSON.parse(raw).streamingZipMode : undefined;
+        });
+        expect(streamingPreference).toBe(true);
+    });
+
+    test('a non-friend recent private session still exposes roaming export', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+        await mockSessionSources(page, {
+            contacts: [{
+                chatType: 1,
+                peerUid: 'u_removed_private_fixture',
+                peerUin: '24680',
+                name: '已删除联系人',
+                classification: 'special',
+            }],
+        });
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}${SHELL_PATH}`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        const searchBox = await openSessionsTab(page);
+        await searchBox.fill('24680');
+        await expect(page.getByText('已删除联系人', { exact: true })).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByText('按 QQ 号反查会话')).toHaveCount(0);
+
+        const moreExportMethods = page.getByRole('button', {
+            name: '更多导出方式：已删除联系人',
+        });
+        await expect(moreExportMethods).toBeVisible();
+        await moreExportMethods.click();
+        await page.getByRole('menuitem', { name: '漫游导出', exact: true }).click();
+        await expect(page.getByTestId('roaming-export-notice')).toBeVisible();
+    });
+
+    test('an empty session list still exposes QQ lookup', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+        await mockSessionSources(page);
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}${SHELL_PATH}`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        const searchBox = await openSessionsTab(page);
+        await searchBox.fill('24680');
+        await expect(page.getByText('暂无会话数据', { exact: true })).toBeVisible();
+        await expect(page.getByText('按 QQ 号反查会话')).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByRole('button', { name: /查询/ })).toBeVisible();
+    });
+
+    test('a substring session match does not hide exact QQ lookup', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+        await mockSessionSources(page, {
+            friends: [{
+                uid: 'u_substring_match_fixture',
+                uin: 124680,
+                nick: '联系人 24680 备注',
+                chatType: 1,
+            }],
+        });
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}${SHELL_PATH}`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        const searchBox = await openSessionsTab(page);
+        await searchBox.fill('24680');
+        await expect(page.getByText('联系人 24680 备注', { exact: true })).toBeVisible();
+        await expect(page.getByText('按 QQ 号反查会话')).toBeVisible({ timeout: 10_000 });
+    });
+
     test('searching by deactivated QQ number reveals the lookup card', async ({ page }) => {
         await clearLocalStorage(page);
         await page.evaluate((value) => {
@@ -376,6 +581,186 @@ test.describe('Session list — QQ lookup (issue #204)', () => {
 
         // 反查到 u_deactivated_77777，按钮区出现「导出」、徽章里写「非好友 / 已注销」。
         await expect(page.getByText('非好友 / 已注销')).toBeVisible({ timeout: 10_000 });
+
+        // 卡片在主搜索从一个无结果号码切到另一个时仍保持挂载；输入值和旧结果
+        // 必须一起更新，避免用户看到新搜索词却误导出旧会话。
+        const lookupInput = page.locator('input[placeholder^="QQ 号"]').first();
+        await expect(lookupInput).toHaveValue('77777');
+        await lookupInput.fill('77778');
+        await expect(page.getByText('非好友 / 已注销')).toHaveCount(0);
+        await expect(page.getByRole('button', { name: '漫游导出', exact: true })).toHaveCount(0);
+
+        await searchBox.fill('88888888');
+        await expect(lookupInput).toHaveValue('88888888');
+        await expect(page.getByText('非好友 / 已注销')).toHaveCount(0);
+        await expect(page.getByRole('button', { name: '漫游导出', exact: true })).toHaveCount(0);
+    });
+
+    test('resolved QQ session can start a bounded roaming export', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+
+        type RoamingExportRequest = {
+            peer?: {
+                chatType?: unknown;
+                peerUid?: unknown;
+                peerUin?: unknown;
+                guildId?: unknown;
+            };
+            filter?: {
+                startTime?: unknown;
+                endTime?: unknown;
+            };
+            roaming?: {
+                maxMessages?: unknown;
+                maxSequenceQueries?: unknown;
+            };
+        };
+
+        let resolveExportRequest!: (body: RoamingExportRequest) => void;
+        let taskCreated = false;
+        const exportRequest = new Promise<RoamingExportRequest>((resolve) => {
+            resolveExportRequest = resolve;
+        });
+
+        await page.route('**/api/tasks', async (route, request) => {
+            if (request.method() !== 'GET') {
+                await route.continue();
+                return;
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: {
+                        tasks: taskCreated ? [{
+                            id: 'roaming-export-fixture-task',
+                            peer: { chatType: 1, peerUid: 'u_deactivated_77777', peerUin: '77777', guildId: '' },
+                            sessionName: '已注销联系人',
+                            status: 'completed',
+                            progress: 100,
+                            format: 'JSON',
+                            startTime: 1_753_987_200,
+                            endTime: 1_756_665_599,
+                            messageCount: 0,
+                            createdAt: '2025-08-01T00:00:00.000Z',
+                            completedAt: '2025-08-01T00:05:00.000Z',
+                            taskKind: 'roaming_export',
+                            roamingScan: {
+                                bounded: true,
+                                calendarAdvisory: true,
+                                requestedDays: 31,
+                                probedDays: 32,
+                                scannedDays: 31,
+                                calendarQueries: 1,
+                                anchorDays: 0,
+                                exactQueries: 0,
+                                latestQueries: 1,
+                                sequenceQueries: 0,
+                                emptySequenceQueries: 0,
+                                gapCount: 1,
+                                mismatchedAnchors: 0,
+                                unresolvedAnchors: 0,
+                                untimestampedMessages: 0,
+                                rawMessagesSeen: 0,
+                                messageCount: 0,
+                                maxMessages: 50_000,
+                                maxSequenceQueries: 50_000,
+                                closingAnchorFound: false,
+                                partial: true,
+                                stopReason: 'closing_anchor_not_found',
+                                currentDate: null,
+                                serverCompletenessProven: false,
+                            },
+                        }] : [],
+                    },
+                }),
+            });
+        });
+
+        await page.route('**/api/messages/roaming/export', async (route, request) => {
+            if (request.method() !== 'POST') {
+                await route.continue();
+                return;
+            }
+
+            resolveExportRequest(request.postDataJSON() as RoamingExportRequest);
+            taskCreated = true;
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: { taskId: 'roaming-export-fixture-task' },
+                }),
+            });
+        });
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}${SHELL_PATH}`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        const searchBox = await openSessionsTab(page);
+        await searchBox.fill('77777');
+        await expect(page.getByText('按 QQ 号反查会话')).toBeVisible({ timeout: 10_000 });
+        await page.getByRole('button', { name: /查询/ }).click();
+        await expect(page.getByText('非好友 / 已注销')).toBeVisible({ timeout: 10_000 });
+
+        await page.getByRole('button', { name: '漫游导出', exact: true }).click();
+
+        const notice = page.getByTestId('roaming-export-notice');
+        await expect(notice).toBeVisible();
+        await expect(notice).toContainText('实验性私聊漫游导出');
+        await expect(page.getByText('漫游日期范围（必填）', { exact: true })).toBeVisible();
+        await expect(page.getByRole('button', {
+            name: /\d{4}\/\d{2}\/\d{2}\s*-\s*\d{4}\/\d{2}\/\d{2}/,
+        })).toBeVisible();
+
+        const startExport = page.getByRole('button', { name: '开始漫游导出', exact: true });
+        await expect(startExport).toBeEnabled();
+        await startExport.click();
+
+        const body = await exportRequest;
+        expect(body.peer).toEqual({
+            chatType: 1,
+            peerUid: 'u_deactivated_77777',
+            peerUin: '77777',
+            guildId: '',
+        });
+
+        const startTime = body.filter?.startTime;
+        const endTime = body.filter?.endTime;
+        expect(typeof startTime).toBe('number');
+        expect(typeof endTime).toBe('number');
+        if (typeof startTime !== 'number' || typeof endTime !== 'number') {
+            throw new Error('roaming export dates must be Unix timestamps');
+        }
+        expect(Number.isInteger(startTime)).toBe(true);
+        expect(Number.isInteger(endTime)).toBe(true);
+        expect(startTime).toBeGreaterThan(0);
+        expect(endTime).toBeGreaterThan(0);
+        expect(startTime).toBeLessThanOrEqual(endTime);
+        expect(endTime).toBeLessThan(10_000_000_000);
+        expect(body.roaming).toEqual({
+            maxMessages: 50_000,
+            maxSequenceQueries: 50_000,
+        });
+
+        // Refresh the task list to emulate the terminal state arriving after
+        // creation. A bounded partial result must not look like a fully complete
+        // export, and zero recovered messages must be explicit.
+        await page.getByRole('button', { name: '任务', exact: true }).click();
+        await page.locator('button:has(svg.lucide-refresh-cw)').filter({ visible: true }).first().click();
+        await expect(page.getByText('0 条消息', { exact: true })).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByText('导出完成（结果可能不完整）', { exact: true })).toBeVisible();
+        await expect(page.getByText(/漫游扫描已完成，但结果可能不完整/)).toBeVisible();
     });
 
     /**
@@ -443,6 +828,7 @@ test.describe('Session list — QQ lookup (issue #204)', () => {
         if (await skipBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
             await skipBtn.click().catch(() => null);
         }
+
         const tasksTab = page.getByRole('button', { name: '任务', exact: true });
         await expect(tasksTab).toBeVisible({ timeout: 15_000 });
         await tasksTab.click();
@@ -483,6 +869,149 @@ test.describe('Session list — QQ lookup (issue #204)', () => {
 
         // mock 的 getUidByUinV2 对未登记 uin 返 undefined，落到 found=false。
         await expect(page.getByText(/未在本机 NTQQ 数据中找到/)).toBeVisible({ timeout: 10_000 });
+    });
+});
+
+test.describe('Roaming export tasks', () => {
+    test('task list shows bounded scan progress and completeness disclaimer', async ({ page }) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+        }, TOKEN);
+
+        let resolveDownloadRequest!: (request: import('@playwright/test').Request) => void;
+        const downloadRequest = new Promise<import('@playwright/test').Request>((resolve) => {
+            resolveDownloadRequest = resolve;
+        });
+        let resolveOpenRequest!: (request: import('@playwright/test').Request) => void;
+        const openRequest = new Promise<import('@playwright/test').Request>((resolve) => {
+            resolveOpenRequest = resolve;
+        });
+        await page.route('**/api/download-file?**', async (route, request) => {
+            resolveDownloadRequest(request);
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: '{}',
+            });
+        });
+        await page.route('**/api/open-file-location', async (route, request) => {
+            resolveOpenRequest(request);
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ success: true, data: { message: '已打开文件位置' } }),
+            });
+        });
+
+        await page.route('**/api/tasks', async (route, request) => {
+            if (request.method() !== 'GET') {
+                await route.continue();
+                return;
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: {
+                        tasks: [
+                            {
+                                id: 'roaming-fixture-task',
+                                peer: { chatType: 1, peerUid: 'u_roaming_fixture', guildId: '' },
+                                sessionName: '漫游测试会话',
+                                status: 'completed',
+                                progress: 100,
+                                format: 'JSON',
+                                startTime: 1_753_987_200,
+                                endTime: 1_756_665_599,
+                                messageCount: 42,
+                                fileName: 'roaming_fixture.json',
+                                filePath: '/tmp/roaming_fixture.json',
+                                downloadUrl: '/api/download-file?path=%2Ftmp%2Froaming_fixture.json',
+                                createdAt: '2025-08-01T00:00:00.000Z',
+                                completedAt: '2025-08-01T00:05:00.000Z',
+                                taskKind: 'roaming_export',
+                                roamingScan: {
+                                    bounded: true,
+                                    calendarAdvisory: true,
+                                    requestedDays: 31,
+                                    probedDays: 32,
+                                    scannedDays: 31,
+                                    calendarQueries: 1,
+                                    anchorDays: 7,
+                                    exactQueries: 7,
+                                    latestQueries: 1,
+                                    sequenceQueries: 4,
+                                    emptySequenceQueries: 1,
+                                    gapCount: 1,
+                                    mismatchedAnchors: 0,
+                                    unresolvedAnchors: 0,
+                                    untimestampedMessages: 0,
+                                    rawMessagesSeen: 45,
+                                    messageCount: 42,
+                                    maxMessages: 50_000,
+                                    maxSequenceQueries: 128,
+                                    closingAnchorFound: true,
+                                    partial: true,
+                                    stopReason: 'sequence_gaps_encountered',
+                                    currentDate: null,
+                                    serverCompletenessProven: false,
+                                },
+                            },
+                        ],
+                    },
+                }),
+            });
+        });
+
+        const response = await page
+            .goto(`${FRONTEND_BASE}${SHELL_PATH}`)
+            .catch(() => null);
+        test.skip(
+            !response || response.status() >= 500,
+            `frontend not reachable at ${FRONTEND_BASE}`
+        );
+
+        const skipBtn = page.getByRole('button', { name: '跳过' }).first();
+        if (await skipBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await skipBtn.click().catch(() => null);
+        }
+
+        // The overview offers direct download/open actions, so it must expose
+        // the same completeness warning before the user enters task details.
+        await expect(page.getByText('漫游测试会话', { exact: true })).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByText('漫游', { exact: true })).toBeVisible();
+        await expect(page.getByText('结果可能不完整', { exact: true })).toBeVisible();
+
+        const tasksTab = page.getByRole('button', { name: '任务', exact: true });
+        await expect(tasksTab).toBeVisible({ timeout: 15_000 });
+        await tasksTab.click();
+
+        await expect(page.getByText('漫游测试会话', { exact: true })).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByText('漫游', { exact: true })).toBeVisible();
+        await expect(page.getByText('结果可能不完整', { exact: true })).toBeVisible();
+        await expect(page.getByText('已扫描 31/31 天', { exact: true })).toBeVisible();
+
+        const scanHelp = page.getByRole('button', { name: '查看漫游扫描说明' });
+        await expect(scanHelp).toBeVisible();
+        await scanHelp.hover();
+        const tooltip = page.getByRole('tooltip');
+        await expect(tooltip).toContainText('日期锚点 7 个，逐序号核对 4 次');
+        await expect(tooltip).toContainText('其中 1 个序号没有可读取消息，扫描已继续。');
+        await expect(tooltip).toContainText('腾讯接口不会证明服务端记录完整');
+
+        await page.getByRole('button', { name: '下载', exact: true }).click();
+        const request = await downloadRequest;
+        expect(new URL(request.url()).pathname).toBe('/api/download-file');
+        expect(request.headers().authorization).toBe(`Bearer ${TOKEN}`);
+        expect(request.headers()['x-access-token']).toBe(TOKEN);
+
+        await page.getByRole('button', { name: '打开文件位置', exact: true }).click();
+        const openLocationRequest = await openRequest;
+        expect(openLocationRequest.headers().authorization).toBe(`Bearer ${TOKEN}`);
+        expect(openLocationRequest.headers()['x-access-token']).toBe(TOKEN);
+        expect(openLocationRequest.postDataJSON()).toEqual({ filePath: '/tmp/roaming_fixture.json' });
     });
 });
 
