@@ -94,6 +94,17 @@ fn build_task_resync_payload(tasks: &[Value]) -> Vec<Value> {
                     }
                 }
             }
+            if task.get("taskKind").and_then(Value::as_str) == Some("roaming_export") {
+                if let Some(obj) = view.as_object_mut() {
+                    obj.insert(
+                        "taskKind".to_string(),
+                        Value::String("roaming_export".to_string()),
+                    );
+                    if let Some(scan) = task.get("roamingScan") {
+                        obj.insert("roamingScan".to_string(), scan.clone());
+                    }
+                }
+            }
             Some(view)
         })
         .collect()
@@ -552,8 +563,8 @@ async fn handle_stream_search(state: &SharedState, sender: WsSender, owner_id: &
 #[cfg(test)]
 mod tests {
     use super::{
-        bounded_search_results, cancel_owned_search, extract_text, ActiveSearch,
-        MAX_SEARCHABLE_TEXT_CHARS,
+        bounded_search_results, build_task_resync_payload, cancel_owned_search, extract_text,
+        ActiveSearch, MAX_SEARCHABLE_TEXT_CHARS,
     };
     use serde_json::json;
     use std::collections::HashMap;
@@ -600,5 +611,37 @@ mod tests {
         assert!(!cancel_flag.load(Ordering::SeqCst));
         assert!(cancel_owned_search(&searches, "connection-1", "search-1"));
         assert!(cancel_flag.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn task_resync_includes_roaming_metadata_only_for_roaming_tasks() {
+        let roaming_scan = json!({
+            "requestedDays": 31,
+            "scannedDays": 7,
+            "partial": false,
+            "stopReason": "running"
+        });
+        let payload = build_task_resync_payload(&[
+            json!({
+                "taskId": "roaming_fixture",
+                "taskKind": "roaming_export",
+                "status": "running",
+                "progress": 12,
+                "messageCount": 42,
+                "roamingScan": roaming_scan
+            }),
+            json!({
+                "taskId": "standard_fixture",
+                "status": "running",
+                "progress": 8,
+                "messageCount": 12
+            }),
+        ]);
+
+        assert_eq!(payload[0]["taskKind"], "roaming_export");
+        assert_eq!(payload[0]["roamingScan"], roaming_scan);
+        let standard = payload[1].as_object().expect("standard task resync object");
+        assert!(!standard.contains_key("taskKind"));
+        assert!(!standard.contains_key("roamingScan"));
     }
 }

@@ -261,6 +261,10 @@ fn build_router(
         .route("/api/messages/roaming/first", post(roaming::query_first))
         .route("/api/messages/roaming/exact", post(roaming::query_exact))
         .route(
+            "/api/messages/roaming/export",
+            post(messages::export_roaming_messages),
+        )
+        .route(
             "/api/messages/export-streaming-zip",
             post(messages::export_streaming_zip),
         )
@@ -595,6 +599,7 @@ async fn reconcile_and_load_tasks(db: &Arc<DatabaseManager>) -> HashMap<String, 
             if !has_error {
                 merged.insert("error".to_string(), json!(ORPHAN_TASK_ERROR_MESSAGE));
             }
+            normalize_orphan_roaming_scan(&mut merged);
             let reconciled = Value::Object(merged.clone());
             if let Err(error) = db.save_task(&config, &reconciled, true).await {
                 tracing::warn!("[QCE] Failed to save orphaned task state: {error}");
@@ -607,9 +612,31 @@ async fn reconcile_and_load_tasks(db: &Arc<DatabaseManager>) -> HashMap<String, 
         }
     }
     if orphan_count > 0 {
+        if let Err(error) = db.flush_write_queue().await {
+            tracing::warn!("[QCE] Failed to flush reconciled orphan tasks: {error}");
+        }
         tracing::info!("[QCE] Marked {orphan_count} orphaned tasks as failed (issue #144)");
     }
     tasks
+}
+
+/// 重启中断的漫游任务不再保留“扫描中”摘要；已有计数继续保留，终态字段与
+/// failed 任务状态保持一致。
+fn normalize_orphan_roaming_scan(merged: &mut Map<String, Value>) {
+    if merged.get("taskKind").and_then(Value::as_str) != Some("roaming_export") {
+        return;
+    }
+    let scan = merged
+        .entry("roamingScan".to_string())
+        .or_insert_with(|| json!({}));
+    if !scan.is_object() {
+        *scan = json!({});
+    }
+    if let Some(scan) = scan.as_object_mut() {
+        scan.insert("partial".to_string(), json!(true));
+        scan.insert("stopReason".to_string(), json!("scan_failed"));
+        scan.insert("currentDate".to_string(), Value::Null);
+    }
 }
 
 /// 将旧版持久化的任务字段映射为当前前端视图：
@@ -726,4 +753,84 @@ fn resolve_static_dir() -> PathBuf {
         }
     }
     PathBuf::from("static").join("qce")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reconcile_and_load_tasks;
+    use qce_server::storage::DatabaseManager;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn restart_reconciles_and_persists_orphaned_roaming_scan_summary() {
+        let root = std::env::temp_dir().join(format!(
+            "qce-reconcile-roaming-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let db_path = root.join("database.db");
+        let db = Arc::new(DatabaseManager::new(&db_path));
+        db.initialize().await.expect("initialize fixture database");
+
+        let config = json!({
+            "taskId": "roaming_export_fixture",
+            "taskKind": "roaming_export",
+            "format": "JSON"
+        });
+        let state = json!({
+            "taskId": "roaming_export_fixture",
+            "taskKind": "roaming_export",
+            "status": "running",
+            "progress": 10,
+            "totalMessages": 100,
+            "processedMessages": 10,
+            "roamingScan": {
+                "requestedDays": 30,
+                "probedDays": 7,
+                "partial": false,
+                "stopReason": "running",
+                "currentDate": "2023-01-08"
+            }
+        });
+        db.save_task(&config, &state, true)
+            .await
+            .expect("persist orphan fixture");
+        db.flush_write_queue().await.expect("flush orphan fixture");
+        // TaskDbRecord 的更新时间为毫秒精度；确保 reconcile 记录严格晚于 seed，
+        // 从磁盘去重重载时稳定选中新的 failed 终态。
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+        let loaded = reconcile_and_load_tasks(&db).await;
+        let reconciled = loaded
+            .get("roaming_export_fixture")
+            .expect("reconciled task remains visible");
+        assert_eq!(reconciled["status"], "failed");
+        assert_eq!(reconciled["roamingScan"]["requestedDays"], 30);
+        assert_eq!(reconciled["roamingScan"]["probedDays"], 7);
+        assert_eq!(reconciled["roamingScan"]["partial"], true);
+        assert_eq!(reconciled["roamingScan"]["stopReason"], "scan_failed");
+        assert!(reconciled["roamingScan"]["currentDate"].is_null());
+
+        db.close().await.expect("close first database instance");
+        drop(db);
+
+        let reopened = Arc::new(DatabaseManager::new(&db_path));
+        reopened
+            .initialize()
+            .await
+            .expect("reopen fixture database");
+        let (_, persisted) = reopened
+            .load_task("roaming_export_fixture")
+            .await
+            .expect("load reconciled task")
+            .expect("persisted task exists");
+        assert_eq!(persisted["status"], "failed");
+        assert_eq!(persisted["roamingScan"]["partial"], true);
+        assert_eq!(persisted["roamingScan"]["stopReason"], "scan_failed");
+        assert!(persisted["roamingScan"]["currentDate"].is_null());
+
+        reopened.close().await.expect("close reopened database");
+        drop(reopened);
+        std::fs::remove_dir_all(root).expect("remove fixture database");
+    }
 }

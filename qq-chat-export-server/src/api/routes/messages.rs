@@ -1,3 +1,5 @@
+mod roaming_export;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -5,6 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::extract::{Extension, Json, State};
 use axum::response::Response;
+use chrono::{Local, NaiveDate};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde_json::{json, Value};
 
@@ -25,11 +28,25 @@ use crate::api::helpers::{
 };
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::routes::groups::standalone_guard;
+use crate::api::routes::roaming;
 use crate::api::state::{MessageCacheEntry, RunMode, SharedState, CACHE_EXPIRE_TIME_MS};
 
 const MAX_ACTIVE_EXPORT_TASKS: usize = 32;
 const MAX_MESSAGE_CACHE_ENTRIES: usize = 64;
 const MAX_CACHED_MESSAGES_PER_ENTRY: usize = 20_000;
+const MAX_ROAMING_SCAN_DAYS: i64 = 1_461;
+const DEFAULT_ROAMING_MAX_MESSAGES: usize = 50_000;
+const MAX_ROAMING_MESSAGES: usize = 100_000;
+const ROAMING_LATEST_MESSAGE_COUNT: i64 = 10;
+const ROAMING_SINGLE_QUERY_CONCURRENCY: usize = 4;
+const DEFAULT_ROAMING_MAX_SEQUENCE_QUERIES: usize = 50_000;
+const MAX_ROAMING_SEQUENCE_QUERIES: usize = 100_000;
+const ROAMING_CLOSING_LOOKAHEAD_DAYS: i64 = 31;
+const ROAMING_DAILY_PROBE_DELAY_MS: u64 = 120;
+const ROAMING_SEQUENCE_BATCH_DELAY_MS: u64 = 120;
+const ROAMING_RETRY_BACKOFF_BASE_MS: u64 = 120;
+const ROAMING_MAX_RETRIES: usize = 3;
+const ROAMING_CANCEL_POLL_MS: u64 = 25;
 use crate::clean_message_spool::{CleanMessageSpool, SpooledCleanMessageSource};
 use crate::export_debug::ExportDebugSession;
 use crate::fetcher::{
@@ -381,34 +398,84 @@ fn apply_sender_filter(messages: Vec<Value>, filter: &Value) -> Vec<Value> {
 }
 
 /// 更新内存任务表并持久化到数据库。
-async fn update_task(state: &SharedState, task_id: &str, patch: Value) {
-    let updated = {
-        let mut tasks = state.export_tasks.lock().await;
-        let Some(task) = tasks.get_mut(task_id) else {
-            return;
-        };
-        if !should_apply_task_patch(task, &patch) {
-            return;
-        }
-        if let (Some(target), Some(source)) = (task.as_object_mut(), patch.as_object()) {
-            for (key, value) in source {
-                if value.is_null() {
-                    target.remove(key);
-                } else {
-                    target.insert(key.clone(), value.clone());
-                }
+fn apply_task_patch(task: Option<&mut Value>, patch: &Value) -> Option<Value> {
+    let task = task?;
+    if !should_apply_task_patch(task, patch) {
+        return None;
+    }
+    if let (Some(target), Some(source)) = (task.as_object_mut(), patch.as_object()) {
+        for (key, value) in source {
+            if value.is_null() {
+                target.remove(key);
+            } else {
+                target.insert(key.clone(), value.clone());
             }
         }
-        task.clone()
+    }
+    Some(task.clone())
+}
+
+fn apply_live_progress_patch(task: Option<&mut Value>, patch: &Value) -> Option<Value> {
+    let task = task?;
+    if !matches!(
+        task.get("status").and_then(Value::as_str),
+        Some("pending" | "running")
+    ) {
+        return None;
+    }
+    apply_task_patch(Some(task), patch)
+}
+
+fn publish_live_task_progress<F>(task: Option<&Value>, publish: F) -> bool
+where
+    F: FnOnce(&Value),
+{
+    let Some(task) = task else {
+        return false;
     };
+    if !matches!(
+        task.get("status").and_then(Value::as_str),
+        Some("pending" | "running")
+    ) {
+        return false;
+    }
+    publish(task);
+    true
+}
+
+async fn update_task(state: &SharedState, task_id: &str, patch: Value) -> Option<Value> {
+    // Keep the task mutation and its database snapshot in the same ordering
+    // boundary used by cancellation. Otherwise an older running snapshot can
+    // acquire the database lock after a newer forced cancellation write.
+    let mut tasks = state.export_tasks.lock().await;
+    let updated = apply_task_patch(tasks.get_mut(task_id), &patch)?;
     if let Err(error) = state.db.save_task(&updated, &updated, false).await {
         tracing::warn!("[ApiServer] 保存任务到数据库失败: {error}");
     }
+    Some(updated)
 }
 
 fn should_apply_task_patch(task: &Value, patch: &Value) -> bool {
     task.get("status").and_then(Value::as_str) != Some("cancelled")
         || patch.get("status").and_then(Value::as_str) == Some("cancelled")
+}
+
+fn fallback_terminal_roaming_scan(task: &Value, stop_reason: &str) -> Option<Value> {
+    if task.get("taskKind").and_then(Value::as_str) != Some("roaming_export") {
+        return None;
+    }
+    let mut scan = task.get("roamingScan")?.clone();
+    let scan_object = scan.as_object_mut()?;
+    if scan_object.get("stopReason").and_then(Value::as_str) != Some("running") {
+        return None;
+    }
+    scan_object.insert("partial".to_string(), Value::Bool(true));
+    scan_object.insert(
+        "stopReason".to_string(),
+        Value::String(stop_reason.to_string()),
+    );
+    scan_object.insert("currentDate".to_string(), Value::Null);
+    Some(scan)
 }
 
 /// issue #668：独立模式下没有 bridge，实时数据接口直接返回
@@ -419,24 +486,106 @@ fn standalone_guard_with(state: &SharedState, feature: &str) -> Option<ApiError>
         .then(|| RunMode::standalone_mode_error(feature))
 }
 
-/// 广播导出进度。
+fn task_roaming_scan(task: &Value) -> Option<&Value> {
+    if task.get("taskKind").and_then(Value::as_str) != Some("roaming_export") {
+        return None;
+    }
+    task.get("roamingScan")
+}
+
+fn export_ws_event(event_type: &str, mut data: Value, roaming_scan: Option<&Value>) -> Value {
+    if let Some(roaming_scan) = roaming_scan {
+        data["taskKind"] = Value::String("roaming_export".to_string());
+        data["roamingScan"] = roaming_scan.clone();
+    }
+    json!({
+        "type": event_type,
+        "data": data,
+    })
+}
+
+/// 广播导出进度；漫游任务同时携带最新扫描摘要，普通任务保持原有契约。
 fn broadcast_progress(
     state: &SharedState,
     task_id: &str,
     progress: i64,
     message: &str,
     count: usize,
+    roaming_scan: Option<&Value>,
 ) {
-    state.broadcast_ws(&json!({
-        "type": "export_progress",
-        "data": {
+    state.broadcast_ws(&export_ws_event(
+        "export_progress",
+        json!({
             "taskId": task_id,
             "status": "running",
             "progress": progress,
             "message": message,
             "messageCount": count,
-        },
-    }));
+        }),
+        roaming_scan,
+    ));
+}
+
+/// Apply a running-state patch and publish its WebSocket event under the same
+/// task lock used by cancellation.
+async fn update_and_broadcast_progress(
+    state: &SharedState,
+    task_id: &str,
+    patch: Value,
+    progress: i64,
+    message: &str,
+    count: usize,
+) -> bool {
+    // The task mutation and event publication share the export-task lock with
+    // `cancel_task`. Whichever side acquires it first determines the observable
+    // order: progress is published before a later cancellation, while a
+    // cancellation that wins first makes `apply_task_patch` reject this update.
+    // Keep persistence in the same boundary too: a progress snapshot that was
+    // accepted first must reach the database before a later cancellation.
+    let mut tasks = state.export_tasks.lock().await;
+    let Some(updated) = apply_live_progress_patch(tasks.get_mut(task_id), &patch) else {
+        return false;
+    };
+    if let Err(error) = state.db.save_task(&updated, &updated, false).await {
+        tracing::warn!("[ApiServer] 保存任务到数据库失败: {error}");
+    }
+    broadcast_progress(
+        state,
+        task_id,
+        progress,
+        message,
+        count,
+        task_roaming_scan(&updated),
+    );
+    true
+}
+
+/// Publish best-effort resource progress only while the task is still live.
+///
+/// Resource callbacks are synchronous, so they cannot await the task mutex.
+/// `try_lock` deliberately drops a non-critical update under contention; when
+/// it succeeds, the live-state check and publication are atomic with respect to
+/// cancellation because both use `export_tasks`.
+fn try_broadcast_live_progress(
+    state: &SharedState,
+    task_id: &str,
+    progress: i64,
+    message: &str,
+    count: usize,
+) -> bool {
+    let Ok(tasks) = state.export_tasks.try_lock() else {
+        return false;
+    };
+    publish_live_task_progress(tasks.get(task_id), |task| {
+        broadcast_progress(
+            state,
+            task_id,
+            progress,
+            message,
+            count,
+            task_roaming_scan(task),
+        );
+    })
 }
 
 /// `POST /api/messages/fetch` — 分页抓取消息（10 分钟缓存 + 懒加载分页）。
@@ -690,6 +839,262 @@ pub async fn fetch_messages(
     paginated
 }
 
+#[derive(Clone, Debug)]
+struct RoamingExportConfig {
+    start_time: i64,
+    end_time: i64,
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+    requested_days: usize,
+    max_messages: usize,
+    max_sequence_queries: usize,
+}
+
+#[derive(Clone, Debug)]
+struct RoamingScanSummary {
+    requested_days: usize,
+    probed_days: usize,
+    scanned_days: usize,
+    calendar_queries: usize,
+    calendar_errors: usize,
+    anchor_days: usize,
+    exact_queries: usize,
+    latest_queries: usize,
+    sequence_queries: usize,
+    empty_sequence_queries: usize,
+    gap_count: usize,
+    mismatched_anchors: usize,
+    unresolved_anchors: usize,
+    untimestamped_messages: usize,
+    raw_messages_seen: usize,
+    message_count: usize,
+    max_messages: usize,
+    max_sequence_queries: usize,
+    closing_anchor_found: bool,
+    partial: bool,
+    stop_reason: String,
+    current_date: Option<NaiveDate>,
+}
+
+impl RoamingScanSummary {
+    fn new(config: &RoamingExportConfig) -> Self {
+        Self {
+            requested_days: config.requested_days,
+            probed_days: 0,
+            scanned_days: 0,
+            calendar_queries: 0,
+            calendar_errors: 0,
+            anchor_days: 0,
+            exact_queries: 0,
+            latest_queries: 0,
+            sequence_queries: 0,
+            empty_sequence_queries: 0,
+            gap_count: 0,
+            mismatched_anchors: 0,
+            unresolved_anchors: 0,
+            untimestamped_messages: 0,
+            raw_messages_seen: 0,
+            message_count: 0,
+            max_messages: config.max_messages,
+            max_sequence_queries: config.max_sequence_queries,
+            closing_anchor_found: false,
+            partial: false,
+            stop_reason: "running".to_string(),
+            current_date: None,
+        }
+    }
+
+    fn as_value(&self) -> Value {
+        json!({
+            "bounded": true,
+            "calendarAdvisory": true,
+            "serverCompletenessProven": false,
+            "requestedDays": self.requested_days,
+            "probedDays": self.probed_days,
+            "scannedDays": self.scanned_days,
+            "calendarQueries": self.calendar_queries,
+            "calendarErrors": self.calendar_errors,
+            "anchorDays": self.anchor_days,
+            "exactQueries": self.exact_queries,
+            "latestQueries": self.latest_queries,
+            "sequenceQueries": self.sequence_queries,
+            "emptySequenceQueries": self.empty_sequence_queries,
+            "gapCount": self.gap_count,
+            "mismatchedAnchors": self.mismatched_anchors,
+            "unresolvedAnchors": self.unresolved_anchors,
+            "untimestampedMessages": self.untimestamped_messages,
+            "rawMessagesSeen": self.raw_messages_seen,
+            "messageCount": self.message_count,
+            "maxMessages": self.max_messages,
+            "maxSequenceQueries": self.max_sequence_queries,
+            "closingAnchorFound": self.closing_anchor_found,
+            "partial": self.partial,
+            "stopReason": self.stop_reason,
+            "currentDate": self.current_date.map(|date| date.to_string()),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct TaskFailure {
+    message: String,
+    code: String,
+    http_status: u16,
+    roaming_scan: Option<Value>,
+}
+
+impl TaskFailure {
+    fn export(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: "EXPORT_FAILED".to_string(),
+            http_status: axum::http::StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+            roaming_scan: None,
+        }
+    }
+
+    fn from_api(error: ApiError) -> Self {
+        Self {
+            message: error.message,
+            code: error.code,
+            http_status: error.status.as_u16(),
+            roaming_scan: None,
+        }
+    }
+
+    fn roaming_stop_reason(&self) -> &'static str {
+        if self.message == "任务已被用户停止" {
+            return "cancelled";
+        }
+        match self.code.as_str() {
+            "ROAMING_API_UNAVAILABLE" => "native_api_unavailable",
+            "ROAMING_QUERY_FAILED" => "native_query_failed",
+            "INVALID_ROAMING_RESPONSE" => "invalid_native_response",
+            _ => "scan_failed",
+        }
+    }
+}
+
+fn required_roaming_seconds(filter: &Value, field: &str) -> Result<i64, ApiError> {
+    let seconds = strict_decimal_i64(filter.get(field)).ok_or_else(|| {
+        ApiError::validation(
+            format!("filter.{field} 必须是 Unix 秒级整数"),
+            "INVALID_ROAMING_TIME_RANGE",
+        )
+    })?;
+    if !(1..=9_999_999_999).contains(&seconds) {
+        return Err(ApiError::validation(
+            format!("filter.{field} 必须是 Unix 秒级整数，不能使用毫秒时间戳"),
+            "INVALID_ROAMING_TIME_RANGE",
+        ));
+    }
+    Ok(seconds)
+}
+
+fn strict_decimal_i64(value: Option<&Value>) -> Option<i64> {
+    match value {
+        Some(Value::Number(number)) => number.as_i64(),
+        Some(Value::String(number))
+            if !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            number.parse().ok()
+        }
+        _ => None,
+    }
+}
+
+fn local_date_from_seconds(seconds: i64) -> Result<NaiveDate, ApiError> {
+    chrono::DateTime::from_timestamp(seconds, 0)
+        .map(|value| value.with_timezone(&Local).date_naive())
+        .ok_or_else(|| {
+            ApiError::validation("漫游查询时间超出支持范围", "INVALID_ROAMING_TIME_RANGE")
+        })
+}
+
+fn parse_positive_limit(
+    value: Option<&Value>,
+    field: &str,
+    default: usize,
+    maximum: usize,
+) -> Result<usize, ApiError> {
+    let Some(value) = value else {
+        return Ok(default);
+    };
+    let Some(number) = strict_decimal_i64(Some(value)) else {
+        return Err(ApiError::validation(
+            format!("roaming.{field} 必须是正整数"),
+            "INVALID_ROAMING_LIMIT",
+        ));
+    };
+    let Ok(number) = usize::try_from(number) else {
+        return Err(ApiError::validation(
+            format!("roaming.{field} 必须是正整数"),
+            "INVALID_ROAMING_LIMIT",
+        ));
+    };
+    if number == 0 || number > maximum {
+        return Err(ApiError::validation(
+            format!("roaming.{field} 必须在 1..={maximum} 之间"),
+            "INVALID_ROAMING_LIMIT",
+        ));
+    }
+    Ok(number)
+}
+
+fn parse_roaming_export_config(body: &Value) -> Result<RoamingExportConfig, ApiError> {
+    roaming::parse_private_peer(body)?;
+    let filter = body
+        .get("filter")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            ApiError::validation(
+                "filter.startTime 和 filter.endTime 为必填的 Unix 秒级时间范围",
+                "INVALID_ROAMING_TIME_RANGE",
+            )
+        })?;
+    let filter = Value::Object(filter.clone());
+    let start_time = required_roaming_seconds(&filter, "startTime")?;
+    let end_time = required_roaming_seconds(&filter, "endTime")?;
+    if end_time < start_time {
+        return Err(ApiError::validation(
+            "filter.endTime 不能早于 filter.startTime",
+            "INVALID_ROAMING_TIME_RANGE",
+        ));
+    }
+    let start_date = local_date_from_seconds(start_time)?;
+    let end_date = local_date_from_seconds(end_time)?;
+    let requested_days_i64 = (end_date - start_date).num_days() + 1;
+    if requested_days_i64 > MAX_ROAMING_SCAN_DAYS {
+        return Err(ApiError::validation(
+            format!("漫游扫描最多支持 {MAX_ROAMING_SCAN_DAYS} 个本机日历日"),
+            "ROAMING_RANGE_TOO_LARGE",
+        ));
+    }
+    let requested_days = usize::try_from(requested_days_i64)
+        .map_err(|_| ApiError::validation("漫游查询日期范围无效", "INVALID_ROAMING_TIME_RANGE"))?;
+    let max_messages = parse_positive_limit(
+        body.pointer("/roaming/maxMessages"),
+        "maxMessages",
+        DEFAULT_ROAMING_MAX_MESSAGES,
+        MAX_ROAMING_MESSAGES,
+    )?;
+    let max_sequence_queries = parse_positive_limit(
+        body.pointer("/roaming/maxSequenceQueries"),
+        "maxSequenceQueries",
+        DEFAULT_ROAMING_MAX_SEQUENCE_QUERIES,
+        MAX_ROAMING_SEQUENCE_QUERIES,
+    )?;
+    Ok(RoamingExportConfig {
+        start_time,
+        end_time,
+        start_date,
+        end_date,
+        requested_days,
+        max_messages,
+        max_sequence_queries,
+    })
+}
+
 /// 导出请求的公共参数。
 struct ExportRequest {
     chat_type: i64,
@@ -793,10 +1198,9 @@ async fn prepare_export_request(
     } else {
         PathBuf::from(&custom_output_dir)
     };
-    let output_roots = [
-        state.path_manager.exports_dir(),
-        state.path_manager.scheduled_exports_dir(),
-    ];
+    let output_roots = state.path_manager.export_output_roots(
+        (!custom_output_dir.trim().is_empty()).then_some(custom_output_dir.as_str()),
+    );
     let output_dir = prepare_output_directory(&requested_output_dir, &output_roots).await?;
 
     // 会话名：优先用户输入（issue #365）。
@@ -837,22 +1241,20 @@ async fn register_task(state: &SharedState, task: &Value) -> bool {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    {
-        let mut tasks = state.export_tasks.lock().await;
-        let active_count = tasks
-            .values()
-            .filter(|value| {
-                matches!(
-                    value.get("status").and_then(Value::as_str),
-                    Some("pending" | "running")
-                )
-            })
-            .count();
-        if active_count >= MAX_ACTIVE_EXPORT_TASKS {
-            return false;
-        }
-        tasks.insert(task_id, task.clone());
+    let mut tasks = state.export_tasks.lock().await;
+    let active_count = tasks
+        .values()
+        .filter(|value| {
+            matches!(
+                value.get("status").and_then(Value::as_str),
+                Some("pending" | "running")
+            )
+        })
+        .count();
+    if active_count >= MAX_ACTIVE_EXPORT_TASKS {
+        return false;
     }
+    tasks.insert(task_id, task.clone());
     if let Err(error) = state.db.save_task(task, task, true).await {
         tracing::warn!("[ApiServer] 保存新任务到数据库失败: {error}");
     }
@@ -950,6 +1352,7 @@ pub async fn export_messages(
             format,
             file_name,
             ExportMode::Standard,
+            ExportInput::Standard,
         )
         .await;
     });
@@ -1047,6 +1450,7 @@ pub async fn export_streaming_zip(
             "STREAMING_ZIP".to_string(),
             file_name,
             ExportMode::StreamingZip,
+            ExportInput::Standard,
         )
         .await;
     });
@@ -1139,6 +1543,194 @@ pub async fn export_streaming_jsonl(
             "STREAMING_JSONL".to_string(),
             dir_name,
             ExportMode::StreamingJsonl,
+            ExportInput::Standard,
+        )
+        .await;
+    });
+
+    response::success(reply, &request_id)
+}
+
+/// `POST /api/messages/roaming/export` — 创建有界私聊漫游扫描与正式导出任务。
+pub async fn export_roaming_messages(
+    State(state): State<SharedState>,
+    Extension(RequestId(request_id)): Extension<RequestId>,
+    Json(body): Json<Value>,
+) -> Response {
+    if let Some(err) = standalone_guard_with(&state, "扫描并导出漫游聊天记录") {
+        return response::error(&err, &request_id);
+    }
+    let scan_config = match parse_roaming_export_config(&body) {
+        Ok(config) => config,
+        Err(error) => return response::error(&error, &request_id),
+    };
+    let mut req = match prepare_export_request(&state, &body).await {
+        Ok(req) => req,
+        Err(error) => return response::error(&error, &request_id),
+    };
+    let format = body
+        .get("format")
+        .and_then(Value::as_str)
+        .unwrap_or("JSON")
+        .to_uppercase();
+    let mode = match format.as_str() {
+        "TXT" | "JSON" | "HTML" | "EXCEL" => ExportMode::Standard,
+        "STREAMING_ZIP" => ExportMode::StreamingZip,
+        "STREAMING_JSONL" => ExportMode::StreamingJsonl,
+        _ => {
+            let error = ApiError::validation(
+                "format 必须是 TXT、JSON、HTML、EXCEL、STREAMING_ZIP 或 STREAMING_JSONL",
+                "INVALID_EXPORT_FORMAT",
+            );
+            return response::error(&error, &request_id);
+        }
+    };
+    if mode != ExportMode::Standard {
+        if !req.options.is_object() {
+            req.options = json!({});
+        }
+        if let Some(options) = req.options.as_object_mut() {
+            options.insert("streamingMode".to_string(), Value::Bool(true));
+        }
+    }
+
+    // 在任务注册前非阻塞取得历史查询独占权，让前端能同步处理 429，而不是创建
+    // 一个注定只能等待或失败的长任务。permit 会随后台扫描阶段结束而释放。
+    let history_permit = match roaming::roaming_query_permit() {
+        Ok(permit) => permit,
+        Err(error) => return response::error(&error, &request_id),
+    };
+
+    let prefix = chat_type_prefix(Some(req.chat_type));
+    let (base_file_name, is_directory) = match mode {
+        ExportMode::Standard => {
+            let extension = match format.as_str() {
+                "TXT" => "txt",
+                "HTML" => "html",
+                "EXCEL" => "xlsx",
+                _ => "json",
+            };
+            (
+                build_export_file_name(
+                    prefix,
+                    &req.peer_identity,
+                    &req.session_name,
+                    &req.date_str,
+                    &req.time_str,
+                    extension,
+                    req.use_name_in_file_name,
+                    req.use_friendly_file_name,
+                ),
+                false,
+            )
+        }
+        ExportMode::StreamingZip => {
+            let regular = build_export_file_name(
+                prefix,
+                &req.peer_identity,
+                &req.session_name,
+                &req.date_str,
+                &req.time_str,
+                "zip",
+                req.use_name_in_file_name,
+                req.use_friendly_file_name,
+            );
+            (
+                regular
+                    .strip_suffix(".zip")
+                    .map_or(regular.clone(), |stem| format!("{stem}_streaming.zip")),
+                false,
+            )
+        }
+        ExportMode::StreamingJsonl => (
+            build_export_dir_name(
+                prefix,
+                &req.peer_identity,
+                &req.session_name,
+                &req.date_str,
+                &req.time_str,
+                "_chunked_jsonl",
+                req.use_name_in_file_name,
+                req.use_friendly_file_name,
+            ),
+            true,
+        ),
+    };
+    let file_name = reserve_export_file_name(&req.output_dir, &base_file_name);
+    let file_path = req.output_dir.join(&file_name);
+    let download_url = if is_directory {
+        if req.custom_output_dir.trim().is_empty() {
+            format!("/downloads/{file_name}")
+        } else {
+            file_path.to_string_lossy().to_string()
+        }
+    } else {
+        generate_download_url(
+            &file_path,
+            &file_name,
+            &req.custom_output_dir,
+            "/downloads/",
+        )
+    };
+    let task_id = generate_task_id("roaming_export");
+    let initial_scan = RoamingScanSummary::new(&scan_config).as_value();
+    let task = json!({
+        "taskId": task_id,
+        "taskKind": "roaming_export",
+        "peer": { "chatType": req.chat_type, "peerUid": req.peer_uid },
+        "sessionName": req.session_name,
+        "fileName": file_name,
+        "downloadUrl": download_url,
+        "messageCount": 0,
+        "processedMessages": 0,
+        "status": "running",
+        "progress": 0,
+        "message": "等待开始有界漫游扫描...",
+        "createdAt": now_iso(),
+        "format": format,
+        "filter": req.filter,
+        "options": req.options,
+        "roamingScan": initial_scan,
+    });
+    if !register_task(&state, &task).await {
+        release_export_path(&file_path);
+        drop(history_permit);
+        let error = ApiError::new(
+            ErrorType::Api,
+            "运行中的导出任务已达到上限",
+            "EXPORT_TASK_LIMIT_REACHED",
+        )
+        .with_status(axum::http::StatusCode::TOO_MANY_REQUESTS);
+        return response::error(&error, &request_id);
+    }
+
+    let reply = json!({
+        "taskId": task_id,
+        "taskKind": "roaming_export",
+        "sessionName": req.session_name,
+        "fileName": file_name,
+        "downloadUrl": download_url,
+        "filePath": file_path.to_string_lossy(),
+        "messageCount": 0,
+        "status": "running",
+        "startTime": scan_config.start_time,
+        "endTime": scan_config.end_time,
+        "roamingScan": initial_scan,
+    });
+
+    let state_bg = Arc::clone(&state);
+    tokio::spawn(async move {
+        run_export_task(
+            state_bg,
+            task_id,
+            req,
+            format,
+            file_name,
+            mode,
+            ExportInput::Roaming {
+                config: scan_config,
+                history_permit,
+            },
         )
         .await;
     });
@@ -1157,6 +1749,14 @@ enum ExportMode {
     StreamingJsonl,
 }
 
+enum ExportInput {
+    Standard,
+    Roaming {
+        config: RoamingExportConfig,
+        history_permit: tokio::sync::SemaphorePermit<'static>,
+    },
+}
+
 /// 后台导出主流程包装：负责取消 / 失败态与清理。
 async fn run_export_task(
     state: SharedState,
@@ -1165,6 +1765,7 @@ async fn run_export_task(
     format: String,
     file_name: String,
     mode: ExportMode,
+    input: ExportInput,
 ) {
     // issue #446：注册取消 flag，使「停止任务」接口能打断本任务。
     let cancelled_before_registration = {
@@ -1188,6 +1789,7 @@ async fn run_export_task(
             &file_name,
             mode,
             &cancel_flag,
+            input,
         )
         .await
     };
@@ -1200,36 +1802,66 @@ async fn run_export_task(
         };
         if was_cancelled {
             tracing::info!("[ApiServer] 导出任务已被用户停止: {task_id}");
-            update_task(
-                &state,
-                &task_id,
-                json!({
-                    "status": "cancelled",
-                    "message": "任务已停止",
-                    "completedAt": now_iso(),
-                }),
-            )
-            .await;
-            state.broadcast_ws(&json!({
-                "type": "export_progress",
-                "data": { "taskId": task_id, "status": "cancelled", "message": "任务已停止" },
-            }));
+            let fallback_scan = {
+                let tasks = state.export_tasks.lock().await;
+                tasks
+                    .get(&task_id)
+                    .and_then(|task| fallback_terminal_roaming_scan(task, "cancelled"))
+            };
+            let mut patch = json!({
+                "status": "cancelled",
+                "message": "任务已停止",
+                "completedAt": now_iso(),
+            });
+            if let Some(scan) = fallback_scan {
+                patch["roamingScan"] = scan;
+            }
+            if let Some(updated_task) = update_task(&state, &task_id, patch).await {
+                state.broadcast_ws(&export_ws_event(
+                    "export_progress",
+                    json!({ "taskId": task_id, "status": "cancelled", "message": "任务已停止" }),
+                    task_roaming_scan(&updated_task),
+                ));
+            }
         } else {
             tracing::error!("[ApiServer] 导出任务失败: {task_id} — {error}");
-            update_task(
-                &state,
-                &task_id,
-                json!({
-                    "status": "failed",
-                    "error": error,
-                    "completedAt": now_iso(),
-                }),
-            )
-            .await;
-            state.broadcast_ws(&json!({
-                "type": "export_error",
-                "data": { "taskId": task_id, "status": "failed", "error": error },
-            }));
+            let (error_code, error_http_status, fallback_scan) = {
+                let tasks = state.export_tasks.lock().await;
+                let task = tasks.get(&task_id);
+                (
+                    task.and_then(|value| value.get("errorCode"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("EXPORT_FAILED")
+                        .to_string(),
+                    task.and_then(|value| value.get("errorHttpStatus"))
+                        .and_then(Value::as_u64)
+                        .unwrap_or(500),
+                    task.and_then(|task| fallback_terminal_roaming_scan(task, "scan_failed")),
+                )
+            };
+            let mut patch = json!({
+                "status": "failed",
+                "error": error,
+                "errorCode": error_code,
+                "errorHttpStatus": error_http_status,
+                "completedAt": now_iso(),
+            });
+            if let Some(scan) = fallback_scan {
+                patch["roamingScan"] = scan;
+            }
+            if let Some(updated_task) = update_task(&state, &task_id, patch).await {
+                state.broadcast_ws(&export_ws_event(
+                    "export_error",
+                    json!({
+                        "taskId": task_id,
+                        "status": "failed",
+                        "error": error,
+                        "errorCode": error_code,
+                        "errorHttpStatus": error_http_status,
+                    }),
+                    task_roaming_scan(&updated_task),
+                ));
+            }
         }
     }
 
@@ -1623,7 +2255,7 @@ fn merge_resource_summary(total: &mut ResourceBatchSummary, batch: &ResourceBatc
 }
 
 /// 导出主流程。
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 async fn process_export_task(
     state: &SharedState,
     task_id: &str,
@@ -1632,17 +2264,29 @@ async fn process_export_task(
     file_name: &str,
     mode: ExportMode,
     cancel_flag: &Arc<AtomicBool>,
+    input: ExportInput,
 ) -> Result<(), String> {
     if is_cancelled(state, task_id, cancel_flag).await {
         return Err("任务已被用户停止".to_string());
     }
-    update_task(
+    let roaming_scan = match &input {
+        ExportInput::Roaming { config, .. } => Some(RoamingScanSummary::new(config).as_value()),
+        ExportInput::Standard => None,
+    };
+    let starting_message = if roaming_scan.is_some() {
+        "开始有界漫游扫描..."
+    } else {
+        "开始获取消息..."
+    };
+    let _ = update_and_broadcast_progress(
         state,
         task_id,
-        json!({ "status": "running", "progress": 0, "message": "开始获取消息..." }),
+        json!({ "status": "running", "progress": 0, "message": starting_message }),
+        0,
+        starting_message,
+        0,
     )
     .await;
-    broadcast_progress(state, task_id, 0, "开始获取消息...", 0);
     let debug_session = if req.options.get("debugExport").and_then(Value::as_bool) == Some(true) {
         let session = ExportDebugSession::start(&req.output_dir, file_name).await?;
         session
@@ -1659,100 +2303,164 @@ async fn process_export_task(
         None
     };
 
-    // 阶段 1：抓取消息（0 → 50）
-    let batch_size = loose_i64(req.options.get("batchSize")).unwrap_or(5000);
-    let fetcher = BatchMessageFetcher::new(
-        Arc::new(state.napcat.clone()),
-        BatchFetchConfig {
-            batch_size,
-            timeout_ms: 120_000,
-            retry_count: 3,
-            ..BatchFetchConfig::default()
-        },
-    );
-    let peer = Peer {
-        chat_type: req.chat_type,
-        peer_uid: req.peer_uid.clone(),
-        guild_id: None,
-    };
-    let start_time_ms = normalize_to_ms(loose_i64(req.filter.get("startTime")).unwrap_or(0));
-    let end_time_ms = normalize_to_ms(loose_i64(req.filter.get("endTime")).unwrap_or_else(now_ms));
-    let fetch_filter = MessageFilter {
-        start_time: Some(start_time_ms),
-        end_time: Some(end_time_ms),
-        ..MessageFilter::default()
-    };
-
-    // issue #634：磁盘分块流水线——原始消息逐批落盘，不在内存累积。
+    // 阶段 1：普通导出由 BatchMessageFetcher 抓取；漫游导出由有界锚点扫描与
+    // 序列桥接抓取。两者都写入同一个磁盘 spool，后续解析、资源与格式管线一致。
     tokio::fs::create_dir_all(&req.output_dir)
         .await
         .map_err(|e| format!("创建输出目录失败: {e}"))?;
     let mut spool =
         RawMessageSpool::create(req.output_dir.join(format!(".qce_spool_{task_id}.jsonl"))).await?;
-
-    let mut previous = None;
-    let mut batch_count: i64 = 0;
-    let mut max_seq_seen: Option<i64> = None;
-    let mut min_seq_seen: Option<i64> = None;
-    loop {
-        if is_cancelled(state, task_id, cancel_flag).await {
-            fetcher.cancel();
-            return Err("任务已被用户停止".to_string());
-        }
-        let fetch_result = tokio::select! {
-            result = fetcher.fetch_next_batch(&peer, &fetch_filter, previous.as_ref()) => Some(result),
-            () = wait_for_atomic_cancellation(cancel_flag) => None,
-        };
-        let Some(fetch_result) = fetch_result else {
-            fetcher.cancel();
-            return Err("任务已被用户停止".to_string());
-        };
-        let mut batch = match fetch_result {
-            Ok(Some(batch)) => batch,
-            Ok(None) => break,
-            Err(error) => return Err(format!("获取消息失败: {error}")),
-        };
-        batch_count += 1;
-        for message in &batch.messages {
-            let Some(seq) = loose_i64(message.get("msgSeq")) else {
-                continue;
+    match input {
+        ExportInput::Standard => {
+            let batch_size = loose_i64(req.options.get("batchSize")).unwrap_or(5000);
+            let fetcher = BatchMessageFetcher::new(
+                Arc::new(state.napcat.clone()),
+                BatchFetchConfig {
+                    batch_size,
+                    timeout_ms: 120_000,
+                    retry_count: 3,
+                    ..BatchFetchConfig::default()
+                },
+            );
+            let peer = Peer {
+                chat_type: req.chat_type,
+                peer_uid: req.peer_uid.clone(),
+                guild_id: None,
             };
-            max_seq_seen = Some(max_seq_seen.map_or(seq, |v| v.max(seq)));
-            min_seq_seen = Some(min_seq_seen.map_or(seq, |v| v.min(seq)));
-        }
-        spool.append(&batch.messages).await?;
-        batch.messages = Vec::new();
+            let start_time_ms =
+                normalize_to_ms(loose_i64(req.filter.get("startTime")).unwrap_or(0));
+            let end_time_ms =
+                normalize_to_ms(loose_i64(req.filter.get("endTime")).unwrap_or_else(now_ms));
+            let fetch_filter = MessageFilter {
+                start_time: Some(start_time_ms),
+                end_time: Some(end_time_ms),
+                ..MessageFilter::default()
+            };
+            let mut previous = None;
+            let mut batch_count: i64 = 0;
+            let mut max_seq_seen: Option<i64> = None;
+            let mut min_seq_seen: Option<i64> = None;
+            loop {
+                if is_cancelled(state, task_id, cancel_flag).await {
+                    fetcher.cancel();
+                    return Err("任务已被用户停止".to_string());
+                }
+                let fetch_result = tokio::select! {
+                    result = fetcher.fetch_next_batch(&peer, &fetch_filter, previous.as_ref()) => Some(result),
+                    () = wait_for_atomic_cancellation(cancel_flag) => None,
+                };
+                let Some(fetch_result) = fetch_result else {
+                    fetcher.cancel();
+                    return Err("任务已被用户停止".to_string());
+                };
+                let mut batch = match fetch_result {
+                    Ok(Some(batch)) => batch,
+                    Ok(None) => break,
+                    Err(error) => return Err(format!("获取消息失败: {error}")),
+                };
+                batch_count += 1;
+                for message in &batch.messages {
+                    let Some(seq) = loose_i64(message.get("msgSeq")) else {
+                        continue;
+                    };
+                    max_seq_seen = Some(max_seq_seen.map_or(seq, |value| value.max(seq)));
+                    min_seq_seen = Some(min_seq_seen.map_or(seq, |value| value.min(seq)));
+                }
+                spool.append(&batch.messages).await?;
+                batch.messages = Vec::new();
 
-        // issue #634：基于序列号的真实抓取进度（1 → 49）。
-        let progress = estimate_fetch_progress(max_seq_seen, min_seq_seen, batch_count);
-        let message = format!("已获取 {} 条消息...", spool.count());
-        update_task(
-            state,
-            task_id,
-            json!({ "progress": progress, "messageCount": spool.count(), "message": message }),
-        )
-        .await;
-        broadcast_progress(state, task_id, progress, &message, spool.count());
-        previous = Some(batch);
+                let progress = estimate_fetch_progress(max_seq_seen, min_seq_seen, batch_count);
+                let message = format!("已获取 {} 条消息...", spool.count());
+                let _ = update_and_broadcast_progress(
+                    state,
+                    task_id,
+                    json!({ "progress": progress, "messageCount": spool.count(), "message": message }),
+                    progress,
+                    &message,
+                    spool.count(),
+                )
+                .await;
+                previous = Some(batch);
+            }
+
+            // issue #662：导出流程不再做全量序列修复。
+            if req.chat_type == GROUP_CHAT_TYPE {
+                if let (Some(max), Some(min)) = (max_seq_seen, min_seq_seen) {
+                    tracing::info!(
+                        "[Export] 群聊序列覆盖: seqRange={min}..={max}, span={}, messages={}",
+                        max - min + 1,
+                        spool.count()
+                    );
+                }
+            }
+        }
+        ExportInput::Roaming {
+            config,
+            history_permit,
+        } => {
+            let peer = Peer {
+                chat_type: 1,
+                peer_uid: req.peer_uid.clone(),
+                guild_id: Some(String::new()),
+            };
+            let result = roaming_export::scan_task_into_spool(
+                state,
+                task_id,
+                cancel_flag,
+                &peer,
+                &config,
+                &mut spool,
+            )
+            .await;
+            drop(history_permit);
+            // `getMsgByClientSeqAndTime` 可能把漫游消息回填进 QQ 本地历史；与低层
+            // exact 路由保持一致，扫描结束后丢弃该私聊的短期消息缓存。
+            state
+                .invalidate_message_cache_for_peer(1, &req.peer_uid)
+                .await;
+            match result {
+                Ok(summary) => {
+                    let completed_scan = summary.as_value();
+                    let _ = update_and_broadcast_progress(
+                        state,
+                        task_id,
+                        json!({
+                            "progress": 50,
+                            "message": "漫游扫描完成，准备解析消息...",
+                            "messageCount": summary.message_count,
+                            "processedMessages": summary.raw_messages_seen,
+                            "roamingScan": completed_scan,
+                        }),
+                        50,
+                        "漫游扫描完成，准备解析消息...",
+                        summary.message_count,
+                    )
+                    .await;
+                }
+                Err(mut error) => {
+                    let cancelled = error.roaming_stop_reason() == "cancelled";
+                    let mut patch = json!({});
+                    if let Some(roaming_scan) = error.roaming_scan.take() {
+                        patch["roamingScan"] = roaming_scan;
+                    }
+                    if cancelled {
+                        // cancel_task 已先写入终态；显式携带相同 status，允许补写最终
+                        // roamingScan，而不会把任务恢复成 running/failed。
+                        patch["status"] = json!("cancelled");
+                        patch["message"] = json!("任务已停止");
+                    } else {
+                        patch["errorCode"] = json!(error.code);
+                        patch["errorHttpStatus"] = json!(error.http_status);
+                    }
+                    let _ = update_task(state, task_id, patch).await;
+                    return Err(error.message);
+                }
+            }
+        }
     }
 
     if is_cancelled(state, task_id, cancel_flag).await {
         return Err("任务已被用户停止".to_string());
-    }
-
-    // issue #662：导出流程不再做全量序列修复。
-    // SequenceBasedPaged 策略按序列号单调递减逐页覆盖整个序列区间，序列缺口
-    // 只可能是撤回 / 不可见消息，对同一批 API 逐个缺口重探不会产出新消息，却
-    // 会在活跃群上放大成数千次原生查询（issue #662 现场：7441 条消息卡死数十
-    // 分钟）。预览路径（fetch_messages）仍保留序列修复。
-    if req.chat_type == GROUP_CHAT_TYPE {
-        if let (Some(max), Some(min)) = (max_seq_seen, min_seq_seen) {
-            tracing::info!(
-                "[Export] 群聊序列覆盖: seqRange={min}..={max}, span={}, messages={}",
-                max - min + 1,
-                spool.count()
-            );
-        }
     }
 
     // 群昵称补全 + 群头衔映射（issue #331）
@@ -1765,13 +2473,15 @@ async fn process_export_task(
 
     spool.finish().await?;
 
-    update_task(
+    let _ = update_and_broadcast_progress(
         state,
         task_id,
         json!({ "progress": 55, "message": "正在解析消息...", "messageCount": spool.count() }),
+        55,
+        "正在解析消息...",
+        spool.count(),
     )
     .await;
-    broadcast_progress(state, task_id, 55, "正在解析消息...", spool.count());
 
     let sender_title_resolver = title_map.map(|map| {
         let map = Arc::new(map);
@@ -1798,7 +2508,23 @@ async fn process_export_task(
         == Some(true);
     if filter_pure_image {
         tracing::info!("[ApiServer] 已启用纯多媒体消息过滤，跳过资源下载");
+    }
+    // ResourceHandler 的跳过类型、进度回调和 last_batch_summary 是配套的可变
+    // 状态。普通与漫游导出可并发，因此从配置到最后一个 chunk 的摘要/清理必须
+    // 作为同一任务级临界区；owned guard 会在取消或 `?` 提前返回时自动释放。
+    let resource_session_guard = if filter_pure_image {
+        None
     } else {
+        state
+            .resource_handler
+            .acquire_export_session_with_cancel(cancel_flag)
+            .await
+    };
+    if !filter_pure_image && resource_session_guard.is_none() {
+        return Err("任务已被用户停止".to_string());
+    }
+    if !filter_pure_image {
+        state.resource_handler.set_progress_callback(None).await;
         // Issue #341：跳过下载的资源类型（仅保留元数据）。
         let requested_skip_types: Vec<String> = req
             .options
@@ -1911,14 +2637,18 @@ async fn process_export_task(
             let state_cb = Arc::clone(state);
             let task_id_cb = task_id.to_string();
             let count_cb = parsed_count;
+            let cancel_flag_cb = Arc::clone(cancel_flag);
             let span = (progress_next - progress_base).max(0) as f64;
             state
                 .resource_handler
                 .set_progress_callback(Some(Arc::new(move |progress| {
+                    if cancel_flag_cb.load(Ordering::SeqCst) {
+                        return;
+                    }
                     let percent = progress_base
                         + ((progress.completed as f64 / progress.total.max(1) as f64) * span)
                             .round() as i64;
-                    broadcast_progress(
+                    let _ = try_broadcast_live_progress(
                         &state_cb,
                         &task_id_cb,
                         percent,
@@ -1944,13 +2674,15 @@ async fn process_export_task(
 
         chunk_index += 1;
         let message = format!("正在解析消息与下载资源... ({chunk_index}/{total_chunks})");
-        update_task(
+        let _ = update_and_broadcast_progress(
             state,
             task_id,
             json!({ "progress": progress_next, "message": message, "messageCount": parsed_count }),
+            progress_next,
+            &message,
+            parsed_count,
         )
         .await;
-        broadcast_progress(state, task_id, progress_next, &message, parsed_count);
     }
     drop(reader);
     drop(spool);
@@ -1959,8 +2691,11 @@ async fn process_export_task(
     }
     drop(parsed_message_ids);
     drop(resource_message_ids);
-    state.resource_handler.set_progress_callback(None).await;
-    state.resource_handler.set_skip_download_types(None).await;
+    if !filter_pure_image {
+        state.resource_handler.set_progress_callback(None).await;
+        state.resource_handler.set_skip_download_types(None).await;
+    }
+    drop(resource_session_guard);
 
     let resource_summary: Option<ResourceBatchSummary> = if filter_pure_image {
         None
@@ -1985,13 +2720,15 @@ async fn process_export_task(
     }
 
     // 阶段 3：生成文件（85 →）
-    update_task(
+    let _ = update_and_broadcast_progress(
         state,
         task_id,
         json!({ "progress": 85, "message": "正在生成文件...", "messageCount": parsed_count }),
+        85,
+        "正在生成文件...",
+        parsed_count,
     )
     .await;
-    broadcast_progress(state, task_id, 85, "正在生成文件...", parsed_count);
 
     // Issue #30 / #192：确保输出目录存在。
     tokio::fs::create_dir_all(&req.output_dir)
@@ -2147,13 +2884,29 @@ async fn process_export_task(
                             == Some(true),
                         ..JsonFormatOptions::default()
                     };
-                    broadcast_progress(state, task_id, 90, "正在写入JSON文件...", message_count);
+                    let _ = update_and_broadcast_progress(
+                        state,
+                        task_id,
+                        json!({ "progress": 90, "message": "正在写入JSON文件..." }),
+                        90,
+                        "正在写入JSON文件...",
+                        message_count,
+                    )
+                    .await;
                     let exporter = JsonExporter::new(export_options, json_options);
                     exporter
                         .export(clean_messages, &chat_info)
                         .await
                         .map_err(|e| e.to_string())?;
-                    broadcast_progress(state, task_id, 95, "JSON文件写入完成", message_count);
+                    let _ = update_and_broadcast_progress(
+                        state,
+                        task_id,
+                        json!({ "progress": 95, "message": "JSON文件写入完成" }),
+                        95,
+                        "JSON文件写入完成",
+                        message_count,
+                    )
+                    .await;
                 }
                 "EXCEL" => {
                     let exporter =
@@ -2202,13 +2955,15 @@ async fn process_export_task(
             if format == "HTML"
                 && req.options.get("exportAsZip").and_then(Value::as_bool) == Some(true)
             {
-                update_task(
+                let _ = update_and_broadcast_progress(
                     state,
                     task_id,
                     json!({ "progress": 95, "message": "正在打包ZIP文件..." }),
+                    95,
+                    "正在打包ZIP文件...",
+                    message_count,
                 )
                 .await;
-                broadcast_progress(state, task_id, 95, "正在打包ZIP文件...", message_count);
 
                 let base_zip_file_name = if let Some(stripped) = file_name
                     .strip_suffix(".html")
@@ -2309,13 +3064,15 @@ async fn process_export_task(
                     .map_err(|e| e.to_string())?;
             }
 
-            update_task(
+            let _ = update_and_broadcast_progress(
                 state,
                 task_id,
                 json!({ "progress": 95, "message": "正在打包ZIP文件..." }),
+                95,
+                "正在打包ZIP文件...",
+                message_count,
             )
             .await;
-            broadcast_progress(state, task_id, 95, "正在打包ZIP文件...", message_count);
             create_zip_from_dir(temp_dir.clone(), file_path.clone()).await?;
             let _ = tokio::fs::remove_dir_all(&temp_dir).await;
         }
@@ -2377,7 +3134,16 @@ async fn process_export_task(
         None
     };
 
-    update_task(
+    // HTML + exportAsZip 会把创建时的 .html 目标替换为最终 .zip；终态任务必须
+    // 持久化同一个最终 URL，避免 GET/重启恢复时用旧 URL 覆盖 WS 完成事件。
+    let final_download_url = generate_download_url(
+        &final_file_path,
+        &final_file_name,
+        &req.custom_output_dir,
+        "/downloads/",
+    );
+
+    let completed_task = update_task(
         state,
         task_id,
         json!({
@@ -2386,6 +3152,7 @@ async fn process_export_task(
             "message": completion_message,
             "messageCount": message_count,
             "filePath": final_file_path.to_string_lossy(),
+            "downloadUrl": final_download_url,
             "fileSize": file_size,
             "completedAt": now_iso(),
             "fileName": final_file_name,
@@ -2401,39 +3168,31 @@ async fn process_export_task(
     )
     .await;
 
-    // Issue #192：根据是否使用自定义路径生成正确的下载 URL。
-    let final_download_url = generate_download_url(
-        &final_file_path,
-        &final_file_name,
-        &req.custom_output_dir,
-        if is_zip_export {
-            "/download?file="
-        } else {
-            "/downloads/"
-        },
-    );
-    state.broadcast_ws(&json!({
-        "type": "export_complete",
-        "data": {
-            "taskId": task_id,
-            "status": "completed",
-            "progress": 100,
-            "message": completion_message,
-            "messageCount": message_count,
-            "fileName": final_file_name,
-            "filePath": final_file_path.to_string_lossy(),
-            "fileSize": file_size,
-            "downloadUrl": final_download_url,
-            "isZipExport": is_zip_export,
-            "originalFilePath": original_file_path
-                .as_ref()
-                .map_or(Value::Null, |p| Value::String(p.to_string_lossy().to_string())),
-            "resourceSummary": resource_summary_value.unwrap_or(Value::Null),
-            "debugPath": debug_path
-                .as_ref()
-                .map_or(Value::Null, |path| Value::String(path.to_string_lossy().to_string())),
-        },
-    }));
+    if let Some(completed_task) = completed_task {
+        state.broadcast_ws(&export_ws_event(
+            "export_complete",
+            json!({
+                "taskId": task_id,
+                "status": "completed",
+                "progress": 100,
+                "message": completion_message,
+                "messageCount": message_count,
+                "fileName": final_file_name,
+                "filePath": final_file_path.to_string_lossy(),
+                "fileSize": file_size,
+                "downloadUrl": final_download_url,
+                "isZipExport": is_zip_export,
+                "originalFilePath": original_file_path
+                    .as_ref()
+                    .map_or(Value::Null, |p| Value::String(p.to_string_lossy().to_string())),
+                "resourceSummary": resource_summary_value.unwrap_or(Value::Null),
+                "debugPath": debug_path
+                    .as_ref()
+                    .map_or(Value::Null, |path| Value::String(path.to_string_lossy().to_string())),
+            }),
+            task_roaming_scan(&completed_task),
+        ));
+    }
 
     // 立即刷新数据库，确保任务状态持久化。
     if let Err(error) = state.db.flush_write_queue().await {
@@ -2472,10 +3231,12 @@ async fn dir_or_file_size(path: &FsPath) -> u64 {
 #[cfg(test)]
 mod file_name_tests {
     use super::{
-        build_export_dir_name, build_export_file_name, prepare_output_directory,
-        release_export_path, reserve_export_file_name, sanitize_chat_name, should_apply_task_patch,
+        apply_live_progress_patch, apply_task_patch, build_export_dir_name, build_export_file_name,
+        export_ws_event, fallback_terminal_roaming_scan, generate_download_url,
+        prepare_output_directory, publish_live_task_progress, release_export_path,
+        reserve_export_file_name, sanitize_chat_name, should_apply_task_patch, task_roaming_scan,
     };
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     #[tokio::test]
     async fn creates_missing_allowed_output_directory_before_task_registration() {
@@ -2521,6 +3282,145 @@ mod file_name_tests {
             &task,
             &json!({ "status": "cancelled", "message": "任务已停止" })
         ));
+        assert!(should_apply_task_patch(
+            &task,
+            &json!({
+                "status": "cancelled",
+                "roamingScan": {"stopReason": "cancelled", "currentDate": null}
+            })
+        ));
+    }
+
+    #[test]
+    fn terminal_task_cannot_accept_a_running_progress_patch() {
+        let mut task = json!({ "status": "cancelled", "progress": 42 });
+        let updated = apply_live_progress_patch(
+            Some(&mut task),
+            &json!({ "status": "running", "progress": 60 }),
+        );
+
+        assert!(updated.is_none());
+        assert_eq!(task["status"], "cancelled");
+        assert_eq!(task["progress"], 42);
+
+        for status in ["completed", "failed"] {
+            let mut task = json!({ "status": status, "progress": 100 });
+            assert!(apply_live_progress_patch(
+                Some(&mut task),
+                &json!({ "status": "running", "progress": 60 }),
+            )
+            .is_none());
+            assert_eq!(task["status"], status);
+            assert_eq!(task["progress"], 100);
+        }
+    }
+
+    #[test]
+    fn synchronous_progress_callback_only_publishes_for_live_tasks() {
+        for status in ["completed", "failed", "cancelled"] {
+            let task = json!({ "status": status });
+            assert!(!publish_live_task_progress(Some(&task), |_| {
+                panic!("terminal task must not publish running progress")
+            }));
+        }
+
+        for status in ["pending", "running"] {
+            let task = json!({ "status": status });
+            let mut published = false;
+            assert!(publish_live_task_progress(Some(&task), |_| published = true));
+            assert!(published);
+        }
+        assert!(!publish_live_task_progress(None, |_| {
+            panic!("deleted task must not publish running progress")
+        }));
+    }
+
+    #[test]
+    fn terminal_patch_requires_a_live_task_before_websocket_broadcast() {
+        let patch = json!({"status": "cancelled", "message": "任务已停止"});
+        assert!(apply_task_patch(None, &patch).is_none());
+
+        let mut task = json!({"taskId": "export_fixture", "status": "running"});
+        let updated = apply_task_patch(Some(&mut task), &patch)
+            .expect("a live task accepts its terminal patch");
+        assert_eq!(updated["status"], "cancelled");
+        assert_eq!(updated["message"], "任务已停止");
+
+        let late_completion = json!({"status": "completed", "progress": 100});
+        let completion_applied = apply_task_patch(Some(&mut task), &late_completion).is_some();
+        assert!(
+            !completion_applied,
+            "a worker cancelled mid-export must not qualify for export_complete broadcast"
+        );
+        assert_eq!(task["status"], "cancelled");
+    }
+
+    #[test]
+    fn roaming_terminal_fallback_marks_fast_cancel_and_pre_scan_failure() {
+        let task = json!({
+            "taskKind": "roaming_export",
+            "roamingScan": {
+                "requestedDays": 30,
+                "probedDays": 0,
+                "partial": false,
+                "stopReason": "running",
+                "currentDate": "2023-01-01"
+            }
+        });
+
+        let cancelled =
+            fallback_terminal_roaming_scan(&task, "cancelled").expect("fast cancel fallback");
+        assert_eq!(cancelled["requestedDays"], 30);
+        assert_eq!(cancelled["probedDays"], 0);
+        assert_eq!(cancelled["partial"], true);
+        assert_eq!(cancelled["stopReason"], "cancelled");
+        assert_eq!(cancelled["currentDate"], Value::Null);
+
+        let failed =
+            fallback_terminal_roaming_scan(&task, "scan_failed").expect("pre-scan fallback");
+        assert_eq!(failed["partial"], true);
+        assert_eq!(failed["stopReason"], "scan_failed");
+        assert_eq!(failed["currentDate"], Value::Null);
+
+        let completed_scan = json!({
+            "taskKind": "roaming_export",
+            "roamingScan": {"partial": true, "stopReason": "native_query_failed"}
+        });
+        assert!(fallback_terminal_roaming_scan(&completed_scan, "scan_failed").is_none());
+        assert!(fallback_terminal_roaming_scan(
+            &json!({"taskKind": "standard", "roamingScan": task["roamingScan"]}),
+            "scan_failed"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn websocket_export_events_include_roaming_metadata_only_for_roaming_tasks() {
+        let scan = json!({
+            "partial": true,
+            "stopReason": "unresolved_anchors",
+            "messageCount": 42,
+        });
+        let roaming_task = json!({
+            "taskKind": "roaming_export",
+            "roamingScan": scan,
+        });
+
+        for event_type in ["export_progress", "export_complete", "export_error"] {
+            let event = export_ws_event(
+                event_type,
+                json!({"taskId": "roaming_fixture"}),
+                task_roaming_scan(&roaming_task),
+            );
+            assert_eq!(event["type"], event_type);
+            assert_eq!(event["data"]["taskKind"], "roaming_export");
+            assert_eq!(event["data"]["roamingScan"], roaming_task["roamingScan"]);
+
+            let standard = export_ws_event(event_type, json!({"taskId": "standard_fixture"}), None);
+            let data = standard["data"].as_object().expect("event data object");
+            assert!(!data.contains_key("taskKind"));
+            assert!(!data.contains_key("roamingScan"));
+        }
     }
 
     #[test]
@@ -2561,6 +3461,19 @@ mod file_name_tests {
                 false,
             ),
             "group_AxT_鸽子窝_960420904_20260712_163632123_chunked_jsonl"
+        );
+    }
+
+    #[test]
+    fn completed_zip_uses_the_registered_download_route() {
+        let path = std::path::PathBuf::from("/tmp/friend_fixture.zip");
+        assert_eq!(
+            generate_download_url(&path, "friend_fixture.zip", "", "/downloads/"),
+            "/downloads/friend_fixture.zip"
+        );
+        assert!(
+            generate_download_url(&path, "friend_fixture.zip", "/tmp", "/downloads/")
+                .starts_with("/api/download-file?path=")
         );
     }
 

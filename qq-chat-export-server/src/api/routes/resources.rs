@@ -9,13 +9,15 @@ use chrono::{DateTime, Utc};
 use md5::{Digest, Md5};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde_json::{json, Value};
+use tokio::io::AsyncReadExt;
 
 use qce_exporter::modern_html_exporter::{HtmlExportOptions, ModernHtmlExporter};
 use qce_exporter::types::{ChatInfo, CleanMessage};
 
 use crate::api::middleware::PREVIEW_TOKEN_COOKIE;
 use crate::api::path_security::{
-    resolve_existing_within, resolve_for_creation_within, valid_relative_resource_path,
+    open_verified_file, resolve_existing_exact, resolve_existing_within,
+    resolve_for_creation_within, valid_relative_resource_path,
 };
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
@@ -1709,6 +1711,26 @@ pub async fn global_resource_files(
 
 // GET /api/download-file（Issue #192）
 
+fn registered_export_task_paths(tasks: &HashMap<String, Value>) -> Vec<PathBuf> {
+    tasks
+        .values()
+        .filter_map(|task| task.get("filePath").and_then(Value::as_str))
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+async fn resolve_registered_export_task_path(
+    state: &SharedState,
+    requested_path: &FsPath,
+) -> Option<PathBuf> {
+    let registered_paths = {
+        let tasks = state.export_tasks.lock().await;
+        registered_export_task_paths(&tasks)
+    };
+    resolve_existing_exact(requested_path, &registered_paths)
+}
+
 /// 动态下载 API（自定义导出路径的文件下载，含路径安全校验）。
 pub async fn download_file(
     State(state): State<SharedState>,
@@ -1754,16 +1776,37 @@ pub async fn download_file(
         state.path_manager.exports_dir(),
         state.path_manager.scheduled_exports_dir(),
     ];
-    let Some(normalized) = resolve_existing_within(&normalized, &roots) else {
+    let normalized = match resolve_existing_within(&normalized, &roots) {
+        Some(path) => Some(path),
+        None => resolve_registered_export_task_path(&state, &normalized).await,
+    };
+    let Some(normalized) = normalized else {
         return response::error(
             &permission_err("文件不在允许的导出目录内", "PATH_NOT_ALLOWED"),
             &request_id,
         );
     };
 
-    let Ok(meta) = std::fs::metadata(&normalized) else {
-        let err = ApiError::new(ErrorType::FileSystem, "文件不存在", "FILE_NOT_FOUND")
-            .with_status(StatusCode::NOT_FOUND);
+    let file = match open_verified_file(&normalized) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let err = ApiError::new(ErrorType::FileSystem, "文件不存在", "FILE_NOT_FOUND")
+                .with_status(StatusCode::NOT_FOUND);
+            return response::error(&err, &request_id);
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            return response::error(
+                &permission_err("文件路径在安全校验后发生变化", "PATH_NOT_ALLOWED"),
+                &request_id,
+            );
+        }
+        Err(_) => {
+            let err = ApiError::new(ErrorType::FileSystem, "文件读取失败", "FILE_READ_ERROR");
+            return response::error(&err, &request_id);
+        }
+    };
+    let Ok(meta) = file.metadata() else {
+        let err = ApiError::new(ErrorType::FileSystem, "文件读取失败", "FILE_READ_ERROR");
         return response::error(&err, &request_id);
     };
     if !meta.is_file() {
@@ -1785,10 +1828,12 @@ pub async fn download_file(
         _ => "application/octet-stream",
     };
 
-    let Ok(bytes) = tokio::fs::read(&normalized).await else {
+    let mut opened_file = tokio::fs::File::from_std(file);
+    let mut bytes = Vec::new();
+    if opened_file.read_to_end(&mut bytes).await.is_err() {
         let err = ApiError::new(ErrorType::FileSystem, "文件读取失败", "FILE_READ_ERROR");
         return response::error(&err, &request_id);
-    };
+    }
 
     let disposition = format!(
         "attachment; filename*=UTF-8''{}",
@@ -1830,12 +1875,31 @@ fn windows_explorer_args(target: &FsPath, select_file: bool) -> Vec<std::ffi::Os
     }
 }
 
-fn open_in_file_manager(target: &FsPath, select_file: bool) {
+fn file_manager_target_is_safe(target: &FsPath) -> bool {
+    target.is_absolute()
+        && std::fs::symlink_metadata(target)
+            .is_ok_and(|metadata| !metadata.file_type().is_symlink())
+        && target
+            .canonicalize()
+            .is_ok_and(|canonical| canonical == target)
+}
+
+fn unsafe_file_manager_target() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        "file-manager target changed after path validation",
+    )
+}
+
+fn open_in_file_manager(target: &FsPath, select_file: bool) -> std::io::Result<()> {
     #[cfg(target_os = "windows")]
     {
         let mut cmd = std::process::Command::new("explorer");
         cmd.args(windows_explorer_args(target, select_file));
-        let _ = cmd.spawn();
+        if !file_manager_target_is_safe(target) {
+            return Err(unsafe_file_manager_target());
+        }
+        cmd.spawn().map(|_| ())
     }
     #[cfg(target_os = "macos")]
     {
@@ -1844,7 +1908,10 @@ fn open_in_file_manager(target: &FsPath, select_file: bool) {
             cmd.arg("-R");
         }
         cmd.arg(target);
-        let _ = cmd.spawn();
+        if !file_manager_target_is_safe(target) {
+            return Err(unsafe_file_manager_target());
+        }
+        cmd.spawn().map(|_| ())
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
@@ -1855,7 +1922,13 @@ fn open_in_file_manager(target: &FsPath, select_file: bool) {
         } else {
             target.to_path_buf()
         };
-        let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+        if !file_manager_target_is_safe(target) || !file_manager_target_is_safe(&dir) {
+            return Err(unsafe_file_manager_target());
+        }
+        std::process::Command::new("xdg-open")
+            .arg(dir)
+            .spawn()
+            .map(|_| ())
     }
 }
 
@@ -1882,11 +1955,31 @@ pub async fn open_file_location(
         state.path_manager.scheduled_exports_dir(),
         state.path_manager.resources_dir(),
     ];
-    let Some(path) = resolve_existing_within(&PathBuf::from(file_path), &roots) else {
+    let requested_path = PathBuf::from(file_path);
+    let path = match resolve_existing_within(&requested_path, &roots) {
+        Some(path) => Some(path),
+        None => resolve_registered_export_task_path(&state, &requested_path).await,
+    };
+    let Some(path) = path else {
         let err = ApiError::validation("文件不在允许的导出目录内", "PATH_NOT_ALLOWED");
         return response::error(&err, &request_id);
     };
-    open_in_file_manager(&path, should_select_in_file_manager(&path));
+    if !file_manager_target_is_safe(&path) {
+        let err = ApiError::validation("文件路径在安全校验后发生变化", "PATH_NOT_ALLOWED");
+        return response::error(&err, &request_id);
+    }
+    if let Err(error) = open_in_file_manager(&path, should_select_in_file_manager(&path)) {
+        let err = if error.kind() == std::io::ErrorKind::PermissionDenied {
+            ApiError::validation("文件路径在安全校验后发生变化", "PATH_NOT_ALLOWED")
+        } else {
+            ApiError::new(
+                ErrorType::FileSystem,
+                format!("无法打开文件位置: {error}"),
+                "OPEN_FILE_LOCATION_FAILED",
+            )
+        };
+        return response::error(&err, &request_id);
+    }
     response::success(json!({ "message": "已打开文件位置" }), &request_id)
 }
 
@@ -1897,7 +1990,7 @@ pub async fn open_export_directory(
 ) -> Response {
     let export_dir = state.path_manager.exports_dir();
     let _ = std::fs::create_dir_all(&export_dir);
-    open_in_file_manager(&export_dir, false);
+    let _ = open_in_file_manager(&export_dir, false);
     response::success(json!({ "message": "已打开导出目录" }), &request_id)
 }
 
@@ -3202,15 +3295,18 @@ pub async fn merge_resources(
 mod metadata_tests {
     use super::{
         apply_file_metadata, avatar_url, existing_file_path, extract_html_time_range,
-        find_sibling_file_ci, group_merge_sources, is_merged_base_name, merge_resource_files,
-        merge_source_messages, merged_export_display_time, merged_output_names,
-        merged_resource_dir_for_file, parse_export_file_name, parse_manifest_metadata,
-        parse_manual_export_file_name, parse_merge_formats, parse_merged_export_file_name,
-        parse_scheduled_export_file_name, rewrite_merged_resource_paths,
-        should_select_in_file_manager, valid_export_file_name, windows_explorer_args,
-        write_merged_data, MergeSource, MergedWriteOptions,
+        file_manager_target_is_safe, find_sibling_file_ci, group_merge_sources,
+        is_merged_base_name, merge_resource_files, merge_source_messages,
+        merged_export_display_time, merged_output_names, merged_resource_dir_for_file,
+        parse_export_file_name, parse_manifest_metadata, parse_manual_export_file_name,
+        parse_merge_formats, parse_merged_export_file_name, parse_scheduled_export_file_name,
+        registered_export_task_paths, rewrite_merged_resource_paths, should_select_in_file_manager,
+        valid_export_file_name, windows_explorer_args, write_merged_data, MergeSource,
+        MergedWriteOptions,
     };
+    use crate::api::path_security::resolve_existing_exact;
     use serde_json::json;
+    use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
 
@@ -3219,6 +3315,88 @@ mod metadata_tests {
         assert!(avatar_url("friend", "u_peer").is_none());
         assert!(avatar_url("friend", "0").is_none());
         assert!(avatar_url("friend", "1687657986").is_some());
+    }
+
+    #[test]
+    fn custom_export_tasks_authorize_only_their_registered_file() {
+        let root = std::env::temp_dir().join(format!(
+            "qce-custom-export-auth-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(&root).expect("create custom export root");
+        let exported = root.join("registered.json");
+        let sibling = root.join("unregistered.json");
+        fs::write(&exported, "{}").expect("write registered export");
+        fs::write(&sibling, "{}").expect("write unregistered sibling");
+        let canonical_exported = exported
+            .canonicalize()
+            .expect("canonical registered export");
+        let tasks = HashMap::from([(
+            "task_1".to_string(),
+            json!({ "filePath": canonical_exported.to_string_lossy() }),
+        )]);
+        let registered = registered_export_task_paths(&tasks);
+
+        assert_eq!(
+            resolve_existing_exact(&exported, &registered),
+            exported.canonicalize().ok()
+        );
+        assert!(resolve_existing_exact(&sibling, &registered).is_none());
+
+        fs::remove_dir_all(root).expect("remove custom export root");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_manager_target_rejects_a_final_symlink_added_after_resolution() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "qce-open-location-swap-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(&root).expect("create test root");
+        let registered = root.join("registered.json");
+        let outside = root.join("outside.json");
+        fs::write(&registered, "registered").expect("write registered file");
+        fs::write(&outside, "outside").expect("write outside file");
+        let resolved = registered.canonicalize().expect("resolve registered file");
+        assert!(file_manager_target_is_safe(&resolved));
+
+        fs::remove_file(&registered).expect("remove registered file");
+        symlink(&outside, &registered).expect("replace registered path with symlink");
+        assert!(!file_manager_target_is_safe(&resolved));
+
+        fs::remove_dir_all(root).expect("remove test root");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_manager_target_rejects_an_ancestor_symlink_added_after_resolution() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "qce-open-location-ancestor-swap-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let authorized_dir = root.join("authorized");
+        let displaced_dir = root.join("displaced");
+        let outside_dir = root.join("outside");
+        fs::create_dir_all(&authorized_dir).expect("create authorized directory");
+        fs::create_dir_all(&outside_dir).expect("create outside directory");
+        let authorized_file = authorized_dir.join("registered.json");
+        fs::write(&authorized_file, "registered").expect("write registered file");
+        fs::write(outside_dir.join("registered.json"), "outside").expect("write outside file");
+        let resolved = authorized_file
+            .canonicalize()
+            .expect("resolve registered file");
+        assert!(file_manager_target_is_safe(&resolved));
+
+        fs::rename(&authorized_dir, &displaced_dir).expect("move authorized directory");
+        symlink(&outside_dir, &authorized_dir).expect("replace ancestor with outside symlink");
+        assert!(!file_manager_target_is_safe(&resolved));
+
+        fs::remove_dir_all(root).expect("remove test root");
     }
 
     #[test]

@@ -224,6 +224,7 @@ mod tests {
         assert!(!is_public_route("/api/download-file"));
         assert!(!is_public_route("/api/groups"));
         assert!(!is_public_route("/api/messages/roaming/first"));
+        assert!(!is_public_route("/api/messages/roaming/export"));
     }
 
     #[test]

@@ -178,6 +178,10 @@ pub struct ResourceHandler {
     progress_callback: Mutex<Option<ResourceProgressCallback>>,
     progress: Mutex<ProgressCounters>,
     last_batch_summary: Mutex<ResourceBatchSummary>,
+    /// 导出任务级资源阶段锁。`skip_download_types`、进度回调与批次摘要是同一
+    /// 次导出的配套状态，必须从配置到读取摘要/清理全程串行，不能按单个 chunk
+    /// 分别加锁。
+    export_session_lock: Arc<Mutex<()>>,
     download_semaphore: Arc<Semaphore>,
     is_downloading: std::sync::atomic::AtomicBool,
     health_check_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -205,6 +209,7 @@ impl ResourceHandler {
             progress_callback: Mutex::new(None),
             progress: Mutex::new(ProgressCounters::default()),
             last_batch_summary: Mutex::new(ResourceBatchSummary::default()),
+            export_session_lock: Arc::new(Mutex::new(())),
             download_semaphore: Arc::new(Semaphore::new(config.max_concurrent_downloads.max(1))),
             is_downloading: std::sync::atomic::AtomicBool::new(false),
             health_check_handle: Mutex::new(None),
@@ -245,6 +250,33 @@ impl ResourceHandler {
         skip.clear();
         if let Some(types) = types {
             skip.extend(types.iter().cloned());
+        }
+    }
+
+    /// 独占一次导出任务的完整资源处理阶段。
+    ///
+    /// 返回 owned guard，调用方可跨多个消息 chunk 持有；取消、错误或提前返回时
+    /// guard 会由 RAII 自动释放。所有会组合调用配置、处理、摘要和清理的导出
+    /// 路径都必须先取得此 guard。
+    pub async fn acquire_export_session(&self) -> tokio::sync::OwnedMutexGuard<()> {
+        Arc::clone(&self.export_session_lock).lock_owned().await
+    }
+
+    /// Acquire the task-scoped resource session unless an interactive export
+    /// is cancelled while queued behind another task.
+    pub async fn acquire_export_session_with_cancel(
+        &self,
+        cancel_flag: &AtomicBool,
+    ) -> Option<tokio::sync::OwnedMutexGuard<()>> {
+        async fn wait_for_cancel(cancel_flag: &AtomicBool) {
+            while !cancel_flag.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+
+        tokio::select! {
+            guard = Arc::clone(&self.export_session_lock).lock_owned() => Some(guard),
+            () = wait_for_cancel(cancel_flag) => None,
         }
     }
 
@@ -1581,6 +1613,93 @@ mod tests {
             downloader.attempts.load(Ordering::SeqCst),
             MAX_TIMEOUT_ATTEMPTS as usize
         );
+    }
+
+    #[tokio::test]
+    async fn export_resource_sessions_are_serialized_and_release_on_exit() {
+        let root = std::env::temp_dir().join(format!(
+            "qce-resource-session-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let handler = Arc::new(
+            ResourceHandler::new(
+                Arc::new(AlwaysTimeoutDownloader {
+                    attempts: AtomicUsize::new(0),
+                }),
+                None,
+                Arc::new(DatabaseManager::new(&root.join("qce.db"))),
+                ResourceHandlerConfig {
+                    storage_root: root.clone(),
+                    ..ResourceHandlerConfig::default()
+                },
+            )
+            .await,
+        );
+
+        let first = handler.acquire_export_session().await;
+        let waiting_handler = Arc::clone(&handler);
+        let mut waiter = tokio::spawn(async move {
+            let _session = waiting_handler.acquire_export_session().await;
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut waiter)
+                .await
+                .is_err(),
+            "a second export must not overwrite task-scoped resource state"
+        );
+        drop(first);
+        tokio::time::timeout(Duration::from_secs(1), waiter)
+            .await
+            .expect("second export enters after the first exits")
+            .expect("waiter task succeeds");
+
+        let failed: Result<(), &'static str> = async {
+            let _session = handler.acquire_export_session().await;
+            Err("fixture failure")
+        }
+        .await;
+        assert!(failed.is_err());
+        let session_after_error =
+            tokio::time::timeout(Duration::from_secs(1), handler.acquire_export_session())
+                .await
+                .expect("an error path releases the export resource session");
+        drop(session_after_error);
+
+        let acquired = Arc::new(Notify::new());
+        let hold = Arc::new(Notify::new());
+        let cancelled_handler = Arc::clone(&handler);
+        let acquired_in_task = Arc::clone(&acquired);
+        let hold_in_task = Arc::clone(&hold);
+        let cancelled = tokio::spawn(async move {
+            let _session = cancelled_handler.acquire_export_session().await;
+            acquired_in_task.notify_one();
+            hold_in_task.notified().await;
+        });
+        acquired.notified().await;
+        cancelled.abort();
+        let _ = cancelled.await;
+        let session_after_cancel =
+            tokio::time::timeout(Duration::from_secs(1), handler.acquire_export_session())
+                .await
+                .expect("task cancellation releases the export resource session");
+        drop(session_after_cancel);
+
+        let held = handler.acquire_export_session().await;
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let cancel_flag_for_task = Arc::clone(&cancel_flag);
+        let signal_cancel = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            cancel_flag_for_task.store(true, Ordering::SeqCst);
+        });
+        assert!(
+            handler
+                .acquire_export_session_with_cancel(&cancel_flag)
+                .await
+                .is_none(),
+            "a queued interactive export must observe cancellation"
+        );
+        signal_cancel.await.expect("signal cancellation");
+        drop(held);
     }
 
     #[test]

@@ -224,6 +224,49 @@ impl NapCatBridgeClient {
         .await
     }
 
+    /// 从指定消息序列号向更早方向读取固定数量的消息。
+    ///
+    /// 该固定封装同时供普通批量获取器与有界漫游锚点桥接使用，避免两条路径
+    /// 对 NapCat 参数顺序产生分歧。
+    pub async fn get_msgs_by_seq_and_count(
+        &self,
+        peer: &Peer,
+        anchor_seq: i64,
+        count: i64,
+    ) -> Result<Value, BridgeError> {
+        self.call(
+            "MsgApi.getMsgsBySeqAndCount",
+            msgs_by_seq_and_count_params(peer, anchor_seq, count),
+        )
+        .await
+    }
+
+    /// 获取该私聊当前可见的最新消息，作为有界漫游扫描的尾端候选。
+    pub async fn get_roaming_latest_messages(
+        &self,
+        peer: &Peer,
+        count: i64,
+    ) -> Result<Value, BridgeError> {
+        self.call(
+            "MsgService.getAioFirstViewLatestMsgs",
+            latest_messages_params(peer, count),
+        )
+        .await
+    }
+
+    /// 按已知正整数消息序列查询一条私聊消息。
+    pub async fn get_roaming_single_msg(
+        &self,
+        peer: &Peer,
+        msg_seq: i64,
+    ) -> Result<Value, BridgeError> {
+        self.call(
+            "MsgService.getSingleMsg",
+            single_message_params(peer, msg_seq),
+        )
+        .await
+    }
+
     /// 获取合并转发消息内容。
     pub async fn get_multi_msg(
         &self,
@@ -471,19 +514,9 @@ impl MessageFetchApi for NapCatBridgeClient {
         anchor_seq: i64,
         count: i64,
     ) -> Result<Value, String> {
-        // NapCat 的 msgSeq 参数是字符串。
-        self.call(
-            "MsgApi.getMsgsBySeqAndCount",
-            json!([
-                peer_to_value(peer),
-                anchor_seq.to_string(),
-                count,
-                true,
-                true
-            ]),
-        )
-        .await
-        .map_err(|error| error.to_string())
+        NapCatBridgeClient::get_msgs_by_seq_and_count(self, peer, anchor_seq, count)
+            .await
+            .map_err(|error| error.to_string())
     }
 
     async fn bridge_healthy(&self) -> bool {
@@ -510,6 +543,25 @@ fn first_roam_msg_params(peer: &Peer, msg_time: i64) -> Value {
 
 fn msg_by_client_seq_and_time_params(peer: &Peer, client_seq: &str, msg_time: &str) -> Value {
     json!([peer_to_value(peer), client_seq, msg_time])
+}
+
+fn msgs_by_seq_and_count_params(peer: &Peer, anchor_seq: i64, count: i64) -> Value {
+    // NapCat 的 msgSeq 参数是字符串。
+    json!([
+        peer_to_value(peer),
+        anchor_seq.to_string(),
+        count,
+        true,
+        true
+    ])
+}
+
+fn latest_messages_params(peer: &Peer, count: i64) -> Value {
+    json!([peer_to_value(peer), count])
+}
+
+fn single_message_params(peer: &Peer, msg_seq: i64) -> Value {
+    json!([peer_to_value(peer), msg_seq.to_string()])
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -539,7 +591,8 @@ fn download_media_params(
 mod tests {
     use super::{
         download_media_params, extract_forward_messages, first_roam_msg_params,
-        msg_by_client_seq_and_time_params, roam_calendar_params, NapCatBridgeClient,
+        latest_messages_params, msg_by_client_seq_and_time_params, roam_calendar_params,
+        single_message_params, NapCatBridgeClient,
     };
     use crate::fetcher::Peer;
     use axum::extract::Json;
@@ -661,10 +714,18 @@ mod tests {
             .get_msg_by_client_seq_and_time(&peer, "9007199254740993", "1704067202")
             .await
             .expect("exact call");
+        client
+            .get_roaming_latest_messages(&peer, 10)
+            .await
+            .expect("latest call");
+        client
+            .get_roaming_single_msg(&peer, 13_774)
+            .await
+            .expect("single sequence call");
 
         server.abort();
         let calls = calls.lock().await;
-        assert_eq!(calls.len(), 3);
+        assert_eq!(calls.len(), 5);
         assert_eq!(calls[0]["method"], "MsgService.queryRoamCalendar");
         assert_eq!(
             calls[0]["params"],
@@ -680,5 +741,53 @@ mod tests {
             calls[2]["params"],
             msg_by_client_seq_and_time_params(&peer, "9007199254740993", "1704067202")
         );
+        assert_eq!(calls[3]["method"], "MsgService.getAioFirstViewLatestMsgs");
+        assert_eq!(calls[3]["params"], latest_messages_params(&peer, 10));
+        assert_eq!(calls[4]["method"], "MsgService.getSingleMsg");
+        assert_eq!(calls[4]["params"], single_message_params(&peer, 13_774));
+    }
+
+    #[tokio::test]
+    async fn roaming_latest_and_single_wrappers_do_not_fall_back_on_method_error() {
+        let calls = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let captured = Arc::clone(&calls);
+        let app = Router::new().route(
+            "/rpc",
+            post(move |Json(request): Json<Value>| {
+                let captured = Arc::clone(&captured);
+                async move {
+                    captured.lock().await.push(request);
+                    Json(json!({"ok": false, "error": "method not found"}))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("test bridge server");
+        });
+        let client =
+            NapCatBridgeClient::new(&format!("http://{address}"), 1_000).expect("bridge client");
+
+        let latest_error = client
+            .get_roaming_latest_messages(&private_peer(), 10)
+            .await
+            .expect_err("fixed latest method must not fall back");
+        let single_error = client
+            .get_roaming_single_msg(&private_peer(), 321)
+            .await
+            .expect_err("fixed single method must not fall back");
+
+        server.abort();
+        let calls = calls.lock().await;
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0]["method"], "MsgService.getAioFirstViewLatestMsgs");
+        assert_eq!(calls[1]["method"], "MsgService.getSingleMsg");
+        assert!(matches!(latest_error, super::BridgeError::Rpc(_)));
+        assert!(matches!(single_error, super::BridgeError::Rpc(_)));
     }
 }

@@ -79,7 +79,8 @@ pub async fn root(
                     "POST /api/messages/export - 导出消息（支持过滤纯图片消息）",
                     "POST /api/messages/roaming/calendar - 查询私聊漫游月份提示（实验性）",
                     "POST /api/messages/roaming/first - 查询私聊漫游锚点（实验性）",
-                    "POST /api/messages/roaming/exact - 按漫游锚点查询原始消息（实验性）"
+                    "POST /api/messages/roaming/exact - 按漫游锚点查询原始消息（实验性）",
+                    "POST /api/messages/roaming/export - 创建有界私聊漫游扫描与正式导出任务（实验性）"
                 ],
                 "任务管理": [
                     "GET /api/tasks - 获取所有导出任务",

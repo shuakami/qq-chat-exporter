@@ -126,7 +126,7 @@ fn parse_exact_request(body: &Value) -> Result<(Peer, String, String), ApiError>
     Ok((peer, client_seq, msg_time))
 }
 
-fn parse_private_peer(body: &Value) -> Result<Peer, ApiError> {
+pub(super) fn parse_private_peer(body: &Value) -> Result<Peer, ApiError> {
     let peer = body
         .get("peer")
         .and_then(Value::as_object)
@@ -201,7 +201,7 @@ fn invalid_time_error() -> ApiError {
     )
 }
 
-fn roaming_query_permit() -> Result<tokio::sync::SemaphorePermit<'static>, ApiError> {
+pub(super) fn roaming_query_permit() -> Result<tokio::sync::SemaphorePermit<'static>, ApiError> {
     try_history_query_permit().map_err(|_| {
         ApiError::new(
             ErrorType::Api,
@@ -212,7 +212,7 @@ fn roaming_query_permit() -> Result<tokio::sync::SemaphorePermit<'static>, ApiEr
     })
 }
 
-fn bridge_error(error: BridgeError) -> ApiError {
+pub(super) fn bridge_error(error: BridgeError) -> ApiError {
     let message = error.to_string();
     if matches!(
         &error,
@@ -238,7 +238,7 @@ fn invalid_response_error(field: &str) -> ApiError {
     .with_status(StatusCode::BAD_GATEWAY)
 }
 
-fn normalize_calendar_response(result: &Value) -> Result<Value, ApiError> {
+pub(super) fn normalize_calendar_response(result: &Value) -> Result<Value, ApiError> {
     let payload = native_payload(result);
     let result_code = native_result_code(payload)?;
     let calendar = native_array(payload, "calendar", &result_code)?;
@@ -251,14 +251,16 @@ fn normalize_calendar_response(result: &Value) -> Result<Value, ApiError> {
     }))
 }
 
-fn normalize_first_response(result: &Value) -> Result<Value, ApiError> {
+pub(super) fn normalize_first_response(result: &Value) -> Result<Value, ApiError> {
     let payload = native_payload(result);
     let result_code = native_result_code(payload)?;
-    let anchor = normalize_anchor(
-        payload
-            .get("roamDatemsg")
-            .or_else(|| payload.get("roamDateMsg")),
-    )?;
+    let anchor_value = payload
+        .get("roamDatemsg")
+        .or_else(|| payload.get("roamDateMsg"));
+    if anchor_value.is_none() && native_result_succeeded(&result_code) {
+        return Err(invalid_response_error("roamDatemsg"));
+    }
+    let anchor = normalize_anchor(anchor_value, &result_code)?;
     Ok(json!({
         "resultCode": result_code,
         "errorMessage": native_error_message(payload),
@@ -268,7 +270,7 @@ fn normalize_first_response(result: &Value) -> Result<Value, ApiError> {
     }))
 }
 
-fn normalize_exact_response(result: &Value) -> Result<Value, ApiError> {
+pub(super) fn normalize_exact_response(result: &Value) -> Result<Value, ApiError> {
     let payload = native_payload(result);
     let result_code = native_result_code(payload)?;
     let messages = native_array(payload, "msgList", &result_code)?;
@@ -328,7 +330,7 @@ fn native_error_message(payload: &Value) -> String {
         .to_string()
 }
 
-fn normalize_anchor(value: Option<&Value>) -> Result<Value, ApiError> {
+fn normalize_anchor(value: Option<&Value>, result_code: &Value) -> Result<Value, ApiError> {
     let Some(value) = value else {
         return Ok(Value::Null);
     };
@@ -341,37 +343,86 @@ fn normalize_anchor(value: Option<&Value>) -> Result<Value, ApiError> {
     if anchor.is_empty() {
         return Ok(Value::Null);
     }
-    let Some(client_seq) = decimal_value(anchor.get("clientSeq")) else {
+    let msg_seq_field = anchor.get("msgSeq");
+    let msg_seq = signed_decimal_value(msg_seq_field);
+    if msg_seq_field.is_some_and(|value| !value.is_null()) && msg_seq.is_none() {
+        return Err(invalid_response_error("roamDatemsg.msgSeq"));
+    }
+    let Some(client_seq) = signed_decimal_value(anchor.get("clientSeq")) else {
         return Err(invalid_response_error("roamDatemsg.clientSeq"));
     };
-    let Some(msg_time) = decimal_value(anchor.get("msgTime")) else {
+    let Some(msg_time) = signed_decimal_value(anchor.get("msgTime")) else {
         return Err(invalid_response_error("roamDatemsg.msgTime"));
     };
-    if is_zero_decimal(&client_seq) || is_zero_decimal(&msg_time) {
-        return Ok(Value::Null);
+
+    // 部分已观察到的原生响应会用三个 -1 表示目标日期没有漫游锚点。只接受
+    // 这个完整哨兵，避免把单边负数、混合正负或其他未知负值吞成空结果。
+    if msg_seq.as_deref() == Some("-1") && client_seq == "-1" && msg_time == "-1" {
+        if native_result_succeeded(result_code) {
+            return Ok(Value::Null);
+        }
+        return Err(ApiError::new(
+            ErrorType::Api,
+            format!("漫游 first 返回 QQ 业务码: {result_code}"),
+            "ROAMING_QUERY_FAILED",
+        )
+        .with_status(StatusCode::BAD_GATEWAY));
+    }
+    if msg_seq.as_deref().is_some_and(is_negative_decimal)
+        || is_negative_decimal(&client_seq)
+        || is_negative_decimal(&msg_time)
+    {
+        return Err(invalid_response_error(
+            "roamDatemsg.msgSeq/clientSeq/msgTime sentinel",
+        ));
+    }
+
+    match (is_zero_decimal(&client_seq), is_zero_decimal(&msg_time)) {
+        // 保留既有双零哨兵契约；部分 QQ 版本会附带一个未定义的 msgSeq。
+        (true, true) => return Ok(Value::Null),
+        (true, false) | (false, true) => {
+            return Err(invalid_response_error(
+                "roamDatemsg.clientSeq/msgTime sentinel",
+            ));
+        }
+        (false, false) => {}
+    }
+    if msg_seq.as_deref().is_some_and(is_zero_decimal) {
+        return Err(invalid_response_error("roamDatemsg.msgSeq"));
     }
 
     Ok(json!({
-        "msgSeq": decimal_value(anchor.get("msgSeq")),
+        "msgSeq": msg_seq,
         "clientSeq": client_seq,
         "msgTime": msg_time,
     }))
 }
 
-fn decimal_value(value: Option<&Value>) -> Option<String> {
+fn signed_decimal_value(value: Option<&Value>) -> Option<String> {
     match value {
         Some(Value::String(value))
-            if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) =>
+            if !value.is_empty()
+                && (value.bytes().all(|byte| byte.is_ascii_digit())
+                    || value.strip_prefix('-').is_some_and(|digits| {
+                        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+                    })) =>
         {
             Some(value.clone())
         }
-        Some(Value::Number(value)) => value.as_u64().map(|value| value.to_string()),
+        Some(Value::Number(value)) => value
+            .as_i64()
+            .map(|value| value.to_string())
+            .or_else(|| value.as_u64().map(|value| value.to_string())),
         _ => None,
     }
 }
 
 fn is_zero_decimal(value: &str) -> bool {
     value.bytes().all(|byte| byte == b'0')
+}
+
+fn is_negative_decimal(value: &str) -> bool {
+    value.starts_with('-')
 }
 
 #[cfg(test)]
@@ -514,6 +565,13 @@ mod tests {
                 }
             })
         );
+        let recoverable = normalize_first_response(&json!({
+            "result": 0,
+            "roamDatemsg": {"clientSeq": "35566", "msgTime": "1719713392"}
+        }))
+        .expect("exact response can recover a missing msgSeq");
+        assert_eq!(recoverable["found"], true);
+        assert_eq!(recoverable["anchor"]["msgSeq"], Value::Null);
         let empty = normalize_first_response(&json!({"result": 0, "roamDatemsg": {}}))
             .expect("empty anchor");
         assert_eq!(empty["anchor"], Value::Null);
@@ -527,6 +585,24 @@ mod tests {
             .expect("sentinel anchor")["anchor"],
             Value::Null
         );
+        assert_eq!(
+            normalize_first_response(&json!({"result": 0, "roamDatemsg": null}))
+                .expect("null anchor")["anchor"],
+            Value::Null
+        );
+
+        for sentinel in [
+            json!({"msgSeq": -1, "clientSeq": -1, "msgTime": -1}),
+            json!({"msgSeq": "-1", "clientSeq": "-1", "msgTime": "-1"}),
+        ] {
+            let empty = normalize_first_response(&json!({
+                "result": 0,
+                "roamDatemsg": sentinel
+            }))
+            .expect("negative empty sentinel");
+            assert_eq!(empty["anchor"], Value::Null);
+            assert_eq!(empty["found"], false);
+        }
     }
 
     #[test]
@@ -566,6 +642,12 @@ mod tests {
             "INVALID_ROAMING_RESPONSE"
         );
         assert_eq!(
+            normalize_first_response(&json!({"result": 0}))
+                .expect_err("successful first response requires an anchor field")
+                .code,
+            "INVALID_ROAMING_RESPONSE"
+        );
+        assert_eq!(
             normalize_first_response(&json!({
                 "result": 0,
                 "roamDatemsg": {"clientSeq": "bad", "msgTime": "1"}
@@ -573,6 +655,36 @@ mod tests {
             .expect_err("malformed anchor")
             .code,
             "INVALID_ROAMING_RESPONSE"
+        );
+        for anchor in [
+            json!({"clientSeq": "0", "msgTime": "1"}),
+            json!({"clientSeq": "1", "msgTime": "0"}),
+            json!({"msgSeq": "-1", "clientSeq": "0", "msgTime": "0"}),
+            json!({"clientSeq": "1"}),
+            json!({"msgTime": "1"}),
+            json!({"clientSeq": "-1", "msgTime": "-1"}),
+            json!({"msgSeq": "-1", "clientSeq": "-1", "msgTime": "1"}),
+            json!({"msgSeq": "1", "clientSeq": "-1", "msgTime": "-1"}),
+            json!({"msgSeq": "-2", "clientSeq": "-2", "msgTime": "-2"}),
+            json!({"msgSeq": "0", "clientSeq": "1", "msgTime": "1"}),
+            json!({"msgSeq": "invalid", "clientSeq": "1", "msgTime": "1"}),
+        ] {
+            assert_eq!(
+                normalize_first_response(&json!({"result": 0, "roamDatemsg": anchor}))
+                    .expect_err("partial anchor or sentinel must fail")
+                    .code,
+                "INVALID_ROAMING_RESPONSE"
+            );
+        }
+
+        assert_eq!(
+            normalize_first_response(&json!({
+                "result": 2_004_000,
+                "roamDatemsg": {"msgSeq": -1, "clientSeq": -1, "msgTime": -1}
+            }))
+            .expect_err("negative sentinel is only defined for result=0")
+            .code,
+            "ROAMING_QUERY_FAILED"
         );
     }
 

@@ -322,17 +322,7 @@ impl DatabaseManager {
             match latest.get(&task.task_id) {
                 Some(existing) => {
                     duplicate_count += 1;
-                    let existing_time = to_timestamp(if existing.updated_at.is_null() {
-                        &existing.created_at
-                    } else {
-                        &existing.updated_at
-                    });
-                    let current_time = to_timestamp(if task.updated_at.is_null() {
-                        &task.created_at
-                    } else {
-                        &task.updated_at
-                    });
-                    if current_time > existing_time || task.id > existing.id {
+                    if should_replace_task_record(existing, &task) {
                         latest.insert(task.task_id.clone(), task);
                     }
                 }
@@ -1123,6 +1113,23 @@ fn new_task_record(task_id: &str, config_json: &str, state_json: &str) -> TaskDb
     }
 }
 
+/// Compare task records in JSONL load order.
+///
+/// `updatedAt` is the primary ordering key and `id` is the fallback. When both
+/// keys tie, the candidate appeared later in the append-only file and must win.
+fn should_replace_task_record(existing: &TaskDbRecord, candidate: &TaskDbRecord) -> bool {
+    fn order_key(record: &TaskDbRecord) -> (i64, i64) {
+        let timestamp = to_timestamp(if record.updated_at.is_null() {
+            &record.created_at
+        } else {
+            &record.updated_at
+        });
+        (timestamp, record.id)
+    }
+
+    order_key(candidate) >= order_key(existing)
+}
+
 /// 判断任务是否需要持久化。
 fn should_persist_task(
     state: &DbState,
@@ -1424,4 +1431,45 @@ async fn write_jsonl_file_atomically(path: &Path, records: &[Value]) -> Result<(
         let _ = tokio::fs::remove_file(&temp_path).await;
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{should_replace_task_record, TaskDbRecord};
+    use serde_json::{json, Map};
+
+    fn task_record(id: i64, updated_at: &str, status: &str) -> TaskDbRecord {
+        let state = json!({"taskId": "task-1", "status": status}).to_string();
+        TaskDbRecord {
+            id,
+            task_id: "task-1".to_string(),
+            config: state.clone(),
+            state,
+            created_at: json!("2026-09-02T00:00:00.000Z"),
+            updated_at: json!(updated_at),
+            extra: Map::new(),
+        }
+    }
+
+    #[test]
+    fn later_jsonl_task_line_wins_when_timestamp_and_id_tie() {
+        let running = task_record(42, "2026-09-02T00:00:00.123Z", "running");
+        let cancelled = task_record(42, "2026-09-02T00:00:00.123Z", "cancelled");
+
+        assert!(should_replace_task_record(&running, &cancelled));
+    }
+
+    #[test]
+    fn task_record_order_is_timestamp_then_id() {
+        let baseline = task_record(42, "2026-09-02T00:00:00.123Z", "running");
+        let newer_time = task_record(1, "2026-09-02T00:00:00.124Z", "completed");
+        let older_time = task_record(100, "2026-09-02T00:00:00.122Z", "completed");
+        let larger_id = task_record(43, "2026-09-02T00:00:00.123Z", "completed");
+        let smaller_id = task_record(41, "2026-09-02T00:00:00.123Z", "completed");
+
+        assert!(should_replace_task_record(&baseline, &newer_time));
+        assert!(!should_replace_task_record(&baseline, &older_time));
+        assert!(should_replace_task_record(&baseline, &larger_id));
+        assert!(!should_replace_task_record(&baseline, &smaller_id));
+    }
 }
