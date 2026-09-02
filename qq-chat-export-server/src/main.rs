@@ -15,7 +15,7 @@ use tower_http::services::ServeDir;
 
 use qce_server::api::middleware::{auth_middleware, request_id_middleware};
 use qce_server::api::routes::{
-    albums, files, friends, group_files, groups, messages, resources, scheduled, security,
+    albums, files, friends, group_files, groups, messages, resources, roaming, scheduled, security,
     stickers, system, tasks, users,
 };
 use qce_server::api::state::{AppState, RunMode, SharedState};
@@ -254,6 +254,12 @@ fn build_router(
         // 消息。
         .route("/api/messages/fetch", post(messages::fetch_messages))
         .route("/api/messages/export", post(messages::export_messages))
+        .route(
+            "/api/messages/roaming/calendar",
+            post(roaming::query_calendar),
+        )
+        .route("/api/messages/roaming/first", post(roaming::query_first))
+        .route("/api/messages/roaming/exact", post(roaming::query_exact))
         .route(
             "/api/messages/export-streaming-zip",
             post(messages::export_streaming_zip),

@@ -178,6 +178,52 @@ impl NapCatBridgeClient {
         self.call("UserApi.getRecentContactList", json!([])).await
     }
 
+    /// 查询私聊漫游日历。
+    ///
+    /// `msg_time` 是 Unix 秒时间戳；调用方应仅传入 `chatType = 1` 的 `Peer`。
+    pub async fn query_roam_calendar(
+        &self,
+        peer: &Peer,
+        msg_time: i64,
+    ) -> Result<Value, BridgeError> {
+        self.call(
+            "MsgService.queryRoamCalendar",
+            roam_calendar_params(peer, msg_time),
+        )
+        .await
+    }
+
+    /// 查询 `msg_time` 所在日期的首条私聊漫游消息锚点。
+    ///
+    /// `msg_time` 是 Unix 秒时间戳；调用方应仅传入 `chatType = 1` 的 `Peer`。
+    pub async fn query_first_roam_msg(
+        &self,
+        peer: &Peer,
+        msg_time: i64,
+    ) -> Result<Value, BridgeError> {
+        self.call(
+            "MsgService.queryFirstRoamMsg",
+            first_roam_msg_params(peer, msg_time),
+        )
+        .await
+    }
+
+    /// 通过漫游锚点精确查询私聊消息。
+    ///
+    /// 序号和时间均保持十进制字符串，避免大整数精度损失。
+    pub async fn get_msg_by_client_seq_and_time(
+        &self,
+        peer: &Peer,
+        client_seq: &str,
+        msg_time: &str,
+    ) -> Result<Value, BridgeError> {
+        self.call(
+            "MsgService.getMsgByClientSeqAndTime",
+            msg_by_client_seq_and_time_params(peer, client_seq, msg_time),
+        )
+        .await
+    }
+
     /// 获取合并转发消息内容。
     pub async fn get_multi_msg(
         &self,
@@ -454,6 +500,18 @@ fn peer_to_value(peer: &Peer) -> Value {
     })
 }
 
+fn roam_calendar_params(peer: &Peer, msg_time: i64) -> Value {
+    json!([peer_to_value(peer), msg_time])
+}
+
+fn first_roam_msg_params(peer: &Peer, msg_time: i64) -> Value {
+    json!([peer_to_value(peer), msg_time])
+}
+
+fn msg_by_client_seq_and_time_params(peer: &Peer, client_seq: &str, msg_time: &str) -> Value {
+    json!([peer_to_value(peer), client_seq, msg_time])
+}
+
 #[allow(clippy::too_many_arguments)]
 fn download_media_params(
     msg_id: &str,
@@ -479,8 +537,25 @@ fn download_media_params(
 
 #[cfg(test)]
 mod tests {
-    use super::{download_media_params, extract_forward_messages};
-    use serde_json::json;
+    use super::{
+        download_media_params, extract_forward_messages, first_roam_msg_params,
+        msg_by_client_seq_and_time_params, roam_calendar_params, NapCatBridgeClient,
+    };
+    use crate::fetcher::Peer;
+    use axum::extract::Json;
+    use axum::routing::post;
+    use axum::Router;
+    use serde_json::{json, Value};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    fn private_peer() -> Peer {
+        Peer {
+            chat_type: 1,
+            peer_uid: "u_peer".to_string(),
+            guild_id: None,
+        }
+    }
 
     #[test]
     fn extracts_forward_messages_from_supported_response_shapes() {
@@ -515,5 +590,95 @@ mod tests {
         let params = params.as_array().expect("download parameters");
         assert_eq!(params[4], "");
         assert_eq!(params[5], "C:/exports/image.jpg");
+    }
+
+    #[test]
+    fn roaming_calendar_params_keep_native_peer_shape_and_seconds() {
+        let params = roam_calendar_params(&private_peer(), 1_704_067_200);
+        assert_eq!(
+            params,
+            json!([{
+                "chatType": 1,
+                "peerUid": "u_peer",
+                "guildId": "",
+            }, 1_704_067_200])
+        );
+
+        assert_eq!(
+            first_roam_msg_params(&private_peer(), 1_704_067_200),
+            params
+        );
+    }
+
+    #[test]
+    fn exact_roaming_lookup_preserves_string_anchor_order_and_precision() {
+        let client_seq = "184467440737095516160001";
+        let msg_time = "184467440737095516160002";
+        let params = msg_by_client_seq_and_time_params(&private_peer(), client_seq, msg_time);
+
+        assert_eq!(params[1], client_seq);
+        assert_eq!(params[2], msg_time);
+        assert!(params[1].is_string());
+        assert!(params[2].is_string());
+    }
+
+    #[tokio::test]
+    async fn roaming_wrappers_send_fixed_methods_and_native_parameter_order() {
+        let calls = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let captured = Arc::clone(&calls);
+        let app = Router::new().route(
+            "/rpc",
+            post(move |Json(request): Json<Value>| {
+                let captured = Arc::clone(&captured);
+                async move {
+                    captured.lock().await.push(request);
+                    Json(json!({"ok": true, "result": {"result": 0}}))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test listener");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("test bridge server");
+        });
+        let client =
+            NapCatBridgeClient::new(&format!("http://{address}"), 1_000).expect("bridge client");
+        let peer = private_peer();
+
+        client
+            .query_roam_calendar(&peer, 1_704_067_200)
+            .await
+            .expect("calendar call");
+        client
+            .query_first_roam_msg(&peer, 1_704_067_201)
+            .await
+            .expect("first call");
+        client
+            .get_msg_by_client_seq_and_time(&peer, "9007199254740993", "1704067202")
+            .await
+            .expect("exact call");
+
+        server.abort();
+        let calls = calls.lock().await;
+        assert_eq!(calls.len(), 3);
+        assert_eq!(calls[0]["method"], "MsgService.queryRoamCalendar");
+        assert_eq!(
+            calls[0]["params"],
+            roam_calendar_params(&peer, 1_704_067_200)
+        );
+        assert_eq!(calls[1]["method"], "MsgService.queryFirstRoamMsg");
+        assert_eq!(
+            calls[1]["params"],
+            first_roam_msg_params(&peer, 1_704_067_201)
+        );
+        assert_eq!(calls[2]["method"], "MsgService.getMsgByClientSeqAndTime");
+        assert_eq!(
+            calls[2]["params"],
+            msg_by_client_seq_and_time_params(&peer, "9007199254740993", "1704067202")
+        );
     }
 }
