@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from "react"
+import AuthManager from "@/lib/auth"
 import type {
   WebSocketMessage,
   ExportProgressMessage,
@@ -74,8 +75,7 @@ export function useWebSocket({
       return
     }
 
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    const websocket = new WebSocket(`${wsProtocol}//${window.location.host}`)
+    const websocket = new WebSocket(AuthManager.getInstance().getWebSocketUrl())
 
     websocket.onopen = () => {
       console.log("[QCE] WebSocket connected")
