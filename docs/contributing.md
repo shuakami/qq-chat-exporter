@@ -42,8 +42,6 @@ QCE 是一个结合了多运行时的混合架构项目。为了保证高性能�
 
 > 如果你需要深入研究整体架构、API 接口定义或代码工程规范，请务必仔细阅读官方的 [DeepWiki 文档](https://deepwiki.com/shuakami/qq-chat-exporter)，并严格遵循仓库根目录下的 `AGENTS.md` 规范文件。
 
-排查历史消息范围与漫游记录时，可参考开发者笔记：[漫游历史接口与完整性核对](./development/roaming-history.md)。该文档区分原生接口、内部 RPC 与 QCE HTTP API，并说明已验证的行为及其限制。
-
 ---
 
 ## 本地开发与调试流程
