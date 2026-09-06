@@ -96,6 +96,26 @@ fn format_file_size(bytes: i64) -> String {
     format!("{value:.2} {}", SIZES[i])
 }
 
+/// 组装 `MsgApi.getGroupFileList` 查询参数。真实群目录的根目录 ID 是 `"/"`（群
+/// 文件的 `fileId` 与 `parentFolderId` 也以 `/` 前缀），而携带 `folderId: ""`
+/// 会被部分 NapCat/QQNT 当作无效目录处理并返回空列表。统一把空串与 `"/"` 视为
+/// 根目录并发送 `folderId: "/"`，子文件夹沿用其真实 ID。
+fn group_file_list_params(folder_id: &str, start_index: i64, file_count: i64) -> Value {
+    let mut params = serde_json::Map::new();
+    params.insert("sortType".to_string(), json!(1));
+    params.insert("fileCount".to_string(), json!(file_count));
+    params.insert("startIndex".to_string(), json!(start_index));
+    params.insert("sortOrder".to_string(), json!(2));
+    params.insert("showOnlinedocFolder".to_string(), json!(0));
+    let effective_folder_id = if folder_id.is_empty() || folder_id == "/" {
+        "/"
+    } else {
+        folder_id
+    };
+    params.insert("folderId".to_string(), json!(effective_folder_id));
+    Value::Object(params)
+}
+
 /// 获取单个文件夹下的群文件与子文件夹。
 async fn fetch_file_list(
     state: &SharedState,
@@ -104,14 +124,7 @@ async fn fetch_file_list(
     start_index: i64,
     file_count: i64,
 ) -> (Vec<Value>, Vec<Value>) {
-    let params = json!({
-        "sortType": 1,
-        "fileCount": file_count,
-        "startIndex": start_index,
-        "sortOrder": 2,
-        "showOnlinedocFolder": 0,
-        "folderId": folder_id,
-    });
+    let params = group_file_list_params(folder_id, start_index, file_count);
     let Ok(items) = state.napcat.get_group_file_list(group_code, &params).await else {
         return (Vec::new(), Vec::new());
     };
@@ -137,15 +150,18 @@ async fn fetch_file_list(
             }));
         }
         if let Some(info) = item.get("folderInfo") {
-            folders.push(json!({
-                "folderId": str_of(info, "folderId"),
-                "folderName": str_of(info, "folderName"),
-                "createTime": info.get("createTime").cloned().unwrap_or(Value::Null),
-                "creatorUin": str_of(info, "createUin"),
-                "creatorNick": str_of(info, "creatorName"),
-                "totalFileCount": info.get("totalFileCount").cloned().unwrap_or(Value::Null),
-                "parentFolderId": parent,
-            }));
+            let folder_id_out = str_of(info, "folderId");
+            if !folder_id_out.is_empty() {
+                folders.push(json!({
+                    "folderId": folder_id_out,
+                    "folderName": str_of(info, "folderName"),
+                    "createTime": info.get("createTime").cloned().unwrap_or(Value::Null),
+                    "creatorUin": str_of(info, "createUin"),
+                    "creatorNick": str_of(info, "creatorName"),
+                    "totalFileCount": info.get("totalFileCount").cloned().unwrap_or(Value::Null),
+                    "parentFolderId": parent,
+                }));
+            }
         }
     }
     (files, folders)
@@ -594,4 +610,35 @@ pub async fn export_group_files_with_download(
         }),
         &request_id,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::group_file_list_params;
+    use serde_json::Value;
+
+    #[test]
+    fn root_folder_sends_root_folder_id() {
+        for root in ["", "/"] {
+            let params = group_file_list_params(root, 0, 100);
+            let object = params.as_object().expect("params must be an object");
+            assert_eq!(
+                object.get("folderId").and_then(Value::as_str),
+                Some("/"),
+                "root folder ({root:?}) must query with folderId \"/\""
+            );
+            assert_eq!(object.get("startIndex").and_then(Value::as_i64), Some(0));
+            assert_eq!(object.get("fileCount").and_then(Value::as_i64), Some(100));
+        }
+    }
+
+    #[test]
+    fn subfolder_uses_its_own_folder_id() {
+        let params = group_file_list_params("folder-42", 5, 20);
+        let object = params.as_object().expect("params must be an object");
+        assert_eq!(
+            object.get("folderId").and_then(Value::as_str),
+            Some("folder-42")
+        );
+    }
 }
