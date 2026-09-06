@@ -35,7 +35,7 @@ async function main() {
         );
         const child = spawn(binary, [], {
             cwd: repoRoot,
-            env: { ...process.env, QCE_SERVER_PORT: String(port) },
+            env: { ...process.env, QCE_SERVER_PORT: String(port), QCE_STANDALONE_MODE: '1' },
             stdio: 'inherit',
         });
         child.on('error', (error) => {
