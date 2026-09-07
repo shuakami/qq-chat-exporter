@@ -158,7 +158,7 @@ cd plugins/qq-chat-exporter
 npm run mock:server
 ```
 
-The current `lint` script uses a removed Next.js command; do not claim lint coverage until the script is repaired or an explicit replacement is established.
+The main web UI has no lint script; do not claim lint coverage for it.
 
 ### Chunked viewer
 

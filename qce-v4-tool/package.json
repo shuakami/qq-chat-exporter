@@ -6,7 +6,6 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "lint": "next lint",
     "start": "next start",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
