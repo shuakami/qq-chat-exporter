@@ -76,6 +76,8 @@ const api = {
   restartService: () => invoke<void>('restart_service'),
   isQceRunning: () => invoke<RunningInfo>('qce_status'),
   getWebuiUrl: () => invoke<string | null>('get_webui_url'),
+  /** Navigate this window to the WebUI; the token never leaves the app. */
+  enterApp: () => invoke<void>('enter_app'),
 
   // --- NapCat login automation -----------------------------------------
   getQuickLoginList: () => invoke<QuickLoginAccount[]>('napcat_quick_login_list'),

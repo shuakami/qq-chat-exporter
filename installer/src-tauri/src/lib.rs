@@ -11,6 +11,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WindowEvent,
 };
+use tauri_plugin_opener::OpenerExt;
 
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -106,15 +107,25 @@ pub fn run() {
         }))
         .manage(AppState::default())
         .setup(|app| {
-            let open = MenuItem::with_id(app, "open", "打开面板", true, None::<&str>)?;
+            let open = MenuItem::with_id(app, "open", "打开 QQ Chat Exporter", true, None::<&str>)?;
+            let browser = MenuItem::with_id(app, "browser", "在浏览器中打开", true, None::<&str>)?;
+            let logs = MenuItem::with_id(app, "logs", "查看运行日志", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &browser, &logs, &quit])?;
             let mut tray = TrayIconBuilder::with_id("main")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .tooltip("QQ Chat Exporter")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => show_main_window(app),
+                    "browser" => {
+                        if let Some(url) = qce::get_webui_url(app.state::<AppState>()) {
+                            let _ = app.opener().open_url(url, None::<&str>);
+                        }
+                    }
+                    "logs" => {
+                        let _ = qce::open_log_file(app.state::<AppState>());
+                    }
                     "quit" => {
                         service::shutdown(&app.state::<AppState>());
                         app.exit(0);
@@ -198,6 +209,7 @@ pub fn run() {
             napcat::kill_qq,
             qce::qce_status,
             qce::get_webui_url,
+            qce::enter_app,
             qce::open_log_file,
         ])
         .build(tauri::generate_context!())

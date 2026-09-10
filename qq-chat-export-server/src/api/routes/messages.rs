@@ -3150,9 +3150,14 @@ async fn process_export_task(
             let _ = tokio::fs::remove_dir_all(&temp_dir).await;
         }
         ExportMode::StreamingJsonl => {
-            // manifest + chunks/*.jsonl 目录导出。
+            // manifest + chunks/*.jsonl 目录导出；头像写入同目录 avatars.json。
             let json_options = JsonFormatOptions {
                 export_mode: JsonExportMode::ChunkedJsonl,
+                embed_avatars_as_base64: req
+                    .options
+                    .get("embedAvatarsAsBase64")
+                    .and_then(Value::as_bool)
+                    == Some(true),
                 chunked_jsonl: ChunkedJsonlExportOptions {
                     output_dir: Some(file_path.clone()),
                     ..ChunkedJsonlExportOptions::default()

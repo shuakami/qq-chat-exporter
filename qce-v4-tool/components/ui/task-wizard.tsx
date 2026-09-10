@@ -1448,7 +1448,9 @@ export function TaskWizard({
                 checked: form.embedAvatarsAsBase64 || false,
                 set: (v: boolean) => setForm((p) => ({ ...p, embedAvatarsAsBase64: v })),
                 title: "嵌入头像为Base64",
-                desc: "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）",
+                desc: form.streamingZipMode
+                  ? "将发送者头像以Base64格式写入导出目录的 avatars.json，可离线查看"
+                  : "将发送者头像以Base64格式嵌入JSON文件（仅JSON格式可用，会增加文件大小）",
                 tip: EXPORT_OPTION_TOOLTIPS.embedAvatars,
                 visible: form.format === "JSON",
                 group: "导出内容"

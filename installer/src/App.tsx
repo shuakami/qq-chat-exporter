@@ -566,6 +566,12 @@ export default function App() {
   const enterRunning = useCallback(async () => {
     setRuntimeStopped(false);
     setRuntimeError('');
+    try {
+      await api.enterApp();
+      return;
+    } catch {
+      /* fall back to the launcher panel with a browser link */
+    }
     setSetupStep('running');
     try {
       const url = webuiUrl || (await api.getWebuiUrl()) || '';
@@ -1124,7 +1130,7 @@ export default function App() {
 
                   <div className="w-full max-w-[200px] flex flex-col items-center space-y-3">
                     <Button fullWidth size="lg" onClick={() => webuiUrl && api.openUrl(webuiUrl)} className="h-9 font-medium">
-                      打开 WebUI
+                      在浏览器中打开
                     </Button>
                     <Button fullWidth size="lg" variant="secondary" onClick={() => api.openLogFile()} className="h-9 font-medium">
                       查看运行日志

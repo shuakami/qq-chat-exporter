@@ -23,7 +23,7 @@ export const EXPORT_OPTION_TOOLTIPS = {
   friendlyFileName:
     "启用后，导出文件将使用“名称(QQ号).扩展名”的格式命名。出现重名时，QCE 会自动追加日期和时间。",
   embedAvatars:
-    "启用后，QCE 会将头像数据直接写入 JSON，不再依赖外部头像链接。导出的 JSON 文件会因此增大。",
+    "启用后，QCE 会将头像数据直接写入 JSON，不再依赖外部头像链接。导出的 JSON 文件会因此增大。流式导出时头像写入单独的 avatars.json，manifest.json 中的 avatars 字段指向该文件。",
   selfContainedHtml:
     "启用后，QCE 会将资源数据直接写入 HTML，生成可独立打开的单个文件。文件体积会增大，资源较多时加载速度可能下降。",
 } as const
