@@ -87,16 +87,16 @@ pub fn get_webui_url(state: State<'_, AppState>) -> Option<String> {
 }
 
 /// Turn the launcher window into the application window: resize it to a
-/// normal desktop size, enable native decorations and navigate the same
-/// webview to the WebUI. The access token stays inside the app (no browser
-/// history / address bar). The WebUI origin has no IPC capabilities.
+/// normal desktop size and navigate the same webview to the WebUI. The window
+/// stays undecorated; the WebUI draws its own titlebar controls (see the
+/// `webui` capability, which grants that origin window controls only). The
+/// access token stays inside the app (no browser history / address bar).
 #[tauri::command]
 pub fn enter_app(window: WebviewWindow, state: State<'_, AppState>) -> Result<(), String> {
     let url = get_webui_url_inner(&state)
         .ok_or("webui url unavailable")?
         .parse()
         .map_err(|e| format!("invalid webui url: {e}"))?;
-    window.set_decorations(true).map_err(|e| e.to_string())?;
     window.set_resizable(true).map_err(|e| e.to_string())?;
     window.set_maximizable(true).map_err(|e| e.to_string())?;
     window

@@ -233,7 +233,7 @@ test('standalone script suppresses the browser tab when the settings-page toggle
     }
 });
 
-test('standalone script opens the browser by default when no settings-page toggle is persisted', { skip: posixOnly ?? false }, () => {
+test('standalone script does not open the browser by default when no settings-page toggle is persisted', { skip: posixOnly ?? false }, () => {
     const tmp = createTempDir('qce-standalone-auto-open-default-');
     try {
         const packDir = path.join(tmp.path, 'pack');
@@ -261,7 +261,7 @@ test('standalone script opens the browser by default when no settings-page toggl
 
         assert.equal(result.status, 0, `stderr: ${result.stderr}`);
         const opened = fs.existsSync(openLog) ? fs.readFileSync(openLog, 'utf8') : '';
-        assert.ok(opened.includes(`token=${encodeURIComponent(token)}`), `opener should have been invoked with the login URL, got: ${JSON.stringify(opened)}`);
+        assert.equal(opened, '', `opener must not run by default, got: ${JSON.stringify(opened)}`);
     } finally {
         tmp.cleanup();
     }

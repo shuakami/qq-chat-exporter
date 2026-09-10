@@ -103,6 +103,7 @@ import { useStickerPacks } from "@/hooks/use-sticker-packs"
 import { useResourceIndex } from "@/hooks/use-resource-index"
 
 import { ThemeToggle } from "@/components/qce-dashboard/theme-toggle"
+import { WindowControls } from "@/components/ui/window-controls"
 import { Loader } from "@/components/ui/loader"
 
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
@@ -1572,7 +1573,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
               className="w-[240px] h-full flex flex-col"
             >
               {/* Sidebar header */}
-              <div className="flex items-center px-4 h-14 flex-shrink-0">
+              <div data-tauri-drag-region className="flex items-center px-4 h-14 flex-shrink-0">
                 {systemInfo?.napcat.selfInfo ? (
                   <div className="flex items-center gap-2.5 min-w-0">
                     <Avatar className="w-7 h-7 flex-shrink-0 rounded-full">
@@ -1753,8 +1754,8 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden sm:m-2 sm:rounded-xl sm:border sm:border-black/[0.05] sm:shadow-[0_2px_8px_rgba(0,0,0,0.015)] bg-card dark:border-white/[0.06]">
-        {/* Page header bar */}
-        <div className="flex flex-shrink-0 items-center justify-between border-b border-black/[0.06] dark:border-white/[0.06] px-4 h-12">
+        {/* Page header bar; doubles as the window drag region in the desktop shell */}
+        <div data-tauri-drag-region className="flex flex-shrink-0 items-center justify-between border-b border-black/[0.06] dark:border-white/[0.06] px-4 h-12">
           <div className="flex items-center gap-2 text-[14px]">
             <button
               onClick={() => {
@@ -1918,6 +1919,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                 </Button>
               </>
             )}
+            <WindowControls />
           </div>
         </div>
 

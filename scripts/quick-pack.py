@@ -855,9 +855,9 @@ function userConfigPath() {
 function readAutoOpenBrowserSetting(configPath) {
     try {
         const value = JSON.parse(readFileSync(configPath, 'utf8'))?.autoOpenBrowser;
-        return typeof value === 'boolean' ? value : true;
+        return typeof value === 'boolean' ? value : false;
     } catch {
-        return true; // 文件不存在/无法读取时沿用历史默认值（打开）
+        return false; // 文件不存在/无法读取时默认不打开
     }
 }
 
