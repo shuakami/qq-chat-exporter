@@ -103,7 +103,7 @@ import { useStickerPacks } from "@/hooks/use-sticker-packs"
 import { useResourceIndex } from "@/hooks/use-resource-index"
 
 import { ThemeToggle } from "@/components/qce-dashboard/theme-toggle"
-import { AccountMenu, WindowControls, useExternalLinksInBrowser } from "@/components/ui/window-controls"
+import { AccountMenu, WindowControls, WindowDragRegion, useExternalLinksInBrowser } from "@/components/ui/window-controls"
 import { Loader } from "@/components/ui/loader"
 
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
@@ -1602,6 +1602,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                     <div className="w-20 h-3.5 bg-black/[0.04] dark:bg-white/[0.06] rounded animate-pulse" />
                   </div>
                 )}
+                <WindowDragRegion />
               </div>
 
               {/* Main nav */}
@@ -1776,6 +1777,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
             <span className="text-muted-foreground/30">/</span>
             <span className="font-semibold text-foreground">{pageTitles[activeTab] || activeTab}</span>
           </div>
+          <WindowDragRegion />
           <div className="flex items-center gap-2">
             {/* Page-specific actions */}
 
