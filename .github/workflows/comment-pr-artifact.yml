@@ -14,11 +14,10 @@ permissions:
 jobs:
   comment-artifact:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: 回帖 Windows 构建产物链接
+      - name: 回帖 PR 构建结果
         uses: actions/github-script@v7
         with:
           script: |
@@ -45,26 +44,6 @@ jobs:
               return;
             }
 
-            const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({
-              owner,
-              repo,
-              run_id: run.id,
-              per_page: 100,
-            });
-            const isInstallerRun = run.name === '构建 QCE 安装器 (Tauri / Windows)';
-            const artifact = artifacts.artifacts.find(({ name, expired }) => {
-              if (expired) return false;
-              return isInstallerRun
-                ? name === 'qce-installer-windows'
-                : name.startsWith('NapCat-QCE-Windows-x64-');
-            });
-
-            if (!artifact) {
-              core.warning(`No Windows artifact found for run ${run.id}`);
-              return;
-            }
-
-            const artifactUrl = `https://github.com/${owner}/${repo}/actions/runs/${run.id}/artifacts/${artifact.id}`;
             const { data: comments } = await github.rest.issues.listComments({
               owner,
               repo,
@@ -72,29 +51,103 @@ jobs:
               per_page: 100,
             });
             const existingComment = comments.find(({ body, user }) =>
-              body?.includes('<!-- qce-windows-artifacts -->') && user?.type === 'Bot'
+              body?.includes('<!-- qce-pr-artifacts -->') && user?.type === 'Bot'
             );
-            const existingBody = existingComment?.body ?? '';
-            const extractUrl = (key) =>
-              existingBody.match(new RegExp(`<!-- ${key}: (https://[^ ]+) -->`))?.[1];
-            const installerUrl = isInstallerRun
-              ? artifactUrl
-              : extractUrl('qce-windows-installer-url');
-            const shellUrl = isInstallerRun
-              ? extractUrl('qce-windows-shell-url')
-              : artifactUrl;
+            const existingData = existingComment?.body?.match(
+              /<!-- qce-pr-artifacts-data: (.+) -->/
+            )?.[1];
+            const data = existingData
+              ? JSON.parse(existingData)
+              : { installer: {}, windows: {}, linux: {}, macos: {}, docker: {} };
+            const statusText = (conclusion) => {
+              if (conclusion === 'success') return '✅ 构建成功';
+              if (conclusion === 'failure') return '❌ 构建失败';
+              if (conclusion === 'cancelled') return '⚪ 已取消';
+              if (conclusion === 'skipped') return '⚪ 未运行';
+              return `⚪ ${conclusion || '未完成'}`;
+            };
+            const runLink = `[查看构建日志](${run.html_url})`;
+            const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+              owner,
+              repo,
+              run_id: run.id,
+              per_page: 100,
+            });
+            const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner,
+              repo,
+              run_id: run.id,
+              per_page: 100,
+            });
+            const artifactUrl = (artifact) => artifact
+              ? `https://github.com/${owner}/${repo}/actions/runs/${run.id}/artifacts/${artifact.id}`
+              : undefined;
+            const findArtifact = (prefix) => artifacts.artifacts.find(({ name, expired }) =>
+              name.startsWith(prefix) && !expired
+            );
+            const findJob = (predicate) => jobs.jobs.find(predicate);
+            const updateResult = (key, job, artifact, extra = {}) => {
+              data[key] = {
+                status: statusText(job?.conclusion),
+                conclusion: job?.conclusion || run.conclusion,
+                runUrl: run.html_url,
+                artifactUrl: artifactUrl(artifact),
+                ...extra,
+              };
+            };
+
+            if (run.name === '构建 QCE 安装器 (Tauri / Windows)') {
+              updateResult(
+                'installer',
+                findJob(({ name }) => name === 'build-installer'),
+                findArtifact('qce-installer-windows')
+              );
+            } else if (run.name === '构建 QCE 插件') {
+              updateResult(
+                'windows',
+                findJob(({ name }) => name.includes('windows-latest')),
+                findArtifact('NapCat-QCE-Windows-x64-')
+              );
+              updateResult(
+                'linux',
+                findJob(({ name }) => name.includes('ubuntu-latest') && name.includes('Linux')),
+                findArtifact('NapCat-QCE-Linux-x64-')
+              );
+              updateResult(
+                'macos',
+                findJob(({ name }) => name.includes('macos-latest')),
+                findArtifact('NapCat-QCE-macOS-arm64-')
+              );
+              const dockerJob = findJob(({ name }) => name === 'build-docker-test-image');
+              updateResult('docker', dockerJob, undefined, {
+                image: dockerJob?.conclusion === 'success'
+                  ? `ghcr.io/${owner}/napcat-qce:pr-${pullRequest.number}-${run.head_sha}`
+                  : undefined,
+              });
+            } else {
+              core.info(`Ignoring workflow ${run.name}`);
+              return;
+            }
+
+            const resultLink = (result, label) => {
+              if (result.artifactUrl) return `[下载 ${label}](${result.artifactUrl})`;
+              if (result.image) return `镜像：\`${result.image}\``;
+              return result.runUrl ? `[查看构建日志](${result.runUrl})` : '暂无详情';
+            };
             const body = [
-              '<!-- qce-windows-artifacts -->',
-              '## Windows 测试构建已完成',
+              '<!-- qce-pr-artifacts -->',
+              `<!-- qce-pr-artifacts-data: ${JSON.stringify(data)} -->`,
+              '## PR 构建结果',
               '',
-              installerUrl
-                ? `<!-- qce-windows-installer-url: ${installerUrl} -->\n您可以通过以下链接下载 Windows 一键安装程序：[下载 EXE 文件](${installerUrl})。`
-                : null,
-              shellUrl
-                ? `<!-- qce-windows-shell-url: ${shellUrl} -->\n您可以通过以下链接下载 Windows Shell 测试包：[下载 ZIP 文件](${shellUrl})。`
-                : null,
+              '| 构建产物 | 状态 | 下载或详情 |',
+              '| --- | --- | --- |',
+              `| Windows 一键安装程序（EXE） | ${data.installer.status || '等待构建'} | ${data.installer.status ? resultLink(data.installer, 'EXE 文件') : '等待安装器构建'} |`,
+              `| Windows Shell（ZIP） | ${data.windows.status || '等待构建'} | ${data.windows.status ? resultLink(data.windows, 'ZIP 文件') : '等待插件构建'} |`,
+              `| Linux（ZIP） | ${data.linux.status || '等待构建'} | ${data.linux.status ? resultLink(data.linux, 'ZIP 文件') : '等待插件构建'} |`,
+              `| macOS（ZIP） | ${data.macos.status || '等待构建'} | ${data.macos.status ? resultLink(data.macos, 'ZIP 文件') : '等待插件构建'} |`,
+              `| Docker 镜像 | ${data.docker.status || '等待构建'} | ${data.docker.status ? resultLink(data.docker, 'Docker 镜像') : '等待插件构建'} |`,
               '',
-              '测试包将保留 7 天。如需查看构建详情，请参阅[工作流运行记录](' + run.html_url + ')。',
+              `构建产物将保留 7 天；失败或未运行的项目可通过对应的[工作流运行记录](${run.html_url})查看详情。`,
             ].filter(Boolean).join('\n\n');
 
             if (existingComment) {
