@@ -2,7 +2,7 @@ name: 回帖 PR 构建产物
 
 on:
   workflow_run:
-    workflows: [构建 QCE 插件]
+    workflows: [构建 QCE 插件, 构建 QCE 安装器 (Tauri / Windows)]
     types: [completed]
 
 permissions:
@@ -51,26 +51,20 @@ jobs:
               run_id: run.id,
               per_page: 100,
             });
-            const windowsArtifact = artifacts.artifacts.find(({ name, expired }) =>
-              name.startsWith('NapCat-QCE-Windows-x64-') && !expired
-            );
+            const isInstallerRun = run.name === '构建 QCE 安装器 (Tauri / Windows)';
+            const artifact = artifacts.artifacts.find(({ name, expired }) => {
+              if (expired) return false;
+              return isInstallerRun
+                ? name === 'qce-installer-windows'
+                : name.startsWith('NapCat-QCE-Windows-x64-');
+            });
 
-            if (!windowsArtifact) {
+            if (!artifact) {
               core.warning(`No Windows artifact found for run ${run.id}`);
               return;
             }
 
-            const artifactUrl = `https://github.com/${owner}/${repo}/actions/runs/${run.id}/artifacts/${windowsArtifact.id}`;
-            const marker = '<!-- qce-windows-artifact -->';
-            const body = [
-              marker,
-              '## Windows 测试构建已完成',
-              '',
-              `您可以通过以下链接下载 Windows Shell 测试包：[下载 ZIP 文件](${artifactUrl})。`,
-              '',
-              `该测试包将保留 7 天。如需查看构建详情，请参阅[工作流运行记录](${run.html_url})。`,
-            ].join('\n');
-
+            const artifactUrl = `https://github.com/${owner}/${repo}/actions/runs/${run.id}/artifacts/${artifact.id}`;
             const { data: comments } = await github.rest.issues.listComments({
               owner,
               repo,
@@ -78,8 +72,30 @@ jobs:
               per_page: 100,
             });
             const existingComment = comments.find(({ body, user }) =>
-              body?.includes(marker) && user?.type === 'Bot'
+              body?.includes('<!-- qce-windows-artifacts -->') && user?.type === 'Bot'
             );
+            const existingBody = existingComment?.body ?? '';
+            const extractUrl = (key) =>
+              existingBody.match(new RegExp(`<!-- ${key}: (https://[^ ]+) -->`))?.[1];
+            const installerUrl = isInstallerRun
+              ? artifactUrl
+              : extractUrl('qce-windows-installer-url');
+            const shellUrl = isInstallerRun
+              ? extractUrl('qce-windows-shell-url')
+              : artifactUrl;
+            const body = [
+              '<!-- qce-windows-artifacts -->',
+              '## Windows 测试构建已完成',
+              '',
+              installerUrl
+                ? `<!-- qce-windows-installer-url: ${installerUrl} -->\n您可以通过以下链接下载 Windows 一键安装程序：[下载 EXE 文件](${installerUrl})。`
+                : null,
+              shellUrl
+                ? `<!-- qce-windows-shell-url: ${shellUrl} -->\n您可以通过以下链接下载 Windows Shell 测试包：[下载 ZIP 文件](${shellUrl})。`
+                : null,
+              '',
+              '测试包将保留 7 天。如需查看构建详情，请参阅[工作流运行记录](' + run.html_url + ')。',
+            ].filter(Boolean).join('\n\n');
 
             if (existingComment) {
               await github.rest.issues.updateComment({
