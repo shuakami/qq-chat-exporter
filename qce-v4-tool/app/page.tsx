@@ -103,7 +103,7 @@ import { useStickerPacks } from "@/hooks/use-sticker-packs"
 import { useResourceIndex } from "@/hooks/use-resource-index"
 
 import { ThemeToggle } from "@/components/qce-dashboard/theme-toggle"
-import { WindowControls } from "@/components/ui/window-controls"
+import { AccountMenu, WindowControls, useExternalLinksInBrowser } from "@/components/ui/window-controls"
 import { Loader } from "@/components/ui/loader"
 
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
@@ -275,6 +275,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   
   // 侧边栏状态
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  useExternalLinksInBrowser()
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false)
   
   const tasksLoadedRef = useRef(false)
@@ -1575,6 +1576,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
               {/* Sidebar header */}
               <div data-tauri-drag-region className="flex items-center px-4 h-14 flex-shrink-0">
                 {systemInfo?.napcat.selfInfo ? (
+                  <AccountMenu>
                   <div className="flex items-center gap-2.5 min-w-0">
                     <Avatar className="w-7 h-7 flex-shrink-0 rounded-full">
                       <AvatarImage
@@ -1593,6 +1595,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                       {systemInfo.napcat.selfInfo.nick || "QQ Chat Exporter"}
                     </span>
                   </div>
+                  </AccountMenu>
                 ) : (
                   <div className="flex items-center gap-2.5">
                     <div className="w-7 h-7 rounded-full bg-black/[0.04] dark:bg-white/[0.06] animate-pulse" />

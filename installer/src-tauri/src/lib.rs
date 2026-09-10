@@ -9,7 +9,7 @@ use state::AppState;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Listener, Manager, WindowEvent,
 };
 use tauri_plugin_opener::OpenerExt;
 
@@ -146,6 +146,27 @@ pub fn run() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+            // Actions the WebUI's account menu emits (browser / logs / quit);
+            // the payload is a fixed action name, nothing else is honored.
+            let handle = app.handle().clone();
+            app.listen("qce-shell-action", move |event| {
+                let action = serde_json::from_str::<String>(event.payload()).unwrap_or_default();
+                match action.as_str() {
+                    "browser" => {
+                        if let Some(url) = qce::get_webui_url(handle.state::<AppState>()) {
+                            let _ = handle.opener().open_url(url, None::<&str>);
+                        }
+                    }
+                    "logs" => {
+                        let _ = qce::open_log_file(handle.state::<AppState>());
+                    }
+                    "quit" => {
+                        service::shutdown(&handle.state::<AppState>());
+                        handle.exit(0);
+                    }
+                    _ => {}
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
