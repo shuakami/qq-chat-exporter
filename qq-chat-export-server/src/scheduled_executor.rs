@@ -9,19 +9,20 @@ use serde_json::Value;
 use qce_exporter::json_exporter::{JsonExporter, JsonFormatOptions};
 use qce_exporter::modern_html_exporter::{HtmlExportOptions, ModernHtmlExporter};
 use qce_exporter::text_exporter::{TextExporter, TextFormatOptions};
-use qce_exporter::types::MessageResource;
-use qce_exporter::{ChatInfo, CleanMessage, ExportOptions};
+use qce_exporter::{ChatInfo, CleanMessage, DownloadedResourceIndex, ExportOptions};
 
-use qce_server::api::helpers::{backfill_self_sender_names, chat_avatar_url, resolve_peer_uin};
+use qce_server::api::helpers::{backfill_self_sender_names, chat_avatar_url, PeerUinResolver};
 use qce_server::api::path_security::resolve_for_creation_within;
+use qce_server::clean_message_spool::{CleanMessageSpool, SpooledCleanMessageSource};
 use qce_server::export_debug::ExportDebugSession;
 use qce_server::fetcher::{
     classify_chat_type_binary, BatchFetchConfig, BatchMessageFetcher, MessageFilter, Peer,
 };
 use qce_server::napcat::NapCatBridgeClient;
+use qce_server::parser::simple_parser::ReplyImageIndex;
 use qce_server::parser::{ForwardFetcher, SimpleMessageParser, SimpleParserOptions};
 use qce_server::paths::{sanitize_task_name, PathManager};
-use qce_server::resource::ResourceHandler;
+use qce_server::resource::{ResourceBatchSummary, ResourceHandler};
 use qce_server::scheduler::{ExecutionOutcome, ScheduledExportExecutor};
 use qce_server::storage::ResourceInfo;
 
@@ -133,38 +134,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             ..MessageFilter::default()
         };
 
-        let mut all_messages: Vec<Value> = Vec::new();
-        let mut previous = None;
-        loop {
-            let batch = match fetcher
-                .fetch_next_batch(&peer, &fetch_filter, previous.as_ref())
-                .await
-            {
-                Ok(Some(batch)) => batch,
-                Ok(None) => break,
-                Err(error) => return Err(format!("获取消息失败: {error}")),
-            };
-            all_messages.extend(batch.messages.iter().cloned());
-            previous = Some(batch);
-        }
-
-        if all_messages.is_empty() {
-            return Ok(ExecutionOutcome {
-                message_count: 0,
-                note: Some("指定时间范围内没有消息".to_string()),
-                ..ExecutionOutcome::default()
-            });
-        }
-
-        // 按时间升序排序（抓取返回的是倒序）。
-        all_messages.sort_by_key(msg_time_ms);
-        if let Some(debug) = &debug_session {
-            debug
-                .write_jsonl("01-raw-messages.jsonl", &all_messages)
-                .await?;
-        }
-
-        // 阶段 2：资源下载（issue #341 跳过类型）
+        // 阶段 2 准备：资源下载（issue #341 跳过类型）
         // 与交互式普通/漫游导出共享 ResourceHandler；其配置、回调与摘要必须在
         // 完整任务级资源阶段内保持一致。guard 在任何错误/提前返回时自动释放。
         let resource_session_guard = self.resource_handler.acquire_export_session().await;
@@ -199,26 +169,114 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
                 .await;
         }
 
-        let resource_map = self
-            .resource_handler
-            .process_message_resources_with_cancel_and_trace(
-                &all_messages,
-                Arc::new(AtomicBool::new(false)),
-                debug_session.as_ref().map(ExportDebugSession::trace),
-            )
-            .await;
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions {
+            html_enabled: format == "HTML",
+            prefer_group_member_name: options
+                .get("preferGroupMemberName")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            sender_title_resolver: None,
+            forward_fetcher: Some(Arc::new(self.napcat.clone()) as Arc<dyn ForwardFetcher>),
+        });
+
+        // 阶段 1+2：逐批抓取 → 下载资源 → 解析 → 写回本地路径 → 落盘（issue #666）。
+        // 全程只持有一批消息；批间顺序由 CleanMessageSpool 的归并读取保证。
+        tokio::fs::create_dir_all(&output_dir)
+            .await
+            .map_err(|e| format!("创建输出目录失败: {e}"))?;
+        let spool_name = format!(".qce_sched_{}.jsonl", uuid::Uuid::new_v4().simple());
+        let mut clean_spool = CleanMessageSpool::create(output_dir.join(spool_name)).await?;
+        let mut downloaded_resources = DownloadedResourceIndex::new();
+        let mut seen_message_ids: HashSet<String> = HashSet::new();
+        let mut resource_summary_total = ResourceBatchSummary::default();
+        let mut message_count: i64 = 0;
+        let mut previous = None;
+        loop {
+            let batch = match fetcher
+                .fetch_next_batch(&peer, &fetch_filter, previous.as_ref())
+                .await
+            {
+                Ok(Some(batch)) => batch,
+                Ok(None) => break,
+                Err(error) => return Err(format!("获取消息失败: {error}")),
+            };
+            let mut chunk: Vec<Value> = batch
+                .messages
+                .iter()
+                .filter(
+                    |message| match message.get("msgId").and_then(Value::as_str) {
+                        Some(id) if !id.is_empty() && id != "0" => {
+                            seen_message_ids.insert(id.to_string())
+                        }
+                        _ => true,
+                    },
+                )
+                .cloned()
+                .collect();
+            previous = Some(batch);
+            if chunk.is_empty() {
+                continue;
+            }
+            // 按时间升序排序（抓取返回的是倒序）。
+            chunk.sort_by_key(msg_time_ms);
+            if let Some(debug) = &debug_session {
+                debug.append_jsonl("01-raw-messages.jsonl", &chunk).await?;
+            }
+
+            let mut parsed: Vec<CleanMessage> = parser.parse_messages(&chunk).await;
+            if let Some(debug) = &debug_session {
+                debug
+                    .append_jsonl("02-parsed-messages.jsonl", &parsed)
+                    .await?;
+            }
+            message_count += parsed.len() as i64;
+
+            chunk.extend(parser.take_forward_raw_messages());
+            let chunk_map = self
+                .resource_handler
+                .process_message_resources_with_cancel_and_trace(
+                    &chunk,
+                    Arc::new(AtomicBool::new(false)),
+                    debug_session.as_ref().map(ExportDebugSession::trace),
+                )
+                .await;
+            drop(chunk);
+            resource_summary_total.merge(&self.resource_handler.last_batch_summary().await);
+            // issue #277：把已下载资源的本地路径写回消息。
+            let value_resource_map = to_value_resource_map(&chunk_map);
+            for message in &mut parsed {
+                SimpleMessageParser::update_message_resource_paths_recursive(
+                    message,
+                    &value_resource_map,
+                );
+            }
+            for resource in chunk_map.values().flatten() {
+                if let Some(local_path) = resource.local_path.as_deref() {
+                    downloaded_resources.insert(&resource.resource_type, local_path);
+                }
+            }
+
+            parsed.sort_by_key(|message| message.timestamp);
+            clean_spool.append_sorted_segment(&parsed).await?;
+        }
+        drop(seen_message_ids);
         // issue #363：资源下载摘要。
-        let resource_summary =
-            serde_json::to_value(self.resource_handler.last_batch_summary().await).ok();
+        let resource_summary = serde_json::to_value(&resource_summary_total).ok();
         // 重置共享 ResourceHandler 的状态，避免影响后续任务。
         self.resource_handler.set_progress_callback(None).await;
         self.resource_handler.set_skip_download_types(None).await;
         drop(resource_session_guard);
 
+        if message_count == 0 {
+            return Ok(ExecutionOutcome {
+                message_count: 0,
+                note: Some("指定时间范围内没有消息".to_string()),
+                ..ExecutionOutcome::default()
+            });
+        }
+        clean_spool.finish().await?;
+
         // 阶段 3：文件名 / 输出目录
-        tokio::fs::create_dir_all(&output_dir)
-            .await
-            .map_err(|e| format!("创建输出目录失败: {e}"))?;
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S%3f");
         let chat_type_name = if chat_type == 2 { "group" } else { "friend" };
         let peer_identity = if chat_type == 2 {
@@ -236,38 +294,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         let (file_name, _reservation) = reserve_scheduled_file_name(&output_dir, &base_file_name);
         let file_path = output_dir.join(&file_name);
 
-        // 阶段 4：解析 + 导出
-        let mut parser = SimpleMessageParser::new(SimpleParserOptions {
-            html_enabled: format == "HTML",
-            prefer_group_member_name: options
-                .get("preferGroupMemberName")
-                .and_then(Value::as_bool)
-                .unwrap_or(true),
-            sender_title_resolver: None,
-            forward_fetcher: Some(Arc::new(self.napcat.clone()) as Arc<dyn ForwardFetcher>),
-        });
-        let mut clean_messages: Vec<CleanMessage> = parser.parse_messages(&all_messages).await;
-        if let Some(debug) = &debug_session {
-            debug
-                .write_jsonl("02-parsed-messages.jsonl", &clean_messages)
-                .await?;
-        }
-
-        // issue #277：把已下载资源的本地路径写回消息。
-        let value_resource_map = to_value_resource_map(&resource_map);
-        for message in &mut clean_messages {
-            if let Some(resources) = value_resource_map.get(&message.id) {
-                SimpleMessageParser::update_single_message_resource_paths(message, resources);
-            }
-        }
-        SimpleMessageParser::backfill_reply_preview_local_paths(&mut clean_messages);
-        if let Some(debug) = &debug_session {
-            debug
-                .write_jsonl("03-final-messages.jsonl", &clean_messages)
-                .await?;
-        }
-
-        let message_count = clean_messages.len() as i64;
+        // 阶段 4：两遍顺序扫描做全局后处理（reply 预览索引 + 对端 QQ 号），再导出。
         let self_info = self.napcat.self_info().await.unwrap_or(Value::Null);
         let self_uid = self_info
             .get("uid")
@@ -281,18 +308,31 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             .get("nick")
             .and_then(Value::as_str)
             .map(str::to_string);
-        backfill_self_sender_names(
-            &mut clean_messages,
-            self_uid.as_deref(),
-            self_uin.as_deref(),
-            self_name.as_deref(),
-        );
+        let mut reply_index = ReplyImageIndex::default();
+        let resolved_peer_uin: Option<String>;
+        {
+            let mut referenced: HashSet<String> = HashSet::new();
+            let mut peer_uin_resolver = PeerUinResolver::new(&peer_uid, self_uin.as_deref());
+            let mut scan = clean_spool.reader().await?;
+            while let Some(batch) = scan.next_batch().await? {
+                SimpleMessageParser::collect_reply_referenced_ids(&batch, &mut referenced);
+                peer_uin_resolver.consume(&batch);
+            }
+            resolved_peer_uin = peer_uin_resolver.finish();
+            if !referenced.is_empty() {
+                scan.reset().await?;
+                while let Some(batch) = scan.next_batch().await? {
+                    SimpleMessageParser::collect_reply_preview_images(
+                        &batch,
+                        &referenced,
+                        &mut reply_index,
+                    );
+                }
+            }
+        }
+
         let peer_uin = (chat_type != 2)
-            .then(|| {
-                peer_uin
-                    .clone()
-                    .or_else(|| resolve_peer_uin(&peer_uid, self_uin.as_deref(), &clean_messages))
-            })
+            .then(|| peer_uin.clone().or(resolved_peer_uin))
             .flatten();
         let normalized_chat_type = classify_chat_type_binary(Some(chat_type)).to_string();
         let chat_info = ChatInfo {
@@ -306,6 +346,29 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             peer_uid: Some(peer_uid.clone()),
             peer_uin,
         };
+
+        let finalize = |message: &mut CleanMessage| {
+            backfill_self_sender_names(
+                std::slice::from_mut(message),
+                chat_info.self_uid.as_deref(),
+                chat_info.self_uin.as_deref(),
+                chat_info.self_name.as_deref(),
+            );
+            SimpleMessageParser::apply_reply_preview_local_paths(message, &reply_index);
+        };
+        if let Some(debug) = &debug_session {
+            let mut scan = clean_spool.reader().await?;
+            while let Some(mut batch) = scan.next_batch().await? {
+                for message in &mut batch {
+                    finalize(message);
+                }
+                debug
+                    .append_jsonl("03-final-messages.jsonl", &batch)
+                    .await?;
+            }
+        }
+        let mut source = SpooledCleanMessageSource::new(clean_spool.reader().await?, finalize);
+        let total_hint = usize::try_from(message_count).unwrap_or(0);
 
         let include_resource_links = options
             .get("includeResourceLinks")
@@ -331,7 +394,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
                 .get("preferGroupMemberName")
                 .and_then(Value::as_bool)
                 .unwrap_or(true),
-            resource_map: to_exporter_resource_map(&resource_map),
+            downloaded_resources,
             ..ExportOptions::default()
         };
 
@@ -360,26 +423,28 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
                     exporter_version: Some(qce_server::version::VERSION.get().to_string()),
                 });
                 exporter
-                    .export_single_inline(&clean_messages, &chat_info)
+                    .export_single_inline_source(&mut source, &chat_info)
                     .await
                     .map_err(|e| e.to_string())?;
             }
             "JSON" => {
                 let exporter = JsonExporter::new(export_options, JsonFormatOptions::default());
                 exporter
-                    .export(clean_messages, &chat_info)
+                    .export_source(&mut source, &chat_info, total_hint)
                     .await
                     .map_err(|e| e.to_string())?;
             }
             "TXT" => {
                 let exporter = TextExporter::new(export_options, TextFormatOptions::default());
                 exporter
-                    .export(clean_messages, &chat_info)
+                    .export_source(&mut source, &chat_info, total_hint)
                     .await
                     .map_err(|e| e.to_string())?;
             }
             other => return Err(format!("不支持的定时导出格式: {other}")),
         }
+        drop(source);
+        drop(clean_spool);
 
         let file_size = tokio::fs::metadata(&file_path)
             .await
@@ -489,35 +554,6 @@ fn msg_time_ms(message: &Value) -> i64 {
     } else {
         ts
     }
-}
-
-/// 资源映射 → 导出器需要的 `MessageResource` 形式。
-fn to_exporter_resource_map(
-    resource_map: &HashMap<String, Vec<ResourceInfo>>,
-) -> HashMap<String, Vec<MessageResource>> {
-    resource_map
-        .iter()
-        .map(|(msg_id, resources)| {
-            let converted = resources
-                .iter()
-                .map(|r| MessageResource {
-                    resource_type: r.resource_type.clone(),
-                    filename: r.file_name.clone(),
-                    size: r.file_size.and_then(|s| u64::try_from(s).ok()),
-                    url: if r.original_url.is_empty() {
-                        None
-                    } else {
-                        Some(r.original_url.clone())
-                    },
-                    local_path: r.local_path.clone(),
-                    width: None,
-                    height: None,
-                    duration: None,
-                })
-                .collect();
-            (msg_id.clone(), converted)
-        })
-        .collect()
 }
 
 /// 资源映射 → `update_single_message_resource_paths` 需要的 Value 列表。

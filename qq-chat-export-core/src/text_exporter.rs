@@ -1,5 +1,7 @@
 use crate::base::{format_timestamp, ms_to_local, preprocess_messages, ExporterContext};
-use crate::error::{ExportError, ExportResultT};
+use crate::error::ExportResultT;
+use crate::message_source::{CleanMessageSource, SliceMessageSource};
+use crate::stream_utils::{yield_to_event_loop, BufferedTextWriter, DEFAULT_FLUSH_THRESHOLD};
 use crate::types::{
     ChatInfo, CleanMessage, ExportFormat, ExportOptions, ExportOutcome, TimeFormat,
 };
@@ -55,7 +57,11 @@ fn format_reply_time_label(ts: i64) -> String {
     if ts <= 0 {
         return String::new();
     }
-    let ms = if ts < 1_000_000_000_000 { ts * 1000 } else { ts };
+    let ms = if ts < 1_000_000_000_000 {
+        ts * 1000
+    } else {
+        ts
+    };
     let Some(d) = ms_to_local(ms) else {
         return String::new();
     };
@@ -84,77 +90,104 @@ impl TextExporter {
         &mut self.ctx
     }
 
-    /// 导出入口。
+    /// 导出入口（全量内存切片；大规模导出请用 [`Self::export_source`]）。
     pub async fn export(
         &self,
         messages: Vec<CleanMessage>,
         chat_info: &ChatInfo,
     ) -> ExportResultT<ExportOutcome> {
+        let filtered = preprocess_messages(messages);
+        let mut source = SliceMessageSource::new(&filtered);
+        self.export_source(&mut source, chat_info, filtered.len())
+            .await
+    }
+
+    /// 导出入口（分批数据源；issue #666）。
+    ///
+    /// 文件头里的「消息总数 / 时间范围」需要先知道全部消息，因此先扫一遍数据源
+    /// 只做计数与时间范围统计，再复位数据源逐批格式化写盘；两遍都只持有一批消息。
+    /// `total_hint` 仅用于进度显示。
+    pub async fn export_source<S: CleanMessageSource>(
+        &self,
+        source: &mut S,
+        chat_info: &ChatInfo,
+        total_hint: usize,
+    ) -> ExportResultT<ExportOutcome> {
         let start_time = Instant::now();
         self.ctx
-            .update_progress(0, messages.len(), &format!("开始{}导出", self.ctx.format));
+            .update_progress(0, total_hint, &format!("开始{}导出", self.ctx.format));
         self.ctx.ensure_output_directory().await?;
 
-        let filtered = preprocess_messages(messages);
-        let content = self.generate_content(&filtered, chat_info);
-        self.ctx.check_cancelled()?;
+        let mut summary = TextSummary::default();
+        source.restart().await?;
+        while let Some(batch) = source.next_batch().await? {
+            self.ctx.check_cancelled()?;
+            for message in &batch {
+                summary.consume(message);
+            }
+            yield_to_event_loop().await;
+        }
+        let total = summary.count;
 
-        tokio::fs::write(&self.ctx.options.output_path, content.as_bytes())
-            .await
-            .map_err(|e| ExportError::io("writeToFile", &self.ctx.options.output_path, e))?;
+        let mut writer =
+            BufferedTextWriter::create(&self.ctx.options.output_path, DEFAULT_FLUSH_THRESHOLD)
+                .await?;
+        for line in self.generate_header(chat_info, &summary) {
+            writer.write(&line).await?;
+            writer.write("\n").await?;
+        }
+        writer.write("\n").await?;
 
-        self.ctx
-            .update_progress(filtered.len(), filtered.len(), "导出完成");
+        let mut written = 0usize;
+        source.restart().await?;
+        while let Some(batch) = source.next_batch().await? {
+            self.ctx.check_cancelled()?;
+            for message in &batch {
+                if message.id.is_empty() {
+                    continue;
+                }
+                written += 1;
+                for line in self.format_message(message, written) {
+                    writer.write(&line).await?;
+                    writer.write("\n").await?;
+                }
+                if written < total {
+                    writer.write(&self.text_options.message_separator).await?;
+                    writer.write("\n").await?;
+                }
+            }
+            yield_to_event_loop().await;
+            self.ctx
+                .update_progress(written, total, &format!("格式化消息 {written}/{total}"));
+        }
 
-        let resource_count: usize = filtered.iter().map(|m| m.content.resources.len()).sum();
+        writer.write("\n").await?;
+        let footer = self.generate_footer(total);
+        let last = footer.len().saturating_sub(1);
+        for (index, line) in footer.iter().enumerate() {
+            writer.write(line).await?;
+            if index < last {
+                writer.write("\n").await?;
+            }
+        }
+        writer.end().await?;
+
+        self.ctx.update_progress(total, total, "导出完成");
+
         Ok(ExportOutcome {
             task_id: String::new(),
             format: self.ctx.format,
             file_path: self.ctx.options.output_path.clone(),
             file_size: self.ctx.output_file_size().await,
-            message_count: filtered.len(),
-            resource_count,
+            message_count: total,
+            resource_count: summary.resource_count,
             export_time: start_time.elapsed().as_millis(),
             completed_at: crate::base::now_iso(),
         })
     }
 
-    /// 生成文本内容。
-    fn generate_content(
-        &self,
-        messages: &[CleanMessage],
-        chat_info: &ChatInfo,
-    ) -> String {
-        let mut lines: Vec<String> = Vec::new();
-
-        lines.extend(self.generate_header(chat_info, messages));
-        lines.push(String::new());
-
-        for (i, message) in messages.iter().enumerate() {
-            if self.ctx.cancellation.is_cancelled() {
-                break;
-            }
-            lines.extend(self.format_message(message, i + 1));
-            if i + 1 < messages.len() {
-                lines.push(self.text_options.message_separator.clone());
-            }
-            if i % 100 == 0 {
-                self.ctx.update_progress(
-                    i,
-                    messages.len(),
-                    &format!("格式化消息 {}/{}", i + 1, messages.len()),
-                );
-            }
-        }
-
-        lines.push(String::new());
-        lines.extend(self.generate_footer(messages));
-
-        lines.join("\n")
-    }
-
     /// 生成文件头部信息。
-    fn generate_header(&self, chat_info: &ChatInfo, messages: &[CleanMessage]) -> Vec<String> {
+    fn generate_header(&self, chat_info: &ChatInfo, summary: &TextSummary) -> Vec<String> {
         let mut lines: Vec<String> = vec![
             "[QQChatExporter V5 / https://github.com/shuakami/qq-chat-exporter]".to_owned(),
             "[本软件是免费的开源项目~ 如果您是买来的，请立即退款！如果有帮助到您，欢迎给我点个Star~]"
@@ -184,9 +217,9 @@ impl TextExporter {
             "导出时间: {}",
             format_timestamp(Local::now(), self.ctx.options.time_format)
         ));
-        if !messages.is_empty() {
-            lines.push(format!("消息总数: {}", messages.len()));
-            if let Some(range) = self.calculate_time_range(messages) {
+        if summary.count > 0 {
+            lines.push(format!("消息总数: {}", summary.count));
+            if let Some(range) = self.format_time_range(summary) {
                 lines.push(format!("时间范围: {range}"));
             }
         }
@@ -196,12 +229,12 @@ impl TextExporter {
     }
 
     /// 生成文件尾部信息。
-    fn generate_footer(&self, messages: &[CleanMessage]) -> Vec<String> {
+    fn generate_footer(&self, total: usize) -> Vec<String> {
         vec![
             "===============================================".to_owned(),
             "              导出完成".to_owned(),
             "===============================================".to_owned(),
-            format!("总计导出 {} 条消息", messages.len()),
+            format!("总计导出 {total} 条消息"),
             format!(
                 "导出时间: {}",
                 format_timestamp(Local::now(), self.ctx.options.time_format)
@@ -260,10 +293,7 @@ impl TextExporter {
         }
 
         if self.text_options.show_resource_stats && !message.content.resources.is_empty() {
-            lines.push(format!(
-                "资源: {} 个文件",
-                message.content.resources.len()
-            ));
+            lines.push(format!("资源: {} 个文件", message.content.resources.len()));
             for resource in &message.content.resources {
                 lines.push(format!(
                     "  - {}: {}",
@@ -314,37 +344,54 @@ impl TextExporter {
         lines.iter().map(|line| self.wrap_line(line)).collect()
     }
 
-    /// 换行处理。
+    /// 换行处理（按字符数切分，不做 `Vec<char>` 中间分配）。
     fn wrap_line(&self, line: &str) -> String {
         let width = self.text_options.line_width;
-        let chars: Vec<char> = line.chars().collect();
-        if width == 0 || chars.len() <= width {
+        if width == 0 || line.chars().count() <= width {
             return line.to_owned();
         }
-        let mut chunks: Vec<String> = Vec::new();
-        for chunk in chars.chunks(width) {
-            chunks.push(chunk.iter().collect());
+        let mut out = String::with_capacity(line.len() + self.text_options.indent_char.len() * 4);
+        for (index, ch) in line.chars().enumerate() {
+            if index > 0 && index % width == 0 {
+                out.push('\n');
+                out.push_str(&self.text_options.indent_char);
+            }
+            out.push(ch);
         }
-        chunks.join(&format!("\n{}", self.text_options.indent_char))
+        out
     }
 
-    /// 计算消息的实际时间范围。
-    fn calculate_time_range(&self, messages: &[CleanMessage]) -> Option<String> {
-        let mut earliest: Option<i64> = None;
-        let mut latest: Option<i64> = None;
-        for message in messages {
-            let ts = message.timestamp;
-            if ts <= 0 {
-                continue;
-            }
-            earliest = Some(earliest.map_or(ts, |e| e.min(ts)));
-            latest = Some(latest.map_or(ts, |l| l.max(ts)));
-        }
-        let (start, end) = (earliest?, latest?);
-        let start_time =
-            format_timestamp(ms_to_local(start)?, self.ctx.options.time_format);
+    /// 格式化消息的实际时间范围。
+    fn format_time_range(&self, summary: &TextSummary) -> Option<String> {
+        let (start, end) = (summary.earliest?, summary.latest?);
+        let start_time = format_timestamp(ms_to_local(start)?, self.ctx.options.time_format);
         let end_time = format_timestamp(ms_to_local(end)?, self.ctx.options.time_format);
         Some(format!("{start_time} - {end_time}"))
+    }
+}
+
+/// 第一遍扫描得到的聚合信息（计数 / 资源数 / 时间范围）。
+#[derive(Debug, Default)]
+struct TextSummary {
+    count: usize,
+    resource_count: usize,
+    earliest: Option<i64>,
+    latest: Option<i64>,
+}
+
+impl TextSummary {
+    fn consume(&mut self, message: &CleanMessage) {
+        if message.id.is_empty() {
+            return;
+        }
+        self.count += 1;
+        self.resource_count += message.content.resources.len();
+        let ts = message.timestamp;
+        if ts <= 0 {
+            return;
+        }
+        self.earliest = Some(self.earliest.map_or(ts, |e| e.min(ts)));
+        self.latest = Some(self.latest.map_or(ts, |l| l.max(ts)));
     }
 }
 

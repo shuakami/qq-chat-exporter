@@ -1,6 +1,7 @@
 use crate::base::escape_html;
 use crate::bloom::{fnv1a32, BloomFilter};
 use crate::error::{ExportError, ExportResultT};
+use crate::html_bounded_state::{DataUriCache, ReplyTargetIndex};
 use crate::message_source::{CleanMessageSource, SliceMessageSource};
 use crate::modern_html_templates::{
     render_template, MODERN_CHUNKED_APP_JS, MODERN_CHUNKED_INDEX_HTML_TEMPLATE, MODERN_CSS,
@@ -14,12 +15,17 @@ use crate::reply_render::{
 use crate::types::{ChatInfo, CleanMessage};
 use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone, Timelike, Utc};
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::task::JoinSet;
+
+/// 单文件 HTML 元数据注释预留的空白字节数（收尾时原地回填 messageCount）。
+const METADATA_PADDING: usize = 24;
+/// 回填元数据时只扫描文件头部这么多字节。
+const METADATA_SCAN_BYTES: usize = 64 * 1024;
 
 /// HTML 导出选项。
 #[derive(Debug, Clone)]
@@ -132,14 +138,12 @@ pub struct ModernHtmlExporter {
     options: HtmlExportOptions,
     current_chat_info: Option<ChatInfo>,
     last_rendered_date: Option<String>,
-    /// Issue #311：data URI 缓存。key 为 `<typeDir>/<basename>`，value 为完整
+    /// Issue #311：有界 data URI 缓存。key 为 `<typeDir>/<basename>`，value 为完整
     /// `data:<mime>;base64,...` 字符串。仅当 `embed_resources_as_data_uri=true`
     /// 时被填充，否则始终为空，渲染路径走原有的 `./resources/...`。
-    data_uri_cache: HashMap<String, String>,
-    /// Issue #311：已尝试过、确认不可内联的资源 key，避免重复磁盘探测。
-    data_uri_misses: HashSet<String>,
-    rendered_message_ids: HashSet<String>,
-    message_id_by_time_sender: HashMap<(i64, String), Option<String>>,
+    data_uri_cache: DataUriCache,
+    /// reply 跳转索引（issue #666：有界实现）。
+    reply_targets: ReplyTargetIndex,
     /// 资源引用基础路径（URL 相对前缀）。
     /// - 单文件导出使用 `./resources`（资源目录与 HTML 同级，便于独立移动，
     ///   修复 Issue #213）；
@@ -181,10 +185,8 @@ impl ModernHtmlExporter {
             options,
             current_chat_info: None,
             last_rendered_date: None,
-            data_uri_cache: HashMap::new(),
-            data_uri_misses: HashSet::new(),
-            rendered_message_ids: HashSet::new(),
-            message_id_by_time_sender: HashMap::new(),
+            data_uri_cache: DataUriCache::default(),
+            reply_targets: ReplyTargetIndex::default(),
             resource_base_href: format!("./{resource_dir_name}"),
         }
     }
@@ -223,7 +225,8 @@ impl ModernHtmlExporter {
 
         self.current_chat_info = Some(chat_info.clone());
         self.last_rendered_date = None;
-        self.prepare_reply_targets(messages);
+        self.begin_reply_targets();
+        self.extend_reply_targets(messages);
 
         let mut total_messages = 0usize;
         let mut first_time: Option<i64> = None;
@@ -257,12 +260,14 @@ impl ModernHtmlExporter {
             "peerUin": chat_info.peer_uin,
             "exportTime": export_time_iso,
         });
+        // 预留空白，收尾时用等长内容原地覆写 messageCount，无需重写整个文件。
+        let metadata_json = format!("{}{}", metadata, " ".repeat(METADATA_PADDING));
 
         // 1) 写入文档头与样式/脚本 + 头部信息(占位)
         let top_html = render_template(
             MODERN_SINGLE_HTML_TOP_TEMPLATE,
             &[
-                ("METADATA_JSON", &metadata.to_string()),
+                ("METADATA_JSON", &metadata_json),
                 ("CHAT_NAME_ESC", &escape_html(&chat_info.name)),
                 ("STYLES", &self.generate_styles()),
                 ("SCRIPTS", &self.generate_scripts()),
@@ -296,12 +301,14 @@ impl ModernHtmlExporter {
             // 顺序 await 以保证随后的同步 render_message 可从缓存中取到；
             // 同一资源 key 二次出现时会命中缓存不重复读盘。
             if use_data_uri {
+                self.data_uri_cache.begin_message();
                 for res in iter_resources(message) {
                     self.preload_data_uri(&res).await;
                 }
             }
 
             // 渲染并写入单条消息（小字符串，立即写出，避免累积）
+            self.reply_targets.observe_rendered(message);
             let chunk = self.render_message(message);
             write_chunk(&mut ws, &output_path, &chunk).await?;
             write_chunk(&mut ws, &output_path, "\n").await?;
@@ -373,6 +380,21 @@ impl ModernHtmlExporter {
         messages: &[CleanMessage],
         chat_info: &ChatInfo,
     ) -> ExportResultT<Vec<String>> {
+        let mut source = SliceMessageSource::new(messages);
+        self.export_single_inline_source(&mut source, chat_info)
+            .await
+    }
+
+    /// [`Self::export_single_inline`] 的分批数据源版本（issue #666）：消息由
+    /// [`CleanMessageSource`] 按批提供，全程不持有完整消息数组。
+    ///
+    /// # Errors
+    /// 输出文件 / 目录 I/O 失败时返回 [`ExportError::Io`]；数据源读取失败时透传其错误。
+    pub async fn export_single_inline_source<S: CleanMessageSource>(
+        &mut self,
+        source: &mut S,
+        chat_info: &ChatInfo,
+    ) -> ExportResultT<Vec<String>> {
         let output_path = self.options.output_path.clone();
         let output_dir = output_path
             .parent()
@@ -392,8 +414,8 @@ impl ModernHtmlExporter {
         // 1) chunked 导出到临时目录
         self.options.output_path = temp_dir.join("index.html");
         let chunked_result = self
-            .export_chunked(
-                messages,
+            .export_chunked_source(
+                source,
                 chat_info,
                 &ChunkedHtmlExportOptions {
                     write_manifest_json: Some(false),
@@ -827,12 +849,14 @@ impl ModernHtmlExporter {
 
                 // data URI 内联模式：渲染前预载本条消息的资源
                 if self.options.include_resource_links && self.options.embed_resources_as_data_uri {
+                    self.data_uri_cache.begin_message();
                     for res in iter_resources(message) {
                         self.preload_data_uri(&res).await;
                     }
                 }
 
                 // render HTML
+                self.reply_targets.observe_rendered(message);
                 let html = self.render_message(message);
 
                 // extract plain text
@@ -1085,11 +1109,34 @@ impl ModernHtmlExporter {
 
     /* ------------------------ 元数据回填 ------------------------ */
 
-    /// 更新 HTML 文件中的元数据注释（失败静默）。
+    /// 原地更新 HTML 文件头部元数据注释里的 `messageCount`（失败静默）。
+    ///
+    /// 只读取文件前 [`METADATA_SCAN_BYTES`] 字节定位注释，新内容用空格补齐到与
+    /// 旧注释等长后 seek 覆写，因此内存与 I/O 都与文件大小无关。
     async fn update_metadata(&self, message_count: usize) {
-        let Ok(content) = fs::read_to_string(&self.options.output_path).await else {
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+        let path = &self.options.output_path;
+        let Ok(mut file) = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .await
+        else {
             return;
         };
+        let mut head = vec![0u8; METADATA_SCAN_BYTES];
+        let mut filled = 0usize;
+        while filled < head.len() {
+            match file.read(&mut head[filled..]).await {
+                Ok(0) => break,
+                Ok(n) => filled += n,
+                Err(_) => return,
+            }
+        }
+        head.truncate(filled);
+        let content = String::from_utf8_lossy(&head);
+
         // 手工匹配 `<!-- QCE_METADATA: \{[^}]+\} -->` 形式的标记。
         let Some(start) = content.find("<!-- QCE_METADATA: {") else {
             return;
@@ -1099,9 +1146,10 @@ impl ModernHtmlExporter {
             return;
         };
         let brace_end = brace_start + brace_rel_end + 1;
-        if !content[brace_end..].starts_with(" -->") {
+        let Some(close_rel) = content[brace_end..].find("-->") else {
             return;
-        }
+        };
+        let comment_end = brace_end + close_rel + "-->".len();
         let metadata_str = &content[brace_start..brace_end];
         let Ok(mut metadata) = serde_json::from_str::<Value>(metadata_str) else {
             return;
@@ -1110,16 +1158,28 @@ impl ModernHtmlExporter {
             return;
         };
         obj.insert("messageCount".to_owned(), json!(message_count));
-        let new_comment = format!("<!-- QCE_METADATA: {metadata} -->");
-        let comment_end = brace_end + " -->".len();
-        let new_content = format!(
-            "{}{}{}",
-            &content[..start],
-            new_comment,
-            &content[comment_end..]
-        );
-        // 写回失败同样静默，不影响导出流程
-        let _ = fs::write(&self.options.output_path, new_content).await;
+
+        let old_len = comment_end - start;
+        let mut new_comment = format!("<!-- QCE_METADATA: {metadata} -->");
+        if new_comment.len() > old_len {
+            return;
+        }
+        // 把补齐空格放在 `}` 与 `-->` 之间，保持注释整体长度不变
+        let pad = old_len - new_comment.len();
+        new_comment.truncate(new_comment.len() - " -->".len());
+        new_comment.push_str(&" ".repeat(pad + 1));
+        new_comment.push_str("-->");
+        debug_assert_eq!(new_comment.len(), old_len);
+
+        if file
+            .seek(std::io::SeekFrom::Start(start as u64))
+            .await
+            .is_err()
+        {
+            return;
+        }
+        let _ = file.write_all(new_comment.as_bytes()).await;
+        let _ = file.flush().await;
     }
 
     /* ------------------------ Issue #311: data URI 内联 ------------------------ */
@@ -1128,25 +1188,22 @@ impl ModernHtmlExporter {
     /// 缓存已存在、之前已记录过 miss、文件超过 `max_embed_file_size_bytes`。
     async fn preload_data_uri(&mut self, resource: &ResourceTask) {
         let key = data_uri_cache_key(resource);
-        if key.is_empty() {
-            return;
-        }
-        if self.data_uri_cache.contains_key(&key) || self.data_uri_misses.contains(&key) {
+        if key.is_empty() || self.data_uri_cache.is_known(&key) {
             return;
         }
 
         let Some(source_path) = resolve_resource_source_path(resource).await else {
-            self.data_uri_misses.insert(key);
+            self.data_uri_cache.record_miss(key);
             return;
         };
 
         let Ok(meta) = fs::metadata(&source_path).await else {
-            self.data_uri_misses.insert(key);
+            self.data_uri_cache.record_miss(key);
             return;
         };
         let limit = self.options.max_embed_file_size_bytes;
         if limit > 0 && meta.len() > limit {
-            self.data_uri_misses.insert(key);
+            self.data_uri_cache.record_miss(key);
             return;
         }
         match fs::read(&source_path).await {
@@ -1158,7 +1215,7 @@ impl ModernHtmlExporter {
                 self.data_uri_cache.insert(key, data_uri);
             }
             Err(_) => {
-                self.data_uri_misses.insert(key);
+                self.data_uri_cache.record_miss(key);
             }
         }
     }
@@ -1170,7 +1227,7 @@ impl ModernHtmlExporter {
         }
         self.data_uri_cache
             .get(&format!("{type_dir}/{file_name}"))
-            .cloned()
+            .map(str::to_owned)
     }
 
     /* ------------------------ HTML 片段生成 ------------------------ */
@@ -1647,55 +1704,25 @@ impl ModernHtmlExporter {
         )
     }
 
-    fn prepare_reply_targets(&mut self, messages: &[CleanMessage]) {
-        self.begin_reply_targets();
-        self.extend_reply_targets(messages);
-    }
-
     /// 清空 reply 跳转索引（流式导出时先建索引再写 chunk）。
     fn begin_reply_targets(&mut self) {
-        self.rendered_message_ids.clear();
-        self.message_id_by_time_sender.clear();
+        self.reply_targets.clear();
     }
 
-    /// 把一批消息并入 reply 跳转索引。
+    /// 把一批消息并入 reply 跳转索引（第一遍扫描）。
     fn extend_reply_targets(&mut self, messages: &[CleanMessage]) {
         for message in messages {
-            if message.id.trim().is_empty() {
-                continue;
-            }
-            self.rendered_message_ids.insert(message.id.clone());
-            for sender in [
-                Some(message.sender.uid.as_str()),
-                message.sender.uin.as_deref(),
-            ]
-            .into_iter()
-            .flatten()
-            .map(str::trim)
-            .filter(|sender| !sender.is_empty())
-            {
-                let key = (message.timestamp, sender.to_string());
-                match self.message_id_by_time_sender.entry(key) {
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        entry.insert(Some(message.id.clone()));
-                    }
-                    std::collections::hash_map::Entry::Occupied(mut entry) => {
-                        if entry.get().as_deref() != Some(message.id.as_str()) {
-                            entry.insert(None);
-                        }
-                    }
-                }
-            }
+            self.reply_targets.index_message(message);
         }
     }
 
     fn resolve_reply_jump_target(&self, data: &Value, input: &ReplyRenderInput) -> Option<String> {
         if let Some(candidate) = choose_reply_jump_target(input) {
-            if self.rendered_message_ids.contains(&candidate) {
+            if self.reply_targets.contains_id(&candidate) {
                 return Some(candidate);
             }
             if let Some(raw_id) = candidate.strip_prefix("msg-") {
-                if self.rendered_message_ids.contains(raw_id) {
+                if self.reply_targets.contains_id(raw_id) {
                     return Some(raw_id.to_string());
                 }
             }
@@ -1709,7 +1736,8 @@ impl ModernHtmlExporter {
             .map(|sender| sender.trim().to_string())
             .filter(|sender| !sender.is_empty())
         {
-            if let Some(Some(message_id)) = self.message_id_by_time_sender.get(&(timestamp, sender))
+            if let Some(Some(message_id)) =
+                self.reply_targets.lookup_by_time_sender(timestamp, &sender)
             {
                 matches.insert(message_id.clone());
             }

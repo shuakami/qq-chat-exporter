@@ -1,4 +1,6 @@
-use crate::base::{ensure_parent_dir, file_size_or_zero, now_iso, preprocess_messages, ExporterContext};
+use crate::base::{
+    ensure_parent_dir, file_size_or_zero, now_iso, preprocess_messages, ExporterContext,
+};
 use crate::chunked_jsonl_writer::{
     ChunkedJsonlChunkInfo, ChunkedJsonlWriter, ChunkedJsonlWriterOptions,
 };
@@ -8,6 +10,8 @@ use crate::json_templates::{
     JsonObjectStreamTemplates, JsonSingleFileTemplates, DEFAULT_AVATARS_FILE_NAME,
     DEFAULT_CHUNKS_DIR_NAME, DEFAULT_MANIFEST_FILE_NAME,
 };
+use crate::message_source::{CleanMessageSource, SliceMessageSource};
+use crate::resource_index::DownloadedResourceIndex;
 use crate::stats::{FinalStats, StatsAccumulator};
 use crate::stream_utils::{yield_to_event_loop, BufferedTextWriter, DEFAULT_FLUSH_THRESHOLD};
 use crate::types::{
@@ -17,7 +21,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -203,7 +207,7 @@ impl JsonExporter {
         self.metadata = metadata;
     }
 
-    /// 导出入口。
+    /// 导出入口（全量内存切片；大规模导出请用 [`Self::export_source`]）。
     pub async fn export(
         &self,
         messages: Vec<CleanMessage>,
@@ -212,30 +216,73 @@ impl JsonExporter {
         match self.json_options.export_mode {
             JsonExportMode::ChunkedJsonl => {
                 let r = self
-                    .export_chunked_jsonl(messages, chat_info, self.json_options.chunked_jsonl.clone())
+                    .export_chunked_jsonl(
+                        messages,
+                        chat_info,
+                        self.json_options.chunked_jsonl.clone(),
+                    )
                     .await?;
                 Ok(r.base)
             }
-            JsonExportMode::SingleJson => self.export_single_json_streaming(messages, chat_info).await,
+            JsonExportMode::SingleJson => {
+                self.export_single_json_streaming(messages, chat_info).await
+            }
         }
     }
 
-    /// 方案 A：单文件 JSON 两阶段流式导出。
-    ///
-    /// 阶段 1：写 NDJSON 临时文件（issue #192：临时文件放输出目录而非系统临时目录）；
-    /// 阶段 2：流式读 NDJSON，合成最终 JSON（metadata / statistics / avatars）。
+    /// 导出入口（分批数据源；issue #666）。`total_hint` 仅用于进度显示，0 表示未知。
+    pub async fn export_source<S: CleanMessageSource>(
+        &self,
+        source: &mut S,
+        chat_info: &ChatInfo,
+        total_hint: usize,
+    ) -> ExportResultT<ExportOutcome> {
+        match self.json_options.export_mode {
+            JsonExportMode::ChunkedJsonl => {
+                let r = self
+                    .export_chunked_jsonl_source(
+                        source,
+                        chat_info,
+                        self.json_options.chunked_jsonl.clone(),
+                        total_hint,
+                    )
+                    .await?;
+                Ok(r.base)
+            }
+            JsonExportMode::SingleJson => {
+                self.export_single_json_source(source, chat_info, total_hint)
+                    .await
+            }
+        }
+    }
+
+    /// 方案 A：单文件 JSON 两阶段流式导出（全量内存切片入口）。
     pub async fn export_single_json_streaming(
         &self,
         messages: Vec<CleanMessage>,
         chat_info: &ChatInfo,
     ) -> ExportResultT<ExportOutcome> {
-        let start_time = Instant::now();
-        self.ctx
-            .update_progress(0, messages.len(), "开始JSON流式导出");
-        self.ctx.ensure_output_directory().await?;
-
         let filtered = preprocess_messages(messages);
-        let total = filtered.len();
+        let mut source = SliceMessageSource::new(&filtered);
+        self.export_single_json_source(&mut source, chat_info, filtered.len())
+            .await
+    }
+
+    /// 方案 A：单文件 JSON 两阶段流式导出。
+    ///
+    /// 阶段 1：按批读取数据源，逐条写 NDJSON 临时文件（issue #192：临时文件放输出
+    /// 目录而非系统临时目录）；
+    /// 阶段 2：流式读 NDJSON，合成最终 JSON（metadata / statistics / avatars）。
+    /// 全程只有一批消息常驻内存。
+    pub async fn export_single_json_source<S: CleanMessageSource>(
+        &self,
+        source: &mut S,
+        chat_info: &ChatInfo,
+        total_hint: usize,
+    ) -> ExportResultT<ExportOutcome> {
+        let start_time = Instant::now();
+        self.ctx.update_progress(0, total_hint, "开始JSON流式导出");
+        self.ctx.ensure_output_directory().await?;
 
         let output_dir = self
             .ctx
@@ -251,7 +298,7 @@ impl JsonExporter {
         let tmp_file = output_dir.join(format!(".qce_temp_{nanos}.ndjson"));
 
         let result = self
-            .export_single_json_inner(&filtered, chat_info, &tmp_file, total, start_time)
+            .export_single_json_inner(source, chat_info, &tmp_file, total_hint, start_time)
             .await;
 
         // 无论成败都清理临时文件
@@ -260,60 +307,50 @@ impl JsonExporter {
         result
     }
 
-    async fn export_single_json_inner(
+    async fn export_single_json_inner<S: CleanMessageSource>(
         &self,
-        filtered: &[CleanMessage],
+        source: &mut S,
         chat_info: &ChatInfo,
         tmp_file: &Path,
-        total: usize,
+        total_hint: usize,
         start_time: Instant,
     ) -> ExportResultT<ExportOutcome> {
         // 阶段1: 写 NDJSON
         let mut ndjson_writer =
             BufferedTextWriter::create(tmp_file, DEFAULT_FLUSH_THRESHOLD).await?;
-        let mut stats_acc = StatsAccumulator::new();
-        let mut resource_count = 0usize;
+        let mut pass = MessagePass::new(self.json_options.embed_avatars_as_base64);
 
-        // 头像 base64 预下载
+        source.restart().await?;
+        while let Some(batch) = source.next_batch().await? {
+            self.ctx.check_cancelled()?;
+            for mut message in batch {
+                if !pass.accept(&mut message, &self.ctx.options.downloaded_resources) {
+                    continue;
+                }
+                ndjson_writer
+                    .write(&serde_json::to_string(&message)?)
+                    .await?;
+                ndjson_writer.write("\n").await?;
+            }
+            yield_to_event_loop().await;
+            self.ctx.update_progress(
+                pass.processed,
+                total_hint.max(pass.processed),
+                &format!("解析进度 {}", pass.processed),
+            );
+        }
+        ndjson_writer.end().await?;
+        let total = pass.processed;
+
+        // 头像 base64：只对去重后的发送者 QQ 号逐个下载
         let avatar_map = if self.json_options.embed_avatars_as_base64 {
-            Some(self.pre_download_avatars(filtered).await)
+            Some(self.download_avatars(pass.take_uins()).await)
         } else {
             None
         };
 
-        let resource_map = &self.ctx.options.resource_map;
-
-        for (i, msg) in filtered.iter().enumerate() {
-            self.ctx.check_cancelled()?;
-
-            stats_acc.consume(msg);
-            resource_count += msg.content.resources.len();
-
-            let mut clean_msg = msg.clone();
-            // 智能清理 rawMessage：递归删除 null / 空值
-            if let Some(raw) = clean_msg.raw_message.take() {
-                clean_msg.raw_message = clean_raw_message(&raw);
-            }
-            // issue #277：把已下载资源的相对路径写到消息
-            if let Some(resources) = resource_map.get(&clean_msg.id) {
-                update_message_resource_paths(&mut clean_msg, resources);
-            }
-
-            ndjson_writer
-                .write(&serde_json::to_string(&clean_msg)?)
-                .await?;
-            ndjson_writer.write("\n").await?;
-
-            if (i + 1) % 5000 == 0 {
-                yield_to_event_loop().await;
-                self.ctx
-                    .update_progress(i + 1, total, &format!("解析进度 {}/{total}", i + 1));
-            }
-        }
-        ndjson_writer.end().await?;
-
         // 阶段2: 合成最终 JSON
-        let final_stats = stats_acc.finalize();
+        let final_stats = pass.stats.finalize();
         let formatted_chat_info = self.format_chat_info_async(chat_info).await;
 
         let mut out_writer =
@@ -338,6 +375,7 @@ impl JsonExporter {
                 .map_err(|e| ExportError::io("readNdjson", tmp_file, e))?;
             let mut lines = BufReader::new(read_file).lines();
             let mut is_first = true;
+            let mut copied = 0usize;
             while let Some(line) = lines
                 .next_line()
                 .await
@@ -357,6 +395,11 @@ impl JsonExporter {
                     out_writer.write(&line).await?;
                 }
                 is_first = false;
+                copied += 1;
+                if copied % 5000 == 0 {
+                    self.ctx.check_cancelled()?;
+                    yield_to_event_loop().await;
+                }
             }
         }
 
@@ -395,7 +438,9 @@ impl JsonExporter {
                 .await?;
         }
 
-        out_writer.write(&JsonSingleFileTemplates::end(&ctx)).await?;
+        out_writer
+            .write(&JsonSingleFileTemplates::end(&ctx))
+            .await?;
         out_writer.end().await?;
 
         // issue #277：拷贝资源到导出目录（失败不阻断导出）
@@ -411,28 +456,38 @@ impl JsonExporter {
             file_path: self.ctx.options.output_path.clone(),
             file_size: self.ctx.output_file_size().await,
             message_count: total,
-            resource_count,
+            resource_count: pass.resource_count,
             export_time: start_time.elapsed().as_millis(),
             completed_at: now_iso(),
         })
     }
 
-    /// 方案 B：chunked-jsonl 导出。
-    ///
-    /// 输出结构：`<outputDir>/manifest.json + chunks/cNNNNNN.jsonl [+ avatars.json]`。
+    /// 方案 B：chunked-jsonl 导出（全量内存切片入口）。
     pub async fn export_chunked_jsonl(
         &self,
         messages: Vec<CleanMessage>,
         chat_info: &ChatInfo,
         options: ChunkedJsonlExportOptions,
     ) -> ExportResultT<ChunkedJsonlOutcome> {
-        let start_time = Instant::now();
-        self.ctx
-            .update_progress(0, messages.len(), "开始JSONL分块导出");
-        self.ctx.ensure_output_directory().await?;
-
         let filtered = preprocess_messages(messages);
-        let total = filtered.len();
+        let mut source = SliceMessageSource::new(&filtered);
+        self.export_chunked_jsonl_source(&mut source, chat_info, options, filtered.len())
+            .await
+    }
+
+    /// 方案 B：chunked-jsonl 导出（分批数据源）。
+    ///
+    /// 输出结构：`<outputDir>/manifest.json + chunks/cNNNNNN.jsonl [+ avatars.json]`。
+    pub async fn export_chunked_jsonl_source<S: CleanMessageSource>(
+        &self,
+        source: &mut S,
+        chat_info: &ChatInfo,
+        options: ChunkedJsonlExportOptions,
+        total_hint: usize,
+    ) -> ExportResultT<ChunkedJsonlOutcome> {
+        let start_time = Instant::now();
+        self.ctx.update_progress(0, total_hint, "开始JSONL分块导出");
+        self.ctx.ensure_output_directory().await?;
 
         let output_dir = options
             .output_dir
@@ -451,15 +506,6 @@ impl JsonExporter {
             .await
             .map_err(|e| ExportError::io("mkdirChunksDir", &chunks_dir, e))?;
 
-        let mut stats_acc = StatsAccumulator::new();
-        let mut resource_count = 0usize;
-
-        let avatar_map = if self.json_options.embed_avatars_as_base64 {
-            Some(self.pre_download_avatars(&filtered).await)
-        } else {
-            None
-        };
-
         let chunk_ext = options.chunk_file_ext.clone();
         let mut writer = ChunkedJsonlWriter::new(ChunkedJsonlWriterOptions {
             chunks_dir,
@@ -471,41 +517,37 @@ impl JsonExporter {
         })
         .await?;
 
-        let resource_map = &self.ctx.options.resource_map;
-        let mut processed = 0usize;
+        let mut pass = MessagePass::new(self.json_options.embed_avatars_as_base64);
 
-        for msg in &filtered {
+        source.restart().await?;
+        while let Some(batch) = source.next_batch().await? {
             self.ctx.check_cancelled()?;
-
-            stats_acc.consume(msg);
-            resource_count += msg.content.resources.len();
-
-            let mut clean_msg = msg.clone();
-            if let Some(raw) = clean_msg.raw_message.take() {
-                clean_msg.raw_message = clean_raw_message(&raw);
+            for mut message in batch {
+                if !pass.accept(&mut message, &self.ctx.options.downloaded_resources) {
+                    continue;
+                }
+                let ts_ms = message.timestamp;
+                let line = serde_json::to_string(&message)?;
+                writer.write_line(&line, Some(ts_ms)).await?;
             }
-            if let Some(resources) = resource_map.get(&clean_msg.id) {
-                update_message_resource_paths(&mut clean_msg, resources);
-            }
-
-            let ts_ms = clean_msg.timestamp;
-            let line = serde_json::to_string(&clean_msg)?;
-            writer.write_line(&line, Some(ts_ms)).await?;
-
-            processed += 1;
-            if processed % 5000 == 0 {
-                yield_to_event_loop().await;
-                self.ctx.update_progress(
-                    processed,
-                    total,
-                    &format!("解析并写入 chunk {processed}/{total}"),
-                );
-            }
+            yield_to_event_loop().await;
+            self.ctx.update_progress(
+                pass.processed,
+                total_hint.max(pass.processed),
+                &format!("解析并写入 chunk {}", pass.processed),
+            );
         }
 
         writer.finalize().await?;
+        let total = pass.processed;
 
-        let final_stats = stats_acc.finalize();
+        let avatar_map = if self.json_options.embed_avatars_as_base64 {
+            Some(self.download_avatars(pass.take_uins()).await)
+        } else {
+            None
+        };
+
+        let final_stats = pass.stats.finalize();
         let formatted_chat_info = self.format_chat_info_async(chat_info).await;
 
         // avatars 文件（流式写，避免大对象常驻内存）
@@ -522,7 +564,7 @@ impl JsonExporter {
             }
         }
 
-        let chunks = writer.chunks().to_vec();
+        let chunks = writer.chunks();
         let manifest = ChunkedJsonlManifest {
             metadata: &self.metadata,
             chat_info: &formatted_chat_info,
@@ -533,7 +575,7 @@ impl JsonExporter {
                 chunk_file_ext: &options.chunk_file_ext,
                 max_messages_per_chunk: options.max_messages_per_chunk,
                 max_bytes_per_chunk: options.max_bytes_per_chunk,
-                chunks: &chunks,
+                chunks,
             },
             avatars: avatars_ref.clone(),
             export_options: self
@@ -542,8 +584,11 @@ impl JsonExporter {
                 .then(|| self.generate_export_options()),
         };
 
-        let manifest_content =
-            render_json_file(&manifest, self.json_options.pretty, self.json_options.indent)?;
+        let manifest_content = render_json_file(
+            &manifest,
+            self.json_options.pretty,
+            self.json_options.indent,
+        )?;
         tokio::fs::write(&manifest_path, manifest_content.as_bytes())
             .await
             .map_err(|e| ExportError::io("writeManifest", &manifest_path, e))?;
@@ -567,7 +612,7 @@ impl JsonExporter {
                 file_path: manifest_path.clone(),
                 file_size: total_size,
                 message_count: total,
-                resource_count,
+                resource_count: pass.resource_count,
                 export_time: start_time.elapsed().as_millis(),
                 completed_at: now_iso(),
             },
@@ -580,7 +625,10 @@ impl JsonExporter {
     /// 从 `output_path` 推导默认 chunked 输出目录：`<dirname>/<basename>_chunked_jsonl`。
     fn derive_default_chunked_output_dir(&self) -> PathBuf {
         let output_path = &self.ctx.options.output_path;
-        let dir = output_path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let dir = output_path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
         let base = output_path
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
@@ -679,23 +727,13 @@ impl JsonExporter {
         }
     }
 
-    /// 预下载所有消息发送者的头像。
-    async fn pre_download_avatars(
-        &self,
-        messages: &[CleanMessage],
-    ) -> indexmap::IndexMap<String, String> {
-        let mut unique_uins: BTreeSet<String> = BTreeSet::new();
-        for msg in messages {
-            if let Some(uin) = &msg.sender.uin {
-                let uin = uin.trim();
-                if !uin.is_empty() && uin != "0" {
-                    unique_uins.insert(uin.to_owned());
-                }
-            }
-        }
-
+    /// 逐个下载去重后的发送者头像（`uins` 已按字典序排好，输出顺序与之一致）。
+    async fn download_avatars(&self, uins: BTreeSet<String>) -> indexmap::IndexMap<String, String> {
         let mut avatar_map = indexmap::IndexMap::new();
-        for uin in unique_uins {
+        for uin in uins {
+            if self.ctx.cancellation.is_cancelled() {
+                break;
+            }
             if let Some(base64) = self.download_avatar_as_base64(&uin).await {
                 avatar_map.insert(uin, base64);
             }
@@ -728,10 +766,7 @@ impl JsonExporter {
         } else {
             "image/jpeg"
         };
-        Some(format!(
-            "data:{mime_type};base64,{}",
-            BASE64.encode(&bytes)
-        ))
+        Some(format!("data:{mime_type};base64,{}", BASE64.encode(&bytes)))
     }
 }
 
@@ -781,47 +816,74 @@ pub fn clean_raw_message(value: &Value) -> Option<Value> {
     }
 }
 
+/// 单遍扫描时的逐条处理状态：过滤 / 统计 / rawMessage 清理 / 资源路径回填 /
+/// 头像 QQ 号收集。只保留聚合值，不持有任何消息。
+struct MessagePass {
+    stats: StatsAccumulator,
+    processed: usize,
+    resource_count: usize,
+    uins: Option<BTreeSet<String>>,
+}
+
+impl MessagePass {
+    fn new(collect_uins: bool) -> Self {
+        Self {
+            stats: StatsAccumulator::new(),
+            processed: 0,
+            resource_count: 0,
+            uins: collect_uins.then(BTreeSet::new),
+        }
+    }
+
+    /// 返回 `false` 表示该消息被过滤（空 ID），调用方应跳过。
+    fn accept(&mut self, message: &mut CleanMessage, index: &DownloadedResourceIndex) -> bool {
+        if message.id.is_empty() {
+            return false;
+        }
+        self.stats.consume(message);
+        self.processed += 1;
+        self.resource_count += message.content.resources.len();
+        if let Some(uins) = self.uins.as_mut() {
+            if let Some(uin) = message.sender.uin.as_deref().map(str::trim) {
+                if !uin.is_empty() && uin != "0" && !uins.contains(uin) {
+                    uins.insert(uin.to_owned());
+                }
+            }
+        }
+        // 智能清理 rawMessage：递归删除 null / 空值
+        if let Some(raw) = message.raw_message.take() {
+            message.raw_message = clean_raw_message(&raw);
+        }
+        // issue #277：把已下载资源的相对路径写到消息
+        update_message_resource_paths(message, index);
+        true
+    }
+
+    fn take_uins(&mut self) -> BTreeSet<String> {
+        self.uins.take().unwrap_or_default()
+    }
+}
+
 /// 将已下载资源的相对路径写回消息（issue #277）。
 ///
 /// - `content.resources[]`：按文件名匹配写入 `localPath`（`<typeDir>/<fileName>`）；
 /// - `content.elements[]`：image / video / audio / file 元素的 `data.localPath` 同步覆写。
-pub fn update_message_resource_paths(
-    message: &mut CleanMessage,
-    downloaded: &[crate::types::MessageResource],
-) {
-    if downloaded.is_empty() {
+pub fn update_message_resource_paths(message: &mut CleanMessage, index: &DownloadedResourceIndex) {
+    if index.is_empty() {
         return;
     }
-
-    // fileName → 相对路径映射
-    let mut by_name: HashMap<String, String> = HashMap::new();
-    for r in downloaded {
-        let Some(local_path) = r.local_path.as_deref() else {
-            continue;
-        };
-        let Some(file_name) = Path::new(local_path).file_name() else {
-            continue;
-        };
-        let file_name = file_name.to_string_lossy().into_owned();
-        let type_dir = crate::base::resource_type_dir(&r.resource_type);
-        by_name.insert(file_name.clone(), format!("{type_dir}/{file_name}"));
-    }
-    if by_name.is_empty() {
-        return;
-    }
-
-    let lookup = |name: Option<&str>| -> Option<String> {
-        let name = name?;
-        let base = Path::new(name).file_name()?.to_string_lossy().into_owned();
-        by_name.get(&base).cloned()
-    };
 
     for resource in &mut message.content.resources {
         let candidate = resource
             .filename
             .as_deref()
-            .and_then(|n| lookup(Some(n)))
-            .or_else(|| lookup(resource.local_path.as_deref()));
+            .and_then(|name| index.relative_path_for(name))
+            .or_else(|| {
+                resource
+                    .local_path
+                    .as_deref()
+                    .and_then(|path| index.relative_path_for(path))
+            });
         if let Some(rel) = candidate {
             resource.local_path = Some(rel);
         }
@@ -837,17 +899,17 @@ pub fn update_message_resource_paths(
         let Value::Object(data) = &mut element.data else {
             continue;
         };
-        let name = data
+        let rel = data
             .get("filename")
             .or_else(|| data.get("fileName"))
             .and_then(Value::as_str)
-            .map(str::to_owned)
+            .and_then(|name| index.relative_path_for(name))
             .or_else(|| {
                 data.get("localPath")
                     .and_then(Value::as_str)
-                    .map(str::to_owned)
+                    .and_then(|path| index.relative_path_for(path))
             });
-        if let Some(rel) = lookup(name.as_deref()) {
+        if let Some(rel) = rel {
             data.insert("localPath".to_owned(), Value::String(rel));
         }
     }
