@@ -139,6 +139,23 @@ pub struct ResourceBatchSummary {
     pub failed_samples: Vec<String>,
 }
 
+impl ResourceBatchSummary {
+    /// 累加另一批的摘要（逐块下载时汇总为任务级摘要）。
+    pub fn merge(&mut self, batch: &Self) {
+        self.attempted += batch.attempted;
+        self.already_available += batch.already_available;
+        self.downloaded += batch.downloaded;
+        self.failed += batch.failed;
+        self.skipped += batch.skipped;
+        for sample in &batch.failed_samples {
+            if self.failed_samples.len() >= 5 {
+                break;
+            }
+            self.failed_samples.push(sample.clone());
+        }
+    }
+}
+
 /// 进度计数器。
 #[derive(Debug, Default)]
 struct ProgressCounters {

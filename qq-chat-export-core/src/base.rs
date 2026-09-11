@@ -1,11 +1,11 @@
 use crate::error::{ExportError, ExportResultT};
 use crate::types::{
-    CancellationToken, CleanMessage, ExportFormat, ExportOptions, ExportProgress,
-    ProgressCallback, TimeFormat,
+    CancellationToken, CleanMessage, ExportFormat, ExportOptions, ExportProgress, ProgressCallback,
+    TimeFormat,
 };
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike, Utc};
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// 导出器共享上下文。
 pub struct ExporterContext {
@@ -82,56 +82,49 @@ impl ExporterContext {
         format_timestamp(ts, self.options.time_format)
     }
 
-    /// issue #277：把 `resource_map` 中已下载的资源复制到导出目录
+    /// issue #277：把已下载资源索引中的文件复制到导出目录
     /// `resources/<typeDir>/<fileName>` 下。
     ///
-    /// - 重复目标路径按存在性跳过；
+    /// - 索引本身按文件名去重，目标路径以磁盘存在性为准，不再维护拷贝集合；
     /// - 单个资源拷贝失败仅跳过，不中断导出；
-    /// - `resource_map` 为空时 no-op。
+    /// - 索引为空时 no-op。
     pub async fn copy_resources_alongside_export(&self, output_dir: &Path) -> usize {
-        let map = &self.options.resource_map;
-        if map.is_empty() {
+        let index = &self.options.downloaded_resources;
+        if index.is_empty() {
             return 0;
         }
 
         let mut copied = 0usize;
-        let mut seen: HashSet<PathBuf> = HashSet::new();
-        for resources in map.values() {
-            for r in resources {
-                let Some(local_path) = r.local_path.as_deref() else {
-                    continue;
-                };
-                if local_path.trim().is_empty() {
-                    continue;
-                }
-                let source = Path::new(local_path);
-                let Ok(meta) = tokio::fs::metadata(source).await else {
-                    continue;
-                };
-                if !meta.is_file() {
-                    continue;
-                }
+        let mut ensured_dirs: HashSet<&'static str> = HashSet::new();
+        for resource in index.iter() {
+            let Ok(meta) = tokio::fs::metadata(&resource.source_path).await else {
+                continue;
+            };
+            if !meta.is_file() {
+                continue;
+            }
+            let type_dir = resource_type_dir(resource.resource_type);
+            let target_dir = output_dir.join("resources").join(type_dir);
+            let Some(file_name) = resource.source_path.file_name() else {
+                continue;
+            };
+            let target_path = target_dir.join(file_name);
 
-                let Some(file_name) = source.file_name() else {
-                    continue;
-                };
-                let type_dir = resource_type_dir(&r.resource_type);
-                let target_dir = output_dir.join("resources").join(type_dir);
-                let target_path = target_dir.join(file_name);
-                if !seen.insert(target_path.clone()) {
-                    continue;
-                }
-
-                if tokio::fs::try_exists(&target_path).await.unwrap_or(false) {
-                    copied += 1;
-                    continue;
-                }
-                if tokio::fs::create_dir_all(&target_dir).await.is_err() {
-                    continue;
-                }
-                if tokio::fs::copy(source, &target_path).await.is_ok() {
-                    copied += 1;
-                }
+            if tokio::fs::try_exists(&target_path).await.unwrap_or(false) {
+                copied += 1;
+                continue;
+            }
+            if ensured_dirs.insert(type_dir)
+                && tokio::fs::create_dir_all(&target_dir).await.is_err()
+            {
+                ensured_dirs.remove(type_dir);
+                continue;
+            }
+            if tokio::fs::copy(&resource.source_path, &target_path)
+                .await
+                .is_ok()
+            {
+                copied += 1;
             }
         }
         copied

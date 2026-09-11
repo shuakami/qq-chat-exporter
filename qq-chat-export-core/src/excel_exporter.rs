@@ -1,10 +1,15 @@
 use crate::base::{ms_to_iso, now_iso, preprocess_messages, ExporterContext};
 use crate::error::{ExportError, ExportResultT};
+use crate::message_source::{CleanMessageSource, SliceMessageSource};
+use crate::stream_utils::yield_to_event_loop;
 use crate::types::{ChatInfo, CleanMessage, ExportFormat, ExportOptions, ExportOutcome};
 use indexmap::IndexMap;
 use rust_xlsxwriter::{Workbook, Worksheet};
 use serde_json::Value;
 use std::time::Instant;
+
+/// 每个「常量内存」工作表在写入多少行后让出一次事件循环。
+const YIELD_EVERY_ROWS: usize = 5000;
 
 /// 列宽设置。
 #[derive(Debug, Clone)]
@@ -94,29 +99,31 @@ pub struct MessageStatistics {
 /// 计算消息统计。
 #[must_use]
 pub fn calculate_statistics(messages: &[CleanMessage]) -> MessageStatistics {
-    let mut stats = MessageStatistics {
-        total: messages.len() as u64,
-        ..MessageStatistics::default()
-    };
-    if messages.is_empty() {
-        return stats;
-    }
-
-    let mut ts: Vec<i64> = messages
-        .iter()
-        .map(|m| m.timestamp)
-        .filter(|t| *t > 0)
-        .collect();
-    ts.sort_unstable();
-    if let (Some(first), Some(last)) = (ts.first(), ts.last()) {
-        stats.time_range_start = ms_to_iso(*first);
-        stats.time_range_end = ms_to_iso(*last);
-        let diff = last - first;
-        stats.duration_days = diff.div_euclid(86_400_000)
-            + i64::from(diff.rem_euclid(86_400_000) > 0);
-    }
-
+    let mut acc = StatisticsAccumulator::default();
     for m in messages {
+        acc.consume(m);
+    }
+    acc.finish()
+}
+
+/// 单遍累加的消息统计（与 [`calculate_statistics`] 结果一致，但不需要持有全部消息）。
+#[derive(Debug, Default)]
+pub struct StatisticsAccumulator {
+    stats: MessageStatistics,
+    earliest: Option<i64>,
+    latest: Option<i64>,
+}
+
+impl StatisticsAccumulator {
+    /// 累加一条消息。
+    pub fn consume(&mut self, m: &CleanMessage) {
+        let stats = &mut self.stats;
+        stats.total += 1;
+        if m.timestamp > 0 {
+            self.earliest = Some(self.earliest.map_or(m.timestamp, |e| e.min(m.timestamp)));
+            self.latest = Some(self.latest.map_or(m.timestamp, |l| l.max(m.timestamp)));
+        }
+
         *stats.by_type.entry(m.message_type.clone()).or_insert(0) += 1;
 
         let sender_key = if !m.sender.name.is_empty() {
@@ -155,7 +162,19 @@ pub fn calculate_statistics(messages: &[CleanMessage]) -> MessageStatistics {
         }
     }
 
-    stats
+    /// 结束累加并生成统计结果。
+    #[must_use]
+    pub fn finish(self) -> MessageStatistics {
+        let mut stats = self.stats;
+        if let (Some(first), Some(last)) = (self.earliest, self.latest) {
+            stats.time_range_start = ms_to_iso(first);
+            stats.time_range_end = ms_to_iso(last);
+            let diff = last - first;
+            stats.duration_days =
+                diff.div_euclid(86_400_000) + i64::from(diff.rem_euclid(86_400_000) > 0);
+        }
+        stats
+    }
 }
 
 /// Excel 格式导出器。
@@ -179,106 +198,107 @@ impl ExcelExporter {
         &mut self.ctx
     }
 
-    /// 导出入口。
+    /// 导出入口（全量内存切片；大规模导出请用 [`Self::export_source`]）。
     pub async fn export(
         &self,
         messages: Vec<CleanMessage>,
+        chat_info: &ChatInfo,
+    ) -> ExportResultT<ExportOutcome> {
+        let filtered = preprocess_messages(messages);
+        let mut source = SliceMessageSource::new(&filtered);
+        self.export_source(&mut source, chat_info, filtered.len())
+            .await
+    }
+
+    /// 导出入口（分批数据源；issue #666）。
+    ///
+    /// 「聊天记录」与「资源列表」两个大表使用 `rust_xlsxwriter` 的常量内存模式：
+    /// 每写完一行就刷到临时文件，内存占用与消息数无关。统计类工作表只依赖单遍
+    /// 累加得到的聚合值。数据源被顺序读两遍（消息表 → 资源表），最终工作簿直接
+    /// 保存到目标路径而不再经过内存缓冲。`total_hint` 仅用于进度显示。
+    pub async fn export_source<S: CleanMessageSource>(
+        &self,
+        source: &mut S,
         _chat_info: &ChatInfo,
+        total_hint: usize,
     ) -> ExportResultT<ExportOutcome> {
         let start_time = Instant::now();
         self.ctx
-            .update_progress(0, messages.len(), &format!("开始{}导出", self.ctx.format));
+            .update_progress(0, total_hint, &format!("开始{}导出", self.ctx.format));
         self.ctx.ensure_output_directory().await?;
-
-        let filtered = preprocess_messages(messages);
         self.ctx.check_cancelled()?;
 
         let mut workbook = Workbook::new();
+        let mut stats_acc = StatisticsAccumulator::default();
+        self.write_messages_sheet(&mut workbook, source, &mut stats_acc, total_hint)
+            .await?;
+        let stats = stats_acc.finish();
+        let total = usize::try_from(stats.total).unwrap_or(usize::MAX);
+        let resource_count = usize::try_from(stats.resources_total).unwrap_or(usize::MAX);
 
-        self.add_messages_sheet(&mut workbook, &filtered)?;
         if self.excel_options.include_statistics {
-            self.add_statistics_sheet(&mut workbook, &filtered)?;
+            self.add_statistics_sheet(&mut workbook, &stats)?;
         }
         if self.excel_options.include_sender_stats {
-            self.add_sender_stats_sheet(&mut workbook, &filtered)?;
+            self.add_sender_stats_sheet(&mut workbook, &stats)?;
         }
         if self.excel_options.include_resource_stats {
-            self.add_resource_stats_sheet(&mut workbook, &filtered)?;
+            self.write_resource_stats_sheet(&mut workbook, source, total)
+                .await?;
         }
-
         self.ctx.check_cancelled()?;
 
-        // xlsxwriter 的保存是同步 CPU/IO 密集操作，放到阻塞线程池，避免卡住 runtime
+        // xlsxwriter 的保存是同步 CPU/IO 密集操作，放到阻塞线程池，避免卡住 runtime；
+        // 直接写目标路径，不再经过整份内存缓冲。
         let output_path = self.ctx.options.output_path.clone();
-        let buffer = tokio::task::spawn_blocking(move || workbook.save_to_buffer())
+        tokio::task::spawn_blocking(move || workbook.save(&output_path))
             .await
             .map_err(ExportError::TaskJoin)??;
-        tokio::fs::write(&output_path, &buffer)
-            .await
-            .map_err(|e| ExportError::io("writeXlsx", &output_path, e))?;
 
-        self.ctx
-            .update_progress(filtered.len(), filtered.len(), "导出完成");
+        self.ctx.update_progress(total, total, "导出完成");
 
-        let resource_count: usize = filtered.iter().map(|m| m.content.resources.len()).sum();
         Ok(ExportOutcome {
             task_id: String::new(),
             format: self.ctx.format,
             file_path: self.ctx.options.output_path.clone(),
             file_size: self.ctx.output_file_size().await,
-            message_count: filtered.len(),
+            message_count: total,
             resource_count,
             export_time: start_time.elapsed().as_millis(),
             completed_at: now_iso(),
         })
     }
 
-    /// 添加聊天记录工作表。
-    fn add_messages_sheet(
+    /// 写「聊天记录」工作表（常量内存模式）。
+    ///
+    /// 群头衔列（issue #331）只在至少一条消息携带 `sender.title` 时插入，而常量
+    /// 内存模式要求表头先于数据写出，所以先扫一遍数据源判定列结构并累加统计，
+    /// 再复位数据源逐行写入。
+    async fn write_messages_sheet<S: CleanMessageSource>(
         &self,
         workbook: &mut Workbook,
-        messages: &[CleanMessage],
+        source: &mut S,
+        stats_acc: &mut StatisticsAccumulator,
+        total_hint: usize,
     ) -> ExportResultT<()> {
-        let sheet = workbook.add_worksheet();
+        let mut has_title_column = false;
+        source.restart().await?;
+        while let Some(batch) = source.next_batch().await? {
+            self.ctx.check_cancelled()?;
+            for msg in &batch {
+                if msg.id.is_empty() {
+                    continue;
+                }
+                stats_acc.consume(msg);
+                has_title_column |= msg.sender.title.as_deref().is_some_and(|t| !t.is_empty());
+            }
+            yield_to_event_loop().await;
+        }
+
+        let sheet = workbook.add_worksheet_with_constant_memory();
         sheet.set_name(&self.excel_options.sheet_name)?;
 
-        // 群头衔列（issue #331）：仅当至少一条消息携带 sender.title 时插入
-        let has_title_column = messages
-            .iter()
-            .any(|m| m.sender.title.as_deref().is_some_and(|t| !t.is_empty()));
-
-        let mut headers: Vec<&str> = vec!["序号", "时间", "发送者", "发送者QQ号"];
-        if has_title_column {
-            headers.push("群头衔");
-        }
-        headers.extend(["消息类型", "消息内容", "是否撤回", "资源数量"]);
-        write_string_row(sheet, 0, &headers)?;
-
-        for (index, msg) in messages.iter().enumerate() {
-            let row = (index + 1) as u32;
-            let mut col: u16 = 0;
-            sheet.write_number(row, col, (index + 1) as f64)?;
-            col += 1;
-            sheet.write_string(row, col, &msg.time)?;
-            col += 1;
-            sheet.write_string(row, col, sender_display_name(msg))?;
-            col += 1;
-            sheet.write_string(row, col, msg.sender.uin.as_deref().unwrap_or(""))?;
-            col += 1;
-            if has_title_column {
-                sheet.write_string(row, col, msg.sender.title.as_deref().unwrap_or(""))?;
-                col += 1;
-            }
-            sheet.write_string(row, col, message_type_label(&msg.message_type))?;
-            col += 1;
-            sheet.write_string(row, col, extract_text_content(msg))?;
-            col += 1;
-            sheet.write_string(row, col, if msg.recalled { "是" } else { "否" })?;
-            col += 1;
-            sheet.write_number(row, col, msg.content.resources.len() as f64)?;
-        }
-
-        // 工作表列宽
+        // 工作表列宽（常量内存模式下需先于数据设置）
         let w = &self.excel_options.column_widths;
         let mut widths: Vec<f64> = vec![8.0, w.timestamp, w.sender, 16.0];
         if has_title_column {
@@ -288,6 +308,51 @@ impl ExcelExporter {
         for (i, width) in widths.iter().enumerate() {
             sheet.set_column_width(i as u16, *width)?;
         }
+
+        let mut headers: Vec<&str> = vec!["序号", "时间", "发送者", "发送者QQ号"];
+        if has_title_column {
+            headers.push("群头衔");
+        }
+        headers.extend(["消息类型", "消息内容", "是否撤回", "资源数量"]);
+        write_string_row(sheet, 0, &headers)?;
+
+        let mut index = 0usize;
+        source.restart().await?;
+        while let Some(batch) = source.next_batch().await? {
+            self.ctx.check_cancelled()?;
+            for msg in &batch {
+                if msg.id.is_empty() {
+                    continue;
+                }
+                index += 1;
+                let row = index as u32;
+                let mut col: u16 = 0;
+                sheet.write_number(row, col, index as f64)?;
+                col += 1;
+                sheet.write_string(row, col, &msg.time)?;
+                col += 1;
+                sheet.write_string(row, col, sender_display_name(msg))?;
+                col += 1;
+                sheet.write_string(row, col, msg.sender.uin.as_deref().unwrap_or(""))?;
+                col += 1;
+                if has_title_column {
+                    sheet.write_string(row, col, msg.sender.title.as_deref().unwrap_or(""))?;
+                    col += 1;
+                }
+                sheet.write_string(row, col, message_type_label(&msg.message_type))?;
+                col += 1;
+                sheet.write_string(row, col, extract_text_content(msg))?;
+                col += 1;
+                sheet.write_string(row, col, if msg.recalled { "是" } else { "否" })?;
+                col += 1;
+                sheet.write_number(row, col, msg.content.resources.len() as f64)?;
+                if index % YIELD_EVERY_ROWS == 0 {
+                    yield_to_event_loop().await;
+                }
+            }
+            self.ctx
+                .update_progress(index, total_hint.max(index), &format!("写入消息 {index}"));
+        }
         Ok(())
     }
 
@@ -295,19 +360,19 @@ impl ExcelExporter {
     fn add_statistics_sheet(
         &self,
         workbook: &mut Workbook,
-        messages: &[CleanMessage],
+        stats: &MessageStatistics,
     ) -> ExportResultT<()> {
-        let stats = calculate_statistics(messages);
         let sheet = workbook.add_worksheet();
         sheet.set_name("统计信息")?;
 
         let mut row: u32 = 0;
-        let kv_str = |sheet: &mut Worksheet, row: &mut u32, k: &str, v: &str| -> ExportResultT<()> {
-            sheet.write_string(*row, 0, k)?;
-            sheet.write_string(*row, 1, v)?;
-            *row += 1;
-            Ok(())
-        };
+        let kv_str =
+            |sheet: &mut Worksheet, row: &mut u32, k: &str, v: &str| -> ExportResultT<()> {
+                sheet.write_string(*row, 0, k)?;
+                sheet.write_string(*row, 1, v)?;
+                *row += 1;
+                Ok(())
+            };
         let kv_num = |sheet: &mut Worksheet, row: &mut u32, k: &str, v: f64| -> ExportResultT<()> {
             sheet.write_string(*row, 0, k)?;
             sheet.write_number(*row, 1, v)?;
@@ -353,9 +418,8 @@ impl ExcelExporter {
     fn add_sender_stats_sheet(
         &self,
         workbook: &mut Workbook,
-        messages: &[CleanMessage],
+        stats: &MessageStatistics,
     ) -> ExportResultT<()> {
-        let stats = calculate_statistics(messages);
         let sheet = workbook.add_worksheet();
         sheet.set_name("发送者统计")?;
 
@@ -389,14 +453,22 @@ impl ExcelExporter {
         Ok(())
     }
 
-    /// 添加资源统计工作表。
-    fn add_resource_stats_sheet(
+    /// 写「资源列表」工作表（常量内存模式，数据源第二遍顺序读取）。
+    async fn write_resource_stats_sheet<S: CleanMessageSource>(
         &self,
         workbook: &mut Workbook,
-        messages: &[CleanMessage],
+        source: &mut S,
+        total: usize,
     ) -> ExportResultT<()> {
-        let sheet = workbook.add_worksheet();
+        let sheet = workbook.add_worksheet_with_constant_memory();
         sheet.set_name("资源列表")?;
+
+        for (i, width) in [8.0, 20.0, 15.0, 16.0, 12.0, 30.0, 15.0, 50.0]
+            .iter()
+            .enumerate()
+        {
+            sheet.set_column_width(i as u16, *width)?;
+        }
 
         write_string_row(
             sheet,
@@ -414,32 +486,40 @@ impl ExcelExporter {
         )?;
 
         let mut row: u32 = 1;
-        for msg in messages {
-            for resource in &msg.content.resources {
-                sheet.write_number(row, 0, f64::from(row))?;
-                sheet.write_string(row, 1, &msg.time)?;
-                sheet.write_string(row, 2, sender_display_name(msg))?;
-                sheet.write_string(row, 3, msg.sender.uin.as_deref().unwrap_or(""))?;
-                sheet.write_string(row, 4, &resource.resource_type)?;
-                sheet.write_string(row, 5, resource.filename.as_deref().unwrap_or(""))?;
-                #[allow(clippy::cast_precision_loss)]
-                sheet.write_number(row, 6, resource.size.unwrap_or(0) as f64)?;
-                let url = resource
-                    .url
-                    .as_deref()
-                    .filter(|u| !u.is_empty())
-                    .or(resource.local_path.as_deref())
-                    .unwrap_or("");
-                sheet.write_string(row, 7, url)?;
-                row += 1;
+        let mut seen = 0usize;
+        source.restart().await?;
+        while let Some(batch) = source.next_batch().await? {
+            self.ctx.check_cancelled()?;
+            for msg in &batch {
+                if msg.id.is_empty() {
+                    continue;
+                }
+                seen += 1;
+                for resource in &msg.content.resources {
+                    sheet.write_number(row, 0, f64::from(row))?;
+                    sheet.write_string(row, 1, &msg.time)?;
+                    sheet.write_string(row, 2, sender_display_name(msg))?;
+                    sheet.write_string(row, 3, msg.sender.uin.as_deref().unwrap_or(""))?;
+                    sheet.write_string(row, 4, &resource.resource_type)?;
+                    sheet.write_string(row, 5, resource.filename.as_deref().unwrap_or(""))?;
+                    #[allow(clippy::cast_precision_loss)]
+                    sheet.write_number(row, 6, resource.size.unwrap_or(0) as f64)?;
+                    let url = resource
+                        .url
+                        .as_deref()
+                        .filter(|u| !u.is_empty())
+                        .or(resource.local_path.as_deref())
+                        .unwrap_or("");
+                    sheet.write_string(row, 7, url)?;
+                    row += 1;
+                }
             }
-        }
-
-        for (i, width) in [8.0, 20.0, 15.0, 16.0, 12.0, 30.0, 15.0, 50.0]
-            .iter()
-            .enumerate()
-        {
-            sheet.set_column_width(i as u16, *width)?;
+            yield_to_event_loop().await;
+            self.ctx.update_progress(
+                seen,
+                total.max(seen),
+                &format!("写入资源列表 {seen}/{total}"),
+            );
         }
         Ok(())
     }

@@ -13,8 +13,8 @@ use qce_exporter::text_exporter::{TextExporter, TextFormatOptions};
 use qce_exporter::types::{
     ChatInfo, CleanMessage, ExportOptions, MessageContent, MessageElement, MessageResource, Sender,
 };
+use qce_exporter::DownloadedResourceIndex;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -778,11 +778,16 @@ async fn json_exporter_copies_downloaded_resources() {
             duration: None,
         },
     ];
-    let mut resource_map = HashMap::new();
-    resource_map.insert("msg_1".to_owned(), resources);
+    let mut downloaded_resources = DownloadedResourceIndex::new();
+    for resource in &resources {
+        assert!(downloaded_resources.insert(
+            &resource.resource_type,
+            resource.local_path.as_deref().expect("local path"),
+        ));
+    }
     let options = ExportOptions {
         output_path,
-        resource_map,
+        downloaded_resources,
         ..ExportOptions::default()
     };
     JsonExporter::new(options, JsonFormatOptions::default())

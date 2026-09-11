@@ -14,7 +14,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 base64 = "0.22"
-rust_xlsxwriter = "0.79"
+rust_xlsxwriter = { version = "0.79", features = ["constant_memory"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 indexmap = { version = "2", features = ["serde"] }
 

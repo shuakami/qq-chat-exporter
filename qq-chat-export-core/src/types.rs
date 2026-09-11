@@ -1,6 +1,6 @@
+use crate::resource_index::DownloadedResourceIndex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -259,8 +259,8 @@ pub struct ExportOptions {
     pub chunk_size: Option<usize>,
     /// 群聊导出时是否优先使用群成员名称。
     pub prefer_group_member_name: bool,
-    /// issue #277：msgId → 已下载资源列表（用于路径覆写与资源拷贝）。
-    pub resource_map: HashMap<String, Vec<MessageResource>>,
+    /// issue #277 / #666：已下载资源索引（按文件名去重，用于路径覆写与资源拷贝）。
+    pub downloaded_resources: DownloadedResourceIndex,
 }
 
 impl Default for ExportOptions {
@@ -275,7 +275,7 @@ impl Default for ExportOptions {
             custom_css: None,
             chunk_size: None,
             prefer_group_member_name: true,
-            resource_map: HashMap::new(),
+            downloaded_resources: DownloadedResourceIndex::new(),
         }
     }
 }
