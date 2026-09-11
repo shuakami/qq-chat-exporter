@@ -115,13 +115,16 @@ pub fn open_verified_file(path: &Path) -> io::Result<File> {
 
         options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
     }
-    let file = options.open(&expected_path).map_err(|error| {
-        #[cfg(unix)]
+    let file = options.open(&expected_path);
+    // 非 unix 平台下没有 ELOOP 分支，闭包会退化为恒等函数，届时直接透传错误。
+    #[cfg(unix)]
+    let file = file.map_err(|error| {
         if error.raw_os_error() == Some(libc::ELOOP) {
             return changed_during_validation();
         }
         error
-    })?;
+    });
+    let file = file?;
     #[cfg(unix)]
     let opened_metadata = file.metadata()?;
 
