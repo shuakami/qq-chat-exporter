@@ -134,11 +134,7 @@ jobs:
               if (result.image) return `镜像：\`${result.image}\``;
               return result.runUrl ? `[查看构建日志](${result.runUrl})` : '暂无详情';
             };
-            const body = [
-              '<!-- qce-pr-artifacts -->',
-              `<!-- qce-pr-artifacts-data: ${JSON.stringify(data)} -->`,
-              '## PR 构建结果',
-              '',
+            const table = [
               '| 构建产物 | 状态 | 下载或详情 |',
               '| --- | --- | --- |',
               `| Windows 一键安装程序（EXE） | ${data.installer.status || '等待构建'} | ${data.installer.status ? resultLink(data.installer, 'EXE 文件') : '等待安装器构建'} |`,
@@ -146,9 +142,14 @@ jobs:
               `| Linux（ZIP） | ${data.linux.status || '等待构建'} | ${data.linux.status ? resultLink(data.linux, 'ZIP 文件') : '等待插件构建'} |`,
               `| macOS（ZIP） | ${data.macos.status || '等待构建'} | ${data.macos.status ? resultLink(data.macos, 'ZIP 文件') : '等待插件构建'} |`,
               `| Docker 镜像 | ${data.docker.status || '等待构建'} | ${data.docker.status ? resultLink(data.docker, 'Docker 镜像') : '等待插件构建'} |`,
-              '',
+            ].join('\n');
+            const body = [
+              '<!-- qce-pr-artifacts -->',
+              `<!-- qce-pr-artifacts-data: ${JSON.stringify(data)} -->`,
+              '## PR 构建结果',
+              table,
               `构建产物将保留 7 天；失败或未运行的项目可通过对应的[工作流运行记录](${run.html_url})查看详情。`,
-            ].filter(Boolean).join('\n\n');
+            ].join('\n\n');
 
             if (existingComment) {
               await github.rest.issues.updateComment({
