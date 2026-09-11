@@ -343,7 +343,27 @@ async fn roaming_retry_does_not_retry_builder_or_decode_errors() {
                     .expect("bind JSON fixture server");
                 let address = listener.local_addr().expect("fixture server address");
                 let server = tokio::spawn(async move {
+                    use tokio::io::AsyncReadExt as _;
+
                     let (mut stream, _) = listener.accept().await.expect("accept fixture request");
+                    // Windows aborts the connection with RST when a socket closes
+                    // while request bytes are still unread, so the client's
+                    // send() fails before it can decode the fixture body. Drain
+                    // the request head until CRLFCRLF to close with a clean FIN.
+                    let mut request = [0u8; 1024];
+                    loop {
+                        let read = stream
+                            .read(&mut request)
+                            .await
+                            .expect("read fixture request");
+                        if read == 0
+                            || request[..read]
+                                .windows(4)
+                                .any(|head| head == b"\r\n\r\n")
+                        {
+                            break;
+                        }
+                    }
                     stream
                         .write_all(
                             b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 8\r\nconnection: close\r\n\r\nnot-json",
