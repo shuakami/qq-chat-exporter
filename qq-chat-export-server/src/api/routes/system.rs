@@ -294,12 +294,12 @@ pub async fn get_config(
     )
 }
 
-/// 读取 `autoOpenBrowser` 字段，缺失或类型不对时默认为 `true`（沿用登录成功即自动打开浏览器的历史行为）。
+/// 读取 `autoOpenBrowser` 字段，缺失或类型不对时默认为 `false`；用户已显式保存的值原样保留。
 fn read_auto_open_browser(config: &Value) -> bool {
     config
         .get("autoOpenBrowser")
         .and_then(Value::as_bool)
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 /// `PUT /api/config` — 更新用户配置。

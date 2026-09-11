@@ -144,6 +144,7 @@ fn build_launch_command(launcher: &std::path::Path, dir: &std::path::Path) -> st
         .env("QCE_LOG_DIR", dir.join("logs"))
         .env("QCE_LOG_FILE", util::log_file_path(dir))
         .env("QCE_STDIO_CAPTURED", "1")
+        .env("QCE_NO_AUTO_OPEN", "1")
         .env("NAPCAT_HIDE_CONSOLE", "1");
     cmd
 }
@@ -155,7 +156,8 @@ fn build_launch_command(launcher: &std::path::Path, dir: &std::path::Path) -> st
         .env("QCE_CONFIG_DIR", util::qce_config_dir(dir))
         .env("QCE_LOG_DIR", dir.join("logs"))
         .env("QCE_LOG_FILE", util::log_file_path(dir))
-        .env("QCE_STDIO_CAPTURED", "1");
+        .env("QCE_STDIO_CAPTURED", "1")
+        .env("QCE_NO_AUTO_OPEN", "1");
     cmd
 }
 

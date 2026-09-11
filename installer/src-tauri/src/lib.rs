@@ -9,8 +9,9 @@ use state::AppState;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Listener, Manager, WindowEvent,
 };
+use tauri_plugin_opener::OpenerExt;
 
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -106,15 +107,25 @@ pub fn run() {
         }))
         .manage(AppState::default())
         .setup(|app| {
-            let open = MenuItem::with_id(app, "open", "打开面板", true, None::<&str>)?;
+            let open = MenuItem::with_id(app, "open", "打开 QQ Chat Exporter", true, None::<&str>)?;
+            let browser = MenuItem::with_id(app, "browser", "在浏览器中打开", true, None::<&str>)?;
+            let logs = MenuItem::with_id(app, "logs", "查看运行日志", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &browser, &logs, &quit])?;
             let mut tray = TrayIconBuilder::with_id("main")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .tooltip("QQ Chat Exporter")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => show_main_window(app),
+                    "browser" => {
+                        if let Some(url) = qce::get_webui_url(app.state::<AppState>()) {
+                            let _ = app.opener().open_url(url, None::<&str>);
+                        }
+                    }
+                    "logs" => {
+                        let _ = qce::open_log_file(app.state::<AppState>());
+                    }
                     "quit" => {
                         service::shutdown(&app.state::<AppState>());
                         app.exit(0);
@@ -135,6 +146,27 @@ pub fn run() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+            // Actions the WebUI's account menu emits (browser / logs / quit);
+            // the payload is a fixed action name, nothing else is honored.
+            let handle = app.handle().clone();
+            app.listen("qce-shell-action", move |event| {
+                let action = serde_json::from_str::<String>(event.payload()).unwrap_or_default();
+                match action.as_str() {
+                    "browser" => {
+                        if let Some(url) = qce::get_webui_url(handle.state::<AppState>()) {
+                            let _ = handle.opener().open_url(url, None::<&str>);
+                        }
+                    }
+                    "logs" => {
+                        let _ = qce::open_log_file(handle.state::<AppState>());
+                    }
+                    "quit" => {
+                        service::shutdown(&handle.state::<AppState>());
+                        handle.exit(0);
+                    }
+                    _ => {}
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -198,6 +230,7 @@ pub fn run() {
             napcat::kill_qq,
             qce::qce_status,
             qce::get_webui_url,
+            qce::enter_app,
             qce::open_log_file,
         ])
         .build(tauri::generate_context!())

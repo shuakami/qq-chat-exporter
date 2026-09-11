@@ -37,8 +37,8 @@
 
 1. 从 [Releases][releases-link] 下载对应平台的压缩包
 2. 运行 `launcher-user.bat`（Windows）或 `./launcher-user.sh`（Linux / macOS）
-3. 用 QQ 扫码登录，浏览器会自动打开并填好登录令牌
-4. 若浏览器没有自动打开，手动访问 `http://localhost:40653/qce`，令牌见控制台输出
+3. 用 QQ 扫码登录，控制台会打印一键登录链接，打开即可
+4. 也可手动访问 `http://localhost:40653/qce`，令牌见控制台输出；在「设置 → 启动」里可开启登录后自动打开浏览器
 
 > \[!NOTE]
 > macOS 当前仅提供 Apple Silicon（arm64）预览包，且启动前需要完全退出电脑上的 QQ，详见 [macOS 使用指南][macos-doc]。

@@ -233,7 +233,6 @@ export default function App() {
   const [options, setOptions] = useState({ shortcut: true, autoStart: false });
 
   const tipsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const qrPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const configureCleanupRef = useRef<(() => void) | null>(null);
   const configureRunRef = useRef(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -409,32 +408,39 @@ export default function App() {
     };
   }, [step, setupStep]);
 
-  // QR-code lifecycle: fetch a code and poll for completion.
+  // QR-code lifecycle: one sequential loop (no overlapping requests) that
+  // checks login, then re-reads the code. NapCat issues a fresh code when the
+  // old one expires, so the image is swapped in place whenever it changes.
   useEffect(() => {
     if (step !== 'setup' || setupStep !== 'login' || loginMethod !== 'qrcode') return;
     let cancelled = false;
-    (async () => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastDataUrl = '';
+    const tick = async () => {
       try {
-        const dataUrl = await api.getQrCode();
-        if (!cancelled) setQrDataUrl(dataUrl);
-      } catch (err) {
-        if (!cancelled) setLoginError(String(err));
-      }
-    })();
-    qrPollRef.current = setInterval(async () => {
-      try {
-        const done = await api.getLoginStatus();
-        if (done && !cancelled) {
-          if (qrPollRef.current) clearInterval(qrPollRef.current);
-          startConfiguring();
+        if (await api.getLoginStatus()) {
+          if (!cancelled) startConfiguring();
+          return;
         }
       } catch {
         /* keep polling */
       }
-    }, 2000);
+      try {
+        const dataUrl = await api.getQrCode();
+        if (!cancelled && dataUrl !== lastDataUrl) {
+          lastDataUrl = dataUrl;
+          setQrDataUrl(dataUrl);
+          setLoginError('');
+        }
+      } catch (err) {
+        if (!cancelled && !lastDataUrl) setLoginError(String(err));
+      }
+      if (!cancelled) timer = setTimeout(tick, 2000);
+    };
+    void tick();
     return () => {
       cancelled = true;
-      if (qrPollRef.current) clearInterval(qrPollRef.current);
+      if (timer) clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, setupStep, loginMethod]);
@@ -566,6 +572,12 @@ export default function App() {
   const enterRunning = useCallback(async () => {
     setRuntimeStopped(false);
     setRuntimeError('');
+    try {
+      await api.enterApp();
+      return;
+    } catch {
+      /* fall back to the launcher panel with a browser link */
+    }
     setSetupStep('running');
     try {
       const url = webuiUrl || (await api.getWebuiUrl()) || '';
@@ -920,7 +932,7 @@ export default function App() {
                 ) : (
                   <div className="w-full flex justify-center mb-6">
                     {qrDataUrl ? (
-                      <img src={qrDataUrl} alt="QR Code" className="w-[140px] h-[140px]" />
+                      <img src={qrDataUrl} alt="QR Code" className="w-[140px] h-[140px] rounded-lg" />
                     ) : (
                       <div className="w-[140px] h-[140px] flex items-center justify-center text-[12px] text-[var(--color-text-tertiary)]">
                         正在生成二维码...
@@ -1124,7 +1136,7 @@ export default function App() {
 
                   <div className="w-full max-w-[200px] flex flex-col items-center space-y-3">
                     <Button fullWidth size="lg" onClick={() => webuiUrl && api.openUrl(webuiUrl)} className="h-9 font-medium">
-                      打开 WebUI
+                      在浏览器中打开
                     </Button>
                     <Button fullWidth size="lg" variant="secondary" onClick={() => api.openLogFile()} className="h-9 font-medium">
                       查看运行日志

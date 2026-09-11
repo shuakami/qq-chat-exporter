@@ -205,15 +205,15 @@ test('QCE_NO_AUTO_OPEN=1 is a hard opt-out, independent of the persisted setting
     const tmp = createTempDir('rust-bridge-no-auto-open-');
     try {
         // A path that never exists: readAutoOpenBrowserSetting() falls back to
-        // its own default (true), so this isolates the env-var override from
+        // its own default (false), so this isolates the env-var override from
         // whatever the persisted setting resolves to.
         const missingConfigPath = path.join(tmp.path, 'user-config.json');
-        assert.equal(shouldAutoOpenBrowser({}, missingConfigPath), true, 'unset + no config means open, as documented');
+        assert.equal(shouldAutoOpenBrowser({}, missingConfigPath), false, 'unset + no config means closed (default off)');
         assert.equal(shouldAutoOpenBrowser({ QCE_NO_AUTO_OPEN: '1' }, missingConfigPath), false);
         // docs/macos-deploy.md documents the value as exactly "1"; anything else
         // must not silently disable the tab.
-        assert.equal(shouldAutoOpenBrowser({ QCE_NO_AUTO_OPEN: '0' }, missingConfigPath), true);
-        assert.equal(shouldAutoOpenBrowser({ QCE_NO_AUTO_OPEN: '' }, missingConfigPath), true);
+        assert.equal(shouldAutoOpenBrowser({ QCE_NO_AUTO_OPEN: '0' }, missingConfigPath), false);
+        assert.equal(shouldAutoOpenBrowser({ QCE_NO_AUTO_OPEN: '' }, missingConfigPath), false);
 
         // The env var wins even when the settings-page toggle says "open".
         fs.writeFileSync(missingConfigPath, JSON.stringify({ autoOpenBrowser: true }));
@@ -237,19 +237,19 @@ test('shouldAutoOpenBrowser follows the settings-page toggle when the env var is
     }
 });
 
-test('readAutoOpenBrowserSetting defaults to true on missing file, bad JSON, or wrong type', () => {
+test('readAutoOpenBrowserSetting defaults to false on missing file, bad JSON, or wrong type', () => {
     const tmp = createTempDir('rust-bridge-auto-open-setting-');
     try {
         const missing = path.join(tmp.path, 'does-not-exist.json');
-        assert.equal(readAutoOpenBrowserSetting(missing), true);
+        assert.equal(readAutoOpenBrowserSetting(missing), false);
 
         const badJson = path.join(tmp.path, 'bad.json');
         fs.writeFileSync(badJson, '{not valid json');
-        assert.equal(readAutoOpenBrowserSetting(badJson), true);
+        assert.equal(readAutoOpenBrowserSetting(badJson), false);
 
         const wrongType = path.join(tmp.path, 'wrong-type.json');
         fs.writeFileSync(wrongType, JSON.stringify({ autoOpenBrowser: 'yes' }));
-        assert.equal(readAutoOpenBrowserSetting(wrongType), true, 'non-boolean values are ignored, not coerced');
+        assert.equal(readAutoOpenBrowserSetting(wrongType), false, 'non-boolean values are ignored, not coerced');
 
         const explicitFalse = path.join(tmp.path, 'off.json');
         fs.writeFileSync(explicitFalse, JSON.stringify({ autoOpenBrowser: false }));

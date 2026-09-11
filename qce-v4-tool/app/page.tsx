@@ -103,6 +103,7 @@ import { useStickerPacks } from "@/hooks/use-sticker-packs"
 import { useResourceIndex } from "@/hooks/use-resource-index"
 
 import { ThemeToggle } from "@/components/qce-dashboard/theme-toggle"
+import { AccountMenu, WindowControls, WindowDragRegion, useExternalLinksInBrowser } from "@/components/ui/window-controls"
 import { Loader } from "@/components/ui/loader"
 
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion"
@@ -274,6 +275,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
   
   // 侧边栏状态
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  useExternalLinksInBrowser()
   const [sidebarMobileOpen, setSidebarMobileOpen] = useState(false)
   
   const tasksLoadedRef = useRef(false)
@@ -1572,8 +1574,9 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
               className="w-[240px] h-full flex flex-col"
             >
               {/* Sidebar header */}
-              <div className="flex items-center px-4 h-14 flex-shrink-0">
+              <div data-tauri-drag-region className="flex items-center px-4 h-14 flex-shrink-0">
                 {systemInfo?.napcat.selfInfo ? (
+                  <AccountMenu>
                   <div className="flex items-center gap-2.5 min-w-0">
                     <Avatar className="w-7 h-7 flex-shrink-0 rounded-full">
                       <AvatarImage
@@ -1592,12 +1595,14 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                       {systemInfo.napcat.selfInfo.nick || "QQ Chat Exporter"}
                     </span>
                   </div>
+                  </AccountMenu>
                 ) : (
                   <div className="flex items-center gap-2.5">
                     <div className="w-7 h-7 rounded-full bg-black/[0.04] dark:bg-white/[0.06] animate-pulse" />
                     <div className="w-20 h-3.5 bg-black/[0.04] dark:bg-white/[0.06] rounded animate-pulse" />
                   </div>
                 )}
+                <WindowDragRegion />
               </div>
 
               {/* Main nav */}
@@ -1753,8 +1758,8 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden sm:m-2 sm:rounded-xl sm:border sm:border-black/[0.05] sm:shadow-[0_2px_8px_rgba(0,0,0,0.015)] bg-card dark:border-white/[0.06]">
-        {/* Page header bar */}
-        <div className="flex flex-shrink-0 items-center justify-between border-b border-black/[0.06] dark:border-white/[0.06] px-4 h-12">
+        {/* Page header bar; doubles as the window drag region in the desktop shell */}
+        <div data-tauri-drag-region className="flex flex-shrink-0 items-center justify-between border-b border-black/[0.06] dark:border-white/[0.06] px-4 h-12">
           <div className="flex items-center gap-2 text-[14px]">
             <button
               onClick={() => {
@@ -1772,6 +1777,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
             <span className="text-muted-foreground/30">/</span>
             <span className="font-semibold text-foreground">{pageTitles[activeTab] || activeTab}</span>
           </div>
+          <WindowDragRegion />
           <div className="flex items-center gap-2">
             {/* Page-specific actions */}
 
@@ -1918,6 +1924,7 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
                 </Button>
               </>
             )}
+            <WindowControls />
           </div>
         </div>
 

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::Value;
-use tauri::State;
+use tauri::{LogicalSize, State, WebviewWindow};
 
 use crate::state::{AppState, Inner};
 use crate::util::{self, QCE_PORT};
@@ -84,6 +84,31 @@ fn take_webui_url_ready_log_slot(state: &State<'_, AppState>) -> bool {
 #[tauri::command]
 pub fn get_webui_url(state: State<'_, AppState>) -> Option<String> {
     get_webui_url_inner(&state)
+}
+
+/// Turn the launcher window into the application window: resize it to a
+/// normal desktop size and navigate the same webview to the WebUI. The window
+/// stays undecorated; the WebUI draws its own titlebar controls (see the
+/// `webui` capability, which grants that origin window controls only). The
+/// access token stays inside the app (no browser history / address bar).
+#[tauri::command]
+pub fn enter_app(window: WebviewWindow, state: State<'_, AppState>) -> Result<(), String> {
+    let url = get_webui_url_inner(&state)
+        .ok_or("webui url unavailable")?
+        .parse()
+        .map_err(|e| format!("invalid webui url: {e}"))?;
+    window.set_resizable(true).map_err(|e| e.to_string())?;
+    window.set_maximizable(true).map_err(|e| e.to_string())?;
+    window
+        .set_min_size(Some(LogicalSize::new(960.0, 640.0)))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_size(LogicalSize::new(1200.0, 800.0))
+        .map_err(|e| e.to_string())?;
+    window.center().map_err(|e| e.to_string())?;
+    window.navigate(url).map_err(|e| e.to_string())?;
+    log(&state, "entered app window");
+    Ok(())
 }
 
 #[tauri::command]

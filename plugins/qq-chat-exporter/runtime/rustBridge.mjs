@@ -202,9 +202,9 @@ export function resolveUserConfigPath() {
 export function readAutoOpenBrowserSetting(configPath) {
   try {
     const value = JSON.parse(readFileSync(configPath, 'utf8'))?.autoOpenBrowser;
-    return typeof value === 'boolean' ? value : true;
+    return typeof value === 'boolean' ? value : false;
   } catch {
-    return true; // missing/unreadable config == the historical default (open)
+    return false; // missing/unreadable config == default (do not open)
   }
 }
 
