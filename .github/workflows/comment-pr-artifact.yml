@@ -50,9 +50,22 @@ jobs:
               issue_number: pullRequest.number,
               per_page: 100,
             });
-            const existingComment = comments.find(({ body, user }) =>
+            const artifactComments = comments.filter(({ body, user }) =>
               body?.includes('<!-- qce-pr-artifacts -->') && user?.type === 'Bot'
             );
+            const currentMarker = `<!-- qce-pr-artifacts-sha: ${run.head_sha} -->`;
+            const existingComment = artifactComments.find(({ body }) =>
+              body?.includes(currentMarker)
+            );
+            for (const comment of artifactComments) {
+              if (comment.id !== existingComment?.id) {
+                await github.rest.issues.deleteComment({
+                  owner,
+                  repo,
+                  comment_id: comment.id,
+                });
+              }
+            }
             const existingData = existingComment?.body?.match(
               /<!-- qce-pr-artifacts-data: (.+) -->/
             )?.[1];
@@ -145,6 +158,7 @@ jobs:
             ].join('\n');
             const body = [
               '<!-- qce-pr-artifacts -->',
+              currentMarker,
               `<!-- qce-pr-artifacts-data: ${JSON.stringify(data)} -->`,
               '## PR 构建结果',
               table,
