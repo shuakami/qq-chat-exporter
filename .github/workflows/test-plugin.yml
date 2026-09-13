@@ -41,7 +41,10 @@ jobs:
 
       - name: Run plugin tests
         working-directory: plugins/qq-chat-exporter
-        run: npm test
+        run: |
+          npm run typecheck
+          npm run test:entrypoint
+          npm test
 
       - name: Run macOS launcher regression tests
         if: runner.os == 'macOS'

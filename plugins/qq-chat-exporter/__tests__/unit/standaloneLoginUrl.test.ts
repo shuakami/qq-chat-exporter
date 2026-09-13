@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 import { createTempDir } from '../helpers/tempDir.js';
+import { unusedLoopbackPort } from '../helpers/loopbackPort.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -60,7 +61,7 @@ exec "${process.execPath}" -e 'require("net").createServer().listen(Number(proce
 `;
 }
 
-test('standalone script prints one-click login URL from security.json (issue #457)', { skip: posixOnly ?? false }, () => {
+test('standalone script prints one-click login URL from security.json (issue #457)', { skip: posixOnly ?? false }, async () => {
     const tmp = createTempDir('qce-standalone-457-');
     try {
         const packDir = path.join(tmp.path, 'pack');
@@ -71,11 +72,12 @@ test('standalone script prints one-click login URL from security.json (issue #45
         fs.writeFileSync(path.join(packDir, 'qce-standalone.mjs'), extractStandaloneScript());
 
         const token = 'abc123+/=TOKEN';
+        const port = await unusedLoopbackPort();
         fs.writeFileSync(path.join(packDir, 'qce-server'), fakeServer(configDir, token), { mode: 0o755 });
 
         const result = spawnSync(
             process.execPath,
-            [path.join(packDir, 'qce-standalone.mjs'), '23456'],
+            [path.join(packDir, 'qce-standalone.mjs'), String(port)],
             {
                 env: { ...process.env, QCE_CONFIG_DIR: configDir, QCE_NO_AUTO_OPEN: '1' },
                 encoding: 'utf8',
@@ -84,10 +86,7 @@ test('standalone script prints one-click login URL from security.json (issue #45
         );
 
         assert.equal(result.status, 0, `stderr: ${result.stderr}`);
-        assert.match(
-            result.stdout,
-            /\[QCE\] 一键登录: http:\/\/127\.0\.0\.1:23456\/qce\/auth\?token=/,
-        );
+        assert.ok(result.stdout.includes(`[QCE] 一键登录: http://127.0.0.1:${port}/qce/auth?token=`));
         assert.ok(
             result.stdout.includes(`token=${encodeURIComponent(token)}`),
             `stdout should contain the URL-encoded token, got: ${result.stdout}`,
@@ -98,7 +97,7 @@ test('standalone script prints one-click login URL from security.json (issue #45
     }
 });
 
-test('standalone script stays quiet when the server never comes up', { skip: posixOnly ?? false }, () => {
+test('standalone script stays quiet when the server never comes up', { skip: posixOnly ?? false }, async () => {
     const tmp = createTempDir('qce-standalone-dead-');
     try {
         const packDir = path.join(tmp.path, 'pack');
@@ -113,10 +112,11 @@ test('standalone script stays quiet when the server never comes up', { skip: pos
         // at nothing.
         fs.writeFileSync(path.join(configDir, 'security.json'), JSON.stringify({ accessToken: 'stale' }));
         fs.writeFileSync(path.join(packDir, 'qce-server'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+        const port = await unusedLoopbackPort();
 
         const result = spawnSync(
             process.execPath,
-            [path.join(packDir, 'qce-standalone.mjs'), '23457'],
+            [path.join(packDir, 'qce-standalone.mjs'), String(port)],
             {
                 env: { ...process.env, QCE_CONFIG_DIR: configDir, QCE_NO_AUTO_OPEN: '1' },
                 encoding: 'utf8',
@@ -138,7 +138,7 @@ test('standalone script stays quiet when the server never comes up', { skip: pos
  * QCE_STANDALONE_MODE=1 so the server reports `mode: standalone` and returns
  * 503 STANDALONE_MODE instead.
  */
-test('standalone script marks the server process with QCE_STANDALONE_MODE (issue #668)', { skip: posixOnly ?? false }, () => {
+test('standalone script marks the server process with QCE_STANDALONE_MODE (issue #668)', { skip: posixOnly ?? false }, async () => {
     const tmp = createTempDir('qce-standalone-668-');
     try {
         const packDir = path.join(tmp.path, 'pack');
@@ -150,6 +150,7 @@ test('standalone script marks the server process with QCE_STANDALONE_MODE (issue
         // Fake server: listens on the port (so the launcher is satisfied) and
         // records the environment it was handed.
         const envLog = path.join(tmp.path, 'env.log');
+        const port = await unusedLoopbackPort();
         fs.writeFileSync(
             path.join(packDir, 'qce-server'),
             `#!/bin/sh
@@ -161,7 +162,7 @@ exec "${process.execPath}" -e 'require("net").createServer().listen(Number(proce
 
         const result = spawnSync(
             process.execPath,
-            [path.join(packDir, 'qce-standalone.mjs'), '23460'],
+            [path.join(packDir, 'qce-standalone.mjs'), String(port)],
             {
                 env: { ...process.env, QCE_CONFIG_DIR: configDir, QCE_NO_AUTO_OPEN: '1' },
                 encoding: 'utf8',
@@ -196,7 +197,7 @@ function stageFakeOpener(binDir: string, logFile: string): void {
     );
 }
 
-test('standalone script suppresses the browser tab when the settings-page toggle is off', { skip: posixOnly ?? false }, () => {
+test('standalone script suppresses the browser tab when the settings-page toggle is off', { skip: posixOnly ?? false }, async () => {
     const tmp = createTempDir('qce-standalone-auto-open-off-');
     try {
         const packDir = path.join(tmp.path, 'pack');
@@ -218,10 +219,11 @@ test('standalone script suppresses the browser tab when the settings-page toggle
 
         const env = { ...process.env, HOME: fakeHome, QCE_CONFIG_DIR: configDir, PATH: `${binDir}:${process.env.PATH}` };
         delete env.QCE_NO_AUTO_OPEN; // isolate the persisted-setting path from the env-var override
+        const port = await unusedLoopbackPort();
 
         const result = spawnSync(
             process.execPath,
-            [path.join(packDir, 'qce-standalone.mjs'), '23458'],
+            [path.join(packDir, 'qce-standalone.mjs'), String(port)],
             { env, encoding: 'utf8', timeout: 30_000 },
         );
 
@@ -233,7 +235,7 @@ test('standalone script suppresses the browser tab when the settings-page toggle
     }
 });
 
-test('standalone script does not open the browser by default when no settings-page toggle is persisted', { skip: posixOnly ?? false }, () => {
+test('standalone script does not open the browser by default when no settings-page toggle is persisted', { skip: posixOnly ?? false }, async () => {
     const tmp = createTempDir('qce-standalone-auto-open-default-');
     try {
         const packDir = path.join(tmp.path, 'pack');
@@ -252,10 +254,11 @@ test('standalone script does not open the browser by default when no settings-pa
 
         const env = { ...process.env, HOME: fakeHome, QCE_CONFIG_DIR: configDir, PATH: `${binDir}:${process.env.PATH}` };
         delete env.QCE_NO_AUTO_OPEN;
+        const port = await unusedLoopbackPort();
 
         const result = spawnSync(
             process.execPath,
-            [path.join(packDir, 'qce-standalone.mjs'), '23459'],
+            [path.join(packDir, 'qce-standalone.mjs'), String(port)],
             { env, encoding: 'utf8', timeout: 30_000 },
         );
 
