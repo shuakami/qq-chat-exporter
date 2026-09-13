@@ -3,7 +3,8 @@
  * Supports both NapCat Shell and Framework modes.
  */
 
-let apiLauncher = null;
+let pluginLifecycle = null;
+const lifecyclesByContext = new WeakMap();
 
 /**
  * @returns {'shell' | 'framework' | 'unknown'}
@@ -244,62 +245,89 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
 
     const workingEnv = detectWorkingEnv(core);
 
-    // Keep the raw NapCat bridge for overlay API adapters.
-    globalThis.__NAPCAT_BRIDGE__ = {
+    const previousShutdown = globalThis.__NAPCAT_BRIDGE__?.shutdown
+      || pluginLifecycle?.shutdown;
+    let apiLauncher = null;
+    let shutdownPromise;
+    let initializationPromise;
+    let previousShutdownFailed = false;
+    let previousShutdownError;
+
+    // Register this instance before its first asynchronous startup step.
+    // NapCat only exposes getPluginExports after plugin_init has completed,
+    // but startup can already have spawned qce-server before that point.
+    const bridge = {
       core,
       obContext,
       actions,
       instance,
       ctx,
       pluginContext: ctx,
-      workingEnv
+      workingEnv,
+      shutdown() {
+        if (!shutdownPromise) {
+          shutdownPromise = (async () => {
+            // Initialization errors are reported by plugin_init. Even after
+            // a failed start, stop any launcher resources that were created.
+            await initializationPromise.catch(() => {});
+            await apiLauncher?.stopApiServer();
+            if (previousShutdownFailed) throw previousShutdownError;
+            // Keep a failed shutdown discoverable. A reload may also have
+            // published a newer bridge while we waited; never remove it.
+            if (globalThis.__NAPCAT_BRIDGE__ === bridge) {
+              delete globalThis.__NAPCAT_BRIDGE__;
+            }
+          })();
+        }
+        return shutdownPromise;
+      }
     };
+    initializationPromise = Promise.resolve().then(async () => {
+      try {
+        await previousShutdown?.();
+      } catch (error) {
+        previousShutdownFailed = true;
+        previousShutdownError = error;
+        throw error;
+      }
+      console.log(
+        `[QCE] Running mode: ${
+          workingEnv === 'framework'
+            ? 'Framework (QQNT plugin)'
+            : workingEnv === 'shell'
+              ? 'Shell (headless)'
+              : 'unknown'
+        }`
+      );
 
-    console.log(
-      `[QCE] Running mode: ${
-        workingEnv === 'framework'
-          ? 'Framework (QQNT plugin)'
-          : workingEnv === 'shell'
-            ? 'Shell (headless)'
-            : 'unknown'
-      }`
-    );
-
-    const { QQChatExporterApiLauncher } = await import('./runtime/ApiLauncher.mjs');
-
-    const runtimeCore = createFallbackCore(core);
-    const realApis = globalThis.__NAPCAT_BRIDGE__?.core?.apis || runtimeCore.apis;
-    const adapter = createApiAdapter(realApis);
-    // Keep NapCat's core.apis untouched: the adapter proxy is QCE-only.
-    // createFallbackCore returns the same object when given a real core, so
-    // copy-on-write is needed to avoid polluting NapCat's runtime state.
-    const qceCore = runtimeCore === core
-      ? Object.assign(Object.create(Object.getPrototypeOf(core)), core, { apis: adapter })
-      : runtimeCore;
-    if (qceCore === runtimeCore) {
-      runtimeCore.apis = adapter;
-    }
-
-    if (apiLauncher) {
-      await apiLauncher.stopApiServer();
-      apiLauncher = null;
-    }
-    apiLauncher = new QQChatExporterApiLauncher(qceCore);
-    await apiLauncher.startApiServer();
+      const { QQChatExporterApiLauncher } = await import('./runtime/ApiLauncher.mjs');
+      const runtimeCore = createFallbackCore(core);
+      const adapter = createApiAdapter(bridge.core?.apis || runtimeCore.apis);
+      // Keep NapCat's core.apis untouched, including during an overlapping reload.
+      const qceCore = runtimeCore === core
+        ? Object.assign(Object.create(Object.getPrototypeOf(core)), core, { apis: adapter })
+        : runtimeCore;
+      if (qceCore === runtimeCore) {
+        runtimeCore.apis = adapter;
+      }
+      apiLauncher = new QQChatExporterApiLauncher(qceCore);
+      await apiLauncher.startApiServer();
+    });
+    pluginLifecycle = bridge;
+    lifecyclesByContext.set(ctx || core, bridge);
+    globalThis.__NAPCAT_BRIDGE__ = bridge;
+    await initializationPromise;
   } catch (error) {
     console.error('[QCE] Initialization failed:', error);
     console.error(error?.stack || error);
   }
 }
 
-export async function plugin_cleanup() {
-  try {
-    if (apiLauncher) {
-      await apiLauncher.stopApiServer();
-      apiLauncher = null;
-    }
-    delete globalThis.__NAPCAT_BRIDGE__;
-  } catch (error) {
-    console.error('[QCE] Cleanup failed:', error);
-  }
+export function plugin_cleanup(context = undefined) {
+  // Return the same promise as the early shutdown hook. Cleanup errors must
+  // reach the host so it can report a failed shutdown instead of exit code 0.
+  const lifecycle = context && typeof context === 'object'
+    ? lifecyclesByContext.get(context)
+    : pluginLifecycle;
+  return lifecycle?.shutdown() ?? Promise.resolve();
 }
