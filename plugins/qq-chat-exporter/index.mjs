@@ -228,6 +228,7 @@ function normalizePluginArgs(arg0, arg1, arg2, arg3) {
 }
 
 export async function plugin_init(arg0, arg1, arg2, arg3) {
+  let startupSignal;
   try {
     const {
       core,
@@ -252,6 +253,8 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
     let initializationPromise;
     let previousShutdownFailed = false;
     let previousShutdownError;
+    const startupController = new AbortController();
+    startupSignal = startupController.signal;
 
     // Register this instance before its first asynchronous startup step.
     // NapCat only exposes getPluginExports after plugin_init has completed,
@@ -266,10 +269,11 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
       workingEnv,
       shutdown() {
         if (!shutdownPromise) {
-          shutdownPromise = (async () => {
-            // Initialization errors are reported by plugin_init. Even after
-            // a failed start, stop any launcher resources that were created.
-            await initializationPromise.catch(() => {});
+          shutdownPromise = Promise.resolve().then(async () => {
+            startupController.abort();
+            // plugin_init reports startup errors. The launcher separately
+            // tracks whether startup cleanup actually released its resources.
+            try { await initializationPromise; } catch {}
             await apiLauncher?.stopApiServer();
             if (previousShutdownFailed) throw previousShutdownError;
             // Keep a failed shutdown discoverable. A reload may also have
@@ -277,7 +281,7 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
             if (globalThis.__NAPCAT_BRIDGE__ === bridge) {
               delete globalThis.__NAPCAT_BRIDGE__;
             }
-          })();
+          });
         }
         return shutdownPromise;
       }
@@ -290,6 +294,7 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
         previousShutdownError = error;
         throw error;
       }
+      startupController.signal.throwIfAborted();
       console.log(
         `[QCE] Running mode: ${
           workingEnv === 'framework'
@@ -301,6 +306,7 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
       );
 
       const { QQChatExporterApiLauncher } = await import('./runtime/ApiLauncher.mjs');
+      startupController.signal.throwIfAborted();
       const runtimeCore = createFallbackCore(core);
       const adapter = createApiAdapter(bridge.core?.apis || runtimeCore.apis);
       // Keep NapCat's core.apis untouched, including during an overlapping reload.
@@ -311,15 +317,19 @@ export async function plugin_init(arg0, arg1, arg2, arg3) {
         runtimeCore.apis = adapter;
       }
       apiLauncher = new QQChatExporterApiLauncher(qceCore);
-      await apiLauncher.startApiServer();
+      await apiLauncher.startApiServer({ signal: startupController.signal });
     });
     pluginLifecycle = bridge;
     lifecyclesByContext.set(ctx || core, bridge);
     globalThis.__NAPCAT_BRIDGE__ = bridge;
     await initializationPromise;
   } catch (error) {
+    // Cancellation only has this exact reason after owned startup resources
+    // are confirmed stopped. Cleanup failures remain distinct and reject init.
+    if (startupSignal?.aborted && error === startupSignal.reason) return;
     console.error('[QCE] Initialization failed:', error);
     console.error(error?.stack || error);
+    throw error;
   }
 }
 
