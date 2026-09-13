@@ -43,6 +43,11 @@ jobs:
         working-directory: plugins/qq-chat-exporter
         run: npm test
 
+      - name: Run macOS launcher regression tests
+        if: runner.os == 'macOS'
+        working-directory: plugins/qq-chat-exporter
+        run: npm run test:macos-launcher
+
   rust-tests:
     name: Rust exporter and server tests
     runs-on: ubuntu-latest
