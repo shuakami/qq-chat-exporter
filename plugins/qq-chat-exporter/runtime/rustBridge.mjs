@@ -450,6 +450,73 @@ async function waitForPort(child, port, timeoutMs = 15_000) {
   throw new Error(`qce-server did not listen on port ${port} within ${timeoutMs}ms`);
 }
 
+/**
+ * Internal lifecycle boundary, exported for tests with a fake child process.
+ * Every call shares one attempt and outcome; a timeout never means success.
+ *
+ * @param {Pick<import('node:child_process').ChildProcess, 'exitCode' | 'signalCode' | 'kill' | 'once' | 'removeListener'>} child
+ * @param {{ timeoutMs?: number, setTimer?: typeof setTimeout, clearTimer?: typeof clearTimeout }} [options]
+ */
+export function createChildShutdown(child, {
+  timeoutMs = 2_000,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+} = {}) {
+  /** @type {Promise<void> | undefined} */
+  let stopPromise;
+  const hasExited = () => child.exitCode !== null || child.signalCode !== null;
+  const attempt = (resolve, reject) => {
+    if (hasExited()) {
+      resolve();
+      return;
+    }
+    let finished = false;
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timer;
+    /** @param {Error} [error] */
+    const finish = (error) => {
+      if (finished) return;
+      finished = true;
+      child.removeListener('exit', onExit);
+      child.removeListener('error', onError);
+      if (timer !== undefined) clearTimer(timer);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onExit = () => finish();
+    const onError = (error) => finish(error instanceof Error ? error : new Error(String(error)));
+    // kill() can produce an exit/error immediately. Install listeners first.
+    child.once('exit', onExit);
+    child.once('error', onError);
+    timer = setTimer(() => {
+      if (hasExited()) finish();
+      else finish(new Error(`qce-server did not exit within ${timeoutMs}ms after SIGTERM`));
+    }, timeoutMs);
+    try {
+      if (hasExited()) finish();
+      else if (!child.kill('SIGTERM')) {
+        if (hasExited()) finish();
+        else finish(new Error('Failed to send SIGTERM to qce-server'));
+      }
+    } catch (error) {
+      onError(error);
+    }
+  };
+  return function stopChild() {
+    if (stopPromise) return stopPromise;
+    let resolveStop;
+    let rejectStop;
+    stopPromise = new Promise((resolve, reject) => {
+      resolveStop = resolve;
+      rejectStop = reject;
+    });
+    // Publish the promise before kill can synchronously re-enter stop through
+    // an existing child exit/error listener.
+    attempt(resolveStop, rejectStop);
+    return stopPromise;
+  };
+}
+
 export async function startRustApiServer(core, frontendPath) {
   const logFile = runtimeLogFile();
   appendRuntimeLog(logFile, '[qce-plugin]', 'starting qce-server');
@@ -537,20 +604,16 @@ export async function startRustApiServer(core, frontendPath) {
     throw error;
   }
 
+  const stopChild = createChildShutdown(child);
+  let stopPromise;
   return {
-    async stop() {
-      if (child.exitCode === null) {
+    stop() {
+      if (!stopPromise) stopPromise = Promise.resolve().then(async () => {
         appendRuntimeLog(logFile, '[qce-plugin]', 'stopping qce-server');
-        child.kill();
-        await new Promise((resolve) => {
-          const timer = setTimeout(resolve, 2_000);
-          child.once('exit', () => {
-            clearTimeout(timer);
-            resolve();
-          });
-        });
-      }
-      await bridge.stop();
+        await stopChild();
+        await bridge.stop();
+      });
+      return stopPromise;
     }
   };
 }
