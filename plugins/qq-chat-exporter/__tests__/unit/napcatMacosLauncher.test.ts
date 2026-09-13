@@ -530,6 +530,71 @@ test('macOS launcher: refuses to start while the desktop QQ client is running', 
     }
 });
 
+test('macOS launcher: repairs Finder metadata on a cached private runtime without touching the original', { skip: skipReason ?? false }, () => {
+    const tmp = createTempDir('launcher-macos-cached-xattr-');
+    try {
+        const fixture = stageFakeQqApp(tmp.path);
+        const launcher = stageLauncher(tmp.path);
+        const env = { ...process.env, NAPCAT_QQ_PATH: fixture.qqBinary };
+        const first = runLauncher(launcher, env);
+        assert.equal(first.status, 0, first.stdout + first.stderr);
+        const runtime = runtimeAppDir(launcher);
+        const executable = path.join(runtime, 'Contents', 'MacOS', 'QQ');
+        const contaminated = spawnSync('xattr', ['-wx', 'com.apple.FinderInfo',
+            '0000000000000000000000000000000000000000000000000000000000000001', executable], { encoding: 'utf8' });
+        assert.equal(contaminated.status, 0, contaminated.stderr);
+        const invalid = spawnSync('codesign', ['--verify', '--deep', '--strict', runtime], { encoding: 'utf8' });
+        assert.notEqual(invalid.status, 0, 'Finder metadata must reproduce a rejected signature');
+        const second = runLauncher(launcher, env);
+        assert.equal(second.status, 0, second.stdout + second.stderr);
+        assert.ok(!second.stdout.includes('Preparing a private'), 'metadata repair must not recopy the application');
+        const verify = spawnSync('codesign', ['--verify', '--deep', '--strict', runtime], { encoding: 'utf8' });
+        assert.equal(verify.status, 0, verify.stderr);
+        assert.ok(fixture.pristineBytes.equals(fs.readFileSync(fixture.qqBinary)), 'the original executable must remain unchanged');
+    } finally {
+        tmp.cleanup();
+    }
+});
+
+test('macOS launcher: a running private copy is not patched, relaunched or linked to new stores', { skip: skipReason ?? false }, () => {
+    const tmp = createTempDir('launcher-macos-private-running-');
+    try {
+        const fixture = stageFakeQqApp(tmp.path);
+        const launcher = stageLauncher(tmp.path);
+        const first = runLauncher(launcher, { ...process.env, NAPCAT_QQ_PATH: fixture.qqBinary });
+        assert.equal(first.status, 0, first.stderr);
+        const runtime = runtimeAppDir(launcher);
+        const marker = path.join(tmp.path, '.qce-runtime-patch-version');
+        fs.writeFileSync(marker, 'outdated\n');
+        const watched = [marker,
+            path.join(runtime, 'Contents', 'MacOS', 'QQ'),
+            path.join(runtime, 'Contents', 'Resources', 'app', 'loadNapCat-qce.js')];
+        const before = watched.map(file => fs.readFileSync(file));
+        const account = path.join(containerStoreDir(tmp.path), 'nt_qq_running_guard');
+        fs.mkdirSync(account, { recursive: true });
+        fs.writeFileSync(path.join(account, 'marker'), 'private fixture');
+        const bin = path.join(tmp.path, 'bin');
+        fs.mkdirSync(bin);
+        fs.writeFileSync(path.join(bin, 'ps'), '#!/bin/sh\nprintf \'%s\\n\' "$QCE_TEST_RUNTIME_BINARY"\n', { mode: 0o755 });
+        const second = runLauncher(launcher, { ...process.env,
+            NAPCAT_QQ_PATH: fixture.qqBinary,
+            PATH: `${bin}:${process.env.PATH ?? ''}`,
+            QCE_TEST_RUNTIME_BINARY: fs.realpathSync(path.join(runtime, 'Contents', 'MacOS', 'QQ')),
+        });
+        assert.equal(second.status, 0, second.stderr);
+        assert.match(second.stdout, /private QQ runtime is already running/);
+        assert.ok(!second.stdout.includes('QQ_EXECED'), 'must not start a second process');
+        for (const [index, file] of watched.entries()) {
+            assert.ok(before[index].equals(fs.readFileSync(file)), `running runtime must preserve ${file}`);
+        }
+        assert.ok(!fs.existsSync(path.join(liveStoreDir(tmp.path), 'nt_qq_running_guard')),
+            'must not relink account data while the runtime is running');
+        assert.equal(fs.readFileSync(path.join(account, 'marker'), 'utf8'), 'private fixture');
+    } finally {
+        tmp.cleanup();
+    }
+});
+
 test('macOS launcher: an upstream QQ update triggers a clean re-copy + re-patch', { skip: skipReason ?? false }, () => {
     const tmp = createTempDir('launcher-macos-reupdate-');
     try {

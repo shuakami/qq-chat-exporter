@@ -398,7 +398,7 @@ if [[ "${OSTYPE:-}" == darwin* ]]; then
     # root") on the next run.
     QQ_RUNTIME_SOURCE_MARKER="$SCRIPT_DIR/.qce-runtime-source-version"
     QQ_RUNTIME_PATCH_MARKER="$SCRIPT_DIR/.qce-runtime-patch-version"
-    QQ_RUNTIME_PATCH_VERSION=4
+    QQ_RUNTIME_PATCH_VERSION=5
 
     if ps -axo comm= | grep -Fqx -- "$QQ_RUNTIME_BINARY"; then
         echo "[Info] QCE's private QQ runtime is already running."
@@ -418,6 +418,11 @@ if [[ "${OSTYPE:-}" == darwin* ]]; then
             echo "          xcode-select --install"
             exit 1
         fi
+
+        # Finder and file providers can add metadata after the initial copy.
+        # Repair cached copies as well; codesign rejects this metadata even
+        # when all executable bytes and our loader are otherwise correct.
+        xattr -cr "$QQ_RUNTIME_APP_DIR" 2>/dev/null || true
 
         local entitlements_plist
         entitlements_plist="$(mktemp -t qce-qq-entitlements)"
@@ -479,7 +484,7 @@ PLIST_EOF
         local generated_loader
         generated_loader="$(mktemp -t qce-macos-loader)"
         cat > "$generated_loader" <<'LOADER_EOF'
-// QCE macOS loader revision 4. Generated from launcher-user.sh.
+// QCE macOS loader revision 5. Generated from launcher-user.sh.
 // This private bundle is only a backend runtime, never the desktop QQ app.
 const { app } = require('electron');
 const { pathToFileURL } = require('url');
@@ -496,17 +501,19 @@ if (process.env.QCE_NAPCAT_ENTRY !== '1') {
     if (stopping) return;
     stopping = true;
     console.log('[QCE] stopping runtime: ' + reason);
-    const deadline = setTimeout(() => {
-      console.error('[QCE] shutdown cleanup timed out');
-      app.exit(1);
+    // Keep ownership of pending resources even if they stop holding Node's
+    // event loop open. A deadline must not orphan a starting Rust process.
+    const keepAlive = setInterval(() => {}, 1000);
+    const warning = setTimeout(() => {
+      console.warn('[QCE] shutdown cleanup is still pending; keeping the runtime alive until cleanup finishes');
     }, 10000);
     try {
       // NapCat imports plugins with a cache-busting query. Importing the bare
       // file here would create a fresh module with no running server to stop.
       const bridge = globalThis.__NAPCAT_BRIDGE__;
       if (typeof bridge?.shutdown === 'function') {
-        // Available before plugin_init finishes, so startup and stop cannot
-        // race past each other and leave the Rust child running.
+        // Available before plugin_init finishes. The hook cancels startup
+        // and joins resource cleanup before allowing the host to exit.
         await bridge.shutdown();
       } else {
         // Compatibility with older plugin packages already on disk.
@@ -517,10 +524,13 @@ if (process.env.QCE_NAPCAT_ENTRY !== '1') {
         }
       }
     } catch (error) {
-      console.error('[QCE] shutdown cleanup failed: ' + error.message);
-      code = 1;
+      clearTimeout(warning);
+      console.error('[QCE] shutdown cleanup failed: ' + (error?.message || String(error)));
+      console.error('[QCE] runtime kept alive because cleanup was not confirmed; inspect the logs before restarting');
+      return;
     }
-    clearTimeout(deadline);
+    clearTimeout(warning);
+    clearInterval(keepAlive);
     app.exit(code);
   }
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {

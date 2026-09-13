@@ -33,6 +33,7 @@ function createHarness(options = {}) {
   const events = [];
   const imports = [];
   const timers = new Map();
+  const intervals = new Set();
   const app = new EventEmitter();
   const processMock = new EventEmitter();
   processMock.pid = 12345;
@@ -104,6 +105,12 @@ function createHarness(options = {}) {
       return timer;
     },
     clearTimeout(timer) { timers.delete(timer); },
+    setInterval() {
+      const timer = {};
+      intervals.add(timer);
+      return timer;
+    },
+    clearInterval(timer) { intervals.delete(timer); },
   });
   const napcatURL = pathToFileURL(processMock.env.QCE_NAPCAT_MJS_PATH).href;
   const script = new vm.Script(loader, {
@@ -121,7 +128,7 @@ function createHarness(options = {}) {
   });
   script.runInContext(context, { timeout: 1000 });
   return {
-    app, events, imports, napcatURL, pluginContext, pluginState, processMock, timers,
+    app, events, imports, intervals, napcatURL, pluginContext, pluginState, processMock, timers,
     exits: () => events.filter(event => event.type === 'exit'),
   };
 }
@@ -162,15 +169,17 @@ test('repeated signals and app quit share one cleanup, completed before exit', a
   assert.ok(finishIndex >= 0 && finishIndex < exitIndex, 'plugin cleanup must finish before exit');
   assert.equal(harness.pluginState.running, false, 'cleanup must stop the cached instance');
   assert.equal(harness.timers.size, 0, 'successful cleanup must cancel the shutdown deadline');
+  assert.equal(harness.intervals.size, 0, 'successful cleanup must release the host keepalive');
 });
 
-test('cleanup failure is reported and exits once with a nonzero status', async () => {
+test('cleanup failure is reported and keeps the owner alive rather than orphaning resources', async () => {
   const harness = createHarness({ cleanup: async () => { throw new Error('mock cleanup failure'); } });
   await settle();
   harness.processMock.emit('SIGTERM');
   await settle();
   assert.equal(harness.events.filter(event => event.type === 'cleanup-start').length, 1);
-  assert.deepEqual(harness.exits(), [{ type: 'exit', method: 'app.exit', code: 1 }]);
+  assert.deepEqual(harness.exits(), []);
+  assert.equal(harness.intervals.size, 1, 'failed cleanup must keep its owner alive');
   assert.ok(harness.events.some(event => event.type === 'log'
     && event.level === 'error' && event.message.includes('mock cleanup failure')));
   assert.equal(harness.timers.size, 0);
@@ -186,8 +195,9 @@ test('NapCat import failure still cleans up QCE before reporting failed startup'
     < harness.events.findIndex(event => event.type === 'exit'));
 });
 
-test('stalled cleanup reaches the bounded deadline and exits with failure', async () => {
-  const harness = createHarness({ cleanup: () => new Promise(() => {}) });
+test('cleanup still pending after ten seconds retains the owner and can finish later', async () => {
+  const cleaning = deferred();
+  const harness = createHarness({ cleanup: () => cleaning.promise });
   await settle();
   harness.processMock.emit('SIGTERM');
   await settle();
@@ -195,13 +205,20 @@ test('stalled cleanup reaches the bounded deadline and exits with failure', asyn
   assert.deepEqual(harness.exits(), []);
   assert.equal(harness.timers.size, 1);
   const [timer, deadline] = harness.timers.entries().next().value;
-  assert.equal(deadline.delay, 10000, 'cleanup has the documented ten-second limit');
+  assert.equal(deadline.delay, 10000, 'slow cleanup has the documented ten-second warning');
   harness.timers.delete(timer); // A real setTimeout fires only once.
   deadline.callback();
-  assert.deepEqual(harness.exits(), [{ type: 'exit', method: 'app.exit', code: 1 }]);
+  assert.deepEqual(harness.exits(), [], 'the warning cannot abandon pending resources');
+  assert.equal(harness.intervals.size, 1);
   assert.equal(harness.events.some(event => event.type === 'cleanup-finish'), false);
   assert.ok(harness.events.some(event => event.type === 'log'
-    && event.level === 'error' && event.message.includes('timed out')));
+    && event.level === 'warn' && event.message.includes('still pending')));
+  cleaning.resolve();
+  await settle();
+  assert.deepEqual(harness.exits(), [{ type: 'exit', method: 'app.exit', code: 0 }]);
+  assert.equal(harness.intervals.size, 0);
+  assert.ok(harness.events.findIndex(event => event.type === 'cleanup-finish')
+    < harness.events.findIndex(event => event.type === 'exit'));
 });
 
 test('shutdown before the NapCat bridge exists does not import a fresh plugin', async () => {
@@ -249,14 +266,37 @@ test('shutdown hook is awaited even before NapCat marks the plugin loaded', asyn
     < harness.events.findIndex(event => event.type === 'exit'));
 });
 
-test('shutdown hook errors produce failure without calling a second cleanup path', async () => {
+test('shutdown hook errors retain the owner without calling a second cleanup path', async () => {
   const harness = createHarness({ modernShutdown: true,
     cleanup: async () => { throw new Error('service did not stop'); } });
   await settle();
   harness.processMock.emit('SIGHUP');
   await settle();
-  assert.deepEqual(harness.exits(), [{ type: 'exit', method: 'app.exit', code: 1 }]);
+  assert.deepEqual(harness.exits(), []);
+  assert.equal(harness.intervals.size, 1);
   assert.equal(harness.events.some(event => event.type === 'plugin-lookup'), false);
   assert.ok(harness.events.some(event => event.type === 'log'
     && event.message.includes('service did not stop')));
+});
+
+test('startup cleanup exceeding the warning duration still completes before host exit', async () => {
+  const initializing = deferred();
+  const harness = createHarness({ modernShutdown: true, pluginLoaded: false,
+    cleanup: () => initializing.promise });
+  await settle();
+  harness.processMock.emit('SIGTERM');
+  await settle();
+  const [timer, warning] = harness.timers.entries().next().value;
+  harness.timers.delete(timer);
+  warning.callback();
+  harness.processMock.emit('SIGINT');
+  assert.deepEqual(harness.exits(), []);
+  assert.equal(harness.intervals.size, 1);
+  assert.equal(harness.events.filter(event => event.type === 'shutdown-start').length, 1);
+  initializing.resolve();
+  await settle();
+  assert.deepEqual(harness.exits(), [{ type: 'exit', method: 'app.exit', code: 0 }]);
+  assert.equal(harness.intervals.size, 0);
+  assert.ok(harness.events.findIndex(event => event.type === 'shutdown-finish')
+    < harness.events.findIndex(event => event.type === 'exit'));
 });
