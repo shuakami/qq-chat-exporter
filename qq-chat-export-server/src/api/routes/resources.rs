@@ -224,6 +224,9 @@ fn avatar_url(chat_type: &str, chat_id: &str) -> Option<String> {
 /// 构建 UID→UIN 查找表（用于将 `u_xxx` 形式的 peerUid 解析为 QQ 号码）。
 async fn build_uid_to_uin_map(state: &SharedState) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
+    if state.is_standalone() {
+        return map;
+    }
     if let Ok(friends) = state.napcat.get_friends(false).await {
         if let Some(arr) = friends.as_array() {
             for f in arr {
@@ -512,6 +515,9 @@ async fn display_name_for_chat(
     chat_type: &str,
     chat_id: &str,
 ) -> Option<String> {
+    if state.is_standalone() {
+        return None;
+    }
     if chat_type == "group" {
         let groups = state.napcat.get_groups(false).await.ok()?;
         groups.as_array()?.iter().find_map(|g| {
@@ -3295,15 +3301,17 @@ pub async fn merge_resources(
 mod metadata_tests {
     use super::{
         apply_file_metadata, avatar_url, existing_file_path, extract_html_time_range,
-        file_manager_target_is_safe, find_sibling_file_ci, group_merge_sources,
-        is_merged_base_name, merge_resource_files, merge_source_messages,
-        merged_export_display_time, merged_output_names, merged_resource_dir_for_file,
-        parse_export_file_name, parse_manifest_metadata, parse_manual_export_file_name,
-        parse_merge_formats, parse_merged_export_file_name, parse_scheduled_export_file_name,
-        registered_export_task_paths, rewrite_merged_resource_paths, should_select_in_file_manager,
-        valid_export_file_name, windows_explorer_args, write_merged_data, MergeSource,
-        MergedWriteOptions,
+        find_sibling_file_ci, group_merge_sources, is_merged_base_name, merge_resource_files,
+        merge_source_messages, merged_export_display_time, merged_output_names,
+        merged_resource_dir_for_file, parse_export_file_name, parse_manifest_metadata,
+        parse_manual_export_file_name, parse_merge_formats, parse_merged_export_file_name,
+        parse_scheduled_export_file_name, registered_export_task_paths,
+        rewrite_merged_resource_paths, should_select_in_file_manager, valid_export_file_name,
+        windows_explorer_args, write_merged_data, MergeSource, MergedWriteOptions,
     };
+    // 仅 cfg(unix) 的符号链接测试会用到；顶层导入在 Windows 上会触发 unused_imports。
+    #[cfg(unix)]
+    use super::file_manager_target_is_safe;
     use crate::api::path_security::resolve_existing_exact;
     use serde_json::json;
     use std::collections::HashMap;

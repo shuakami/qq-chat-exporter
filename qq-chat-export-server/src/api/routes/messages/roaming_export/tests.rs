@@ -301,6 +301,81 @@ async fn roaming_retry_is_bounded_and_skips_permanent_errors() {
     }
 }
 
+// Only used by the loopback HTTP fixture below. TCP reads can split CRLFCRLF
+// at any byte, so retain previous bytes and bound malformed/incomplete input.
+async fn read_fixture_request_head<R: tokio::io::AsyncRead + Unpin>(
+    stream: &mut R,
+) -> std::io::Result<()> {
+    use tokio::io::AsyncReadExt as _;
+
+    let mut request = Vec::new();
+    let mut chunk = [0u8; 1024];
+    loop {
+        let read = stream.read(&mut chunk).await?;
+        if read == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "fixture request ended before its header terminator",
+            ));
+        }
+        request.extend_from_slice(&chunk[..read]);
+        if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+            return Ok(());
+        }
+        if request.len() >= 16 * 1024 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "fixture request head is too large",
+            ));
+        }
+    }
+}
+
+#[tokio::test]
+async fn fixture_request_head_accepts_fragmented_terminator_before_connection_close() {
+    use tokio::io::AsyncWriteExt as _;
+
+    // Capacity one makes every byte a separate read, including the terminator.
+    let (mut reader, mut writer) = tokio::io::duplex(1);
+    let (release, hold_open) = tokio::sync::oneshot::channel::<()>();
+    let sender = tokio::spawn(async move {
+        writer
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .expect("write fragmented request");
+        let _ = hold_open.await;
+    });
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        read_fixture_request_head(&mut reader),
+    )
+    .await
+    .expect("header reader must finish without waiting for connection close")
+    .expect("read fragmented header");
+    release.send(()).expect("release fixture writer");
+    sender.await.expect("fixture writer task");
+}
+
+#[tokio::test]
+async fn fixture_request_head_rejects_incomplete_and_oversized_input() {
+    let mut incomplete = &b"GET / HTTP/1.1\r\n"[..];
+    assert_eq!(
+        read_fixture_request_head(&mut incomplete)
+            .await
+            .expect_err("incomplete request")
+            .kind(),
+        std::io::ErrorKind::UnexpectedEof
+    );
+    let oversized = vec![b'A'; 16 * 1024];
+    assert_eq!(
+        read_fixture_request_head(&mut oversized.as_slice())
+            .await
+            .expect_err("oversized request")
+            .kind(),
+        std::io::ErrorKind::InvalidData
+    );
+}
+
 #[tokio::test]
 async fn roaming_retry_does_not_retry_builder_or_decode_errors() {
     let builder_runtime = MockRoamingRuntime::default();
@@ -344,6 +419,15 @@ async fn roaming_retry_does_not_retry_builder_or_decode_errors() {
                 let address = listener.local_addr().expect("fixture server address");
                 let server = tokio::spawn(async move {
                     let (mut stream, _) = listener.accept().await.expect("accept fixture request");
+                    // Drain the request head before replying: closing with unread
+                    // bytes can produce a reset on Windows instead of a clean FIN.
+                    tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        read_fixture_request_head(&mut stream),
+                    )
+                    .await
+                    .expect("fixture request head deadline")
+                    .expect("read fixture request head");
                     stream
                         .write_all(
                             b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 8\r\nconnection: close\r\n\r\nnot-json",

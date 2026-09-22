@@ -55,7 +55,7 @@ cd NapCat-QCE-macOS-arm64
 ./launcher-user.sh
 ```
 
-**首次运行会比日常慢一些**：脚本会自动在同目录下生成一份专用的 QQ 运行副本（`QQNapCatRuntime.app`），这一步涉及约 1 GB 文件的复制与重新签名，通常需要几十秒到一两分钟，具体取决于磁盘速度。这是正常现象，请耐心等待；控制台会打印 `Preparing a private, patched copy of QQ.app for NapCat` 提示。之后每次启动都会直接复用这份副本，仅在检测到 QQ 更新版本时才会重新生成。
+**首次运行会比日常慢一些**：脚本会自动在同目录下生成一份专用的 QQ 运行副本（`QQNapCatRuntime.app`），这一步涉及约 1 GB 文件的复制与重新签名，通常需要几十秒到一两分钟，具体取决于磁盘速度。这是正常现象，请耐心等待；控制台会打印 `Preparing a private, patched copy of QQ.app for NapCat` 提示。之后启动会校验副本的入口、补丁版本与签名，通过后直接复用；QQ 更新版本时会重新复制，启动器补丁更新或签名损坏时会自动重新打补丁并签名。
 
 **登录操作：**
 启动成功后，控制台窗口会出现登录二维码。打开手机 QQ 扫描即可完成登录。
@@ -70,6 +70,16 @@ cd NapCat-QCE-macOS-arm64
 
 浏览器没有自动弹出时，手动复制这条链接打开即可；也可以直接访问 `http://localhost:40653/qce`，把上面那串 Token 粘贴进验证框。如果两行都没看到，令牌也存在 `~/.qq-chat-exporter/security.json` 的 `accessToken` 字段里，详见[使用手册](guide.md#login)。
 
+### 停止、重启与升级
+
+需要重启时，先等当前导出任务结束，再在启动终端按 `Ctrl+C`。启动器加载的入口会清理已加载的 QCE 插件、关闭其服务，然后退出。等终端回到命令提示符后，重新执行 `./launcher-user.sh`。
+
+在服务仍启动时停止，会先取消启动并等待已创建的子进程和桥接服务清理。若清理超过 10 秒，终端会提示继续等待，不会因超时强退主进程。若清理失败，运行进程会保留并打印错误；请检查日志、确认原进程已停止后再启动，避免遗留后台服务或同时运行两份实例。
+
+升级 QCE 前也请先停止运行，再更新解压目录里的程序文件，并保留配置和导出记录。即使 QQ 版本没有变化，新启动器也会检查自己的补丁版本，自动修复已有 `QQNapCatRuntime.app` 的入口及主程序、Helper 签名，无需手动删除副本或 QQ 聊天数据。
+
+**始终通过 `./launcher-user.sh` 启动。** 不要双击 `QQNapCatRuntime.app`，也不要使用系统崩溃报告里的「重新打开（Reopen）」。这些入口缺少启动器配置，新版副本会退出并提示改用启动脚本；它不会继续进入桌面 QQ。
+
 ### 独立查看模式
 
 只需要浏览已经导出的聊天记录、不需要登录 QQ 时，可以运行：
@@ -78,7 +88,7 @@ cd NapCat-QCE-macOS-arm64
 ./start-standalone.sh
 ```
 
-这个模式不用退出桌面 QQ，启动后同样会打印登录链接。
+这个模式不用退出桌面 QQ，启动后同样会打印登录链接。你可以浏览已有聊天记录、资源和执行历史，也可以创建、编辑或删除定时计划；计划在独立模式下不会自动执行，手动触发导出也不可用。需要获取新聊天记录、群文件或相册时，请改用完整模式并登录 QQ。
 
 ### 自定义 QQ 路径
 
@@ -97,7 +107,11 @@ macOS 版 `/Applications/QQ.app` 是苹果 Hardened Runtime（强化运行时）
 
 1. 在 `launcher-user.sh` 所在目录下复制一份 QQ.app（`QQNapCatRuntime.app`），**从不修改你日常使用的 `/Applications/QQ.app`**；
 2. 给这份副本的 `package.json` 打补丁，让它加载 NapCat 而不是 QQ 自己的入口；
-3. 由于补丁改动了签名清单覆盖的文件，必须对副本重新签名（临时自签名，仅限本机使用）才能通过 Gatekeeper 校验并正常启动。
+3. 由于补丁改动了签名清单覆盖的文件，必须先对副本内的 QQ Helper 应用逐一重新签名，再签主应用，最后校验完整签名。主程序和 Helper 使用一致的不含 App Sandbox、沙盒继承和 App Group 的临时自签名授权，仅限本机使用。
+
+启动时保留 Electron / Chromium 正常的子进程结构，禁用 GPU 加速，并为这份副本传入 `--no-sandbox`；不再使用会影响 Electron 退出过程的 `--single-process`。环境变量 `NAPCAT_DISABLE_MULTI_PROCESS=1` 控制的是 NapCat 自己的工作进程模式，与这些 Chromium 子进程是两回事。
+
+启动器会拒绝手动传入 `--single-process`，以及通过环境或 `config/.env` 启用 NapCat 工作进程的配置。遇到此类提示时，按提示移除参数，并确认 `config/.env` 中 `NAPCAT_DISABLE_MULTI_PROCESS=1`、没有 `NAPCAT_WORKER_PROCESS=1`，再重新启动。
 
 重新签名是这套方案能生效的必要代价，会带来一个副作用：**这份运行副本会永久失去 macOS 的 App 沙盒（App Sandbox）保护**（临时自签名无法获得与真实 QQ 相匹配的 App Group 授权）。这只影响这个专门用于后台运行 NapCat 的副本，不会影响你日常使用的、始终保持苹果原版签名的 `/Applications/QQ.app`。如果你不希望在本机保留一份失去沙盒保护的 QQ 副本，请不要使用 macOS Shell 模式。
 
@@ -126,7 +140,7 @@ macOS 版 `/Applications/QQ.app` 是苹果 Hardened Runtime（强化运行时）
 | 环境变量名称 | 默认值 | 具体用途说明 |
 | --- | --- | --- |
 | `NAPCAT_QQ_PATH` | 自动探测 | 手动指定 QQ.app 内部可执行文件的绝对路径 |
-| `NAPCAT_DISABLE_MULTI_PROCESS` | `1` | 是否禁用 NapCat 的多进程模式（macOS 下默认禁用） |
+| `NAPCAT_DISABLE_MULTI_PROCESS` | `1` | macOS 启动器固定禁用 NapCat 的工作进程模式；若 `config/.env` 覆盖为启用，则报错并提示修改 |
 | `QCE_NO_AUTO_OPEN` | 未设置 | 设为 `1` 后不再自动打开浏览器，只在控制台打印链接；优先级高于设置页里的开关 |
 | `QCE_LOG_DIR` / `QCE_LOG_FILE` | `logs/qce-runtime.log` | 运行日志输出位置 |
 
@@ -141,7 +155,9 @@ macOS 版 `/Applications/QQ.app` 是苹果 Hardened Runtime（强化运行时）
 
 ### 提示 `codesign failed`，或副本损坏想要重来
 
-* **解决方法**：删除运行副本后重新执行脚本，会从头重新生成：
+先确认 Xcode 命令行工具可用、解压目录可写，再重新运行启动脚本。签名或校验失败不会被记作准备完成，下次启动会重试修复。
+
+如果仍需从头生成，请先停止 QCE，再仅删除解压目录内的运行副本：
 
 ```bash
 rm -rf QQNapCatRuntime.app
@@ -163,10 +179,13 @@ lsof -nP -iTCP:40653 -sTCP:LISTEN
 kill <上面查到的 PID>
 ```
 
-### 关闭（Ctrl+C 或退出 QQ）后弹出系统崩溃报告
+### 关闭或重启后弹出系统崩溃报告
 
-* **原因分析**：`--single-process` 把原本相互独立的 GPU、网络等子进程都并入了同一个进程（见上文「这份"专用 QQ 运行副本"是什么」），退出阶段偶尔会撞上 Node/libuv 内部一个信号量的时序竞争，被系统判定为崩溃。
-* **解决方法**：无需处理。这个崩溃发生在进程已经在退出的过程中，不影响此前已完成的导出结果，直接关掉崩溃报告窗口即可。
+旧启动器使用的 `--single-process` 可能触发 Electron / libuv 退出阶段的信号量异常；副本中 Helper 的沙盒继承授权与主程序不一致，也可能导致子进程启动崩溃。
+
+新版启动器移除了 `--single-process`，统一重签副本内的主程序和 Helper，并在停止时清理当前已加载的 QCE 插件。升级后通过 `./launcher-user.sh` 启动一次，即可自动将这些修复应用到已有副本。原版 QQ 和聊天数据目录无需修改。
+
+不要用崩溃窗口的「重新打开」恢复 QCE，请回到终端重新运行启动脚本。如果升级后仍出现崩溃，请保留发生时间、QQ / QCE / macOS 版本、脱敏后的崩溃报告和相关日志片段并反馈。崩溃需要继续排查，不能以关闭报告窗口作为修复。
 
 ### 首次启动为什么要花这么久，是不是卡死了？
 
@@ -202,11 +221,24 @@ macOS 完整包会：
 
 ---
 
+## 开发回归验证
+
+在 macOS 的源码检出目录中，安装插件开发依赖后运行统一入口：
+
+```bash
+npm --prefix plugins/qq-chat-exporter ci
+npm --prefix plugins/qq-chat-exporter run test:macos-launcher
+```
+
+需要 Node.js、Python 3 和 Xcode 命令行工具。该命令依次运行临时 Mach-O 应用及四个 Helper 的真实签名测试、生成入口的隔离运行测试、签名缓存与启动参数的 shell mock 测试。测试不登录 QQ，不访问本机 QQ 数据；真实签名只作用于临时 fixture。
+
+插件 CI 会在 macOS 的 Node.js 20 / 22 矩阵中运行同一入口。macOS 发布包结构校验还会逐字节比对包内 `launcher-user.sh` 与仓库脚本，防止遗漏启动器修复。
+
 ## 反馈问题
 
 提交 Issue 时请附上：
 
 * Mac 芯片型号（如 M1 / M2 / M3 / M4 / M5）和 macOS 版本；
 * QQ、QCE 与 NapCat 版本；
-* `logs/qce-runtime.log` 的完整内容；
-* 终端中从启动到出现问题前后的完整日志。
+* `logs/qce-runtime.log` 与终端中出现问题前后的相关片段，先去除访问令牌和聊天内容；
+* 如果发生系统崩溃，附上发生时间和脱敏后的崩溃报告。

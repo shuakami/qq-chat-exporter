@@ -58,32 +58,18 @@
 #   used to restore full interposability but no longer does anything under
 #   Hardened Runtime). So instead of intercepting the read in memory, we
 #   patch `Contents/Resources/app/package.json` on disk to point `main` at a
-#   small loader we drop next to it, then re-sign only the outer bundle
-#   (ad-hoc, no --deep — this leaves nested Frameworks/Helpers' own
-#   signatures untouched) so Gatekeeper does not refuse to launch the
-#   now-modified bundle ("already damaged").
+#   small loader we drop next to it, then ad-hoc sign the private copy.
+#   Both the main executable and the four QQ Helpers must use compatible
+#   non-App-Sandbox entitlements. Keeping sandbox-inherit on official Helpers
+#   makes libsecinit abort because the patched main process has no sandbox.
+#   Framework signatures remain untouched; each Helper is signed before the
+#   outer bundle. The user's original /Applications/QQ.app is never modified.
 #
-#   Critically, this patch + re-sign runs against a **private copy** of
-#   QQ.app under this pack directory (macos_prepare_qq_runtime below), never
-#   against the user's real /Applications/QQ.app. Re-signing necessarily
-#   drops App Sandbox (see the next paragraph), and that is a property of the
-#   signature itself — it applies no matter how the bundle is later launched.
-#   Confirmed on real hardware: patching the real QQ.app in place also broke
-#   launching it normally, outside QCE — it lost its sandboxed data directory
-#   (so it couldn't find existing chat history) and crash-looped on its own
-#   GPU/Network Service child processes, same as the unpatched bug. Copying
-#   first means the user's everyday QQ.app is never touched at all.
-#
-#   Two more real-machine findings shape the launch flags below:
-#     - Ad-hoc re-signing cannot grant `com.apple.security.application-groups`
-#       (it requires a real Apple-issued provisioning profile), so the
-#       entitlements below deliberately omit App Sandbox/App Group. Without
-#       this, the runtime copy hangs during its own container init instead.
-#     - Under that reduced signature, Chromium's GPU and Network Service
-#       *child* processes fail to spawn correctly (GPU crashes fatally within
-#       seconds; Network Service crash-loops forever). `--single-process`
-#       avoids spawning them at all, which is an acceptable trade-off for a
-#       backend-only NapCat bot process that never renders a window.
+#   Do not use Chromium's --single-process as a workaround for Helper crashes.
+#   QQ's Electron 40 runtime can abort in uv_sem_post during shutdown when its
+#   in-process renderer was never initialized. Compatible Helper signatures
+#   let Chromium keep its regular process model. NapCat's separate worker
+#   mode remains disabled through NAPCAT_DISABLE_MULTI_PROCESS=1.
 #
 #   Dropping App Sandbox also moves where QQ keeps its databases, which is why
 #   macos_link_qq_data_store below exists — without it the copy starts from an
@@ -94,7 +80,7 @@
 
 set -u
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd -P )"
 cd "$SCRIPT_DIR"
 
 QCE_LOG_DIR="${QCE_LOG_DIR:-$SCRIPT_DIR/logs}"
@@ -303,6 +289,51 @@ fi
 # is necessary and what each piece below is for.
 
 if [[ "${OSTYPE:-}" == darwin* ]]; then
+    macos_validate_launch_mode() {
+        local argument env_file
+        for argument in "$@"; do
+            case "$argument" in
+                --single-process|--single-process=*)
+                    echo "[Error] --single-process is not supported by the macOS QCE runtime."
+                    echo "        Remove that option; it can make QQ abort during shutdown."
+                    return 1
+                    ;;
+            esac
+        done
+        # NapCat reads config/.env itself and lets it override exported values.
+        # Check its effective worker switches before touching the QQ copy.
+        env_file="$SCRIPT_DIR/config/.env"
+        [ -f "$env_file" ] || env_file=/dev/null
+        if ! awk '
+            function trim(value) { sub(/^[[:space:]]+/, "", value); sub(/[[:space:]]+$/, "", value); return value }
+            BEGIN {
+                primary = "1"
+                alternate = ENVIRON["NAPCAT_DISABLE_MULTIPROCESSING"]
+                worker = ENVIRON["NAPCAT_WORKER_PROCESS"]
+            }
+            {
+                line = trim($0)
+                if (line == "" || substr(line, 1, 1) == "#") next
+                separator = index(line, "=")
+                if (!separator) next
+                key = trim(substr(line, 1, separator - 1))
+                value = trim(substr(line, separator + 1))
+                if (value == "") next
+                if (key == "NAPCAT_DISABLE_MULTI_PROCESS") primary = value
+                if (key == "NAPCAT_DISABLE_MULTIPROCESSING") alternate = value
+                if (key == "NAPCAT_WORKER_PROCESS") worker = value
+            }
+            END { if (worker == "1" || (primary != "1" && alternate != "1")) exit 1 }
+        ' "$env_file"; then
+            echo "[Error] NapCat worker mode is not supported by the macOS QCE launcher."
+            echo "        Set NAPCAT_DISABLE_MULTI_PROCESS=1 and remove NAPCAT_WORKER_PROCESS=1"
+            echo "        from the environment and config/.env before restarting."
+            return 1
+        fi
+        export NAPCAT_DISABLE_MULTI_PROCESS=1
+    }
+    macos_validate_launch_mode "$@" || exit 1
+
     # Defensively strip com.apple.quarantine (and any other xattrs) from the
     # Mach-O we actually execve()/dlopen(): qce-server and the native/*.node
     # addons. Unlike the .sh/.js/.mjs files elsewhere in this package, Apple
@@ -328,7 +359,7 @@ if [[ "${OSTYPE:-}" == darwin* ]]; then
         exit 1
     fi
 
-    QQ_APP_DIR="$(dirname "$(dirname "$QQ_DIR")")"       # .../QQ.app (the real, untouched install)
+    QQ_APP_DIR="$(cd "$(dirname "$(dirname "$QQ_DIR")")" && pwd -P)"       # .../QQ.app (the real, untouched install)
 
     # The runtime copy and the desktop client share one PC-login slot, and (see
     # macos_link_qq_data_store below) one message store. If QQ is already
@@ -366,6 +397,14 @@ if [[ "${OSTYPE:-}" == darwin* ]]; then
     # `codesign --verify --strict` ("unsealed contents present in the bundle
     # root") on the next run.
     QQ_RUNTIME_SOURCE_MARKER="$SCRIPT_DIR/.qce-runtime-source-version"
+    QQ_RUNTIME_PATCH_MARKER="$SCRIPT_DIR/.qce-runtime-patch-version"
+    QQ_RUNTIME_PATCH_VERSION=5
+
+    if ps -axo comm= | grep -Fqx -- "$QQ_RUNTIME_BINARY"; then
+        echo "[Info] QCE's private QQ runtime is already running."
+        echo "       Use the existing QCE web page, or stop it before restarting."
+        exit 0
+    fi
 
     # Identifies the real QQ install's version, so a later QQ update can be
     # detected and the runtime copy refreshed instead of silently going stale.
@@ -379,6 +418,11 @@ if [[ "${OSTYPE:-}" == darwin* ]]; then
             echo "          xcode-select --install"
             exit 1
         fi
+
+        # Finder and file providers can add metadata after the initial copy.
+        # Repair cached copies as well; codesign rejects this metadata even
+        # when all executable bytes and our loader are otherwise correct.
+        xattr -cr "$QQ_RUNTIME_APP_DIR" 2>/dev/null || true
 
         local entitlements_plist
         entitlements_plist="$(mktemp -t qce-qq-entitlements)"
@@ -406,22 +450,19 @@ if [[ "${OSTYPE:-}" == darwin* ]]; then
 </dict>
 </plist>
 PLIST_EOF
-        # Shallow (no --deep): this re-seals Contents/Resources (which now
-        # includes our patched package.json and new loadNapCat-qce.js) and
-        # re-signs the main executable with the entitlements above. Nested
-        # Frameworks/Helpers keep their own original signatures untouched —
-        # --deep would try to re-sign those too and fail, since most of them
-        # declare com.apple.security.application-groups, which ad-hoc
-        # signing cannot grant (it needs a real Apple provisioning profile).
-        #
-        # Deliberately NOT included above: com.apple.security.app-sandbox and
-        # com.apple.security.application-groups. The real QQ.app ships with
-        # both, but an ad-hoc signature can't obtain real App Group
-        # authorization for them; keeping app-sandbox=true without it makes
-        # QQ hang silently during its own container init (confirmed on real
-        # hardware) instead of erroring out. This only affects the private
-        # runtime copy — the real QQ.app keeps its original, fully sandboxed,
-        # Apple-signed entitlements untouched.
+        # These are private copies only. Remove App Sandbox/inherit and App
+        # Group requirements consistently from Helpers and the main binary.
+        # Re-sign nested app bundles first, without --deep: QQNT.framework and
+        # other third-party framework signatures stay intact.
+        local helper_app
+        for helper_app in "$QQ_RUNTIME_APP_DIR/Contents/Frameworks"/QQ\ Helper*.app; do
+            [ -d "$helper_app" ] || continue
+            if ! codesign --force --sign - --entitlements "$entitlements_plist" "$helper_app" 2>&1; then
+                rm -f "$entitlements_plist"
+                echo "[Error] Could not sign a private QQ Helper."
+                exit 1
+            fi
+        done
         echo "[Info] Re-signing the private runtime copy (ad-hoc)..."
         if ! codesign --force --sign - --entitlements "$entitlements_plist" "$QQ_RUNTIME_APP_DIR" 2>&1; then
             rm -f "$entitlements_plist"
@@ -431,6 +472,102 @@ PLIST_EOF
             exit 1
         fi
         rm -f "$entitlements_plist"
+        if ! codesign --verify --deep --strict "$QQ_RUNTIME_APP_DIR" 2>&1; then
+            echo "[Error] The private QQ runtime signature did not validate."
+            exit 1
+        fi
+    }
+
+    # Refresh just our generated loader when its logic changes. The QQ
+    # version alone cannot detect a launcher fix; do not recopy a GB for it.
+    macos_patch_runtime_loader() {
+        local generated_loader
+        generated_loader="$(mktemp -t qce-macos-loader)"
+        cat > "$generated_loader" <<'LOADER_EOF'
+// QCE macOS loader revision 5. Generated from launcher-user.sh.
+// This private bundle is only a backend runtime, never the desktop QQ app.
+const { app } = require('electron');
+const { pathToFileURL } = require('url');
+
+if (process.env.QCE_NAPCAT_ENTRY !== '1') {
+  // LaunchServices / CrashReporter Reopen does not preserve the launcher's
+  // environment or switches. Never fall back to the sandboxed desktop entry.
+  app.disableHardwareAcceleration();
+  console.error('[QCE] Open launcher-user.sh or the QCE .command launcher to start this runtime.');
+  app.exit(0);
+} else {
+  let stopping = false;
+  async function stop(reason, code = 0) {
+    if (stopping) return;
+    stopping = true;
+    console.log('[QCE] stopping runtime: ' + reason);
+    // Keep ownership of pending resources even if they stop holding Node's
+    // event loop open. A deadline must not orphan a starting Rust process.
+    const keepAlive = setInterval(() => {}, 1000);
+    const warning = setTimeout(() => {
+      console.warn('[QCE] shutdown cleanup is still pending; keeping the runtime alive until cleanup finishes');
+    }, 10000);
+    try {
+      // NapCat imports plugins with a cache-busting query. Importing the bare
+      // file here would create a fresh module with no running server to stop.
+      const bridge = globalThis.__NAPCAT_BRIDGE__;
+      if (typeof bridge?.shutdown === 'function') {
+        // Available before plugin_init finishes. The hook cancels startup
+        // and joins resource cleanup before allowing the host to exit.
+        await bridge.shutdown();
+      } else {
+        // Compatibility with older plugin packages already on disk.
+        const context = bridge?.pluginContext;
+        const plugin = context?.getPluginExports?.(context.pluginName);
+        if (typeof plugin?.plugin_cleanup === 'function') {
+          await plugin.plugin_cleanup(context);
+        }
+      }
+    } catch (error) {
+      clearTimeout(warning);
+      console.error('[QCE] shutdown cleanup failed: ' + (error?.message || String(error)));
+      console.error('[QCE] runtime kept alive because cleanup was not confirmed; inspect the logs before restarting');
+      return;
+    }
+    clearTimeout(warning);
+    clearInterval(keepAlive);
+    app.exit(code);
+  }
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+    process.on(signal, () => { void stop(signal); });
+  }
+  app.on('before-quit', event => {
+    event.preventDefault();
+    void stop('app quit');
+  });
+  import(pathToFileURL(process.env.QCE_NAPCAT_MJS_PATH).href).catch(error => {
+    console.error('[QCE] failed to import napcat.mjs: ' + error.message);
+    void stop('startup failure', 1);
+  });
+}
+LOADER_EOF
+        if cmp -s "$generated_loader" "$QQ_RUNTIME_LOADER_PATH" \
+           && [ "$(cat "$QQ_RUNTIME_PATCH_MARKER" 2>/dev/null)" = "$QQ_RUNTIME_PATCH_VERSION" ] \
+           && codesign --verify --deep --strict "$QQ_RUNTIME_APP_DIR" >/dev/null 2>&1; then
+            rm -f "$generated_loader"
+            return 0
+        fi
+        if ! rm -f "$QQ_RUNTIME_PATCH_MARKER"; then
+            rm -f "$generated_loader"
+            echo "[Error] Could not invalidate the private runtime patch marker."
+            exit 1
+        fi
+        if ! cp "$generated_loader" "$QQ_RUNTIME_LOADER_PATH"; then
+            rm -f "$generated_loader"
+            echo "[Error] Could not update QCE's macOS loader."
+            exit 1
+        fi
+        rm -f "$generated_loader"
+        macos_resign_qq_runtime
+        if ! printf '%s\n' "$QQ_RUNTIME_PATCH_VERSION" > "$QQ_RUNTIME_PATCH_MARKER"; then
+            echo "[Error] Could not save the private runtime patch marker."
+            exit 1
+        fi
     }
 
     macos_prepare_qq_runtime() {
@@ -468,39 +605,32 @@ PLIST_EOF
         fi
         xattr -cr "$QQ_RUNTIME_APP_DIR" 2>/dev/null || true
 
-        local original_main
-        original_main=$(grep -oE '"main": *"[^"]*"' "$QQ_RUNTIME_PKG_JSON" | head -1 | sed -E 's/"main": *"([^"]*)"/\1/')
-        if [ -z "$original_main" ]; then
-            echo "[Error] Could not find a \"main\" field in $QQ_RUNTIME_PKG_JSON."
-            echo "        QQ may have changed its packaging; please file an issue."
+        # Redirect + rename is portable across BSD, GNU and toybox sed.
+        # Keep the temporary file beside the manifest so replacement is atomic
+        # on the same volume; preserve its permissions and check every step.
+        local patched_json original_mode
+        if ! original_mode="$(/usr/bin/stat -f '%Lp' "$QQ_RUNTIME_PKG_JSON")" \
+           || ! patched_json="$(mktemp "${QQ_RUNTIME_PKG_JSON}.qce.XXXXXX")"; then
+            echo "[Error] Could not prepare QCE's private QQ entry point."
+            exit 1
+        fi
+        if ! cp -p "$QQ_RUNTIME_PKG_JSON" "$patched_json" \
+           || ! chmod u+w "$patched_json" \
+           || ! sed -E 's/"main": *"[^"]*"/"main": ".\/loadNapCat-qce.js"/' \
+                "$QQ_RUNTIME_PKG_JSON" > "$patched_json" \
+           || ! grep -q '"main": *"\./loadNapCat-qce\.js"' "$patched_json" \
+           || ! chmod "$original_mode" "$patched_json" \
+           || ! mv -f "$patched_json" "$QQ_RUNTIME_PKG_JSON"; then
+            rm -f "$patched_json"
+            echo "[Error] Could not install QCE's private QQ entry point."
             exit 1
         fi
 
-        cat > "$QQ_RUNTIME_LOADER_PATH" <<LOADER_EOF
-// Auto-generated by launcher-user.sh (QCE macOS support), inside QCE's
-// private copy of QQ.app — never the real /Applications/QQ.app. Re-running
-// launcher-user.sh regenerates this file. package.json's "main" field points
-// here instead of the copy's own entry so NapCat's napcat.mjs can load inside
-// the real QQ Electron runtime. The QCE_NAPCAT_ENTRY fallback below exists
-// only as a defensive default for this copy; the real QQ.app you use day to
-// day is a separate, untouched file and always uses its original entry.
-const { pathToFileURL } = require('url');
-if (process.env.QCE_NAPCAT_ENTRY === '1') {
-  const napcatPath = process.env.QCE_NAPCAT_MJS_PATH;
-  import(pathToFileURL(napcatPath).href).catch((e) => {
-    console.error('[QCE] failed to import napcat.mjs:', e);
-    process.exit(1);
-  });
-} else {
-  require('$original_main');
-}
-LOADER_EOF
-
-        # In-place edit of the "main" field only, in the private copy.
-        sed -i '' -E 's/"main": *"[^"]*"/"main": ".\/loadNapCat-qce.js"/' "$QQ_RUNTIME_PKG_JSON"
-
-        macos_resign_qq_runtime
-        qq_source_version_marker > "$QQ_RUNTIME_SOURCE_MARKER"
+        macos_patch_runtime_loader
+        if ! qq_source_version_marker > "$QQ_RUNTIME_SOURCE_MARKER"; then
+            echo "[Error] Could not save the QQ source version marker."
+            exit 1
+        fi
     }
 
     # Point the runtime copy at the desktop client's message store.
@@ -568,6 +698,7 @@ LOADER_EOF
     }
 
     macos_prepare_qq_runtime
+    macos_patch_runtime_loader
     macos_link_qq_data_store
 
     # NapCatPathWrapper defaults to ~/Library/Application Support/QQ/NapCat
@@ -579,8 +710,8 @@ LOADER_EOF
     export NAPCAT_WORKDIR="$SCRIPT_DIR"
     export QCE_NAPCAT_ENTRY=1
     export QCE_NAPCAT_MJS_PATH="$SCRIPT_DIR/napcat.mjs"
-    : "${NAPCAT_DISABLE_MULTI_PROCESS:=1}"
-    export NAPCAT_DISABLE_MULTI_PROCESS
+    # macos_validate_launch_mode already forces the supported NapCat mode.
+    export NAPCAT_DISABLE_MULTI_PROCESS=1
 
     echo "Starting NapCat + QCE (macOS)..."
     echo "Press Ctrl+C to stop."
@@ -590,14 +721,9 @@ LOADER_EOF
     echo "After QQ login, open http://localhost:40653/qce/ in your browser."
     echo ""
 
-    # --single-process --disable-gpu: Chromium's GPU and Network Service
-    # child processes cannot spawn correctly under the re-signed runtime copy
-    # (see the flow comment above); this is a headless bot process that never
-    # renders a window anyway, so running everything in one process is an
-    # acceptable trade-off. Extra arguments (e.g. -q <uin> for quick login)
-    # are forwarded through. Note this execs the *private copy*, not
-    # NAPCAT_QQ_PATH — the real QQ.app is never launched by this script.
-    exec "$QQ_RUNTIME_BINARY" --single-process --disable-gpu "$@"
+    # Keep Chromium's normal process model. All private Helpers now have
+    # compatible signatures. The desktop QQ install is never launched here.
+    exec "$QQ_RUNTIME_BINARY" --disable-gpu --no-sandbox "$@"
 fi
 
 # --- 3. Node bootstrap flow (Linux legacy mode) -----------------------------

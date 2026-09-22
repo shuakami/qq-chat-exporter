@@ -303,6 +303,9 @@ pub async fn trigger_all_scheduled_exports(
     Extension(RequestId(request_id)): Extension<RequestId>,
     body: Option<Json<Value>>,
 ) -> Response {
+    if state.is_standalone() {
+        return response::error(&state.standalone_mode_error("执行定时导出"), &request_id);
+    }
     let include_disabled = body
         .as_ref()
         .and_then(|Json(b)| b.get("includeDisabled").and_then(Value::as_bool))
@@ -327,6 +330,9 @@ pub async fn trigger_scheduled_exports(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Json(body): Json<Value>,
 ) -> Response {
+    if state.is_standalone() {
+        return response::error(&state.standalone_mode_error("执行定时导出"), &request_id);
+    }
     let ids = match parse_trigger_ids(&body) {
         Ok(ids) => ids,
         Err(err) => return response::error(&err, &request_id),
@@ -493,6 +499,9 @@ pub async fn trigger_scheduled_export(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(id): Path<String>,
 ) -> Response {
+    if state.is_standalone() {
+        return response::error(&state.standalone_mode_error("执行定时导出"), &request_id);
+    }
     match state
         .scheduled_export_manager
         .trigger_scheduled_export(&id)

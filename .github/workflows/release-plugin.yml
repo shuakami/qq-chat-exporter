@@ -240,6 +240,7 @@ jobs:
           test -d "$ROOT"
           test -x "$ROOT/qce-server"
           test -x "$ROOT/launcher-user.sh"
+          cmp scripts/napcat-launcher/launcher-user.sh "$ROOT/launcher-user.sh"
           test -x "$ROOT/start-standalone.sh"
           test -f "$ROOT/napcat-bootstrap.mjs"
           test -f "$ROOT/static/qce/index.html"

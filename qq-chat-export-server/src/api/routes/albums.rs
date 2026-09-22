@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 
 use crate::api::http_security::http_get_bytes;
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
+use crate::api::routes::groups::standalone_guard;
 use crate::api::state::SharedState;
 
 /// 导出记录保留上限。
@@ -224,6 +225,9 @@ pub async fn list_group_albums(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(group_code): Path<String>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     if group_code.is_empty() {
         let err = ApiError::validation("群号不能为空", "INVALID_GROUP_CODE");
         return response::error(&err, &request_id);
@@ -244,6 +248,9 @@ pub async fn list_album_media(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path((group_code, album_id)): Path<(String, String)>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     if group_code.is_empty() || album_id.is_empty() {
         let err = ApiError::validation("群号和相册ID不能为空", "INVALID_PARAMS");
         return response::error(&err, &request_id);
@@ -265,6 +272,9 @@ pub async fn export_group_album(
     Path(group_code): Path<String>,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     if group_code.is_empty() {
         let err = ApiError::validation("群号不能为空", "INVALID_GROUP_CODE");
         return response::error(&err, &request_id);

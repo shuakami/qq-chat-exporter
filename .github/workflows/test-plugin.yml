@@ -41,25 +41,48 @@ jobs:
 
       - name: Run plugin tests
         working-directory: plugins/qq-chat-exporter
-        run: npm test
+        run: |
+          npm run typecheck
+          npm run test:entrypoint
+          npm test
+
+      - name: Run macOS launcher regression tests
+        if: runner.os == 'macOS'
+        working-directory: plugins/qq-chat-exporter
+        run: npm run test:macos-launcher
 
   rust-tests:
-    name: Rust exporter and server tests
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os }} / Rust exporter and server
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
-      - name: Run exporter tests
+      - name: Check exporter
         working-directory: qq-chat-export-core
-        run: cargo test
+        run: |
+          cargo test
+          cargo clippy --all-targets -- -D warnings
+          cargo build
 
-      - name: Run server tests
+      - name: Check server
         working-directory: qq-chat-export-server
-        run: cargo test
+        run: |
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo build --locked
 
   api-e2e:
     name: API smoke (Playwright)

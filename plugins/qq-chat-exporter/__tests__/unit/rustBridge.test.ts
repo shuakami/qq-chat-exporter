@@ -4,6 +4,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { execFileSync } from 'node:child_process';
 
 import {
     bridgeJsonReplacer,
@@ -16,11 +17,11 @@ import {
     resolveBridgePort,
     resolveSecurityConfigPath,
     resolveUserConfigPath,
-    shouldAutoOpenBrowser,
-    startRustApiServer
+    shouldAutoOpenBrowser
 } from '../../runtime/rustBridge.mjs';
 
 import { createTempDir } from '../helpers/tempDir.js';
+import { unusedLoopbackPort } from '../helpers/loopbackPort.js';
 
 test('bridge JSON preserves nested Map, Set and bigint values', () => {
     const serialized = JSON.stringify({
@@ -154,29 +155,39 @@ test('qce-server spawn failures are written to the configured runtime log', asyn
     const binary = path.join(tmp.path, process.platform === 'win32' ? 'qce-server.exe' : 'qce-server');
     const logFile = path.join(tmp.path, 'logs', 'qce-runtime.log');
     fs.writeFileSync(binary, 'not an executable');
-    const previousBinary = process.env.QCE_RUST_SERVER_PATH;
-    const previousLogFile = process.env.QCE_LOG_FILE;
-    process.env.QCE_RUST_SERVER_PATH = binary;
-    process.env.QCE_LOG_FILE = logFile;
-    const core = {
-        context: {
-            logger: {
-                log() {},
-                logError() {}
-            }
-        }
-    };
+    const bridgePort = await unusedLoopbackPort();
+    let serverPort = await unusedLoopbackPort();
+    while (serverPort === bridgePort) serverPort = await unusedLoopbackPort();
 
     try {
-        await assert.rejects(() => startRustApiServer(core, undefined));
+        // API_PORT is captured at module import time. A separate process lets
+        // us configure both ports before importing any production runtime,
+        // including the brief startup probe before the fake spawn fails.
+        execFileSync(process.execPath, ['--input-type=module', '-e', `
+            import assert from 'node:assert/strict';
+            const { startRustApiServer } = await import(process.argv[1]);
+            const core = { context: { logger: { log() {}, logError() {} } } };
+            await assert.rejects(() => startRustApiServer(core, undefined));
+        `, new URL('../../runtime/rustBridge.mjs', import.meta.url).href], {
+            env: {
+                ...process.env,
+                HOME: tmp.path,
+                USERPROFILE: tmp.path,
+                QCE_RUST_SERVER_PATH: binary,
+                QCE_LOG_FILE: logFile,
+                QCE_BRIDGE_PORT: String(bridgePort),
+                QCE_SERVER_PORT: String(serverPort),
+                QCE_CONFIG_DIR: tmp.path,
+                QCE_NO_AUTO_OPEN: '1',
+            },
+            encoding: 'utf8',
+            timeout: 30_000,
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
         const log = fs.readFileSync(logFile, 'utf8');
         assert.ok(log.includes('[qce-plugin] starting qce-server'));
         assert.match(log, /\[qce-plugin\] (process error|startup failed|bridge startup failed|qce-server exited)/);
     } finally {
-        if (previousBinary === undefined) delete process.env.QCE_RUST_SERVER_PATH;
-        else process.env.QCE_RUST_SERVER_PATH = previousBinary;
-        if (previousLogFile === undefined) delete process.env.QCE_LOG_FILE;
-        else process.env.QCE_LOG_FILE = previousLogFile;
         tmp.cleanup();
     }
 });

@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { __apiAdapterDebug, createApiAdapter, plugin_cleanup, plugin_init } from '../../index.mjs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { createApiAdapter } from '../../index.mjs';
 
 describe('createApiAdapter', () => {
     it('passes through non-function properties like groupMemberCache (issue #654)', () => {
@@ -66,6 +68,42 @@ describe('createApiAdapter', () => {
 
 describe('plugin_init core isolation', () => {
     it('does not overwrite NapCat core.apis with the adapter proxy (issue #654)', async () => {
+        // Execute the real entrypoint, but replace its launcher import before
+        // initialization. A locally built qce-server must never turn this
+        // contract test into a production process launch or port reclamation.
+        const source = String.raw`
+        import assert from 'node:assert/strict';
+        import fs from 'node:fs';
+        import vm from 'node:vm';
+        const [entryPath] = process.argv.slice(1);
+        const context = vm.createContext({
+            AbortController, DOMException,
+            process: { env: {}, versions: process.versions },
+            console: { log() {}, error() {}, warn() {} },
+        });
+        let launchedCore;
+        let startCalls = 0;
+        let stopCalls = 0;
+        class FakeLauncher {
+            constructor(core) { launchedCore = core; }
+            async startApiServer() { startCalls++; }
+            async stopApiServer() { stopCalls++; }
+        }
+        const launcher = new vm.SyntheticModule(['QQChatExporterApiLauncher'], function () {
+            this.setExport('QQChatExporterApiLauncher', FakeLauncher);
+        }, { context });
+        await launcher.link(() => assert.fail('fake launcher has no imports'));
+        await launcher.evaluate();
+        const entry = new vm.SourceTextModule(fs.readFileSync(entryPath, 'utf8'), {
+            context,
+            async importModuleDynamically(specifier) {
+                assert.equal(specifier, './runtime/ApiLauncher.mjs', 'unexpected production import');
+                return launcher;
+            },
+        });
+        await entry.link(() => assert.fail('unexpected static entrypoint import'));
+        await entry.evaluate();
+        const { plugin_init, plugin_cleanup, __apiAdapterDebug } = entry.namespace;
         const groupMemberCache = new Map([['g1_u1', { uid: 'u1' }]]);
         const getGroups = async () => [{ groupCode: '1' }];
         const core = {
@@ -86,9 +124,10 @@ describe('plugin_init core isolation', () => {
         };
 
         try {
-            // plugin_init catches startup failures internally (no qce-server in tests),
-            // but the core wrapping happens before the launcher starts.
             await plugin_init(core);
+            assert.equal(startCalls, 1, 'the mocked launcher must actually be reached');
+            assert.notEqual(launchedCore, core);
+            assert.notEqual(launchedCore.apis, core.apis);
 
             // NapCat's own core.apis must be untouched.
             assert.equal(core.apis.GroupApi.groupMemberCache, groupMemberCache);
@@ -103,5 +142,13 @@ describe('plugin_init core isolation', () => {
         } finally {
             await plugin_cleanup();
         }
+        assert.equal(stopCalls, 1, 'the fixture launcher must be cleaned up');
+        process.stdout.write('CORE_ISOLATION_OK');
+        `;
+        const output = execFileSync(process.execPath, [
+            '--experimental-vm-modules', '--input-type=module', '-e', source,
+            fileURLToPath(new URL('../../index.mjs', import.meta.url)),
+        ], { encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] });
+        assert.equal(output, 'CORE_ISOLATION_OK');
     });
 });

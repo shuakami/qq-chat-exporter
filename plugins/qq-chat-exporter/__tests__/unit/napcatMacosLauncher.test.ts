@@ -7,7 +7,7 @@
  * process, so NapCat's code never ran and the launcher hung forever with no
  * error. The fix patches a *private copy* of the QQ bundle's `package.json`
  * `main` field on disk to point at a generated loader, then re-signs the
- * copy (ad-hoc, shallow) so Gatekeeper does not refuse to launch it.
+ * private Helpers followed by the outer bundle (ad-hoc, without --deep).
  *
  * The copy is load-bearing, not cosmetic: re-signing necessarily drops App
  * Sandbox (ad-hoc signing cannot obtain the matching application-groups
@@ -25,14 +25,15 @@
  *   1. The fixture itself (standing in for the user's real QQ.app) is never
  *      modified — this is the main safety property of the fix.
  *   2. A private runtime copy is created next to the launcher script, with
- *      `main` rewritten and a loader (with a fallback to the original entry)
- *      written next to it.
+ *      `main` rewritten and a loader that refuses the desktop entry when
+ *      opened outside the launcher.
  *   3. Re-running the launcher is idempotent (does not re-copy/re-patch/re-sign).
  *   4. An upstream QQ "update" (fixture's package.json changes) triggers a
  *      clean re-copy + re-patch.
- *   5. The runtime copy re-signs successfully and ends up with the
+ *   5. The runtime copy and all four real Mach-O Helper fixtures re-sign
+ *      successfully and end up with the
  *      entitlements the fix depends on (disable-library-validation) while
- *      deliberately NOT regaining app-sandbox/application-groups.
+ *      deliberately NOT regaining app-sandbox/inherit/application-groups.
  *   6. The launcher ultimately execs the runtime copy's (patched) QQ binary,
  *      not the original fixture's binary.
  *   7. The desktop client's per-account message store is symlinked into the
@@ -42,6 +43,7 @@
  *   8. The launcher refuses to start (before the ~1 GB copy) while the
  *      desktop QQ client is running, since both share one PC-login slot and
  *      one message store.
+ *   9. Selecting the runtime itself through a symlink cannot delete it.
  *
  * Skipped (not failed) when:
  *   - We're not on macOS (this flow is macOS-only).
@@ -87,6 +89,13 @@ interface FakeQqApp {
     qqBinary: string;
     packageJson: string;
     pristineBytes: Buffer;
+    helpers: Array<{ appDir: string; binary: string; pristineBytes: Buffer }>;
+}
+
+function readEntitlements(appDir: string): string {
+    const dump = spawnSync('codesign', ['-d', '--entitlements', ':-', appDir], { encoding: 'utf8' });
+    assert.equal(dump.status, 0, `codesign -d --entitlements failed for ${appDir}: ${dump.stderr}`);
+    return dump.stdout;
 }
 
 /**
@@ -119,6 +128,40 @@ function stageFakeQqApp(tmpPath: string): FakeQqApp {
     if (compile.status !== 0) {
         throw new Error(`failed to compile fake QQ stub: ${compile.stderr}`);
     }
+
+    // Model the nested applications shipped by QQ. They only need signable
+    // Mach-O executables; none of these Helpers is ever launched. Sandbox
+    // inheritance on the original signature makes a missed Helper re-sign
+    // observable even if the outer bundle still verifies successfully.
+    const helperEntitlements = path.join(tmpPath, 'original-helper-entitlements.plist');
+    fs.writeFileSync(helperEntitlements, `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+    <key>com.apple.security.app-sandbox</key><true/>
+    <key>com.apple.security.inherit</key><true/>
+    <key>com.apple.security.application-groups</key>
+    <array><string>group.qce-test-fixture</string></array>
+    <key>com.apple.security.cs.allow-jit</key><true/>
+</dict></plist>
+`);
+    const helpers = ['QQ Helper', 'QQ Helper (GPU)', 'QQ Helper (Plugin)', 'QQ Helper (Renderer)']
+        .map((name, index) => {
+            const helperApp = path.join(appDir, 'Contents', 'Frameworks', `${name}.app`);
+            const binary = path.join(helperApp, 'Contents', 'MacOS', name);
+            fs.mkdirSync(path.dirname(binary), { recursive: true });
+            fs.copyFileSync(qqBinary, binary);
+            fs.writeFileSync(path.join(helperApp, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+    <key>CFBundleExecutable</key><string>${name}</string>
+    <key>CFBundleIdentifier</key><string>com.tencent.qq.qce-test-fixture.helper${index}</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+</dict></plist>
+`);
+            const sign = spawnSync('codesign', [
+                '--force', '--sign', '-', '--entitlements', helperEntitlements, helperApp,
+            ], { encoding: 'utf8' });
+            assert.equal(sign.status, 0, `failed to sign fake ${name}: ${sign.stderr}`);
+            return { appDir: helperApp, binary, pristineBytes: fs.readFileSync(binary) };
+        });
 
     fs.writeFileSync(
         path.join(appDir, 'Contents', 'Info.plist'),
@@ -159,7 +202,7 @@ function stageFakeQqApp(tmpPath: string): FakeQqApp {
         throw new Error(`failed to sign fake QQ.app fixture: ${sign.stderr}`);
     }
 
-    return { appDir, qqBinary, packageJson, pristineBytes: fs.readFileSync(qqBinary) };
+    return { appDir, qqBinary, packageJson, pristineBytes: fs.readFileSync(qqBinary), helpers };
 }
 
 /** Copy launcher-user.sh into the sandbox so SCRIPT_DIR (and therefore the
@@ -239,14 +282,23 @@ test('macOS launcher: never modifies the real QQ.app fixture, only a private cop
             'no loader should ever be written into the real QQ.app fixture',
         );
 
-        const verify = spawnSync('codesign', ['--verify', '--strict', fixture.appDir], { encoding: 'utf8' });
+        for (const helper of fixture.helpers) {
+            assert.ok(helper.pristineBytes.equals(fs.readFileSync(helper.binary)),
+                `${path.basename(helper.appDir)} in the original fixture must be byte-for-byte unchanged`);
+            const entitlements = readEntitlements(helper.appDir);
+            for (const key of ['app-sandbox', 'inherit', 'application-groups']) {
+                assert.ok(entitlements.includes(`com.apple.security.${key}`),
+                    `original ${path.basename(helper.appDir)} must retain ${key}`);
+            }
+        }
+        const verify = spawnSync('codesign', ['--verify', '--deep', '--strict', fixture.appDir], { encoding: 'utf8' });
         assert.equal(verify.status, 0, `real QQ.app fixture's original signature should still verify: ${verify.stderr}`);
     } finally {
         tmp.cleanup();
     }
 });
 
-test('macOS launcher: patches the private runtime copy, writes a fallback-capable loader, execs the copy', { skip: skipReason ?? false }, () => {
+test('macOS launcher: patches the private copy, prevents desktop fallback, uses Chromium subprocesses', { skip: skipReason ?? false }, () => {
     const tmp = createTempDir('launcher-macos-patch-');
     try {
         const fixture = stageFakeQqApp(tmp.path);
@@ -256,8 +308,9 @@ test('macOS launcher: patches the private runtime copy, writes a fallback-capabl
 
         assert.equal(r.status, 0, `launcher exited non-zero: ${r.stderr}`);
         assert.ok(r.stdout.includes('QQ_EXECED'), `should exec the (patched) QQ binary, got: ${r.stdout}\n${r.stderr}`);
-        assert.ok(r.stdout.includes('--single-process'), 'should launch with --single-process');
+        assert.ok(!r.stdout.includes('--single-process'), 'must avoid the Electron single-process shutdown crash');
         assert.ok(r.stdout.includes('--disable-gpu'), 'should launch with --disable-gpu');
+        assert.ok(r.stdout.includes('--no-sandbox'), 'private Helpers should use the compatible process configuration');
 
         const runtimeDir = runtimeAppDir(launcher);
         const runtimePkgJsonPath = path.join(runtimeDir, 'Contents', 'Resources', 'app', 'package.json');
@@ -270,19 +323,21 @@ test('macOS launcher: patches the private runtime copy, writes a fallback-capabl
         assert.ok(fs.existsSync(loaderPath), 'loader script should be written next to the runtime copy\'s package.json');
         const loaderSource = fs.readFileSync(loaderPath, 'utf8');
         assert.ok(
-            loaderSource.includes("require('./application.asar/app_launcher/index.js')"),
-            `loader should fall back to the original main when QCE_NAPCAT_ENTRY is unset, got: ${loaderSource}`,
+            !loaderSource.includes("require('./application.asar/app_launcher/index.js')"),
+            'opening the private bundle outside the launcher must never enter desktop QQ',
         );
         assert.ok(
             loaderSource.includes('QCE_NAPCAT_ENTRY'),
             'loader should gate on QCE_NAPCAT_ENTRY',
         );
+        assert.ok(loaderSource.includes('app.exit(0)'), 'unsupported direct launch should exit cleanly');
+        assert.ok(loaderSource.includes('getPluginExports'), 'cleanup must address the loaded plugin instance');
     } finally {
         tmp.cleanup();
     }
 });
 
-test('macOS launcher: re-signs the runtime copy without app-sandbox/application-groups', { skip: skipReason ?? false }, () => {
+test('macOS launcher: re-signs the runtime and all four Helpers without sandbox/inherit/app-groups', { skip: skipReason ?? false }, () => {
     const tmp = createTempDir('launcher-macos-entitlements-');
     try {
         const fixture = stageFakeQqApp(tmp.path);
@@ -292,24 +347,23 @@ test('macOS launcher: re-signs the runtime copy without app-sandbox/application-
         assert.equal(r.status, 0, `launcher exited non-zero: ${r.stderr}`);
 
         const runtimeDir = runtimeAppDir(launcher);
-        const verify = spawnSync('codesign', ['--verify', '--strict', runtimeDir], { encoding: 'utf8' });
+        const verify = spawnSync('codesign', ['--verify', '--deep', '--strict', runtimeDir], { encoding: 'utf8' });
         assert.equal(verify.status, 0, `codesign --verify failed on the runtime copy: ${verify.stderr}`);
 
-        const dump = spawnSync('codesign', ['-d', '--entitlements', ':-', runtimeDir], { encoding: 'utf8' });
-        assert.equal(dump.status, 0, `codesign -d --entitlements failed: ${dump.stderr}`);
-        assert.ok(
-            dump.stdout.includes('com.apple.security.cs.disable-library-validation'),
-            'entitlements should include disable-library-validation (needed for NapCat native addons)',
-        );
-        assert.ok(
-            !dump.stdout.includes('com.apple.security.app-sandbox'),
-            'entitlements must NOT include app-sandbox: ad-hoc signing cannot grant the matching ' +
-            'application-groups authorization, which breaks the container (data dir + stability) on real hardware',
-        );
-        assert.ok(
-            !dump.stdout.includes('com.apple.security.application-groups'),
-            'entitlements must NOT include application-groups (same reason as app-sandbox above)',
-        );
+        assert.equal(fixture.helpers.length, 4);
+        const runtimeHelpers = fixture.helpers.map(helper =>
+            path.join(runtimeDir, path.relative(fixture.appDir, helper.appDir)));
+        for (const appDir of [runtimeDir, ...runtimeHelpers]) {
+            const entitlements = readEntitlements(appDir);
+            for (const key of ['cs.allow-jit', 'cs.disable-library-validation']) {
+                assert.ok(entitlements.includes(`com.apple.security.${key}`),
+                    `${path.basename(appDir)} must allow ${key} for Electron / NapCat`);
+            }
+            for (const key of ['app-sandbox', 'inherit', 'application-groups']) {
+                assert.ok(!entitlements.includes(`com.apple.security.${key}`),
+                    `${path.basename(appDir)} must not retain ${key} on the ad-hoc runtime`);
+            }
+        }
     } finally {
         tmp.cleanup();
     }
@@ -340,6 +394,45 @@ test('macOS launcher: re-running is idempotent (does not re-copy/re-patch an alr
             loaderMtimeAfterFirst,
             'loader should not be rewritten when the runtime copy is already up to date',
         );
+    } finally {
+        tmp.cleanup();
+    }
+});
+
+test('macOS launcher: rejects a symlink to its own runtime without deleting or changing it', { skip: skipReason ?? false }, () => {
+    const tmp = createTempDir('launcher-macos-self-alias-');
+    try {
+        const fixture = stageFakeQqApp(tmp.path);
+        const launcher = stageLauncher(tmp.path);
+        const first = runLauncher(launcher, { ...process.env, NAPCAT_QQ_PATH: fixture.qqBinary });
+        assert.equal(first.status, 0, `first run exited non-zero: ${first.stderr}`);
+
+        const runtimeDir = runtimeAppDir(launcher);
+        const runtimeFiles = [
+            path.join(runtimeDir, 'Contents', 'MacOS', 'QQ'),
+            path.join(runtimeDir, 'Contents', 'Resources', 'app', 'package.json'),
+            path.join(runtimeDir, 'Contents', 'Resources', 'app', 'loadNapCat-qce.js'),
+            ...fixture.helpers.map(helper => path.join(runtimeDir, path.relative(fixture.appDir, helper.binary))),
+            path.join(tmp.path, '.qce-runtime-source-version'),
+            path.join(tmp.path, '.qce-runtime-patch-version'),
+        ];
+        const before = runtimeFiles.map(file => fs.readFileSync(file));
+        const alias = path.join(tmp.path, 'runtime-alias.app');
+        fs.symlinkSync(runtimeDir, alias, 'dir');
+
+        const second = runLauncher(launcher, {
+            ...process.env,
+            NAPCAT_QQ_PATH: path.join(alias, 'Contents', 'MacOS', 'QQ'),
+        });
+        assert.equal(second.status, 1, 'an aliased runtime must be rejected as a source');
+        assert.match(second.stdout, /points at QCE's own runtime copy/);
+        for (const [index, file] of runtimeFiles.entries()) {
+            assert.ok(before[index].equals(fs.readFileSync(file)), `self-reference must leave ${file} unchanged`);
+        }
+        assert.ok(fixture.pristineBytes.equals(fs.readFileSync(fixture.qqBinary)),
+            'original QQ fixture must still be unchanged');
+        const verify = spawnSync('codesign', ['--verify', '--deep', '--strict', runtimeDir], { encoding: 'utf8' });
+        assert.equal(verify.status, 0, `rejected source must leave a valid runtime: ${verify.stderr}`);
     } finally {
         tmp.cleanup();
     }
@@ -437,6 +530,71 @@ test('macOS launcher: refuses to start while the desktop QQ client is running', 
     }
 });
 
+test('macOS launcher: repairs Finder metadata on a cached private runtime without touching the original', { skip: skipReason ?? false }, () => {
+    const tmp = createTempDir('launcher-macos-cached-xattr-');
+    try {
+        const fixture = stageFakeQqApp(tmp.path);
+        const launcher = stageLauncher(tmp.path);
+        const env = { ...process.env, NAPCAT_QQ_PATH: fixture.qqBinary };
+        const first = runLauncher(launcher, env);
+        assert.equal(first.status, 0, first.stdout + first.stderr);
+        const runtime = runtimeAppDir(launcher);
+        const executable = path.join(runtime, 'Contents', 'MacOS', 'QQ');
+        const contaminated = spawnSync('xattr', ['-wx', 'com.apple.FinderInfo',
+            '0000000000000000000000000000000000000000000000000000000000000001', executable], { encoding: 'utf8' });
+        assert.equal(contaminated.status, 0, contaminated.stderr);
+        const invalid = spawnSync('codesign', ['--verify', '--deep', '--strict', runtime], { encoding: 'utf8' });
+        assert.notEqual(invalid.status, 0, 'Finder metadata must reproduce a rejected signature');
+        const second = runLauncher(launcher, env);
+        assert.equal(second.status, 0, second.stdout + second.stderr);
+        assert.ok(!second.stdout.includes('Preparing a private'), 'metadata repair must not recopy the application');
+        const verify = spawnSync('codesign', ['--verify', '--deep', '--strict', runtime], { encoding: 'utf8' });
+        assert.equal(verify.status, 0, verify.stderr);
+        assert.ok(fixture.pristineBytes.equals(fs.readFileSync(fixture.qqBinary)), 'the original executable must remain unchanged');
+    } finally {
+        tmp.cleanup();
+    }
+});
+
+test('macOS launcher: a running private copy is not patched, relaunched or linked to new stores', { skip: skipReason ?? false }, () => {
+    const tmp = createTempDir('launcher-macos-private-running-');
+    try {
+        const fixture = stageFakeQqApp(tmp.path);
+        const launcher = stageLauncher(tmp.path);
+        const first = runLauncher(launcher, { ...process.env, NAPCAT_QQ_PATH: fixture.qqBinary });
+        assert.equal(first.status, 0, first.stderr);
+        const runtime = runtimeAppDir(launcher);
+        const marker = path.join(tmp.path, '.qce-runtime-patch-version');
+        fs.writeFileSync(marker, 'outdated\n');
+        const watched = [marker,
+            path.join(runtime, 'Contents', 'MacOS', 'QQ'),
+            path.join(runtime, 'Contents', 'Resources', 'app', 'loadNapCat-qce.js')];
+        const before = watched.map(file => fs.readFileSync(file));
+        const account = path.join(containerStoreDir(tmp.path), 'nt_qq_running_guard');
+        fs.mkdirSync(account, { recursive: true });
+        fs.writeFileSync(path.join(account, 'marker'), 'private fixture');
+        const bin = path.join(tmp.path, 'bin');
+        fs.mkdirSync(bin);
+        fs.writeFileSync(path.join(bin, 'ps'), '#!/bin/sh\nprintf \'%s\\n\' "$QCE_TEST_RUNTIME_BINARY"\n', { mode: 0o755 });
+        const second = runLauncher(launcher, { ...process.env,
+            NAPCAT_QQ_PATH: fixture.qqBinary,
+            PATH: `${bin}:${process.env.PATH ?? ''}`,
+            QCE_TEST_RUNTIME_BINARY: fs.realpathSync(path.join(runtime, 'Contents', 'MacOS', 'QQ')),
+        });
+        assert.equal(second.status, 0, second.stderr);
+        assert.match(second.stdout, /private QQ runtime is already running/);
+        assert.ok(!second.stdout.includes('QQ_EXECED'), 'must not start a second process');
+        for (const [index, file] of watched.entries()) {
+            assert.ok(before[index].equals(fs.readFileSync(file)), `running runtime must preserve ${file}`);
+        }
+        assert.ok(!fs.existsSync(path.join(liveStoreDir(tmp.path), 'nt_qq_running_guard')),
+            'must not relink account data while the runtime is running');
+        assert.equal(fs.readFileSync(path.join(account, 'marker'), 'utf8'), 'private fixture');
+    } finally {
+        tmp.cleanup();
+    }
+});
+
 test('macOS launcher: an upstream QQ update triggers a clean re-copy + re-patch', { skip: skipReason ?? false }, () => {
     const tmp = createTempDir('launcher-macos-reupdate-');
     try {
@@ -476,3 +634,71 @@ test('macOS launcher: an upstream QQ update triggers a clean re-copy + re-patch'
         tmp.cleanup();
     }
 });
+
+for (const mode of [0o640, 0o440]) {
+    test(`macOS launcher: portable main patch preserves ${mode.toString(8)} permissions with non-BSD sed on PATH`, { skip: skipReason ?? false }, () => {
+        const tmp = createTempDir('launcher-macos-portable-sed-');
+        try {
+            const fixture = stageFakeQqApp(tmp.path);
+            fs.chmodSync(fixture.packageJson, mode);
+            const launcher = stageLauncher(tmp.path);
+            const bin = path.join(tmp.path, 'bin');
+            fs.mkdirSync(bin);
+            fs.writeFileSync(path.join(bin, 'sed'), '#!/bin/sh\nfor arg do\n  case "$arg" in -i*) exit 91 ;; esac\ndone\nexec /usr/bin/sed "$@"\n', { mode: 0o755 });
+            const original = fs.readFileSync(fixture.packageJson);
+            const result = runLauncher(launcher, {
+                ...process.env, PATH: `${bin}:${process.env.PATH}`, NAPCAT_QQ_PATH: fixture.qqBinary,
+            });
+            assert.equal(result.status, 0, result.stdout + result.stderr);
+            const manifest = path.join(runtimeAppDir(launcher), 'Contents', 'Resources', 'app', 'package.json');
+            assert.equal(JSON.parse(fs.readFileSync(manifest, 'utf8')).main, './loadNapCat-qce.js');
+            assert.equal(fs.statSync(manifest).mode & 0o777, mode);
+            assert.deepEqual(fs.readFileSync(fixture.packageJson), original);
+            assert.ok(result.stdout.includes('QQ_EXECED'));
+        } finally {
+            tmp.cleanup();
+        }
+    });
+
+}
+
+for (const failure of ['mktemp', 'copy', 'permissions', 'rewrite', 'no-match', 'rename'] as const) {
+    test(`macOS launcher: failed main patch (${failure}) leaves manifest intact and never starts QQ`, { skip: skipReason ?? false }, () => {
+        const tmp = createTempDir(`launcher-macos-patch-${failure}-`);
+        try {
+            const fixture = stageFakeQqApp(tmp.path);
+            if (failure === 'no-match') {
+                const data = JSON.parse(fs.readFileSync(fixture.packageJson, 'utf8'));
+                delete data.main;
+                fs.writeFileSync(fixture.packageJson, JSON.stringify(data));
+            }
+            const original = fs.readFileSync(fixture.packageJson);
+            const launcher = stageLauncher(tmp.path);
+            const bin = path.join(tmp.path, 'bin');
+            fs.mkdirSync(bin);
+            const command = failure === 'no-match' ? undefined
+                : { mktemp: 'mktemp', copy: 'cp', permissions: 'chmod', rewrite: 'sed', rename: 'mv' }[failure];
+            if (command) {
+                // Fail only the manifest transaction, not the rest of the fixture setup.
+                const matches = failure !== 'rewrite'
+                    ? '*package.json.qce.*'
+                    : '*loadNapCat-qce*';
+                const real = command === 'cp' || command === 'mv' || command === 'chmod' ? `/bin/${command}` : `/usr/bin/${command}`;
+                fs.writeFileSync(path.join(bin, command), `#!/bin/sh\nfor arg do\n  case "$arg" in ${matches}) exit 92 ;; esac\ndone\nexec ${real} "$@"\n`, { mode: 0o755 });
+            }
+            const result = runLauncher(launcher, {
+                ...process.env, PATH: `${bin}:${process.env.PATH}`, NAPCAT_QQ_PATH: fixture.qqBinary,
+            });
+            assert.equal(result.status, 1, result.stdout + result.stderr);
+            assert.ok(!result.stdout.includes('QQ_EXECED'));
+            assert.deepEqual(fs.readFileSync(fixture.packageJson), original);
+            const app = path.join(runtimeAppDir(launcher), 'Contents', 'Resources', 'app');
+            assert.deepEqual(fs.readFileSync(path.join(app, 'package.json')), original);
+            assert.ok(!fs.readdirSync(app).some(name => name.startsWith('package.json.qce.')));
+            assert.ok(!fs.existsSync(path.join(tmp.path, '.qce-runtime-source-version')));
+            assert.ok(!fs.existsSync(path.join(tmp.path, '.qce-runtime-patch-version')));
+        } finally {
+            tmp.cleanup();
+        }
+    });
+}

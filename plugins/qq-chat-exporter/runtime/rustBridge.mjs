@@ -419,38 +419,161 @@ export async function createNapCatBridge(core, port = resolveBridgePort(), recov
     port: address.port,
     terminatedPids,
     fallbackFromPort,
-    stop: () => new Promise((resolve) => server.close(() => resolve()))
+    stop: () => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
   };
 }
 
-async function waitForPort(child, port, timeoutMs = 15_000) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    if (child.exitCode !== null) {
-      throw new Error(`qce-server exited before startup (code ${child.exitCode})`);
-    }
-
-    const ready = await new Promise((resolve) => {
-      const socket = net.createConnection({ host: BRIDGE_HOST, port });
-      socket.once('connect', () => {
-        socket.destroy();
-        resolve(true);
-      });
-      socket.once('error', () => resolve(false));
-      socket.setTimeout(500, () => {
-        socket.destroy();
-        resolve(false);
-      });
-    });
-    if (ready) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error(`qce-server did not listen on port ${port} within ${timeoutMs}ms`);
+/**
+ * @param {import('node:child_process').ChildProcess} child
+ * @param {number} port
+ * @param {{ signal?: AbortSignal, timeoutMs?: number }} [options]
+ */
+function waitForPort(child, port, { signal, timeoutMs = 15_000 } = {}) {
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    let socket;
+    let retryTimer;
+    let deadline;
+    const hasExited = () => child.exitCode !== null || child.signalCode !== null;
+    const dropSocket = () => {
+      if (!socket) return;
+      socket.removeListener('connect', onConnect);
+      socket.removeListener('error', onConnectionFailure);
+      socket.removeListener('timeout', onConnectionFailure);
+      socket.setTimeout(0);
+      socket.destroy();
+      socket = null;
+    };
+    const finish = (error = undefined) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(retryTimer);
+      clearTimeout(deadline);
+      dropSocket();
+      signal?.removeEventListener('abort', onAbort);
+      child.removeListener('exit', onExit);
+      child.removeListener('error', onError);
+      if (error !== undefined) reject(error);
+      else resolve();
+    };
+    const onAbort = () => finish(signal.reason);
+    const onExit = () => finish(new Error(
+      `qce-server exited before startup (code ${child.exitCode}, signal ${child.signalCode})`
+    ));
+    const onError = (error) => finish(error);
+    const onConnect = () => {
+      if (signal?.aborted) onAbort();
+      else if (hasExited()) onExit();
+      else finish();
+    };
+    const onConnectionFailure = () => {
+      dropSocket();
+      if (!finished) retryTimer = setTimeout(connect, 100);
+    };
+    const connect = () => {
+      if (signal?.aborted) return onAbort();
+      if (hasExited()) return onExit();
+      try {
+        socket = net.createConnection({ host: BRIDGE_HOST, port });
+        socket.once('connect', onConnect);
+        socket.once('error', onConnectionFailure);
+        socket.once('timeout', onConnectionFailure);
+        socket.setTimeout(500);
+      } catch (error) { finish(error); }
+    };
+    child.once('exit', onExit);
+    child.once('error', onError);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    deadline = setTimeout(() => finish(new Error(
+      `qce-server did not listen on port ${port} within ${timeoutMs}ms`
+    )), timeoutMs);
+    connect();
+  });
 }
 
-export async function startRustApiServer(core, frontendPath) {
+/**
+ * Internal lifecycle boundary, exported for tests with a fake child process.
+ * Every call shares one attempt and outcome; a timeout never means success.
+ *
+ * @param {Pick<import('node:child_process').ChildProcess, 'exitCode' | 'signalCode' | 'kill' | 'once' | 'removeListener'>} child
+ * @param {{ timeoutMs?: number, setTimer?: typeof setTimeout, clearTimer?: typeof clearTimeout }} [options]
+ */
+export function createChildShutdown(child, {
+  timeoutMs = 2_000,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+} = {}) {
+  /** @type {Promise<void> | undefined} */
+  let stopPromise;
+  const hasExited = () => child.exitCode !== null || child.signalCode !== null;
+  const attempt = (resolve, reject) => {
+    if (hasExited()) {
+      resolve();
+      return;
+    }
+    let finished = false;
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timer;
+    /** @param {Error} [error] */
+    const finish = (error) => {
+      if (finished) return;
+      finished = true;
+      child.removeListener('exit', onExit);
+      child.removeListener('error', onError);
+      if (timer !== undefined) clearTimer(timer);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onExit = () => finish();
+    const onError = (error) => finish(error instanceof Error ? error : new Error(String(error)));
+    // kill() can produce an exit/error immediately. Install listeners first.
+    child.once('exit', onExit);
+    child.once('error', onError);
+    timer = setTimer(() => {
+      if (hasExited()) finish();
+      else finish(new Error(`qce-server did not exit within ${timeoutMs}ms after SIGTERM`));
+    }, timeoutMs);
+    try {
+      if (hasExited()) finish();
+      else if (!child.kill('SIGTERM')) {
+        if (hasExited()) finish();
+        else finish(new Error('Failed to send SIGTERM to qce-server'));
+      }
+    } catch (error) {
+      onError(error);
+    }
+  };
+  return function stopChild() {
+    if (stopPromise) return stopPromise;
+    let resolveStop;
+    let rejectStop;
+    stopPromise = new Promise((resolve, reject) => {
+      resolveStop = resolve;
+      rejectStop = reject;
+    });
+    // Publish the promise before kill can synchronously re-enter stop through
+    // an existing child exit/error listener.
+    attempt(resolveStop, rejectStop);
+    return stopPromise;
+  };
+}
+
+// Distinguish a reported startup failure with no remaining resources from a
+// startup failure whose cleanup could not confirm that all resources stopped.
+export class StartupCleanupError extends AggregateError {
+  constructor(startError, cleanupError) {
+    super([startError, cleanupError], 'qce-server startup failed and cleanup did not complete', { cause: startError });
+    this.name = 'StartupCleanupError';
+  }
+}
+
+/**
+ * @param {any} core
+ * @param {string | undefined} frontendPath
+ * @param {{ signal?: AbortSignal }} [options]
+ */
+export async function startRustApiServer(core, frontendPath, { signal } = {}) {
+  signal?.throwIfAborted();
   const logFile = runtimeLogFile();
   appendRuntimeLog(logFile, '[qce-plugin]', 'starting qce-server');
   const binaryPath = findRustServerBinary();
@@ -463,8 +586,26 @@ export async function startRustApiServer(core, frontendPath) {
   }
 
   let bridge;
+  let child;
+  let stopChild;
+  let stopPromise;
+  const stop = () => {
+    if (!stopPromise) stopPromise = Promise.resolve().then(async () => {
+      appendRuntimeLog(logFile, '[qce-plugin]', 'stopping qce-server');
+      const errors = [];
+      try { await stopChild?.(); } catch (error) { errors.push(error); }
+      // Closing the owned bridge is still necessary when the child refuses
+      // SIGTERM. Preserve both failures rather than masking either of them.
+      try { await bridge?.stop(); } catch (error) { errors.push(error); }
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) throw new AggregateError(errors, 'qce-server cleanup failed');
+    });
+    return stopPromise;
+  };
   try {
+    signal?.throwIfAborted();
     bridge = await createNapCatBridge(core);
+    signal?.throwIfAborted();
     if (bridge.terminatedPids.length > 0) {
       appendRuntimeLog(logFile, '[qce-plugin]', `terminated bridge port ${DEFAULT_BRIDGE_PORT} owner pid(s) ${bridge.terminatedPids.join(',')}`);
     }
@@ -472,85 +613,51 @@ export async function startRustApiServer(core, frontendPath) {
       appendRuntimeLog(logFile, '[qce-plugin]', `bridge port ${bridge.fallbackFromPort} remained busy; using ${bridge.port}`);
     }
     appendRuntimeLog(logFile, '[qce-plugin]', `bridge ready on port ${bridge.port}`);
-  } catch (error) {
-    appendRuntimeLog(logFile, '[qce-plugin]', `bridge startup failed: ${error instanceof Error ? error.message : String(error)}`);
-    throw error;
-  }
-  /** @type {NodeJS.ProcessEnv} */
-  const env = {
-    ...process.env,
-    QCE_BRIDGE_ENDPOINT: `http://${BRIDGE_HOST}:${bridge.port}`,
-    QCE_SERVER_PORT: String(API_PORT),
-    QCE_LOG_DIR: path.dirname(logFile),
-    QCE_LOG_FILE: logFile
-  };
-  if (frontendPath) {
-    env.QCE_STATIC_DIR = frontendPath;
-  }
-  let child;
-  try {
+    /** @type {NodeJS.ProcessEnv} */
+    const env = {
+      ...process.env,
+      QCE_BRIDGE_ENDPOINT: `http://${BRIDGE_HOST}:${bridge.port}`,
+      QCE_SERVER_PORT: String(API_PORT),
+      QCE_LOG_DIR: path.dirname(logFile),
+      QCE_LOG_FILE: logFile
+    };
+    if (frontendPath) env.QCE_STATIC_DIR = frontendPath;
+    signal?.throwIfAborted();
     child = spawn(binaryPath, [], {
-      cwd: path.dirname(binaryPath),
-      env,
-      windowsHide: true,
+      cwd: path.dirname(binaryPath), env, windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe']
     });
-  } catch (error) {
-    appendRuntimeLog(logFile, '[qce-plugin]', `startup failed: ${error instanceof Error ? error.message : String(error)}`);
-    await bridge.stop();
-    throw error;
-  }
-
-  const stdioCaptured = process.env.QCE_STDIO_CAPTURED === '1';
-  child.stdout?.on('data', (chunk) => {
-    if (!stdioCaptured) {
-      appendRuntimeLog(logFile, '[qce-server]', chunk);
-    }
-    core.context.logger.log(`[qce-server] ${String(chunk).trimEnd()}`);
-  });
-  child.stderr?.on('data', (chunk) => {
-    if (!stdioCaptured) {
-      appendRuntimeLog(logFile, '[qce-server]', chunk);
-    }
-    core.context.logger.logError(`[qce-server] ${String(chunk).trimEnd()}`);
-  });
-  child.on('error', (error) => {
-    appendRuntimeLog(logFile, '[qce-plugin]', `process error: ${error.message}`);
-  });
-  child.on('exit', (code, signal) => {
-    appendRuntimeLog(logFile, '[qce-plugin]', `qce-server exited code=${code ?? 'null'} signal=${signal ?? 'null'}`);
-  });
-
-  try {
-    await Promise.race([
-      waitForPort(child, API_PORT),
-      new Promise((_, reject) => child.once('error', reject))
-    ]);
+    // A failed spawn has no PID and emits an asynchronous error; there is
+    // no process to signal in that case. Its bridge still needs closing.
+    stopChild = child.pid === undefined ? null : createChildShutdown(child);
+    const stdioCaptured = process.env.QCE_STDIO_CAPTURED === '1';
+    child.stdout?.on('data', (chunk) => {
+      if (!stdioCaptured) appendRuntimeLog(logFile, '[qce-server]', chunk);
+      core.context.logger.log(`[qce-server] ${String(chunk).trimEnd()}`);
+    });
+    child.stderr?.on('data', (chunk) => {
+      if (!stdioCaptured) appendRuntimeLog(logFile, '[qce-server]', chunk);
+      core.context.logger.logError(`[qce-server] ${String(chunk).trimEnd()}`);
+    });
+    child.on('error', (error) => {
+      appendRuntimeLog(logFile, '[qce-plugin]', `process error: ${error.message}`);
+    });
+    child.on('exit', (code, exitSignal) => {
+      appendRuntimeLog(logFile, '[qce-plugin]', `qce-server exited code=${code ?? 'null'} signal=${exitSignal ?? 'null'}`);
+    });
+    signal?.throwIfAborted();
+    await waitForPort(child, API_PORT, { signal });
+    signal?.throwIfAborted();
     appendRuntimeLog(logFile, '[qce-plugin]', `qce-server ready on port ${API_PORT}`);
     announceWebUiReady(logFile, API_PORT).catch((error) => {
       appendRuntimeLog(logFile, '[qce-plugin]', `webui url announce failed: ${error instanceof Error ? error.message : String(error)}`);
     });
+    return { stop };
   } catch (error) {
     appendRuntimeLog(logFile, '[qce-plugin]', `startup failed: ${error instanceof Error ? error.message : String(error)}`);
-    child.kill();
-    await bridge.stop();
+    try { await stop(); } catch (cleanupError) {
+      throw new StartupCleanupError(error, cleanupError);
+    }
     throw error;
   }
-
-  return {
-    async stop() {
-      if (child.exitCode === null) {
-        appendRuntimeLog(logFile, '[qce-plugin]', 'stopping qce-server');
-        child.kill();
-        await new Promise((resolve) => {
-          const timer = setTimeout(resolve, 2_000);
-          child.once('exit', () => {
-            clearTimeout(timer);
-            resolve();
-          });
-        });
-      }
-      await bridge.stop();
-    }
-  };
 }

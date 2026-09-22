@@ -99,7 +99,9 @@ const result = spawnSync(
     [
         '--import', 'tsx',
         '--test',
-        '--test-force-exit',
+        // Let node:test drain every result and report unfinished promises.
+        // Node 20's force-exit path can lose trailing results, producing a
+        // successful summary whose test count is smaller than the suite.
         ...files
     ],
     { cwd: PLUGIN_ROOT, env, stdio: 'inherit' }
