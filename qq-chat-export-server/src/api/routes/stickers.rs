@@ -436,12 +436,13 @@ fn system_packs() -> Vec<Value> {
 async fn get_sticker_packs(state: &SharedState, types: Option<&Vec<String>>) -> Vec<Value> {
     let want = |t: &str| types.is_none_or(|list| list.iter().any(|item| item == t));
     let mut packs = Vec::new();
-    if want("favorite_emoji") {
+    // System packs are embedded and remain usable without NapCat.
+    if !state.is_standalone() && want("favorite_emoji") {
         if let Some(pack) = favorite_pack(state).await {
             packs.push(pack);
         }
     }
-    if want("market_pack") {
+    if !state.is_standalone() && want("market_pack") {
         packs.extend(market_packs(state).await);
     }
     if want("system_pack") {
@@ -609,6 +610,22 @@ pub async fn list_sticker_packs(
             .filter(|s| !s.is_empty())
             .collect()
     });
+    let unavailable_types: Vec<&str> = ["favorite_emoji", "market_pack"]
+        .into_iter()
+        .filter(|kind| {
+            state.is_standalone()
+                && types
+                    .as_ref()
+                    .is_none_or(|list| list.iter().any(|item| item.as_str() == *kind))
+        })
+        .collect();
+    if !unavailable_types.is_empty()
+        && types
+            .as_ref()
+            .is_some_and(|list| !list.iter().any(|kind| kind == "system_pack"))
+    {
+        return response::error(&state.standalone_mode_error("读取 QQ 表情包"), &request_id);
+    }
     let packs = get_sticker_packs(&state, types.as_ref()).await;
     let total_stickers: u64 = packs
         .iter()
@@ -628,6 +645,7 @@ pub async fn list_sticker_packs(
             "totalCount": packs.len(),
             "totalStickers": total_stickers,
             "stats": stats,
+            "unavailableTypes": unavailable_types,
         }),
         &request_id,
     )
@@ -643,6 +661,9 @@ pub async fn export_sticker_pack(
     if pack_id.is_empty() {
         let err = ApiError::validation("packId 不能为空", "INVALID_PACK_ID");
         return response::error(&err, &request_id);
+    }
+    if state.is_standalone() && (pack_id == "favorite_emojis" || pack_id.starts_with("market_")) {
+        return response::error(&state.standalone_mode_error("导出 QQ 表情包"), &request_id);
     }
     let packs = get_sticker_packs(&state, None).await;
     let Some(pack) = packs.iter().find(|p| str_of(p, "packId") == pack_id) else {
@@ -692,6 +713,10 @@ pub async fn export_all_sticker_packs(
     State(state): State<SharedState>,
     Extension(RequestId(request_id)): Extension<RequestId>,
 ) -> Response {
+    // Export-all promises every source, so a system-only export would be incomplete.
+    if state.is_standalone() {
+        return response::error(&state.standalone_mode_error("导出全部表情包"), &request_id);
+    }
     let packs = get_sticker_packs(&state, None).await;
     if packs.is_empty() {
         let err = ApiError::new(ErrorType::Api, "没有找到表情包", "NO_STICKER_PACKS");

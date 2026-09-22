@@ -45,6 +45,8 @@ pub trait ScheduledExportExecutor: Send + Sync {
 pub struct ScheduledExportManager {
     db: Arc<DatabaseManager>,
     executor: Arc<dyn ScheduledExportExecutor>,
+    /// Standalone can manage saved schedules without running live QQ exports.
+    execution_enabled: bool,
     /// 任务配置，按弱类型 JSON 存储。
     tasks: Mutex<HashMap<String, Value>>,
     /// 每个任务的 cron 调度句柄。
@@ -59,10 +61,19 @@ impl ScheduledExportManager {
         Self {
             db,
             executor,
+            execution_enabled: true,
             tasks: Mutex::new(HashMap::new()),
             cron_jobs: Mutex::new(HashMap::new()),
             history: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Configure execution before sharing the manager. Disabled managers still
+    /// load and edit schedules/history, without starting cron or manual work.
+    #[must_use]
+    pub fn with_execution_enabled(mut self, enabled: bool) -> Self {
+        self.execution_enabled = enabled;
+        self
     }
 
     /// 初始化调度器：从数据库加载任务并启动全部启用的任务。
@@ -227,6 +238,9 @@ impl ScheduledExportManager {
 
     /// 手动触发定时导出任务。
     pub async fn trigger_scheduled_export(self: &Arc<Self>, id: &str) -> Option<Value> {
+        if !self.execution_enabled {
+            return None;
+        }
         let task = self.scheduled_export(id).await?;
         Some(self.execute_export_task(&task).await)
     }
@@ -272,6 +286,9 @@ impl ScheduledExportManager {
     }
 
     fn enqueue_export_tasks(self: &Arc<Self>, targets: Vec<Value>) -> Vec<Value> {
+        if !self.execution_enabled {
+            return Vec::new();
+        }
         let manager = Arc::clone(self);
         let queue = targets.clone();
         tokio::spawn(async move {
@@ -328,6 +345,9 @@ impl ScheduledExportManager {
 
     /// 启动单个任务的 cron 循环（每分钟检查一次表达式命中）。
     async fn start_task(self: &Arc<Self>, id: &str) {
+        if !self.execution_enabled {
+            return;
+        }
         self.stop_task(id).await;
 
         let Some(task) = self.scheduled_export(id).await else {
@@ -719,6 +739,13 @@ mod tests {
     async fn manager(
         fail_id: Option<&str>,
     ) -> (TestDir, Arc<ScheduledExportManager>, Arc<RecordingExecutor>) {
+        manager_with_execution(fail_id, true).await
+    }
+
+    async fn manager_with_execution(
+        fail_id: Option<&str>,
+        execution_enabled: bool,
+    ) -> (TestDir, Arc<ScheduledExportManager>, Arc<RecordingExecutor>) {
         let temp = TestDir::new();
         let db = Arc::new(DatabaseManager::new(&temp.0.join("qce.db")));
         db.initialize().await.expect("initialize database");
@@ -726,10 +753,13 @@ mod tests {
             executed: Mutex::new(Vec::new()),
             fail_id: fail_id.map(str::to_owned),
         });
-        let manager = Arc::new(ScheduledExportManager::new(
-            db,
-            Arc::clone(&executor) as Arc<dyn ScheduledExportExecutor>,
-        ));
+        let manager = Arc::new(
+            ScheduledExportManager::new(
+                db,
+                Arc::clone(&executor) as Arc<dyn ScheduledExportExecutor>,
+            )
+            .with_execution_enabled(execution_enabled),
+        );
         (temp, manager, executor)
     }
 
@@ -832,5 +862,92 @@ mod tests {
 
         let executed = wait_for_executions(&executor, 2).await;
         assert_eq!(executed, vec!["c", "b"]);
+    }
+
+    #[tokio::test]
+    async fn standalone_keeps_saved_schedules_editable_without_cron_or_manual_execution() {
+        let (_temp, manager, executor) = manager_with_execution(None, false).await;
+        let saved = json!({
+            "id": "saved", "name": "saved plan", "enabled": true,
+            "scheduleType": "custom", "cronExpression": "* * * * *",
+            "timeRangeType": "yesterday"
+        });
+        manager.db.save_scheduled_export(&saved).await.unwrap();
+        let history = json!({
+            "id": "old-history", "scheduledExportId": "saved",
+            "executedAt": "2026-01-01T00:00:00Z", "status": "success"
+        });
+        manager.db.save_execution_history(&history).await.unwrap();
+        manager.initialize().await;
+        assert_eq!(
+            manager.scheduled_export("saved").await.unwrap()["enabled"],
+            true
+        );
+        assert!(manager.cron_jobs.lock().await.is_empty());
+
+        let created = manager
+            .create_scheduled_export(json!({
+                "name": "created offline", "enabled": true,
+                "scheduleType": "custom", "cronExpression": "* * * * *"
+            }))
+            .await;
+        let id = created["id"].as_str().unwrap();
+        let updated = manager
+            .update_scheduled_export(
+                id,
+                json!({
+                    "name": "edited offline", "enabled": true
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated["name"], "edited offline");
+        assert_eq!(manager.all_scheduled_exports().await.len(), 2);
+        assert!(manager.cron_jobs.lock().await.is_empty());
+        assert!(manager.trigger_scheduled_export("saved").await.is_none());
+        assert!(manager.trigger_all_scheduled_exports(true).await.is_empty());
+        assert!(manager
+            .trigger_scheduled_exports(&[id.to_owned()])
+            .await
+            .is_empty());
+        tokio::task::yield_now().await;
+        assert!(executor.executed.lock().await.is_empty());
+        assert_eq!(manager.execution_history("saved", 10).await, vec![history]);
+        assert!(manager
+            .db
+            .get_scheduled_exports()
+            .await
+            .iter()
+            .all(|task| task["enabled"] == true));
+        assert!(manager.delete_scheduled_export(id).await);
+        assert!(manager.scheduled_export(id).await.is_none());
+        manager.shutdown().await;
+        manager.db.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn plugin_starts_saved_cron_and_preserves_manual_execution() {
+        let (_temp, manager, executor) = manager(None).await;
+        manager
+            .db
+            .save_scheduled_export(&json!({
+                "id": "saved", "name": "saved plan", "enabled": true,
+                "scheduleType": "custom", "cronExpression": "* * * * *",
+                "timeRangeType": "yesterday"
+            }))
+            .await
+            .unwrap();
+        manager.initialize().await;
+        assert_eq!(manager.cron_jobs.lock().await.len(), 1);
+        let result = manager.trigger_scheduled_export("saved").await.unwrap();
+        assert_eq!(result["status"], "success");
+        assert_eq!(*executor.executed.lock().await, vec!["saved"]);
+        manager
+            .update_scheduled_export("saved", json!({"enabled": false}))
+            .await
+            .unwrap();
+        assert!(manager.cron_jobs.lock().await.is_empty());
+        manager.shutdown().await;
+        manager.db.close().await.unwrap();
     }
 }

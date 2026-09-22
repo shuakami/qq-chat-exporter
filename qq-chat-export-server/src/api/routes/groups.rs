@@ -434,6 +434,9 @@ pub async fn group_essence(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(group_code): Path<String>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     if group_code.is_empty() {
         let err = ApiError::validation("群组代码不能为空", "INVALID_GROUP_CODE");
         return response::error(&err, &request_id);
@@ -565,6 +568,9 @@ pub async fn export_group_essence(
     Path(group_code): Path<String>,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     if group_code.is_empty() {
         let err = ApiError::validation("群组代码不能为空", "INVALID_GROUP_CODE");
         return response::error(&err, &request_id);
@@ -693,6 +699,9 @@ pub async fn export_group_avatars(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(group_code): Path<String>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     if group_code.is_empty() {
         let err = ApiError::validation("群组代码不能为空", "INVALID_GROUP_CODE");
         return response::error(&err, &request_id);

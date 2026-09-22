@@ -224,6 +224,9 @@ fn avatar_url(chat_type: &str, chat_id: &str) -> Option<String> {
 /// 构建 UID→UIN 查找表（用于将 `u_xxx` 形式的 peerUid 解析为 QQ 号码）。
 async fn build_uid_to_uin_map(state: &SharedState) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
+    if state.is_standalone() {
+        return map;
+    }
     if let Ok(friends) = state.napcat.get_friends(false).await {
         if let Some(arr) = friends.as_array() {
             for f in arr {
@@ -512,6 +515,9 @@ async fn display_name_for_chat(
     chat_type: &str,
     chat_id: &str,
 ) -> Option<String> {
+    if state.is_standalone() {
+        return None;
+    }
     if chat_type == "group" {
         let groups = state.napcat.get_groups(false).await.ok()?;
         groups.as_array()?.iter().find_map(|g| {

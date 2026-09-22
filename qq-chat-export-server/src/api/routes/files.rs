@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 
 use crate::api::http_security::http_download_to_file;
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
+use crate::api::routes::groups::standalone_guard;
 use crate::api::state::SharedState;
 
 /// 导出记录保留上限。
@@ -215,6 +216,9 @@ pub async fn list_group_files(
     Path(group_code): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     if group_code.is_empty() {
         let err = ApiError::validation("群号不能为空", "INVALID_GROUP_CODE");
         return response::error(&err, &request_id);
@@ -248,6 +252,9 @@ pub async fn group_file_count(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Path(group_code): Path<String>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     if group_code.is_empty() {
         let err = ApiError::validation("群号不能为空", "INVALID_GROUP_CODE");
         return response::error(&err, &request_id);
@@ -281,6 +288,9 @@ pub async fn download_group_file(
     Path(group_code): Path<String>,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     let file_id = str_of(&body, "fileId");
     if group_code.is_empty() || file_id.is_empty() {
         let err = ApiError::validation("群号和文件ID不能为空", "INVALID_PARAMS");
@@ -363,6 +373,9 @@ pub async fn export_group_files_metadata(
     Path(group_code): Path<String>,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     if group_code.is_empty() {
         let err = ApiError::validation("群号不能为空", "INVALID_GROUP_CODE");
         return response::error(&err, &request_id);
@@ -487,6 +500,9 @@ pub async fn export_group_files_with_download(
     Path(group_code): Path<String>,
     Json(body): Json<Value>,
 ) -> Response {
+    if let Some(err) = standalone_guard(&state) {
+        return response::error(&err, &request_id);
+    }
     if group_code.is_empty() {
         let err = ApiError::validation("群号不能为空", "INVALID_GROUP_CODE");
         return response::error(&err, &request_id);

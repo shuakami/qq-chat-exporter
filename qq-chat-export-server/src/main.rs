@@ -140,7 +140,10 @@ async fn run() -> Result<(), String> {
         Arc::clone(&resource_handler),
         Arc::clone(&path_manager),
     ));
-    let scheduled_export_manager = Arc::new(ScheduledExportManager::new(Arc::clone(&db), executor));
+    let scheduled_export_manager = Arc::new(
+        ScheduledExportManager::new(Arc::clone(&db), executor)
+            .with_execution_enabled(run_mode == RunMode::Plugin),
+    );
     scheduled_export_manager.initialize().await;
 
     // 孤儿任务归一化（issue #144） + 任务表加载
