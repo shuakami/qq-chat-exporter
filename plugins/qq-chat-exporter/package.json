@@ -24,7 +24,7 @@
     "pretest": "npm run gen:overlay",
     "test": "node __tests__/scripts/run-tests.mjs \"__tests__/**/*.test.ts\"",
     "test:unit": "node __tests__/scripts/run-tests.mjs \"__tests__/unit/**/*.test.ts\" \"__tests__/smoke.test.ts\"",
-    "test:macos-launcher": "node __tests__/scripts/run-tests.mjs __tests__/unit/napcatMacosLauncher.test.ts && node --experimental-vm-modules --test ../../scripts/napcat-launcher/tests/macos-loader.test.cjs && python3 ../../scripts/napcat-launcher/tests/macos-signing.test.py",
+    "test:macos-launcher": "node __tests__/scripts/run-tests.mjs __tests__/unit/napcatMacosLauncher.test.ts && node --experimental-vm-modules --test ../../scripts/napcat-launcher/tests/macos-loader.test.cjs && python3 ../../scripts/napcat-launcher/tests/macos-signing.test.py && sh ../../scripts/napcat-launcher/test-main-patch.sh",
     "test:entrypoint": "node test-plugin.mjs",
     "test:runtime": "node test-plugin-full.mjs",
     "test:context": "node test-plugin-init-context.mjs",
