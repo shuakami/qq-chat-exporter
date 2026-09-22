@@ -635,31 +635,34 @@ test('macOS launcher: an upstream QQ update triggers a clean re-copy + re-patch'
     }
 });
 
-test('macOS launcher: portable main patch preserves permissions with non-BSD sed on PATH', { skip: skipReason ?? false }, () => {
-    const tmp = createTempDir('launcher-macos-portable-sed-');
-    try {
-        const fixture = stageFakeQqApp(tmp.path);
-        fs.chmodSync(fixture.packageJson, 0o640);
-        const launcher = stageLauncher(tmp.path);
-        const bin = path.join(tmp.path, 'bin');
-        fs.mkdirSync(bin);
-        fs.writeFileSync(path.join(bin, 'sed'), '#!/bin/sh\nfor arg do\n  case "$arg" in -i*) exit 91 ;; esac\ndone\nexec /usr/bin/sed "$@"\n', { mode: 0o755 });
-        const original = fs.readFileSync(fixture.packageJson);
-        const result = runLauncher(launcher, {
-            ...process.env, PATH: `${bin}:${process.env.PATH}`, NAPCAT_QQ_PATH: fixture.qqBinary,
-        });
-        assert.equal(result.status, 0, result.stdout + result.stderr);
-        const manifest = path.join(runtimeAppDir(launcher), 'Contents', 'Resources', 'app', 'package.json');
-        assert.equal(JSON.parse(fs.readFileSync(manifest, 'utf8')).main, './loadNapCat-qce.js');
-        assert.equal(fs.statSync(manifest).mode & 0o777, 0o640);
-        assert.deepEqual(fs.readFileSync(fixture.packageJson), original);
-        assert.ok(result.stdout.includes('QQ_EXECED'));
-    } finally {
-        tmp.cleanup();
-    }
-});
+for (const mode of [0o640, 0o440]) {
+    test(`macOS launcher: portable main patch preserves ${mode.toString(8)} permissions with non-BSD sed on PATH`, { skip: skipReason ?? false }, () => {
+        const tmp = createTempDir('launcher-macos-portable-sed-');
+        try {
+            const fixture = stageFakeQqApp(tmp.path);
+            fs.chmodSync(fixture.packageJson, mode);
+            const launcher = stageLauncher(tmp.path);
+            const bin = path.join(tmp.path, 'bin');
+            fs.mkdirSync(bin);
+            fs.writeFileSync(path.join(bin, 'sed'), '#!/bin/sh\nfor arg do\n  case "$arg" in -i*) exit 91 ;; esac\ndone\nexec /usr/bin/sed "$@"\n', { mode: 0o755 });
+            const original = fs.readFileSync(fixture.packageJson);
+            const result = runLauncher(launcher, {
+                ...process.env, PATH: `${bin}:${process.env.PATH}`, NAPCAT_QQ_PATH: fixture.qqBinary,
+            });
+            assert.equal(result.status, 0, result.stdout + result.stderr);
+            const manifest = path.join(runtimeAppDir(launcher), 'Contents', 'Resources', 'app', 'package.json');
+            assert.equal(JSON.parse(fs.readFileSync(manifest, 'utf8')).main, './loadNapCat-qce.js');
+            assert.equal(fs.statSync(manifest).mode & 0o777, mode);
+            assert.deepEqual(fs.readFileSync(fixture.packageJson), original);
+            assert.ok(result.stdout.includes('QQ_EXECED'));
+        } finally {
+            tmp.cleanup();
+        }
+    });
 
-for (const failure of ['mktemp', 'copy', 'rewrite', 'no-match', 'rename'] as const) {
+}
+
+for (const failure of ['mktemp', 'copy', 'permissions', 'rewrite', 'no-match', 'rename'] as const) {
     test(`macOS launcher: failed main patch (${failure}) leaves manifest intact and never starts QQ`, { skip: skipReason ?? false }, () => {
         const tmp = createTempDir(`launcher-macos-patch-${failure}-`);
         try {
@@ -674,13 +677,13 @@ for (const failure of ['mktemp', 'copy', 'rewrite', 'no-match', 'rename'] as con
             const bin = path.join(tmp.path, 'bin');
             fs.mkdirSync(bin);
             const command = failure === 'no-match' ? undefined
-                : { mktemp: 'mktemp', copy: 'cp', rewrite: 'sed', rename: 'mv' }[failure];
+                : { mktemp: 'mktemp', copy: 'cp', permissions: 'chmod', rewrite: 'sed', rename: 'mv' }[failure];
             if (command) {
                 // Fail only the manifest transaction, not the rest of the fixture setup.
-                const matches = failure === 'mktemp' || failure === 'copy' || failure === 'rename'
+                const matches = failure !== 'rewrite'
                     ? '*package.json.qce.*'
                     : '*loadNapCat-qce*';
-                const real = command === 'cp' || command === 'mv' ? `/bin/${command}` : `/usr/bin/${command}`;
+                const real = command === 'cp' || command === 'mv' || command === 'chmod' ? `/bin/${command}` : `/usr/bin/${command}`;
                 fs.writeFileSync(path.join(bin, command), `#!/bin/sh\nfor arg do\n  case "$arg" in ${matches}) exit 92 ;; esac\ndone\nexec ${real} "$@"\n`, { mode: 0o755 });
             }
             const result = runLauncher(launcher, {

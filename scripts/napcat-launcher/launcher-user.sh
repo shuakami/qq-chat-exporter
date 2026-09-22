@@ -608,15 +608,18 @@ LOADER_EOF
         # Redirect + rename is portable across BSD, GNU and toybox sed.
         # Keep the temporary file beside the manifest so replacement is atomic
         # on the same volume; preserve its permissions and check every step.
-        local patched_json
-        if ! patched_json="$(mktemp "${QQ_RUNTIME_PKG_JSON}.qce.XXXXXX")"; then
+        local patched_json original_mode
+        if ! original_mode="$(/usr/bin/stat -f '%Lp' "$QQ_RUNTIME_PKG_JSON")" \
+           || ! patched_json="$(mktemp "${QQ_RUNTIME_PKG_JSON}.qce.XXXXXX")"; then
             echo "[Error] Could not prepare QCE's private QQ entry point."
             exit 1
         fi
         if ! cp -p "$QQ_RUNTIME_PKG_JSON" "$patched_json" \
+           || ! chmod u+w "$patched_json" \
            || ! sed -E 's/"main": *"[^"]*"/"main": ".\/loadNapCat-qce.js"/' \
                 "$QQ_RUNTIME_PKG_JSON" > "$patched_json" \
            || ! grep -q '"main": *"\./loadNapCat-qce\.js"' "$patched_json" \
+           || ! chmod "$original_mode" "$patched_json" \
            || ! mv -f "$patched_json" "$QQ_RUNTIME_PKG_JSON"; then
             rm -f "$patched_json"
             echo "[Error] Could not install QCE's private QQ entry point."
