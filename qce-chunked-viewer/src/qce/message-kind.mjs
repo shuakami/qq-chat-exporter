@@ -5,8 +5,17 @@ export function kindOf(html) {
     hasClass(html, 'face-emoji')
   ) return 'sticker';
   if (hasClass(html, 'image-content')) return 'img';
-  if (hasClass(html, 'audio-wrapper') || hasClass(html, 'message-audio')) return 'voice';
-  if (hasClass(html, 'message-video')) return 'video';
+  if (
+    hasClass(html, 'audio-wrapper') ||
+    hasClass(html, 'message-audio') ||
+    hasClass(html, 'voice-bubble') ||
+    hasClass(html, 'mf-audio')
+  ) return 'voice';
+  if (
+    hasClass(html, 'message-video') ||
+    hasClass(html, 'video-bubble') ||
+    hasClass(html, 'mf-video')
+  ) return 'video';
   if (hasClass(html, 'message-file')) return 'file';
   if (hasClass(html, 'reply-content')) return 'reply';
   if (hasClassPrefix(html, 'forward-card')) return 'forward';
