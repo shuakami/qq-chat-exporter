@@ -284,6 +284,29 @@ mod native_face_tests {
 }
 
 #[cfg(test)]
+mod timestamp_tests {
+    use super::{SimpleMessageParser, SimpleParserOptions};
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn preserves_zero_timestamp_for_numeric_and_string_msg_time() {
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+
+        for msg_time in [json!(0), json!("0")] {
+            let parsed = parser
+                .parse_message(&json!({
+                    "msgTime": msg_time,
+                    "elements": []
+                }))
+                .await;
+
+            assert_eq!(parsed.timestamp, 0);
+            assert_eq!(parsed.time, "1970-01-01T00:00:00.000Z");
+        }
+    }
+}
+
+#[cfg(test)]
 mod reply_target_tests {
     use super::{SimpleMessageParser, SimpleParserOptions};
     use serde_json::{json, Value};
@@ -1120,11 +1143,7 @@ impl SimpleMessageParser {
 
     async fn parse_message(&mut self, message: &Value) -> CleanMessage {
         let ts_ms = millis_from_unix_seconds(v_get(message, "msgTime"));
-        let timestamp = if ts_ms > 0 {
-            ts_ms
-        } else {
-            Utc::now().timestamp_millis()
-        };
+        let timestamp = ts_ms.max(0);
         let sender_info = self.get_sender_display_info(message);
         let content = self.parse_message_content(message, 0).await;
         let msg_type = v_i64(message, "msgType").unwrap_or(0);
