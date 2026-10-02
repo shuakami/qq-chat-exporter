@@ -1477,4 +1477,104 @@ test.describe('Scheduled exports (issue #624)', () => {
         await page.getByRole('button', { name: '执行', exact: true }).click();
         await expect.poll(() => batchBody?.ids).toEqual(['task-a', 'task-b']);
     });
+
+    test('partial execution history explains failed resources (issue #698)', async ({ page }, testInfo) => {
+        await clearLocalStorage(page);
+        await page.evaluate((value) => {
+            localStorage.setItem('qce_access_token', value);
+            localStorage.setItem('qce-onboarding-completed', 'true');
+        }, TOKEN);
+
+        const tasks = [
+            {
+                id: 'task-history',
+                name: '资源失败历史',
+                peer: { chatType: 1, peerUid: 'friend-history', guildId: '' },
+                sessionName: '资源失败会话',
+                scheduleType: 'daily',
+                executeTime: '02:00',
+                timeRangeType: 'yesterday',
+                format: 'HTML',
+                enabled: true,
+                options: {},
+            },
+        ];
+
+        await page.route('**/api/system/info**', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ success: true, data: null }),
+            });
+        });
+        await page.route('**/api/scheduled-exports**', async (route, request) => {
+            const url = new URL(request.url());
+            if (request.method() === 'GET' && url.pathname.endsWith('/api/scheduled-exports')) {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ success: true, data: { scheduledExports: tasks } }),
+                });
+                return;
+            }
+            if (request.method() === 'GET' && url.pathname.endsWith('/api/scheduled-exports/task-history/history')) {
+                await route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({
+                        success: true,
+                        data: {
+                            history: [{
+                                id: 'history-partial-resources',
+                                scheduledExportId: 'task-history',
+                                executedAt: '2025-08-01T00:00:00.000Z',
+                                status: 'partial',
+                                messageCount: 20,
+                                duration: 5000,
+                                resourceSummary: {
+                                    attempted: 10,
+                                    alreadyAvailable: 2,
+                                    downloaded: 5,
+                                    failed: 3,
+                                    skipped: 0,
+                                    failedSamples: [],
+                                },
+                            }],
+                        },
+                    }),
+                });
+                return;
+            }
+            await route.continue();
+        });
+
+        const response = await page.goto(`${FRONTEND_BASE}${SHELL_PATH}/scheduled`).catch(() => null);
+        test.skip(!response || response.status() >= 500, `frontend not reachable at ${FRONTEND_BASE}`);
+        await page.addStyleTag({ content: 'nextjs-portal { display: none !important; }' });
+        await expect(page.getByText('资源失败历史', { exact: true })).toBeVisible({ timeout: 15_000 });
+        const closeUpdate = page.getByRole('button', { name: '关闭更新提示' });
+        if (await closeUpdate.isVisible()) await closeUpdate.click();
+        await page.getByRole('button', { name: '历史', exact: true }).click();
+        const historyDialog = page.getByRole('dialog', { name: '执行历史' });
+        await expect(historyDialog).toBeVisible();
+        await expect(historyDialog.getByText('部分', { exact: true })).toBeVisible();
+
+        await page.locator('[aria-label="查看部分完成说明"]').hover();
+        const tooltip = page.getByRole('tooltip');
+        await expect(tooltip).toContainText('3 个图片、视频等资源下载失败');
+        await page.screenshot({
+            path: testInfo.outputPath('698-desktop-tooltip.png'),
+            animations: 'disabled',
+        });
+
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.mouse.move(0, 0);
+        await historyDialog.locator('button').filter({ hasText: '部分' }).click({ position: { x: 50, y: 24 } });
+        await expect(historyDialog.getByText('7/10，失败 3', { exact: true })).toBeVisible();
+        await page.waitForTimeout(250);
+        await page.screenshot({
+            path: testInfo.outputPath('698-mobile-expanded.png'),
+            animations: 'disabled',
+        });
+    });
 });

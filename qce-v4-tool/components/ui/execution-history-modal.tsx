@@ -6,11 +6,13 @@ import {
   AlertCircle,
   RefreshCw,
   FileText,
-  ChevronRight
+  ChevronRight,
+  HelpCircle
 } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Loader } from "@/components/ui/loader"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { ScheduledExportHistory } from "@/types/api"
 
 interface ExecutionHistoryModalProps {
@@ -143,13 +145,29 @@ export function ExecutionHistoryModal({
                         </div>
 
                         {/* Status Text */}
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          item.status === 'success' ? 'bg-black/[0.04] dark:bg-white/[0.06] text-muted-foreground' :
-                          item.status === 'failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' :
-                          'bg-black/[0.04] dark:bg-white/[0.06] text-muted-foreground'
-                        }`}>
-                          {item.status === 'success' ? '成功' : item.status === 'failed' ? '失败' : '部分'}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            item.status === 'success' ? 'bg-black/[0.04] dark:bg-white/[0.06] text-muted-foreground' :
+                            item.status === 'failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' :
+                            'bg-black/[0.04] dark:bg-white/[0.06] text-muted-foreground'
+                          }`}>
+                            {item.status === 'success' ? '成功' : item.status === 'failed' ? '失败' : '部分'}
+                          </span>
+                          {item.status === 'partial' && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span aria-label="查看部分完成说明">
+                                  <HelpCircle className="w-[14px] h-[14px] text-muted-foreground/60 hover:text-muted-foreground transition-colors outline-none cursor-pointer" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" sideOffset={6} className="max-w-[260px]">
+                                {item.resourceSummary?.failed && item.resourceSummary.failed > 0
+                                  ? `消息已全部导出，但有 ${item.resourceSummary.failed} 个图片、视频等资源下载失败，文字内容不受影响。`
+                                  : '消息已全部导出，但有部分图片、视频等资源下载失败，文字内容不受影响。'}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
 
                         <ChevronRight className={`w-4 h-4 text-muted-foreground/40 transition-transform ${
                           expandedId === item.id ? 'rotate-90' : ''
@@ -171,6 +189,16 @@ export function ExecutionHistoryModal({
                                 <div className="flex justify-between text-muted-foreground">
                                   <span>文件大小</span>
                                   <span>{formatFileSize(item.fileSize)}</span>
+                                </div>
+                              )}
+                              {item.resourceSummary && item.resourceSummary.attempted > 0 && (
+                                <div className="flex justify-between text-muted-foreground">
+                                  <span>资源</span>
+                                  <span>
+                                    {item.resourceSummary.alreadyAvailable + item.resourceSummary.downloaded}/{item.resourceSummary.attempted}
+                                    {item.resourceSummary.failed > 0 && `，失败 ${item.resourceSummary.failed}`}
+                                    {item.resourceSummary.skipped > 0 && `，跳过 ${item.resourceSummary.skipped}`}
+                                  </span>
                                 </div>
                               )}
                               {item.filePath && (

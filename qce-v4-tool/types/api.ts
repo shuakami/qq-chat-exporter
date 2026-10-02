@@ -479,6 +479,7 @@ export interface ScheduledExportHistory {
   fileSize?: number
   error?: string
   duration: number
+  resourceSummary?: ExportResourceSummary
 }
 
 export interface CreateScheduledExportForm {
