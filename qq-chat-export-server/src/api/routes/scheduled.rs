@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use crate::api::path_security::resolve_for_creation_within;
 use crate::api::response::{self, ApiError, RequestId};
 use crate::api::state::SharedState;
+use crate::paths::PathManager;
 
 const MAX_SCHEDULED_EXPORTS: usize = 128;
 const MAX_NAME_LENGTH: usize = 128;
@@ -226,7 +227,7 @@ fn validate_config(body: &Value, partial: bool) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn validate_output_dir(state: &SharedState, body: &Value) -> Result<(), ApiError> {
+fn validate_output_dir(path_manager: &PathManager, body: &Value) -> Result<(), ApiError> {
     let Some(output_dir) = body.get("outputDir") else {
         return Ok(());
     };
@@ -240,10 +241,7 @@ fn validate_output_dir(state: &SharedState, body: &Value) -> Result<(), ApiError
     if output_dir.is_empty() {
         return Ok(());
     }
-    let roots = [
-        state.path_manager.exports_dir(),
-        state.path_manager.scheduled_exports_dir(),
-    ];
+    let roots = path_manager.export_output_roots(Some(output_dir));
     if resolve_for_creation_within(std::path::Path::new(output_dir), &roots).is_none() {
         return Err(ApiError::validation(
             "outputDir 必须位于允许的导出目录内",
@@ -262,7 +260,7 @@ pub async fn create_scheduled_export(
     if let Err(err) = validate_config(&body, false) {
         return response::error(&err, &request_id);
     }
-    if let Err(err) = validate_output_dir(&state, &body) {
+    if let Err(err) = validate_output_dir(&state.path_manager, &body) {
         return response::error(&err, &request_id);
     }
     if state
@@ -447,7 +445,7 @@ pub async fn update_scheduled_export(
     if let Err(err) = validate_config(&body, true) {
         return response::error(&err, &request_id);
     }
-    if let Err(err) = validate_output_dir(&state, &body) {
+    if let Err(err) = validate_output_dir(&state.path_manager, &body) {
         return response::error(&err, &request_id);
     }
     match state
@@ -533,7 +531,8 @@ pub async fn scheduled_export_history(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_trigger_ids, validate_config};
+    use super::{parse_trigger_ids, validate_config, validate_output_dir};
+    use crate::paths::PathManager;
     use serde_json::json;
 
     fn valid_config() -> serde_json::Value {
@@ -551,6 +550,31 @@ mod tests {
     #[test]
     fn accepts_valid_scheduled_export() {
         assert!(validate_config(&valid_config(), false).is_ok());
+    }
+
+    #[test]
+    fn accepts_absolute_safe_custom_output_dir() {
+        let path_manager = PathManager::new();
+        let custom_dir = std::env::temp_dir()
+            .join(format!("qce-scheduled-exports-{}", std::process::id()))
+            .to_string_lossy()
+            .into_owned();
+
+        assert!(validate_output_dir(&path_manager, &json!({ "outputDir": custom_dir })).is_ok());
+    }
+
+    #[test]
+    fn rejects_relative_and_parent_traversal_output_dirs() {
+        let path_manager = PathManager::new();
+        assert!(
+            validate_output_dir(&path_manager, &json!({ "outputDir": "relative/outside" }))
+                .is_err()
+        );
+
+        let traversal_dir = format!("{}/../outside", std::env::temp_dir().display());
+        assert!(
+            validate_output_dir(&path_manager, &json!({ "outputDir": traversal_dir })).is_err()
+        );
     }
 
     #[test]
