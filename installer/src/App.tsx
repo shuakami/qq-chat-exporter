@@ -183,6 +183,8 @@ const CONFIGURE_POLL_INTERVAL_MS = 1_500;
 const isAlreadyLoggedIn = (msg: string) =>
   msg.includes('已登录') || /is\s*logined|already\s*log/i.test(msg);
 
+const isNapcatDown = (msg: string) => msg.includes('无端口监听');
+
 const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, message: string) =>
   new Promise<T>((resolve, reject) => {
     const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
@@ -941,7 +943,11 @@ export default function App() {
                   </div>
                 )}
 
-                {loginError && <p className="text-[12px] text-[#E54D2E] mb-3 max-w-[260px] text-center">{loginError}</p>}
+                {loginError && (
+                  <p className="text-[12px] text-[#E54D2E] mb-3 max-w-[260px] text-center">
+                    {isNapcatDown(loginError) ? 'NapCat 遇到致命错误，QQ 已退出' : loginError}
+                  </p>
+                )}
 
                 <div className="flex items-center gap-4 text-[12px] font-medium text-[var(--color-text-secondary)]">
                   <button
@@ -950,6 +956,14 @@ export default function App() {
                   >
                     {loginMethod === 'quick' ? '二维码登录' : '快速登录'}
                   </button>
+                  {isNapcatDown(loginError) && (
+                    <button
+                      onClick={() => void api.openLogFile()}
+                      className="hover:text-[var(--color-text)] transition-colors underline decoration-dotted underline-offset-2"
+                    >
+                      查看运行日志
+                    </button>
+                  )}
                 </div>
 
                 {busy && loginElapsed >= 30 && (
