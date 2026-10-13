@@ -1,14 +1,45 @@
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use axum::extract::{Extension, Path, Query, State};
 use axum::response::Response;
 use futures_util::future::join_all;
 use serde_json::{json, Value};
+use tokio::sync::RwLock;
 
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::routes::groups::standalone_guard;
-use crate::api::state::SharedState;
+use crate::api::state::{bridge_error_to_api_error, SharedState};
+
+/// 补丁 v5：bridge 就绪等待参数（可用环境变量覆盖）。
+///
+/// 背景：`qce-server.exe` 是 QQ 内插件 spawn 的子进程，QQ 重启时它跟着死再被拉起，
+/// 空窗期（实测数十秒）内前端 `Promise.all([loadGroups, loadFriends])` 会双双撞上
+/// `reqwest::Error` → 前端显示误导性的「bridge 传输错误」。
+/// 调大这两个值可让接口在 QQ 启动期间「等一等再答」，显著降低误报。
+fn env_u32(key: &str, default: u32) -> u32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(default)
+}
+
+/// 探活最多尝试次数。
+fn bridge_ready_attempts() -> u32 {
+    env_u32("QCE_BRIDGE_READY_ATTEMPTS", 20)
+}
+
+/// 探活间隔（毫秒）。默认 20 × 500ms ≈ 最多等 10 秒。
+fn bridge_ready_interval_ms() -> u64 {
+    env_u32("QCE_BRIDGE_READY_INTERVAL_MS", 500) as u64
+}
+
+/// 单次调用遭遇传输错误后的重试次数。
+fn bridge_call_retries() -> u32 {
+    env_u32("QCE_BRIDGE_CALL_RETRIES", 2)
+}
 
 /// 分页参数解析（page 默认 1、limit 默认 999）。
 fn page_and_limit(params: &HashMap<String, String>) -> (usize, usize) {
@@ -341,6 +372,30 @@ fn flatten_friend_categories(categories: &[Value]) -> Vec<Value> {
     friends
 }
 
+/// 好友分类列表的服务端缓存。
+///
+/// NapCat 的 `getBuddyV2ExWithCate` 每次都要在 QQ 本地库里逐条组装 2274 个好友
+/// 的完整资料（约 2.5 MB），实测单次 12~20 秒，且**自身没有任何缓存**——
+/// 同一秒内重复调用一样慢。而 QCE 前端每次「加载好友」、每翻一页都会全量重拉
+/// （实测前端只传 `page`/`limit`，不传 `forceRefresh`），于是首屏要等十几秒。
+///
+/// 这里兜一层进程内缓存，让第一页付一次代价、后续请求直接命中。
+/// TTL 由 `QCE_FRIENDS_CACHE_SECS` 覆盖，设为 `0` 即完全禁用（退回原行为）。
+static FRIENDS_CACHE: OnceLock<RwLock<Option<(Instant, Value)>>> = OnceLock::new();
+
+fn friends_cache() -> &'static RwLock<Option<(Instant, Value)>> {
+    FRIENDS_CACHE.get_or_init(|| RwLock::new(None))
+}
+
+/// 缓存有效期，默认 300 秒。
+fn friends_cache_ttl() -> Duration {
+    let secs = std::env::var("QCE_FRIENDS_CACHE_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(300);
+    Duration::from_secs(secs)
+}
+
 /// `GET /api/friends` — 好友列表（分页）。
 pub async fn list_friends(
     State(state): State<SharedState>,
@@ -350,15 +405,67 @@ pub async fn list_friends(
     if let Some(err) = standalone_guard(&state) {
         return response::error(&err, &request_id);
     }
+    // 补丁 v4：可用 `QCE_FRIENDS_DISABLED=1` 强制返回空列表。
+    // 前端有多条独立的好友加载路径（Provider 的 loadFriends + 两个 useSearch 实例），
+    // 只改前端难保证覆盖全部；这里从数据源头掐断，一劳永逸。
+    // 设 `QCE_FRIENDS_DISABLED=0` / 不设 → 恢复原行为。
+    if std::env::var("QCE_FRIENDS_DISABLED")
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+    {
+        let empty: Vec<Value> = Vec::new();
+        let body = serde_json::json!({
+            "friends": empty,
+            "totalCount": 0,
+            "currentPage": 1,
+            "totalPages": 0,
+            "hasNext": false,
+            "hasPrev": false,
+        });
+        return response::success(body, &request_id);
+    }
     let (page, limit) = page_and_limit(&params);
     let force_refresh = params.get("forceRefresh").map(String::as_str) == Some("true");
 
-    let categories = match state.napcat.get_buddy_v2_ex_with_cate(force_refresh).await {
-        Ok(value) => value,
-        Err(error) => {
-            let err = ApiError::new(ErrorType::Api, error.to_string(), "GET_FRIENDS_FAILED");
-            return response::error(&err, &request_id);
-        }
+    // 先看缓存（只在到期或前端显式 forceRefresh 时回源）。
+    // 注意：读锁必须在进入 await 之前释放，所以这里用内层作用域收口。
+    let ttl = friends_cache_ttl();
+    let mut cached: Option<Value> = None;
+    if !force_refresh && !ttl.is_zero() {
+        let guard = friends_cache().read().await;
+        cached = guard
+            .as_ref()
+            .filter(|(at, _)| at.elapsed() < ttl)
+            .map(|(_, value)| value.clone());
+    }
+
+    let categories = match cached {
+        Some(value) => value,
+        None => match state
+            .napcat
+            .call_with_retry(
+                "FriendApi.getBuddyV2ExWithCate",
+                json!([force_refresh]),
+                bridge_ready_attempts(),
+                bridge_ready_interval_ms(),
+                bridge_call_retries(),
+            )
+            .await
+        {
+            Ok(value) => {
+                if !ttl.is_zero() {
+                    let mut guard = friends_cache().write().await;
+                    *guard = Some((Instant::now(), value.clone()));
+                }
+                value
+            }
+            Err(error) => {
+                return response::error(
+                    &bridge_error_to_api_error(error, "好友列表"),
+                    &request_id,
+                );
+            }
+        },
     };
 
     let empty: Vec<Value> = Vec::new();
@@ -428,11 +535,23 @@ pub async fn recent_contacts(
     let limit = recent_contact_limit(&params);
     let include_all = params.get("includeAll").map(String::as_str) == Some("true");
 
-    let snapshot = match state.napcat.get_recent_contact_list_snapshot(limit).await {
+    let snapshot = match state
+        .napcat
+        .call_with_retry(
+            "UserApi.getRecentContactListSnapShot",
+            json!([limit]),
+            bridge_ready_attempts(),
+            bridge_ready_interval_ms(),
+            bridge_call_retries(),
+        )
+        .await
+    {
         Ok(value) => value,
         Err(error) => {
-            let err = ApiError::new(ErrorType::Api, error.to_string(), "RECENT_CONTACTS_FAILED");
-            return response::error(&err, &request_id);
+            return response::error(
+                &bridge_error_to_api_error(error, "最近联系人"),
+                &request_id,
+            );
         }
     };
     if snapshot

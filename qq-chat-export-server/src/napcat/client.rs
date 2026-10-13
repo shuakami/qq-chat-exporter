@@ -18,6 +18,10 @@ pub enum BridgeError {
     /// 响应结构异常。
     #[error("bridge 响应结构异常: {0}")]
     InvalidResponse(String),
+    /// 补丁 v5：bridge 进程未就绪（QQ 正在启动 / 重启）。
+    /// 与 `Transport` 区分开，便于上层返回可操作的提示而非误导性文案。
+    #[error("bridge尚未就绪")]
+    NotReady,
 }
 
 /// NapCat bridge 客户端（可 `Clone`，内部连接池共享）。
@@ -78,6 +82,72 @@ impl NapCatBridgeClient {
         )
     }
 
+    /// 补丁 v5：等待 bridge 就绪（QQ 启动后 NapCat 需要一点时间才会监听 40654）。
+    ///
+    /// `qce-server.exe` 是 QQ 内插件 spawn 的子进程，QQ 一重启它就跟着死再被拉起，
+    /// 这个空窗期（实测可达数十秒）内前端任何实时接口都会撞上
+    /// `reqwest::Error` → `bridge 传输错误`。
+    ///
+    /// 这里在调用前先探活，最多重试 `attempts` 次、每次间隔 `interval`；
+    /// 全部失败才返回 `None`，由调用方给出 503 友好文案。
+    pub async fn wait_until_ready(&self, attempts: u32, interval_ms: u64) -> bool {
+        for attempt in 0..attempts.max(1) {
+            if self.healthy().await {
+                return true;
+            }
+            if attempt + 1 < attempts.max(1) {
+                tokio::time::sleep(Duration::from_millis(interval_ms)).await;
+            }
+        }
+        false
+    }
+
+    /// 带就绪等待与传输重试的 RPC 调用（补丁 v5）。
+    ///
+    /// 解决「打开面板时 `Promise.all([loadGroups, loadFriends])` 同时打两个请求，
+    /// 撞上 QQ 重启空窗期 → 双双 `bridge 传输错误`」的问题：
+    /// 1. 先 `wait_until_ready` 探活，避免在 bridge 还没起来时直接失败；
+    /// 2. 调用期间若遇 `Transport` 错误（连接被重置 / 断开），最多重试 `retries` 次；
+    /// 3. 重试期间若服务已被重启，`wait_until_ready` 会重新等待其就绪。
+    pub async fn call_with_retry(
+        &self,
+        method: &str,
+        params: Value,
+        ready_attempts: u32,
+        ready_interval_ms: u64,
+        retries: u32,
+    ) -> Result<Value, BridgeError> {
+        if !self
+            .wait_until_ready(ready_attempts, ready_interval_ms)
+            .await
+        {
+            return Err(BridgeError::NotReady);
+        }
+        let mut last: Option<BridgeError> = None;
+        for attempt in 0..=retries {
+            match self.call(method, params.clone()).await {
+                Ok(value) => return Ok(value),
+                Err(BridgeError::Transport(error)) => {
+                    tracing::warn!(
+                        "[QCE] bridge 传输失败（{method}，第 {}/{} 次）: {error}",
+                        attempt + 1,
+                        retries + 1
+                    );
+                    last = Some(BridgeError::Transport(error));
+                    if attempt < retries {
+                        // 重试前重新确认 bridge 是否还活着（QQ 可能正在重启）。
+                        if !self.wait_until_ready(2, ready_interval_ms).await {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(ready_interval_ms)).await;
+                    }
+                }
+                Err(other) => return Err(other),
+            }
+        }
+        Err(last.unwrap_or(BridgeError::NotReady))
+    }
+
     /// 当前登录账号信息（`core.selfInfo`）。
     pub async fn self_info(&self) -> Result<Value, BridgeError> {
         self.call("Core.selfInfo", json!([])).await
@@ -87,6 +157,24 @@ impl NapCatBridgeClient {
     pub async fn get_groups(&self, force_refresh: bool) -> Result<Value, BridgeError> {
         self.call("GroupApi.getGroups", json!([force_refresh]))
             .await
+    }
+
+    /// 补丁 v5：获取群列表（带就绪等待 + 传输重试）。
+    pub async fn get_groups_resilient(
+        &self,
+        force_refresh: bool,
+        ready_attempts: u32,
+        ready_interval_ms: u64,
+        retries: u32,
+    ) -> Result<Value, BridgeError> {
+        self.call_with_retry(
+            "GroupApi.getGroups",
+            json!([force_refresh]),
+            ready_attempts,
+            ready_interval_ms,
+            retries,
+        )
+        .await
     }
 
     /// 获取群详情。

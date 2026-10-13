@@ -173,6 +173,7 @@ fn is_retryable_roaming_error(error: &BridgeError) -> bool {
                     || error.is_body())
         }
         BridgeError::InvalidResponse(_) => false,
+        BridgeError::NotReady => true,
         BridgeError::Rpc(detail) => {
             let normalized = detail.trim().to_ascii_lowercase();
             if normalized.contains("method not found") || rpc_contains_qq_business_code(&normalized)

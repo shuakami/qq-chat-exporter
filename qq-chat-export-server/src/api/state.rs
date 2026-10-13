@@ -7,6 +7,7 @@ use serde_json::Value;
 use tokio::sync::{broadcast, Mutex, Semaphore};
 
 use crate::api::response::{ApiError, ErrorType};
+use crate::napcat::client::BridgeError;
 use crate::napcat::NapCatBridgeClient;
 use crate::paths::PathManager;
 use crate::progress::ProgressTracker;
@@ -75,7 +76,33 @@ impl RunMode {
     }
 }
 
-/// API 服务器共享状态。
+/// 补丁 v5：把 bridge 错误翻译成对用户可操作的 API 错误。
+///
+/// `NotReady`（探活始终失败）→ 503 + 明确说明「QQ 未就绪」，
+/// 而不是让用户看到「bridge 传输错误: error sending request」这种没法处理的文案。
+/// 与 `RunMode::standalone_mode_error`（独立模式）是两种不同场景，故分开。
+#[must_use]
+pub fn bridge_error_to_api_error(error: BridgeError, feature: &str) -> ApiError {
+    match error {
+        BridgeError::NotReady => ApiError::new(
+            ErrorType::Api,
+            format!(
+                "无法获取{feature}：NapCat 尚未就绪。QQ 正在启动或刚刚重启，请等待几秒后重试（QQ 完全退出时需重新登录并启动 QQ）"
+            ),
+            "BRIDGE_NOT_READY",
+        )
+        .with_status(StatusCode::SERVICE_UNAVAILABLE),
+        BridgeError::Transport(inner) => ApiError::new(
+            ErrorType::Api,
+            format!("无法获取{feature}：与 QQ 的连接中断（{inner}）。请确认 QQ 正在运行后重试"),
+            "BRIDGE_TRANSPORT_ERROR",
+        )
+        .with_status(StatusCode::SERVICE_UNAVAILABLE),
+        other => ApiError::new(ErrorType::Api, other.to_string(), "BRIDGE_CALL_FAILED"),
+    }
+}
+
+/// API服务器共享状态。
 pub struct AppState {
     /// NapCat bridge 客户端。
     pub napcat: NapCatBridgeClient,

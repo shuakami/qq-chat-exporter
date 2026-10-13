@@ -12,7 +12,16 @@ use serde_json::{json, Value};
 
 use crate::api::helpers::normalize_group_system_notify;
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
-use crate::api::state::SharedState;
+use crate::api::state::{bridge_error_to_api_error, SharedState};
+
+/// 补丁 v5：读取正整数环境变量（见 `api::state::bridge_error_to_api_error` 的说明）。
+fn env_u32(key: &str, default: u32) -> u32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(default)
+}
 
 /// 分页参数解析（page 默认 1、limit 默认 999）。
 fn page_and_limit(params: &HashMap<String, String>) -> (usize, usize) {
@@ -179,11 +188,22 @@ pub async fn list_groups(
     let force_refresh = params.get("forceRefresh").map(String::as_str) == Some("true");
     let (page, limit) = page_and_limit(&params);
 
-    let groups = match state.napcat.get_groups(force_refresh).await {
+    let groups = match state
+        .napcat
+        .get_groups_resilient(
+            force_refresh,
+            env_u32("QCE_BRIDGE_READY_ATTEMPTS", 20),
+            env_u32("QCE_BRIDGE_READY_INTERVAL_MS", 500) as u64,
+            env_u32("QCE_BRIDGE_CALL_RETRIES", 2),
+        )
+        .await
+    {
         Ok(value) => value,
         Err(error) => {
-            let err = ApiError::new(ErrorType::Api, error.to_string(), "GET_GROUPS_FAILED");
-            return response::error(&err, &request_id);
+            return response::error(
+                &bridge_error_to_api_error(error, "群组列表"),
+                &request_id,
+            );
         }
     };
     let empty: Vec<Value> = Vec::new();

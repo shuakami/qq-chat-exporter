@@ -11,6 +11,7 @@ use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 
 use crate::export_debug::ExportDebugTrace;
+use crate::qq_cache;
 use crate::resource::circuit_breaker::CircuitBreaker;
 use crate::resource::health::{ResourceHealthChecker, RESOURCE_HEALTH_CACHE_MS};
 use crate::storage::{DatabaseManager, ResourceInfo};
@@ -51,6 +52,11 @@ pub struct ResourceHandlerConfig {
     pub cache_cleanup_threshold_days: i64,
     /// 是否把 SILK 语音转码成浏览器原生支持的音频（issue #306）。
     pub transcode_silk_to_browser_audio: bool,
+    /// QQ 客户端本地 `nt_data` 缓存目录集合。
+    ///
+    /// 下载失败（NapCat bridge 返回空路径）时按 md5 在此回退查找已下载的
+    /// 原始文件。为空表示不做本地缓存回退。
+    pub qq_cache_roots: Vec<PathBuf>,
 }
 
 impl Default for ResourceHandlerConfig {
@@ -69,6 +75,7 @@ impl Default for ResourceHandlerConfig {
             enable_local_cache: true,
             cache_cleanup_threshold_days: 30,
             transcode_silk_to_browser_audio: true,
+            qq_cache_roots: Vec::new(),
         }
     }
 }
@@ -839,6 +846,11 @@ impl ResourceHandler {
         if file_matches_expected_size(&local_path, expected_size).await {
             return Ok(local_path);
         }
+        // QQ 本地缓存回退：优先复用 QQ 客户端已下载的原始媒体，避免
+        // NapCat bridge 返回空路径导致视频 / 语音 / 文件整批丢失。
+        if let Some(cached) = self.try_local_cache(task, &resource_type, &local_path).await {
+            return Ok(cached);
+        }
         if let Some(source_path) = element_source_path(&task.element) {
             if file_matches_expected_size(&source_path, expected_size).await {
                 if source_path == local_path {
@@ -914,6 +926,50 @@ impl ResourceHandler {
                 &format!("{resource_type}资源未下载到预期位置: {downloaded_path}"),
             )),
         }
+    }
+
+    /// 尝试从 QQ 客户端本地 `nt_data` 缓存找回资源文件。
+    ///
+    /// 命中时把缓存文件复制到 `local_path` 并返回导出路径；复制失败时返回
+    /// 缓存文件自身路径（导出侧允许引用原路径）。未命中返回 `None`。
+    async fn try_local_cache(
+        &self,
+        task: &DownloadTask,
+        resource_type: &str,
+        local_path: &str,
+    ) -> Option<String> {
+        if self.config.qq_cache_roots.is_empty() {
+            return None;
+        }
+        let (md5, file_name, expected_size) = {
+            let resource = task.resource.lock().await;
+            (
+                resource.md5.clone(),
+                resource.file_name.clone().unwrap_or_default(),
+                resource.file_size.unwrap_or(0),
+            )
+        };
+        if md5.is_empty() && file_name.is_empty() {
+            return None;
+        }
+        let roots = self.config.qq_cache_roots.clone();
+        let resource_type = resource_type.to_string();
+        let found = tokio::task::spawn_blocking(move || {
+            qq_cache::find_cached_media(&roots, &resource_type, &md5, &file_name, expected_size)
+        })
+        .await
+        .ok()
+        .flatten()?;
+
+        let source = found.to_string_lossy().to_string();
+        if source == local_path {
+            return Some(local_path.to_string());
+        }
+        if tokio::fs::copy(&found, Path::new(local_path)).await.is_ok() {
+            tracing::info!("[QCE] 本地缓存命中：{source} -> {local_path}");
+            return Some(local_path.to_string());
+        }
+        Some(source)
     }
 
     /// 执行定期健康检查。
