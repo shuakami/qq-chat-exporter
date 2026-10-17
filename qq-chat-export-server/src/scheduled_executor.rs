@@ -134,39 +134,52 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             ..MessageFilter::default()
         };
 
+        // 沿用普通导出的历史字段名：true 表示跳过下载，不过滤任何消息。
+        let skip_resource_downloads = options
+            .get("filterPureImageMessages")
+            .and_then(Value::as_bool)
+            == Some(true);
         // 阶段 2 准备：资源下载（issue #341 跳过类型）
         // 与交互式普通/漫游导出共享 ResourceHandler；其配置、回调与摘要必须在
         // 完整任务级资源阶段内保持一致。guard 在任何错误/提前返回时自动释放。
-        let resource_session_guard = self.resource_handler.acquire_export_session().await;
-        self.resource_handler.set_progress_callback(None).await;
-        let requested_skip_types: Vec<String> = options
-            .get("skipDownloadResourceTypes")
-            .and_then(Value::as_array)
-            .map_or_else(
-                || {
-                    if options.get("skipFileDownload").and_then(Value::as_bool) == Some(true) {
-                        vec!["file".to_string()]
-                    } else {
-                        Vec::new()
-                    }
-                },
-                |arr| {
-                    arr.iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_lowercase)
-                        .collect()
-                },
-            );
-        let normalized_skip_types: Vec<String> = requested_skip_types
-            .into_iter()
-            .filter(|t| matches!(t.as_str(), "image" | "video" | "audio" | "file"))
-            .collect();
-        if normalized_skip_types.is_empty() {
-            self.resource_handler.set_skip_download_types(None).await;
+        // 快速导出不访问共享资源状态，也无需等待其他任务的资源阶段。
+        let resource_session_guard = if skip_resource_downloads {
+            None
         } else {
-            self.resource_handler
-                .set_skip_download_types(Some(&normalized_skip_types))
-                .await;
+            Some(self.resource_handler.acquire_export_session().await)
+        };
+        // 仅持有会话锁的下载任务可以配置共享处理器。
+        if !skip_resource_downloads {
+            self.resource_handler.set_progress_callback(None).await;
+            let requested_skip_types: Vec<String> = options
+                .get("skipDownloadResourceTypes")
+                .and_then(Value::as_array)
+                .map_or_else(
+                    || {
+                        if options.get("skipFileDownload").and_then(Value::as_bool) == Some(true) {
+                            vec!["file".to_string()]
+                        } else {
+                            Vec::new()
+                        }
+                    },
+                    |arr| {
+                        arr.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_lowercase)
+                            .collect()
+                    },
+                );
+            let normalized_skip_types: Vec<String> = requested_skip_types
+                .into_iter()
+                .filter(|t| matches!(t.as_str(), "image" | "video" | "audio" | "file"))
+                .collect();
+            if normalized_skip_types.is_empty() {
+                self.resource_handler.set_skip_download_types(None).await;
+            } else {
+                self.resource_handler
+                    .set_skip_download_types(Some(&normalized_skip_types))
+                    .await;
+            }
         }
 
         let mut parser = SimpleMessageParser::new(SimpleParserOptions {
@@ -232,39 +245,49 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             message_count += parsed.len() as i64;
 
             chunk.extend(parser.take_forward_raw_messages());
-            let chunk_map = self
-                .resource_handler
-                .process_message_resources_with_cancel_and_trace(
-                    &chunk,
-                    Arc::new(AtomicBool::new(false)),
-                    debug_session.as_ref().map(ExportDebugSession::trace),
-                )
-                .await;
-            drop(chunk);
-            resource_summary_total.merge(&self.resource_handler.last_batch_summary().await);
-            // issue #277：把已下载资源的本地路径写回消息。
-            let value_resource_map = to_value_resource_map(&chunk_map);
-            for message in &mut parsed {
-                SimpleMessageParser::update_message_resource_paths_recursive(
-                    message,
-                    &value_resource_map,
-                );
-            }
-            for resource in chunk_map.values().flatten() {
-                if let Some(local_path) = resource.local_path.as_deref() {
-                    downloaded_resources.insert(&resource.resource_type, local_path);
+            // 在资源入口跳过整个阶段，避免下载、缓存写入与本地路径回填。
+            if !skip_resource_downloads {
+                let chunk_map = self
+                    .resource_handler
+                    .process_message_resources_with_cancel_and_trace(
+                        &chunk,
+                        Arc::new(AtomicBool::new(false)),
+                        debug_session.as_ref().map(ExportDebugSession::trace),
+                    )
+                    .await;
+                resource_summary_total.merge(&self.resource_handler.last_batch_summary().await);
+                // issue #277：把已下载资源的本地路径写回消息。
+                let value_resource_map = to_value_resource_map(&chunk_map);
+                for message in &mut parsed {
+                    SimpleMessageParser::update_message_resource_paths_recursive(
+                        message,
+                        &value_resource_map,
+                    );
+                }
+                for resource in chunk_map.values().flatten() {
+                    if let Some(local_path) = resource.local_path.as_deref() {
+                        downloaded_resources.insert(&resource.resource_type, local_path);
+                    }
                 }
             }
+            drop(chunk);
 
             parsed.sort_by_key(|message| message.timestamp);
             clean_spool.append_sorted_segment(&parsed).await?;
         }
         drop(seen_message_ids);
         // issue #363：资源下载摘要。
-        let resource_summary = serde_json::to_value(&resource_summary_total).ok();
-        // 重置共享 ResourceHandler 的状态，避免影响后续任务。
-        self.resource_handler.set_progress_callback(None).await;
-        self.resource_handler.set_skip_download_types(None).await;
+        // 与普通导出一致，未执行资源阶段时不报告下载摘要。
+        let resource_summary = if skip_resource_downloads {
+            None
+        } else {
+            serde_json::to_value(&resource_summary_total).ok()
+        };
+        // 仅下载任务在释放会话锁前重置状态，快速导出不能清除其他任务的配置。
+        if !skip_resource_downloads {
+            self.resource_handler.set_progress_callback(None).await;
+            self.resource_handler.set_skip_download_types(None).await;
+        }
         drop(resource_session_guard);
 
         if message_count == 0 {
@@ -382,10 +405,8 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
             output_path: file_path.clone(),
             include_resource_links,
             include_system_messages,
-            filter_pure_image_messages: options
-                .get("filterPureImageMessages")
-                .and_then(Value::as_bool)
-                == Some(true),
+            // 保留已有导出配置字段，确保任务存储与格式选项兼容。
+            filter_pure_image_messages: skip_resource_downloads,
             pretty_format: options
                 .get("prettyFormat")
                 .and_then(Value::as_bool)
@@ -592,6 +613,10 @@ fn resolve_scheduled_output_dir(
     resolve_for_creation_within(&requested, &roots)
         .ok_or_else(|| "定时导出目录不在允许的导出目录内".to_string())
 }
+
+#[cfg(test)]
+#[path = "scheduled_executor/tests.rs"]
+mod resource_tests;
 
 #[cfg(test)]
 mod tests {
