@@ -23,6 +23,7 @@ use qce_server::api::ws;
 use qce_server::napcat::NapCatBridgeClient;
 use qce_server::paths::PathManager;
 use qce_server::progress::ProgressTracker;
+use qce_server::qq_cache;
 use qce_server::resource::{NativeSilkTranscoder, ResourceHandler, ResourceHandlerConfig};
 use qce_server::scheduler::ScheduledExportManager;
 use qce_server::security::SecurityManager;
@@ -92,6 +93,9 @@ async fn run() -> Result<(), String> {
         tracing::warn!("[QCE] Failed to migrate legacy export directories: {error}");
     }
 
+    // QQ 本地缓存目录（用户配置优先 + 自动探测），资源下载失败时回退使用
+    let qq_cache_roots = resolve_qq_cache_roots(&path_manager).await;
+
     // 数据库
     // JSONL 文件存放在 `~/.qq-chat-exporter/`，与 `database.db` 共用父目录。
     let db_path = path_manager.default_base_dir().join("database.db");
@@ -103,8 +107,16 @@ async fn run() -> Result<(), String> {
         .await
         .map_err(|e| format!("数据库初始化失败: {e}"))?;
 
-    // NapCat bridge 客户端
-    let napcat = NapCatBridgeClient::new(&bridge_endpoint, 120_000)
+    // NapCat bridge 客户端。
+    // 超时默认 120 秒；QQ 繁忙时（例如刚清空聊天记录、正在重建本地数据库）
+    // 单个调用可能吃满这个上限，导致前端长时间转圈。可用 QCE_BRIDGE_TIMEOUT_MS
+    // 调小以便快速失败重试。
+    let bridge_timeout_ms = std::env::var("QCE_BRIDGE_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(120_000);
+    let napcat = NapCatBridgeClient::new(&bridge_endpoint, bridge_timeout_ms)
         .map_err(|e| format!("创建 bridge 客户端失败: {e}"))?;
     if run_mode == RunMode::Standalone {
         tracing::info!("[QCE] Standalone mode: no NapCat bridge, live-data APIs will return STANDALONE_MODE (issue #668)");
@@ -120,6 +132,7 @@ async fn run() -> Result<(), String> {
             Arc::clone(&db),
             ResourceHandlerConfig {
                 storage_root: path_manager.resources_dir(),
+                qq_cache_roots,
                 ..ResourceHandlerConfig::default()
             },
         )
@@ -563,6 +576,108 @@ async fn load_custom_dirs(path_manager: &PathManager) {
             }
         }
     }
+}
+
+/// 解析 QQ 本地缓存 `nt_data` 目录集合：**用户配置优先，自动探测兜底**。
+///
+/// 语义（补丁 v3）：
+/// - 配置里 `qqDataRoots` / `qqDataRoot` **有**有效条目 → **只用它**，不再全盘探测
+/// - 配置**缺失 /为空 / 全部路径不存在或非法** → 才回退到全盘自动探测
+///
+/// 之所以要这个开关：并集语义下用户无法表达"我只想用这几个目录"——
+/// 全盘探测总会把其它 `Tencent Files` 里的历史缓存也捞进来，
+/// 既拖慢启动（每个资源都要多扫几个根），又让"用户配置"失去意义。
+/// 需要显式关闭自动探测时把 `QCE_QQ_AUTO_DETECT=0` 即可。
+async fn resolve_qq_cache_roots(path_manager: &PathManager) -> Vec<PathBuf> {
+    let configured_roots = load_configured_qq_roots(path_manager).await;
+    let configured = configured_roots.len();
+
+    // 配置已给出有效目录 → 按配置执行（除非显式要求仍要合并探测结果）。
+    let merge_detected = match std::env::var("QCE_QQ_AUTO_DETECT") {
+        Ok(raw) => !matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "no" | "off"
+        ),
+        Err(_) => false,
+    };
+
+    if configured > 0 && !merge_detected {
+        tracing::info!(
+            "[QCE] QQ 本地缓存目录 {configured} 个（全部来自用户配置，已跳过自动探测）: {configured_roots:?}"
+        );
+        return configured_roots;
+    }
+
+    let mut roots = configured_roots;
+    let detected = tokio::task::spawn_blocking(qq_cache::detect_nt_data_dirs)
+        .await
+        .unwrap_or_default();
+    for dir in detected {
+        if !roots.contains(&dir) {
+            roots.push(dir);
+        }
+    }
+    if roots.is_empty() {
+        tracing::warn!("[QCE] 未探测到 QQ 本地缓存目录，视频/语音/文件将仅依赖 NapCat 下载");
+    } else if configured == 0 {
+        tracing::info!(
+            "[QCE] QQ 本地缓存目录 {} 个（用户未配置，全部来自自动探测）: {roots:?}",
+            roots.len()
+        );
+    } else {
+        tracing::info!(
+            "[QCE] QQ 本地缓存目录 {} 个（用户配置 {configured} 个 + 自动探测合并）: {roots:?}",
+            roots.len()
+        );
+    }
+    roots
+}
+
+/// 从 `user-config.json` 的 `qqDataRoots` / `qqDataRoot` 读取用户指定的 QQ 数据路径。
+///
+/// 用户可填 `Tencent Files` 容器目录、某账号目录，或直接的 `nt_data` 目录，
+/// 均会被展开为其下的全部 `nt_data` 目录。未配置时返回空集合。
+async fn load_configured_qq_roots(path_manager: &PathManager) -> Vec<PathBuf> {
+    let config_path = path_manager.default_base_dir().join("user-config.json");
+    let Ok(raw) = tokio::fs::read_to_string(&config_path).await else {
+        return Vec::new();
+    };
+    let Ok(config) = serde_json::from_str::<Value>(&raw) else {
+        return Vec::new();
+    };
+
+    let mut candidates: Vec<String> = Vec::new();
+    if let Some(value) = config.get("qqDataRoots") {
+        match value {
+            Value::String(single) => candidates.push(single.clone()),
+            Value::Array(items) => {
+                for item in items {
+                    if let Some(text) = item.as_str() {
+                        candidates.push(text.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(single) = config.get("qqDataRoot").and_then(Value::as_str) {
+        candidates.push(single.to_string());
+    }
+
+    let mut user_paths: Vec<PathBuf> = Vec::new();
+    for raw_path in candidates {
+        let cleaned = PathManager::sanitize_path(&raw_path);
+        if cleaned.is_empty() {
+            continue;
+        }
+        let path = PathBuf::from(&cleaned);
+        if path.is_dir() {
+            user_paths.push(path);
+        } else {
+            tracing::warn!("[QCE] 用户配置的 QQ 数据路径不存在: {cleaned}");
+        }
+    }
+    qq_cache::expand_to_nt_data_dirs(&user_paths)
 }
 
 /// issue #144：把重启后仍是 `queued` / `pending` / `running` 的孤儿任务拍成 `failed`，

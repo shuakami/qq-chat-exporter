@@ -286,6 +286,7 @@ pub async fn get_config(
         json!({
             "customOutputDir": config.get("customOutputDir").cloned().unwrap_or(Value::Null),
             "customScheduledExportDir": config.get("customScheduledExportDir").cloned().unwrap_or(Value::Null),
+            "qqDataRoots": config.get("qqDataRoots").cloned().unwrap_or_else(|| json!([])),
             "currentExportsDir": state.path_manager.exports_dir(),
             "currentScheduledExportsDir": state.path_manager.scheduled_exports_dir(),
             "autoOpenBrowser": read_auto_open_browser(&config),
@@ -300,6 +301,36 @@ fn read_auto_open_browser(config: &Value) -> bool {
         .get("autoOpenBrowser")
         .and_then(Value::as_bool)
         .unwrap_or(false)
+}
+
+/// 解析 `qqDataRoots`（字符串或字符串数组）为清理后的路径列表。
+///
+/// 返回 `None` 表示请求未携带该字段（保持不变）；`Some(空列表)` 表示清空。
+fn parse_qq_data_roots(body: &Value) -> Result<Option<Vec<String>>, ApiError> {
+    match body.get("qqDataRoots") {
+        None => Ok(None),
+        Some(Value::Null) => Ok(Some(Vec::new())),
+        Some(Value::String(single)) => Ok(Some(vec![PathManager::sanitize_path(single)])),
+        Some(Value::Array(items)) => {
+            let mut list = Vec::with_capacity(items.len());
+            for item in items {
+                match item.as_str() {
+                    Some(text) => list.push(PathManager::sanitize_path(text)),
+                    None => {
+                        return Err(ApiError::validation(
+                            "qqDataRoots 必须是字符串或字符串数组",
+                            "INVALID_QQ_DATA_ROOTS",
+                        ));
+                    }
+                }
+            }
+            Ok(Some(list))
+        }
+        Some(_) => Err(ApiError::validation(
+            "qqDataRoots 必须是字符串或字符串数组",
+            "INVALID_QQ_DATA_ROOTS",
+        )),
+    }
 }
 
 /// `PUT /api/config` — 更新用户配置。
@@ -330,6 +361,10 @@ pub async fn put_config(
             );
             return response::error(&err, &request_id);
         }
+    };
+    let qq_data_roots = match parse_qq_data_roots(&body) {
+        Ok(value) => value,
+        Err(err) => return response::error(&err, &request_id),
     };
     let config_path = state
         .path_manager
@@ -377,6 +412,17 @@ pub async fn put_config(
 
     if let Some(value) = auto_open_browser {
         config_obj.insert("autoOpenBrowser".to_string(), Value::Bool(value));
+    }
+
+    if let Some(list) = &qq_data_roots {
+        let cleaned: Vec<Value> = list
+            .iter()
+            .filter(|path| !path.is_empty())
+            .map(|path| Value::String(path.clone()))
+            .collect();
+        config_obj.insert("qqDataRoots".to_string(), Value::Array(cleaned));
+        // 旧版单值字段已被数组取代，避免歧义
+        config_obj.remove("qqDataRoot");
     }
 
     let Ok(serialized) = serde_json::to_string_pretty(&config) else {
@@ -433,11 +479,17 @@ pub async fn put_config(
         return response::error(&err, &request_id);
     }
 
+    let message = if qq_data_roots.is_some() {
+        "配置更新成功，QQ 数据路径变更将在重启服务后生效"
+    } else {
+        "配置更新成功"
+    };
     response::success(
         json!({
-            "message": "配置更新成功",
+            "message": message,
             "customOutputDir": config.get("customOutputDir").cloned().unwrap_or(Value::Null),
             "customScheduledExportDir": config.get("customScheduledExportDir").cloned().unwrap_or(Value::Null),
+            "qqDataRoots": config.get("qqDataRoots").cloned().unwrap_or_else(|| json!([])),
             "currentExportsDir": state.path_manager.exports_dir(),
             "currentScheduledExportsDir": state.path_manager.scheduled_exports_dir(),
             "autoOpenBrowser": read_auto_open_browser(&config),

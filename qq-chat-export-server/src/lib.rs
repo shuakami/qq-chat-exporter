@@ -7,6 +7,7 @@ pub mod napcat;
 pub mod parser;
 pub mod paths;
 pub mod progress;
+pub mod qq_cache;
 pub mod resource;
 pub mod scheduler;
 pub mod security;
