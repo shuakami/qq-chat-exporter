@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 
 use crate::storage::DatabaseManager;
 
-use super::cron::should_execute;
+use super::cron::{next_run_after, should_execute};
 
 /// 执行历史保留上限。
 const HISTORY_LIMIT: usize = 100;
@@ -418,33 +418,36 @@ impl ScheduledExportManager {
                 if let Some(note) = outcome.note {
                     history.insert("error".to_string(), json!(note));
                 }
-
-                // 更新任务的上次 / 下次执行时间。
-                let updated_task = {
-                    let mut tasks = self.tasks.lock().await;
-                    tasks.get_mut(&task_id).map(|stored| {
-                        if let Value::Object(map) = stored {
-                            map.insert("lastRun".to_string(), json!(now_iso()));
-                            let next_run = calculate_next_run(
-                                map.get("scheduleType")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("daily"),
-                                map.get("cronExpression").and_then(Value::as_str),
-                                map.get("executeTime").and_then(Value::as_str),
-                            );
-                            map.insert("nextRun".to_string(), json!(next_run));
-                        }
-                        stored.clone()
-                    })
-                };
-                if let Some(updated) = updated_task {
-                    self.save_task(&updated).await;
-                }
             }
             Err(error) => {
                 history.insert("status".to_string(), json!("failed"));
                 history.insert("error".to_string(), json!(error));
             }
+        }
+
+        // 所有执行结果都刷新下次执行时间，避免失败后留下过期的 nextRun。
+        let updated_task = {
+            let mut tasks = self.tasks.lock().await;
+            tasks.get_mut(&task_id).map(|stored| {
+                if let Value::Object(map) = stored {
+                    // 保留 lastRun 仅记录成功或部分成功执行的现有语义。
+                    if history.get("status").and_then(Value::as_str) != Some("failed") {
+                        map.insert("lastRun".to_string(), json!(now_iso()));
+                    }
+                    let next_run = calculate_next_run(
+                        map.get("scheduleType")
+                            .and_then(Value::as_str)
+                            .unwrap_or("daily"),
+                        map.get("cronExpression").and_then(Value::as_str),
+                        map.get("executeTime").and_then(Value::as_str),
+                    );
+                    map.insert("nextRun".to_string(), json!(next_run));
+                }
+                stored.clone()
+            })
+        };
+        if let Some(updated) = updated_task {
+            self.save_task(&updated).await;
         }
 
         history.insert("duration".to_string(), json!(now_millis() - start_millis));
@@ -483,11 +486,12 @@ fn build_cron_expression(task: &Value) -> String {
         .and_then(Value::as_str)
         .unwrap_or("daily");
     if schedule_type == "custom" {
-        if let Some(expr) = task.get("cronExpression").and_then(Value::as_str) {
-            if !expr.is_empty() {
-                return expr.to_string();
-            }
-        }
+        // 自定义表达式缺失时不得偷偷改为每日任务，保持与 nextRun 的错误语义一致。
+        return task
+            .get("cronExpression")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
     }
     let (hour, minute) = parse_execute_time(task.get("executeTime").and_then(Value::as_str));
     match schedule_type {
@@ -514,16 +518,32 @@ fn parse_execute_time(execute_time: Option<&str>) -> (u32, u32) {
     (hour, minute)
 }
 
-/// 计算下次执行时间，返回 ISO 字符串。
+/// 计算下次执行时间；无法计算的自定义 Cron 返回空值并记录原因。
 fn calculate_next_run(
     schedule_type: &str,
     cron_expression: Option<&str>,
     execute_time: Option<&str>,
-) -> String {
-    let now = Local::now();
-    if schedule_type == "custom" && cron_expression.is_some() {
-        // TS 简单实现：自定义 cron 直接返回 24 小时后。
-        return to_iso(now + chrono::Duration::days(1));
+) -> Option<String> {
+    calculate_next_run_at(schedule_type, cron_expression, execute_time, Local::now())
+}
+
+/// 注入当前时间，便于稳定复现调度时间计算。
+fn calculate_next_run_at(
+    schedule_type: &str,
+    cron_expression: Option<&str>,
+    execute_time: Option<&str>,
+    now: chrono::DateTime<Local>,
+) -> Option<String> {
+    if schedule_type == "custom" {
+        // 使用实际调度器的解析和匹配规则，按本地时区寻找严格晚于当前时间的执行点。
+        return match next_run_after(cron_expression.unwrap_or_default(), &now) {
+            Ok(next) => Some(to_iso(next)),
+            Err(error) => {
+                // nextRun 序列化为 null，显式暴露无解状态，避免展示虚假的执行时间。
+                tracing::warn!("Cannot calculate next run for custom Cron: {error}");
+                None
+            }
+        };
     }
     let (hour, minute) = parse_execute_time(execute_time);
     let today = now.date_naive();
@@ -543,7 +563,7 @@ fn calculate_next_run(
             _ => next + chrono::Duration::days(1),
         };
     }
-    to_iso(next)
+    Some(to_iso(next))
 }
 
 /// 加一个月（JS `setMonth(+1)` 语义：日期溢出时顺延）。
@@ -669,6 +689,28 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    #[test]
+    fn custom_cron_next_run_before_first_execution() {
+        // 固定本地日期和时刻，验证用户报告的当天 10:00 场景。
+        let now = Local.with_ymd_and_hms(2026, 10, 17, 8, 6, 0).unwrap();
+        let expected = Local.with_ymd_and_hms(2026, 10, 17, 10, 0, 0).unwrap();
+        assert_eq!(
+            calculate_next_run_at("custom", Some("0 10,22 * * *"), None, now),
+            Some(to_iso(expected))
+        );
+    }
+
+    #[test]
+    fn invalid_custom_cron_does_not_fall_back_to_daily() {
+        let now = Local.with_ymd_and_hms(2026, 10, 17, 8, 6, 0).unwrap();
+        for expression in [None, Some(""), Some("60 * * * *"), Some("0 0 31 2 *")] {
+            // 无效配置不显示虚假时间，也不能被实际调度器当成每日任务执行。
+            assert_eq!(calculate_next_run_at("custom", expression, None, now), None);
+            let task = json!({ "scheduleType": "custom", "cronExpression": expression });
+            assert!(!should_execute(&build_cron_expression(&task), &now));
+        }
+    }
+
     struct TestDir(PathBuf);
 
     impl TestDir {
@@ -774,6 +816,93 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         executor.executed.lock().await.clone()
+    }
+
+    /// 用调用前后的时间夹住返回值，生命周期测试即使跨过分钟边界也可稳定验证。
+    fn assert_custom_next_run(task: &Value, before: chrono::DateTime<Local>) {
+        let expression = task["cronExpression"].as_str().unwrap();
+        let raw = task["nextRun"].as_str().expect("valid Cron nextRun");
+        let next = chrono::DateTime::parse_from_rfc3339(raw)
+            .unwrap()
+            .with_timezone(&Local);
+        assert!(raw.ends_with(".000Z"), "nextRun 保持 UTC 毫秒 ISO 格式");
+        assert!(next > before);
+        assert!(should_execute(expression, &next));
+        assert!(next <= next_run_after(expression, &Local::now()).unwrap());
+    }
+
+    #[tokio::test]
+    async fn custom_next_run_is_refreshed_through_task_lifecycle() {
+        let (_temp, manager, _executor) = manager(None).await;
+        let before = Local::now();
+        let created = manager
+            .create_scheduled_export(json!({
+                "scheduleType": "custom", "cronExpression": "0 10,22 * * *", "enabled": false
+            }))
+            .await;
+        assert_custom_next_run(&created, before);
+        let id = created["id"].as_str().unwrap();
+
+        let before = Local::now();
+        let edited = manager
+            .update_scheduled_export(
+                id,
+                json!({
+                    "cronExpression": "*/15 4,16 * * *"
+                }),
+            )
+            .await
+            .unwrap();
+        assert_custom_next_run(&edited, before);
+
+        // 人为放入过期值，证明启用和执行完成确实会刷新，而不是沿用创建时的结果。
+        manager.tasks.lock().await.get_mut(id).unwrap()["nextRun"] = json!("stale");
+        let before = Local::now();
+        let enabled = manager
+            .set_scheduled_exports_enabled(&[id.to_owned()], true)
+            .await;
+        assert_custom_next_run(&enabled[0], before);
+        assert!(manager.cron_jobs.lock().await.contains_key(id));
+
+        manager.tasks.lock().await.get_mut(id).unwrap()["nextRun"] = json!("stale");
+        let before = Local::now();
+        let outcome = manager.trigger_scheduled_export(id).await.unwrap();
+        assert_eq!(outcome["status"], "success");
+        let completed = manager.scheduled_export(id).await.unwrap();
+        assert_custom_next_run(&completed, before);
+        assert_eq!(
+            manager.db.get_scheduled_export(id).await.unwrap()["nextRun"],
+            completed["nextRun"]
+        );
+        manager.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn failed_execution_also_refreshes_custom_next_run() {
+        let (_temp, manager, _executor) = manager(Some("a")).await;
+        install_tasks(&manager).await;
+        manager
+            .update_scheduled_export(
+                "a",
+                json!({
+                    "scheduleType": "custom", "cronExpression": "0 10,22 * * *", "enabled": false
+                }),
+            )
+            .await
+            .unwrap();
+        manager.tasks.lock().await.get_mut("a").unwrap()["nextRun"] = json!("stale");
+        let before = Local::now();
+        let outcome = manager.trigger_scheduled_export("a").await.unwrap();
+        assert_eq!(outcome["status"], "failed");
+        assert_eq!(outcome["error"], "boom");
+        let completed = manager.scheduled_export("a").await.unwrap();
+        assert_custom_next_run(&completed, before);
+        assert!(completed.get("lastRun").is_none());
+        assert_eq!(
+            manager.db.get_scheduled_export("a").await.unwrap()["nextRun"],
+            completed["nextRun"]
+        );
+        manager.shutdown().await;
     }
 
     #[tokio::test]
