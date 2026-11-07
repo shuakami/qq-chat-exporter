@@ -69,6 +69,37 @@ fn sanitize(name: &str, max_length: usize) -> String {
     sanitize_task_name(name, max_length)
 }
 
+/// 导出根目录下预留、不允许被下载文件占用的文件名。
+/// `metadata.json` 在全部下载完成后才写入，若同名群文件先落盘会被覆盖。
+const ROOT_RESERVED_FILES: &[&str] = &["metadata.json"];
+
+/// 为消毒后的名称在目录内分配不冲突的文件名（issue #721 复审）。
+///
+/// `sanitize_task_name` 的空白折叠、首尾修剪与长度截断会让不同源名称落到同一
+/// 目标（例如 `a b.txt` / `a  b.txt`、`.env` / `env`、超长同前缀名）。
+/// `http_download_to_file` 以 rename 落盘会静默覆盖先到者，因此这里在分配时
+/// 检查目标是否已存在（本导出内先前成功的文件/文件夹）或命中 `reserved`
+/// 预留名，冲突时在扩展名前追加 `_N`（从 `_2` 起）。
+fn unique_export_file_name(dir: &FsPath, name: &str, reserved: &[&str]) -> String {
+    let taken = |candidate: &str| {
+        dir.join(candidate).exists() || reserved.contains(&candidate)
+    };
+    if !taken(name) {
+        return name.to_string();
+    }
+    let (stem, extension) = match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => (stem.to_string(), format!(".{extension}")),
+        _ => (name.to_string(), String::new()),
+    };
+    for suffix in 2u32..1000 {
+        let candidate = format!("{stem}_{suffix}{extension}");
+        if !taken(&candidate) {
+            return candidate;
+        }
+    }
+    format!("{stem}_{}", uuid::Uuid::new_v4().simple())
+}
+
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
@@ -524,7 +555,17 @@ pub async fn export_group_files_with_download(
             .get(&parent)
             .cloned()
             .unwrap_or_else(|| export_dir.clone());
-        let folder_path = parent_path.join(sanitize(&str_of(folder, "folderName"), 60));
+        // 消毒后可能与同目录其它文件夹重名：追加 `_N` 避免两组文件混进同一目录。
+        let folder_name = unique_export_file_name(
+            &parent_path,
+            &sanitize(&str_of(folder, "folderName"), 60),
+            if parent_path == export_dir {
+                ROOT_RESERVED_FILES
+            } else {
+                &[]
+            },
+        );
+        let folder_path = parent_path.join(&folder_name);
         let _ = tokio::fs::create_dir_all(&folder_path).await;
         folder_paths.insert(str_of(folder, "folderId"), folder_path);
     }
@@ -537,7 +578,17 @@ pub async fn export_group_files_with_download(
             .get(&parent)
             .cloned()
             .unwrap_or_else(|| export_dir.clone());
-        let file_path = parent_path.join(sanitize(&str_of(file, "fileName"), 120));
+        // 消毒后重名会静默覆盖先到的文件（rename 语义），必须分配唯一名字。
+        let file_name = unique_export_file_name(
+            &parent_path,
+            &sanitize(&str_of(file, "fileName"), 120),
+            if parent_path == export_dir {
+                ROOT_RESERVED_FILES
+            } else {
+                &[]
+            },
+        );
+        let file_path = parent_path.join(&file_name);
 
         state.broadcast_ws(&json!({
             "type": "group_files_export_progress",
@@ -610,8 +661,9 @@ pub async fn export_group_files_with_download(
 
 #[cfg(test)]
 mod tests {
-    use super::{group_file_list_params, sanitize};
+    use super::{group_file_list_params, sanitize, unique_export_file_name};
     use serde_json::Value;
+    use std::path::PathBuf;
 
     /// issue #721：群文件 / 文件夹名进入路径前必须走完整消毒
     /// （`..` 穿越、控制字符、保留名、emoji）。
@@ -647,5 +699,43 @@ mod tests {
             object.get("folderId").and_then(Value::as_str),
             Some("folder-42")
         );
+    }
+
+    /// issue #721 复审：消毒会把不同源名折叠成同一目标（空白、首尾修剪、
+    /// 长度截断），分配导出文件名时必须避让已存在文件与预留名，
+    /// 否则 `http_download_to_file` 的 rename 会静默覆盖先到的文件。
+    #[test]
+    fn unique_export_file_name_avoids_collisions_and_reserved_names() {
+        let dir = std::env::temp_dir().join(format!(
+            "qce-files-unique-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir should be created");
+        let cleanup = |dir: &PathBuf| {
+            let _ = std::fs::remove_dir_all(dir);
+        };
+
+        // 无冲突时原样返回。
+        assert_eq!(unique_export_file_name(&dir, "报告.docx", &[]), "报告.docx");
+
+        // 已存在的文件触发 `_2` 后缀，扩展名保留在最后。
+        // （入参是 sanitize 之后的名字：`a b.txt` / `a  b.txt` 都会先折叠成 `a_b.txt`。）
+        std::fs::write(dir.join("a_b.txt"), b"x").expect("seed file");
+        assert_eq!(unique_export_file_name(&dir, "a_b.txt", &[]), "a_b_2.txt");
+        // `_2` 也被占用时继续递增。
+        std::fs::write(dir.join("a_b_2.txt"), b"x").expect("seed file");
+        assert_eq!(unique_export_file_name(&dir, "a_b.txt", &[]), "a_b_3.txt");
+
+        // 预留名（导出结束后才写入的 metadata.json）同样避让。
+        assert_eq!(
+            unique_export_file_name(&dir, "metadata.json", &["metadata.json"]),
+            "metadata_2.json"
+        );
+        // 无扩展名的冲突名在末尾追加序号。
+        std::fs::write(dir.join("README"), b"x").expect("seed file");
+        assert_eq!(unique_export_file_name(&dir, "README", &[]), "README_2");
+
+        cleanup(&dir);
     }
 }
