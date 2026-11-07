@@ -82,7 +82,9 @@ const ROOT_RESERVED_FILES: &[&str] = &["metadata.json"];
 /// 预留名，冲突时在扩展名前追加 `_N`（从 `_2` 起）。
 fn unique_export_file_name(dir: &FsPath, name: &str, reserved: &[&str]) -> String {
     let taken = |candidate: &str| {
-        dir.join(candidate).exists() || reserved.contains(&candidate)
+        dir.join(candidate).exists()
+            // Windows 文件系统大小写不敏感，预留名比较同样忽略 ASCII 大小写。
+            || reserved.iter().any(|r| r.eq_ignore_ascii_case(candidate))
     };
     if !taken(name) {
         return name.to_string();
@@ -97,7 +99,7 @@ fn unique_export_file_name(dir: &FsPath, name: &str, reserved: &[&str]) -> Strin
             return candidate;
         }
     }
-    format!("{stem}_{}", uuid::Uuid::new_v4().simple())
+    format!("{stem}_{}{}", uuid::Uuid::new_v4().simple(), extension)
 }
 
 fn now_iso() -> String {

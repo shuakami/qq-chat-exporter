@@ -1064,12 +1064,17 @@ fn str_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
 }
 
 /// 解析导出选项中的下载大小上限（issue #663）。
-/// `maxFileDownloadSizeBytes` / `maxVideoDownloadSizeBytes` 为 JSON 数字（字节）；
+/// `maxFileDownloadSizeBytes` / `maxVideoDownloadSizeBytes` 为 JSON 数字（字节），
+/// 兼容数字字符串（与 `loose_i64` 惯例一致）；
 /// 缺省、null、0、负数或无法解析的值一律视为不限制（返回 0）。
 pub fn download_size_limit_bytes(options: &Value, key: &str) -> u64 {
     options
         .get(key)
-        .and_then(Value::as_f64)
+        .and_then(|value| {
+            value
+                .as_f64()
+                .or_else(|| value.as_str().and_then(|s| s.trim().parse::<f64>().ok()))
+        })
         .filter(|value| value.is_finite() && *value > 0.0)
         .map_or(0, |value| value as u64)
 }
@@ -1887,9 +1892,11 @@ mod tests {
         assert_eq!(download_size_limit_bytes(&json!({ key: null }), key), 0);
         assert_eq!(download_size_limit_bytes(&json!({ key: 0 }), key), 0);
         assert_eq!(download_size_limit_bytes(&json!({ key: -10 }), key), 0);
+        assert_eq!(download_size_limit_bytes(&json!({ key: "abc" }), key), 0);
+        // 数字字符串按 loose_i64 惯例同样生效。
         assert_eq!(
             download_size_limit_bytes(&json!({ key: "1048576" }), key),
-            0
+            1_048_576
         );
         // 正数 → 字节上限；浮点数字同样按字节处理。
         assert_eq!(
