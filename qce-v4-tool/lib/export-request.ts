@@ -72,6 +72,13 @@ export function buildExportRequest(form: CreateTaskForm): BuiltExportRequest {
       ...(Array.isArray(form.skipDownloadResourceTypes) && form.skipDownloadResourceTypes.length > 0 && {
         skipDownloadResourceTypes: form.skipDownloadResourceTypes,
       }),
+      // Issue #663：资源下载大小上限（字节）。0 / 缺省 = 不限制，不下发字段。
+      ...(typeof form.maxFileDownloadSizeBytes === "number" && form.maxFileDownloadSizeBytes > 0 && {
+        maxFileDownloadSizeBytes: Math.floor(form.maxFileDownloadSizeBytes),
+      }),
+      ...(typeof form.maxVideoDownloadSizeBytes === "number" && form.maxVideoDownloadSizeBytes > 0 && {
+        maxVideoDownloadSizeBytes: Math.floor(form.maxVideoDownloadSizeBytes),
+      }),
     },
     ...(isRoamingExport && {
       roaming: {

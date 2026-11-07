@@ -281,6 +281,15 @@ export interface CreateTaskForm {
    * 'image' | 'video' | 'audio' | 'file'
    */
   skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
+  /**
+   * Issue #663：文件类资源下载大小上限（字节）。超过该大小的文件不下载，
+   * 仅保留文件名、大小、MD5 等元信息；未设置或为 0 表示不限制。
+   */
+  maxFileDownloadSizeBytes?: number
+  /**
+   * Issue #663：视频资源下载大小上限（字节）。语义同 maxFileDownloadSizeBytes。
+   */
+  maxVideoDownloadSizeBytes?: number
 }
 
 export interface CreateTaskRequest {
@@ -322,6 +331,10 @@ export interface CreateTaskRequest {
     debugExport?: boolean
     /** 仅保留元数据、跳过下载的资源类型（Issue #341） */
     skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
+    /** Issue #663：文件类资源下载大小上限（字节），0 / 缺省为不限制 */
+    maxFileDownloadSizeBytes?: number
+    /** Issue #663：视频资源下载大小上限（字节），0 / 缺省为不限制 */
+    maxVideoDownloadSizeBytes?: number
   }
   /** 仅 `/api/messages/roaming/export` 使用的有界扫描配置。 */
   roaming?: {
@@ -459,6 +472,10 @@ export interface ScheduledExport {
     skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
     /** Issue #311: 自包含 HTML（资源 base64 内联）。 */
     embedResourcesAsDataUri?: boolean
+    /** Issue #663: 文件类资源下载大小上限（字节），0 / 缺省为不限制 */
+    maxFileDownloadSizeBytes?: number
+    /** Issue #663: 视频资源下载大小上限（字节），0 / 缺省为不限制 */
+    maxVideoDownloadSizeBytes?: number
   }
   outputDir?: string
   enabled: boolean
@@ -508,6 +525,10 @@ export interface CreateScheduledExportForm {
   skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
   /** Issue #646: 定时 HTML 导出把图片等资源 base64 内联，生成自包含单文件。 */
   embedResourcesAsDataUri?: boolean
+  /** Issue #663: 文件类资源下载大小上限（字节），0 / 缺省为不限制 */
+  maxFileDownloadSizeBytes?: number
+  /** Issue #663: 视频资源下载大小上限（字节），0 / 缺省为不限制 */
+  maxVideoDownloadSizeBytes?: number
 }
 
 export interface ScheduledExportsResponse {

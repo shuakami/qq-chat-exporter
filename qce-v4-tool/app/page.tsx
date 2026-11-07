@@ -1167,6 +1167,13 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
           ...(Array.isArray(config.skipDownloadResourceTypes) && config.skipDownloadResourceTypes.length > 0 && {
             skipDownloadResourceTypes: config.skipDownloadResourceTypes,
           }),
+          // Issue #663: 资源下载大小上限（字节）
+          ...(typeof config.maxFileDownloadSizeBytes === "number" && config.maxFileDownloadSizeBytes > 0 && {
+            maxFileDownloadSizeBytes: config.maxFileDownloadSizeBytes,
+          }),
+          ...(typeof config.maxVideoDownloadSizeBytes === "number" && config.maxVideoDownloadSizeBytes > 0 && {
+            maxVideoDownloadSizeBytes: config.maxVideoDownloadSizeBytes,
+          }),
         }
 
         // 调用单个导出 API
