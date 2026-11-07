@@ -32,6 +32,9 @@ export interface ScheduledExportConfig {
         skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>;
         /** Issue #646: 定时 HTML 导出把资源 base64 内联，生成自包含单文件。 */
         embedResourcesAsDataUri?: boolean;
+        /** Issue #663: 文件 / 视频下载大小上限（字节），0 / 缺省为不限制 */
+        maxFileDownloadSizeBytes?: number;
+        maxVideoDownloadSizeBytes?: number;
     };
     outputDir?: string;
     enabled: boolean;
@@ -67,6 +70,13 @@ export function scheduledExportFormToConfig(formData: CreateScheduledExportForm)
             ...(Array.isArray(formData.skipDownloadResourceTypes) && formData.skipDownloadResourceTypes.length > 0 && {
                 skipDownloadResourceTypes: formData.skipDownloadResourceTypes,
             }),
+            // Issue #663: 资源下载大小上限（字节），0 / 缺省 = 不限制，不下发字段。
+            ...(typeof formData.maxFileDownloadSizeBytes === "number" && formData.maxFileDownloadSizeBytes > 0 && {
+                maxFileDownloadSizeBytes: Math.floor(formData.maxFileDownloadSizeBytes),
+            }),
+            ...(typeof formData.maxVideoDownloadSizeBytes === "number" && formData.maxVideoDownloadSizeBytes > 0 && {
+                maxVideoDownloadSizeBytes: Math.floor(formData.maxVideoDownloadSizeBytes),
+            }),
         },
         outputDir: formData.outputDir?.trim() || "",
         enabled: formData.enabled,
@@ -95,6 +105,8 @@ export function scheduledExportConfigToForm(task: ScheduledExportConfig): Create
         debugExport: task.options.debugExport ?? false,
         skipDownloadResourceTypes: task.options.skipDownloadResourceTypes,
         embedResourcesAsDataUri: task.options.embedResourcesAsDataUri ?? false,
+        maxFileDownloadSizeBytes: task.options.maxFileDownloadSizeBytes,
+        maxVideoDownloadSizeBytes: task.options.maxVideoDownloadSizeBytes,
     };
 }
 

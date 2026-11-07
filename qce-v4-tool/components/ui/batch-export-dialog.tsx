@@ -15,6 +15,7 @@ import { Loader } from "@/components/ui/loader"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { toggleSkipResourceType, type SkipDownloadResourceType } from "@/lib/skip-resource-types"
 import { EXPORT_OPTION_TOOLTIPS } from "@/lib/export-option-tooltips"
+import { ResourceSizeLimitInput } from "@/components/ui/resource-size-limit-input"
 
 const PILL_INPUT =
   "h-[36px] px-3.5 rounded-full border-0 bg-black/[0.04] dark:bg-white/[0.06] text-[13px] outline-none placeholder:text-muted-foreground/70 focus:bg-black/[0.06] dark:focus:bg-white/[0.09] transition-colors"
@@ -62,6 +63,9 @@ export interface BatchExportConfig {
   debugExport: boolean
   /** Issue #341: 仅保留元数据、跳过下载的资源类型 */
   skipDownloadResourceTypes?: Array<'image' | 'video' | 'audio' | 'file'>
+  /** Issue #663: 文件 / 视频下载大小上限（字节），0 / 缺省为不限制 */
+  maxFileDownloadSizeBytes?: number
+  maxVideoDownloadSizeBytes?: number
   outputDir: string
   keywords: string
   excludeUserUins: string
@@ -104,6 +108,9 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
   const [debugExport, setDebugExport] = useState(false)
   // Issue #344：批量导出也支持按资源类型逐项跳过下载。
   const [skipDownloadResourceTypes, setSkipDownloadResourceTypes] = useState<SkipDownloadResourceType[] | undefined>(undefined)
+  // Issue #663：资源下载大小上限（字节）。
+  const [maxFileDownloadSizeBytes, setMaxFileDownloadSizeBytes] = useState<number | undefined>(undefined)
+  const [maxVideoDownloadSizeBytes, setMaxVideoDownloadSizeBytes] = useState<number | undefined>(undefined)
   const [outputDir, setOutputDir] = useState('')
   const [keywords, setKeywords] = useState('')
   const [excludeUserUins, setExcludeUserUins] = useState('')
@@ -137,6 +144,8 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
       setFilterPureImageMessages(false)
       setPreferGroupMemberName(true)
       setSkipDownloadResourceTypes(undefined)
+      setMaxFileDownloadSizeBytes(undefined)
+      setMaxVideoDownloadSizeBytes(undefined)
       setOutputDir('')
       setKeywords('')
       setExcludeUserUins('')
@@ -237,6 +246,12 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
       debugExport,
       ...(!filterPureImageMessages && skipDownloadResourceTypes && skipDownloadResourceTypes.length > 0 && {
         skipDownloadResourceTypes,
+      }),
+      ...(!filterPureImageMessages && maxFileDownloadSizeBytes != null && maxFileDownloadSizeBytes > 0 && {
+        maxFileDownloadSizeBytes,
+      }),
+      ...(!filterPureImageMessages && maxVideoDownloadSizeBytes != null && maxVideoDownloadSizeBytes > 0 && {
+        maxVideoDownloadSizeBytes,
       }),
       outputDir,
       keywords,
@@ -425,7 +440,7 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                 {/* 开关选项（分组卡片） */}
                 {(() => {
                   const allOptions = [
-                    { id: "streamingZipMode", checked: streamingZipMode, set: setStreamingZipMode, title: "流式导出（超大消息量专用）", desc: format === "HTML" ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式。" : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式。", tip: EXPORT_OPTION_TOOLTIPS.streaming, visible: format === "HTML" || format === "JSON", highlight: true, group: "性能与处理" },
+                    { id: "streamingZipMode", checked: streamingZipMode, set: setStreamingZipMode, title: "流式导出（超大消息量专用）", desc: format === "HTML" ? "聊天记录很长时推荐：全程流式写入不占内存，产物按分块存储，查看器支持搜索与按日期跳转，浏览超长记录更流畅。输出ZIP格式，适合50万+消息量。" : "聊天记录很长时推荐：全程流式写入不占内存，产物按分块存储，适合50万+消息量。输出分块JSONL格式，便于程序逐行处理。", tip: EXPORT_OPTION_TOOLTIPS.streaming, visible: format === "HTML" || format === "JSON", highlight: true, group: "性能与处理" },
                     { id: "includeSystemMessages", checked: includeSystemMessages, set: setIncludeSystemMessages, title: "包含系统消息", desc: "包含入群通知、撤回提示等系统提示消息", tip: EXPORT_OPTION_TOOLTIPS.includeSystemMessages, visible: true, highlight: false, group: "导出内容" },
                     { id: "filterPureImageMessages", checked: filterPureImageMessages, set: setFilterPureImageMessages, title: "快速导出（跳过资源下载）", desc: "保留所有消息记录，但不下载图片/视频/音频等资源文件，大幅加快导出速度", tip: EXPORT_OPTION_TOOLTIPS.quickExport, visible: true, highlight: false, group: "导出内容" },
                     // Issue #344：分别控制图片 / 视频 / 音频 / 文件四种资源是否参与下载。
@@ -477,6 +492,32 @@ export function BatchExportDialog({ open, onOpenChange, items, onExport }: Batch
                       </div>
                     ))
                 })()}
+
+                  {/* Issue #663：资源下载大小上限。快速导出时不下载任何资源，无需设置。 */}
+                  {!filterPureImageMessages && (
+                    <div className="space-y-2.5">
+                      <label className="block text-[12px] font-medium text-muted-foreground pl-1">资源下载大小上限</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <ResourceSizeLimitInput
+                          label="文件上限"
+                          placeholder="如 100"
+                          valueBytes={maxFileDownloadSizeBytes}
+                          onChange={setMaxFileDownloadSizeBytes}
+                          disabled={isExporting}
+                        />
+                        <ResourceSizeLimitInput
+                          label="视频上限"
+                          placeholder="如 500"
+                          valueBytes={maxVideoDownloadSizeBytes}
+                          onChange={setMaxVideoDownloadSizeBytes}
+                          disabled={isExporting}
+                        />
+                      </div>
+                      <p className="text-[12px] text-muted-foreground pl-1 leading-snug">
+                        超过上限的文件 / 视频不下载，仅保留文件名、大小、MD5 等元信息；留空表示不限制。
+                      </p>
+                    </div>
+                  )}
 
                   <div className="space-y-2.5">
                     <label className="block text-[12px] font-medium text-muted-foreground pl-1">导出路径</label>

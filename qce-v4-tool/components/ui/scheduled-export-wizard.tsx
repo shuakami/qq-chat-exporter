@@ -18,6 +18,7 @@ import { Loader } from "@/components/ui/loader"
 import type { CreateScheduledExportForm, Group, Friend } from "@/types/api"
 import { useSearch } from "@/hooks/use-search"
 import { toggleSkipResourceType, type SkipDownloadResourceType } from "@/lib/skip-resource-types"
+import { ResourceSizeLimitInput } from "./resource-size-limit-input"
 import {
   sortSessionTargets,
   type SessionTaskStats,
@@ -83,6 +84,9 @@ export function ScheduledExportWizard({
     embedResourcesAsDataUri: false,
     // Issue #344：定时导出也支持按资源类型逐项跳过下载。
     skipDownloadResourceTypes: undefined as SkipDownloadResourceType[] | undefined,
+    // Issue #663：资源下载大小上限（字节），0 / undefined = 不限制。
+    maxFileDownloadSizeBytes: undefined as number | undefined,
+    maxVideoDownloadSizeBytes: undefined as number | undefined,
   })
 
   // 选中的目标
@@ -134,6 +138,8 @@ export function ScheduledExportWizard({
         skipDownloadResourceTypes: Array.isArray(prefilledData.skipDownloadResourceTypes) && prefilledData.skipDownloadResourceTypes.length > 0
           ? (prefilledData.skipDownloadResourceTypes as SkipDownloadResourceType[])
           : undefined,
+        maxFileDownloadSizeBytes: prefilledData.maxFileDownloadSizeBytes,
+        maxVideoDownloadSizeBytes: prefilledData.maxVideoDownloadSizeBytes,
       })
 
       // 如果有预填充的目标，添加到选中列表
@@ -172,6 +178,8 @@ export function ScheduledExportWizard({
         debugExport: false,
         embedResourcesAsDataUri: false,
         skipDownloadResourceTypes: undefined,
+        maxFileDownloadSizeBytes: undefined,
+        maxVideoDownloadSizeBytes: undefined,
       })
       setSelectedTargets([])
       setSearchTerm("")
@@ -236,6 +244,13 @@ export function ScheduledExportWizard({
         embedResourcesAsDataUri: baseForm.format === 'HTML' && baseForm.embedResourcesAsDataUri,
         ...(!baseForm.filterPureImageMessages && baseForm.skipDownloadResourceTypes && baseForm.skipDownloadResourceTypes.length > 0 && {
           skipDownloadResourceTypes: baseForm.skipDownloadResourceTypes,
+        }),
+        // Issue #663：资源下载大小上限（字节），0 / 缺省 = 不限制，不下发字段。
+        ...(!baseForm.filterPureImageMessages && baseForm.maxFileDownloadSizeBytes != null && baseForm.maxFileDownloadSizeBytes > 0 && {
+          maxFileDownloadSizeBytes: Math.floor(baseForm.maxFileDownloadSizeBytes),
+        }),
+        ...(!baseForm.filterPureImageMessages && baseForm.maxVideoDownloadSizeBytes != null && baseForm.maxVideoDownloadSizeBytes > 0 && {
+          maxVideoDownloadSizeBytes: Math.floor(baseForm.maxVideoDownloadSizeBytes),
         }),
       }
       
@@ -948,6 +963,30 @@ export function ScheduledExportWizard({
                     </div>
                   ))}
                   </div>
+
+                  {/* Issue #663：资源下载大小上限。快速导出时不下载任何资源，无需设置。 */}
+                  {!baseForm.filterPureImageMessages && (
+                    <div className="space-y-2.5">
+                      <h3 className="text-[12px] font-medium text-muted-foreground pl-1">资源下载大小上限</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <ResourceSizeLimitInput
+                          label="文件上限"
+                          placeholder="如 100"
+                          valueBytes={baseForm.maxFileDownloadSizeBytes}
+                          onChange={(bytes) => setBaseForm(p => ({ ...p, maxFileDownloadSizeBytes: bytes }))}
+                        />
+                        <ResourceSizeLimitInput
+                          label="视频上限"
+                          placeholder="如 500"
+                          valueBytes={baseForm.maxVideoDownloadSizeBytes}
+                          onChange={(bytes) => setBaseForm(p => ({ ...p, maxVideoDownloadSizeBytes: bytes }))}
+                        />
+                      </div>
+                      <p className="text-[12px] text-muted-foreground pl-1 leading-snug">
+                        超过上限的文件 / 视频不下载，仅保留文件名、大小、MD5 等元信息；留空表示不限制。
+                      </p>
+                    </div>
+                  )}
                 </div>
               </section>
 

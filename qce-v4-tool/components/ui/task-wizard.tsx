@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "./dropdown-menu"
 import { toggleSkipResourceType } from "@/lib/skip-resource-types"
+import { ResourceSizeLimitInput } from "./resource-size-limit-input"
 import { EXPORT_OPTION_TOOLTIPS } from "@/lib/export-option-tooltips"
 import {
   DEFAULT_ROAMING_MAX_MESSAGES,
@@ -57,6 +58,8 @@ interface AdvancedPreferences {
   embedResourcesAsDataUri: boolean
   streamingZipMode: boolean
   outputDir: string
+  maxFileDownloadSizeBytes?: number
+  maxVideoDownloadSizeBytes?: number
 }
 
 const createDefaultForm = (): CreateTaskForm => ({
@@ -117,6 +120,13 @@ const readAdvancedPreferences = (): Partial<AdvancedPreferences> => {
       preferences.skipDownloadResourceTypes =
         parsed.skipDownloadResourceTypes.filter(isSkipDownloadResourceType)
     }
+    // Issue #663：大小上限按字节持久化，非法值忽略。
+    for (const key of ["maxFileDownloadSizeBytes", "maxVideoDownloadSizeBytes"] as const) {
+      const value = parsed[key]
+      if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+        preferences[key] = Math.floor(value)
+      }
+    }
     return preferences
   } catch {
     return {}
@@ -136,6 +146,8 @@ const selectAdvancedPreferences = (form: CreateTaskForm): AdvancedPreferences =>
   embedResourcesAsDataUri: form.embedResourcesAsDataUri ?? false,
   streamingZipMode: form.streamingZipMode ?? false,
   outputDir: form.outputDir ?? "",
+  maxFileDownloadSizeBytes: form.maxFileDownloadSizeBytes,
+  maxVideoDownloadSizeBytes: form.maxVideoDownloadSizeBytes,
 })
 
 const writeAdvancedPreferences = (form: CreateTaskForm) => {
@@ -193,6 +205,10 @@ const mergePrefilledForm = (
     preferGroupMemberName:
       prefilledData.preferGroupMemberName ?? base.preferGroupMemberName,
     debugExport: prefilledData.debugExport ?? base.debugExport,
+    maxFileDownloadSizeBytes:
+      prefilledData.maxFileDownloadSizeBytes ?? base.maxFileDownloadSizeBytes,
+    maxVideoDownloadSizeBytes:
+      prefilledData.maxVideoDownloadSizeBytes ?? base.maxVideoDownloadSizeBytes,
   }
 }
 
@@ -342,6 +358,8 @@ export function TaskWizard({
     form.embedResourcesAsDataUri,
     form.streamingZipMode,
     form.outputDir,
+    form.maxFileDownloadSizeBytes,
+    form.maxVideoDownloadSizeBytes,
   ])
 
   useEffect(() => {
@@ -1330,9 +1348,9 @@ export function TaskWizard({
                 checked: form.streamingZipMode || false,
                 set: (v: boolean) => setForm((p) => ({ ...p, streamingZipMode: v })),
                 title: "流式导出（超大消息量专用）",
-                desc: form.format === "HTML" 
-                  ? "专为50万+消息量设计，全程流式处理防止内存溢出。输出ZIP格式，适合导出超大群聊记录。"
-                  : "专为50万+消息量设计，全程流式处理防止内存溢出。输出分块JSONL格式，适合导出超大群聊记录。",
+                desc: form.format === "HTML"
+                  ? "聊天记录很长时推荐：全程流式写入不占内存，产物按分块存储，查看器支持搜索、按日期跳转与虚拟滚动，浏览超长记录更流畅。输出ZIP格式，适合50万+消息量的群聊。"
+                  : "聊天记录很长时推荐：全程流式写入不占内存，产物按分块存储，适合50万+消息量的群聊。输出分块JSONL格式，便于程序逐行处理。",
                 tip: EXPORT_OPTION_TOOLTIPS.streaming,
                 visible:
                   form.historySource !== "roaming" &&
@@ -1506,6 +1524,30 @@ export function TaskWizard({
                 </div>
               ))
           })()}
+
+          {/* Issue #663：资源下载大小上限。快速导出（跳过资源下载）时不下载任何资源，无需设置。 */}
+          {!form.filterPureImageMessages && (
+            <div className="space-y-2.5">
+              <label className="block text-[12px] font-medium text-muted-foreground pl-1">资源下载大小上限</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <ResourceSizeLimitInput
+                  label="文件上限"
+                  placeholder="如 100"
+                  valueBytes={form.maxFileDownloadSizeBytes}
+                  onChange={(bytes) => setForm((p) => ({ ...p, maxFileDownloadSizeBytes: bytes }))}
+                />
+                <ResourceSizeLimitInput
+                  label="视频上限"
+                  placeholder="如 500"
+                  valueBytes={form.maxVideoDownloadSizeBytes}
+                  onChange={(bytes) => setForm((p) => ({ ...p, maxVideoDownloadSizeBytes: bytes }))}
+                />
+              </div>
+              <p className="text-[12px] text-muted-foreground pl-1 leading-snug">
+                超过上限的文件 / 视频不下载，仅保留文件名、大小、MD5 等元信息；留空表示不限制。
+              </p>
+            </div>
+          )}
 
           {/* Issue #192: 自定义导出路径 */}
           <div className="space-y-2.5">
