@@ -23,12 +23,15 @@ pub type ReplyImageIndex = HashMap<String, Vec<(String, String)>>;
 #[async_trait]
 pub trait ForwardFetcher: Send + Sync {
     /// 拉取合并转发卡片内层消息列表（RawMessage JSON 数组）。
+    ///
+    /// `root_msg_id` 是最外层转发卡片消息的 msgId，`parent_msg_id` 是直接包含
+    /// 该转发卡片的消息 msgId，对齐 NapCat `getMultiMsg(peer, rootMsgId, parentMsgId)`。
     async fn get_multi_msg(
         &self,
         chat_type: i64,
         peer_uid: &str,
         root_msg_id: &str,
-        res_id: &str,
+        parent_msg_id: &str,
     ) -> Option<Vec<Value>>;
 }
 
@@ -657,6 +660,188 @@ mod forward_resource_tests {
             "resources/images/97f15333_97F15333FCA7C66054F2F08C4169308A.jpg"
         );
     }
+
+    fn text_inner(id: &str, name: &str, text: &str) -> serde_json::Value {
+        json!({
+            "msgId": id,
+            "msgTime": "1778262589",
+            "senderUid": format!("u_{id}"),
+            "senderUin": "10001",
+            "sendNickName": name,
+            "elements": [{
+                "elementType": 1,
+                "textElement": { "content": text }
+            }]
+        })
+    }
+
+    fn forward_outer(records: serde_json::Value) -> serde_json::Value {
+        json!({
+            "msgId": "outer-forward",
+            "msgTime": "1778262645",
+            "msgType": 8,
+            "chatType": 2,
+            "peerUid": "1031246136",
+            "senderUid": "u_sender",
+            "senderUin": "616359549",
+            "sendNickName": "吹雪ChuiXue",
+            "records": records,
+            "elements": [{
+                "elementId": "forward-element",
+                "elementType": 16,
+                "multiForwardMsgElement": {
+                    "resId": "forward-resource",
+                    "xmlContent": ""
+                }
+            }]
+        })
+    }
+
+    #[tokio::test]
+    async fn forward_text_contains_all_inner_messages() {
+        // issue #707：超过 3 条的转发子消息必须全部进入导出文本，且不再按
+        // 字符数截断成 "…"。
+        let long_text = "长".repeat(120);
+        let mut inners: Vec<serde_json::Value> = (1..=6)
+            .map(|i| {
+                text_inner(
+                    &format!("inner-{i}"),
+                    &format!("成员{i}"),
+                    &format!("第{i}条消息"),
+                )
+            })
+            .collect();
+        inners.push(text_inner("inner-long", "成员长", &long_text));
+
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let parsed = parser.parse_messages(&[forward_outer(json!(inners))]).await;
+        let text = &parsed[0].content.text;
+        for i in 1..=6 {
+            assert!(
+                text.contains(&format!("成员{i}: 第{i}条消息")),
+                "missing inner line {i} in: {text}"
+            );
+        }
+        assert!(text.contains(&format!("成员长: {long_text}")));
+        assert!(
+            !text.contains('…'),
+            "forward text must not be ellipsis-truncated"
+        );
+        // data.messages 仍保留全部子消息供 JSON/HTML 使用。
+        let element = &parsed[0].content.elements[0];
+        assert_eq!(element.element_type, "forward");
+        assert_eq!(element.data["messages"].as_array().map(Vec::len), Some(7));
+    }
+
+    #[tokio::test]
+    async fn forward_raw_messages_carry_outer_card_addressing() {
+        // issue #718：注入外层转发卡片的寻址信息，资源下载按根 msgId + 会话定位。
+        let inner = text_inner("inner-image", "成员", "看看这张图");
+        let mut parser = SimpleMessageParser::new(SimpleParserOptions::standard());
+        let _ = parser
+            .parse_messages(&[forward_outer(json!([inner]))])
+            .await;
+        let forward_raw = parser.take_forward_raw_messages();
+        assert_eq!(forward_raw.len(), 1);
+        assert_eq!(forward_raw[0]["_qceForwardRootMsgId"], "outer-forward");
+        assert_eq!(forward_raw[0]["_qceForwardChatType"], 2);
+        assert_eq!(forward_raw[0]["_qceForwardPeerUid"], "1031246136");
+    }
+
+    struct MockForwardFetcher {
+        calls: std::sync::Mutex<Vec<(i64, String, String, String)>>,
+        pages: std::sync::Mutex<Vec<Vec<serde_json::Value>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl super::ForwardFetcher for MockForwardFetcher {
+        async fn get_multi_msg(
+            &self,
+            chat_type: i64,
+            peer_uid: &str,
+            root_msg_id: &str,
+            parent_msg_id: &str,
+        ) -> Option<Vec<serde_json::Value>> {
+            self.calls.lock().unwrap().push((
+                chat_type,
+                peer_uid.to_string(),
+                root_msg_id.to_string(),
+                parent_msg_id.to_string(),
+            ));
+            let mut pages = self.pages.lock().unwrap();
+            if pages.is_empty() {
+                None
+            } else {
+                Some(pages.remove(0))
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn nested_forward_fetch_uses_outermost_root_and_inner_parent() {
+        // issue #718：嵌套合并转发的 getMultiMsg 必须使用最外层根 msgId 与
+        // 直接父消息 msgId（对齐 NapCat/OneBot 的 parentMsgPeer 语义）。
+        let mut inner_card = text_inner("inner-card", "转发者", "内层转发");
+        inner_card["elements"] = json!([{
+            "elementId": "nested-forward-element",
+            "elementType": 16,
+            "multiForwardMsgElement": { "resId": "nested-res", "xmlContent": "" }
+        }]);
+        // 内层消息自带其它会话字段，不应影响外层卡片寻址。
+        inner_card["chatType"] = json!(9);
+        inner_card["peerUid"] = json!("other-peer");
+
+        let deep = text_inner("deep-1", "深层", "深层消息");
+        let fetcher = std::sync::Arc::new(MockForwardFetcher {
+            calls: std::sync::Mutex::new(Vec::new()),
+            pages: std::sync::Mutex::new(vec![vec![inner_card], vec![deep]]),
+        });
+        let options = SimpleParserOptions {
+            forward_fetcher: Some(fetcher.clone() as std::sync::Arc<dyn super::ForwardFetcher>),
+            ..SimpleParserOptions::standard()
+        };
+        let mut parser = SimpleMessageParser::new(options);
+
+        // 外层没有 records，走 fetcher 拉取。
+        let outer = forward_outer(json!(null));
+        let parsed = parser.parse_messages(&[outer]).await;
+
+        let calls = fetcher.calls.lock().unwrap();
+        assert_eq!(calls.len(), 2, "expected two getMultiMsg calls: {calls:?}");
+        // 第一层：root == parent == 外层 msgId。
+        assert_eq!(
+            calls[0],
+            (
+                2,
+                "1031246136".to_string(),
+                "outer-forward".to_string(),
+                "outer-forward".to_string()
+            )
+        );
+        // 第二层：root 仍是最外层 msgId，parent 是内层转发卡片 msgId，会话用外层。
+        assert_eq!(
+            calls[1],
+            (
+                2,
+                "1031246136".to_string(),
+                "outer-forward".to_string(),
+                "inner-card".to_string()
+            )
+        );
+        drop(calls);
+
+        // 嵌套子消息应出现在解析结果与资源原始消息中。
+        let nested_text = serde_json::to_string(&parsed[0].content.elements[0].data)
+            .expect("forward data serializes");
+        assert!(nested_text.contains("深层消息"), "{nested_text}");
+        let forward_raw = parser.take_forward_raw_messages();
+        let deep_raw = forward_raw
+            .iter()
+            .find(|raw| raw["msgId"] == "deep-1")
+            .expect("deep raw message collected");
+        assert_eq!(deep_raw["_qceForwardRootMsgId"], "outer-forward");
+        assert_eq!(deep_raw["_qceForwardPeerUid"], "1031246136");
+    }
 }
 
 #[cfg(test)]
@@ -811,6 +996,36 @@ pub struct SimpleMessageParser {
 }
 
 /* ------------------------------ Value 访问工具 ------------------------------ */
+
+/// 合并转发子消息的"外层卡片"根 msgId（issue #718）。
+/// 嵌套转发时沿用最外层卡片的 msgId；普通消息退回自身 msgId。
+fn forwarded_root_msg_id(message: &Value) -> String {
+    v_str(message, "_qceForwardRootMsgId")
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| v_str(message, "msgId").map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// 合并转发子消息的"外层卡片"会话类型（issue #718）。
+fn forwarded_chat_type(message: &Value) -> i64 {
+    message
+        .get("_qceForwardChatType")
+        .and_then(Value::as_i64)
+        .or_else(|| v_i64(message, "chatType"))
+        .unwrap_or(0)
+}
+
+/// 合并转发子消息的"外层卡片"会话 peerUid（issue #718）。
+fn forwarded_peer_uid(message: &Value) -> String {
+    message
+        .get("_qceForwardPeerUid")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| v_str(message, "peerUid").map(str::to_string))
+        .unwrap_or_default()
+}
 
 fn v_get<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
     v.as_object().and_then(|o| o.get(key))
@@ -2133,30 +2348,25 @@ impl SimpleMessageParser {
             (name, body)
         };
 
-        let inner_preview_lines: Vec<String> = inner
+        // issue #707：转发子消息必须全部写入导出文本，不能再截断到前几条；
+        // 卡片自带的 preview/XML 摘要只在拿不到子消息时作为兜底。
+        let inner_lines: Vec<String> = inner
             .iter()
-            .take(3)
             .filter_map(|m| {
                 let (name, body) = inner_line(m);
-                let trimmed_body: String = if body.chars().count() > 40 {
-                    let cut: String = body.chars().take(40).collect();
-                    format!("{cut}…")
-                } else {
-                    body
-                };
-                if !name.is_empty() && !trimmed_body.is_empty() {
-                    Some(format!("{name}: {trimmed_body}"))
+                if !name.is_empty() && !body.is_empty() {
+                    Some(format!("{name}: {body}"))
                 } else if !name.is_empty() {
                     Some(name)
-                } else if !trimmed_body.is_empty() {
-                    Some(trimmed_body)
+                } else if !body.is_empty() {
+                    Some(body)
                 } else {
                     None
                 }
             })
             .collect();
 
-        let preview_lines: Vec<String> = if inner_preview_lines.is_empty() {
+        let preview_lines: Vec<String> = if inner_lines.is_empty() {
             xml_preview
                 .iter()
                 .take(3)
@@ -2170,7 +2380,7 @@ impl SimpleMessageParser {
                 })
                 .collect()
         } else {
-            inner_preview_lines
+            inner_lines
         };
 
         let header = if count > 0 {
@@ -2307,10 +2517,11 @@ impl SimpleMessageParser {
     }
 
     /// 拉合并转发消息卡片里的子消息列表并扁平化（issue #161）。
+    /// `res_id` 仅用于调用方判定是否值得拉取，实际拉取走 `getMultiMsg`。
     async fn fetch_forward_inner_messages(
         &mut self,
         message: &Value,
-        res_id: &str,
+        _res_id: &str,
         depth: u32,
     ) -> Vec<Value> {
         if depth > MAX_FORWARD_DEPTH {
@@ -2324,14 +2535,17 @@ impl SimpleMessageParser {
 
         if raws.is_empty() {
             if let Some(fetcher) = self.options.forward_fetcher.clone() {
-                let chat_type = v_i64(message, "chatType").unwrap_or(0);
-                let peer_uid = v_str(message, "peerUid").unwrap_or("").to_string();
-                let msg_id = v_str(message, "msgId").unwrap_or("").to_string();
-                if let Some(list) = fetcher
-                    .get_multi_msg(chat_type, &peer_uid, &msg_id, res_id)
-                    .await
-                {
-                    raws = list;
+                let chat_type = forwarded_chat_type(message);
+                let peer_uid = forwarded_peer_uid(message);
+                let root_msg_id = forwarded_root_msg_id(message);
+                let parent_msg_id = v_str(message, "msgId").unwrap_or("").to_string();
+                if !root_msg_id.is_empty() && !parent_msg_id.is_empty() {
+                    if let Some(list) = fetcher
+                        .get_multi_msg(chat_type, &peer_uid, &root_msg_id, &parent_msg_id)
+                        .await
+                    {
+                        raws = list;
+                    }
                 }
             }
         }
@@ -2339,6 +2553,12 @@ impl SimpleMessageParser {
         if raws.is_empty() {
             return Vec::new();
         }
+
+        // issue #718：把"外层转发卡片"的寻址信息注入每条子消息，资源下载阶段
+        // 需要用根 msgId + 卡片所在会话来定位内层媒体（NapCat 富媒体接口按此寻址）。
+        let forward_root_msg_id = forwarded_root_msg_id(message);
+        let forward_chat_type = forwarded_chat_type(message);
+        let forward_peer_uid = forwarded_peer_uid(message);
 
         let parent_chat_type = v_get(message, "chatType").cloned();
         let parent_peer_uid = v_get(message, "peerUid").cloned();
@@ -2355,6 +2575,18 @@ impl SimpleMessageParser {
                 if let Some(peer_uid) = &parent_peer_uid {
                     raw_object.insert("peerUid".to_string(), peer_uid.clone());
                 }
+            }
+            if !forward_root_msg_id.is_empty() {
+                raw_object.insert(
+                    "_qceForwardRootMsgId".to_string(),
+                    json!(forward_root_msg_id),
+                );
+            }
+            if forward_chat_type != 0 {
+                raw_object.insert("_qceForwardChatType".to_string(), json!(forward_chat_type));
+            }
+            if !forward_peer_uid.is_empty() {
+                raw_object.insert("_qceForwardPeerUid".to_string(), json!(forward_peer_uid));
             }
             let raw_id = raw_object
                 .get("msgId")

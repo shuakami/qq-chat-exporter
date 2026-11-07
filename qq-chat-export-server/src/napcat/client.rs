@@ -408,14 +408,14 @@ impl ForwardFetcher for NapCatBridgeClient {
         chat_type: i64,
         peer_uid: &str,
         root_msg_id: &str,
-        _res_id: &str,
+        parent_msg_id: &str,
     ) -> Option<Vec<Value>> {
         let peer = json!({
             "chatType": chat_type,
             "peerUid": peer_uid,
             "guildId": "",
         });
-        self.get_multi_msg(&peer, root_msg_id, root_msg_id)
+        self.get_multi_msg(&peer, root_msg_id, parent_msg_id)
             .await
             .ok()
             .and_then(|value| extract_forward_messages(&value))
