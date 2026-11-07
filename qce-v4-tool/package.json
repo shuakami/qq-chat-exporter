@@ -41,7 +41,7 @@
     "@radix-ui/react-toggle-group": "1.2.1",
     "@radix-ui/react-tooltip": "1.4.1",
     "@tailwindcss/postcss": "^4.3.5",
-    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/api": "2.11.1",
     "@types/node": "^22.20.5",
     "@types/react": "latest",
     "@types/react-dom": "latest",
