@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use crate::api::http_security::http_get_bytes;
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
+use crate::paths::sanitize_task_name;
 
 /// 导出记录保留上限。
 const RECORD_LIMIT: usize = 100;
@@ -53,16 +54,11 @@ fn str_of(value: &Value, key: &str) -> String {
     }
 }
 
-fn sanitize(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect()
+/// 相册/群名等外部字符串进入文件系统路径前的统一消毒（issue #721）。
+/// 委托 `sanitize_task_name`：除 Windows 非法字符外还处理控制字符、
+/// 空白折叠、保留设备名、长度上限与 `..` 穿越（消毒后为空回退 `unknown`）。
+fn sanitize(name: &str, max_length: usize) -> String {
+    sanitize_task_name(name, max_length)
 }
 
 fn now_iso() -> String {
@@ -294,8 +290,8 @@ pub async fn export_group_album(
     );
     let export_dir = export_base_path(&state).join(format!(
         "{}_{}_{}",
-        sanitize(&group_name),
-        group_code,
+        sanitize(&group_name, 60),
+        sanitize(&group_code, 32),
         chrono::Utc::now().timestamp_millis()
     ));
     if let Err(error) = tokio::fs::create_dir_all(&export_dir).await {
@@ -328,7 +324,7 @@ pub async fn export_group_album(
 
     for (index, album) in target_albums.iter().enumerate() {
         let album_name = str_of(album, "albumName");
-        let album_dir = export_dir.join(sanitize(&album_name));
+        let album_dir = export_dir.join(sanitize(&album_name, 60));
         let _ = tokio::fs::create_dir_all(&album_dir).await;
 
         state.broadcast_ws(&json!({
@@ -352,7 +348,7 @@ pub async fn export_group_album(
             } else {
                 ".jpg"
             };
-            let file_name = format!("{}{ext}", sanitize(&str_of(media, "id")));
+            let file_name = format!("{}{ext}", sanitize(&str_of(media, "id"), 80));
             let file_path = album_dir.join(&file_name);
 
             state.broadcast_ws(&json!({
@@ -473,4 +469,19 @@ pub async fn album_export_records(
         }),
         &request_id,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize;
+
+    /// issue #721：群名 / 相册名进入路径前必须走完整消毒。
+    #[test]
+    fn path_components_are_fully_sanitized() {
+        assert_eq!(sanitize("..", 60), "unknown");
+        assert_eq!(sanitize("我的相册😀", 60), "我的相册😀");
+        assert_eq!(sanitize("a/b\\c:d", 60), "a_b_c_d");
+        assert_eq!(sanitize("AUX", 60), "_AUX");
+        assert_eq!(sanitize("旅行 照片 2024", 60), "旅行_照片_2024");
+    }
 }

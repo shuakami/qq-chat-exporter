@@ -3591,6 +3591,9 @@ mod task_queue_tests {
             running_export_cancel_flags: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             resource_file_cache: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             message_cache: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            max_scheduled_exports: std::sync::atomic::AtomicUsize::new(
+                crate::api::state::DEFAULT_MAX_SCHEDULED_EXPORTS,
+            ),
             started_at: std::time::Instant::now(),
             static_dir: temp.clone(),
             port: 0,

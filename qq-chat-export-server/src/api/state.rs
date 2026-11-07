@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -34,6 +35,41 @@ pub const CACHE_EXPIRE_TIME_MS: i64 = 10 * 60 * 1000;
 pub type WsMessage = String;
 
 pub const MAX_ACTIVE_EXPORT_TASKS: usize = 32;
+
+/// 定时导出任务数量上限的默认值（issue #720：群聊多的用户 128 个不够用，
+/// 默认放宽到 1024；仍可通过 `/api/config` 的 `maxScheduledExports` 或
+/// `QCE_MAX_SCHEDULED_EXPORTS` 环境变量调整）。
+pub const DEFAULT_MAX_SCHEDULED_EXPORTS: usize = 1024;
+/// 定时导出上限允许配置的最小值。
+pub const MIN_MAX_SCHEDULED_EXPORTS: usize = 1;
+/// 定时导出上限允许配置的最大值（防止误配出不可控的任务数量）。
+pub const MAX_CONFIGURABLE_SCHEDULED_EXPORTS: usize = 10_000;
+
+/// 解析定时导出任务数量上限：环境变量优先，其次用户配置，最后回退默认值。
+///
+/// `configured` 为 `user-config.json` 里的 `maxScheduledExports`（JSON 数字）；
+/// `env` 为 `QCE_MAX_SCHEDULED_EXPORTS` 原始字符串。非法或越界的值告警后
+/// 回退到下一个来源，最终保证落在 `[MIN, MAX]` 区间内。
+#[must_use]
+pub fn resolve_max_scheduled_exports(configured: Option<i64>, env: Option<&str>) -> usize {
+    if let Some(raw) = env.map(str::trim).filter(|value| !value.is_empty()) {
+        match raw.parse::<usize>() {
+            Ok(value)
+                if (MIN_MAX_SCHEDULED_EXPORTS..=MAX_CONFIGURABLE_SCHEDULED_EXPORTS)
+                    .contains(&value) =>
+            {
+                return value;
+            }
+            _ => tracing::warn!("QCE_MAX_SCHEDULED_EXPORTS 的值无效或超出允许范围: {raw}"),
+        }
+    }
+    configured
+        .and_then(|value| usize::try_from(value).ok())
+        .filter(|value| {
+            (MIN_MAX_SCHEDULED_EXPORTS..=MAX_CONFIGURABLE_SCHEDULED_EXPORTS).contains(value)
+        })
+        .unwrap_or(DEFAULT_MAX_SCHEDULED_EXPORTS)
+}
 
 /// 服务器运行模式：`plugin`（NapCat 内启动，bridge 可用）或
 /// `standalone`（start-standalone 脚本直接拉起，没有 bridge，issue #668）。
@@ -89,6 +125,8 @@ pub struct AppState {
     pub progress_tracker: Arc<ProgressTracker>,
     /// 定时导出管理器。
     pub scheduled_export_manager: Arc<ScheduledExportManager>,
+    /// 定时导出任务数量上限（issue #720：`/api/config` 更新后即时生效）。
+    pub max_scheduled_exports: AtomicUsize,
     /// 安全管理器。
     pub security_manager: Arc<SecurityManager>,
     /// 路径管理器。
@@ -141,6 +179,12 @@ impl AppState {
         RunMode::standalone_mode_error(feature)
     }
 
+    /// 当前定时导出任务数量上限。
+    #[must_use]
+    pub fn max_scheduled_exports(&self) -> usize {
+        self.max_scheduled_exports.load(Ordering::Relaxed)
+    }
+
     /// 服务器已运行秒数。
     pub fn uptime_secs(&self) -> f64 {
         self.started_at.elapsed().as_secs_f64()
@@ -175,7 +219,11 @@ impl AppState {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_high_frequency_ws_message, RunMode};
+    use super::{
+        is_high_frequency_ws_message, resolve_max_scheduled_exports, RunMode,
+        DEFAULT_MAX_SCHEDULED_EXPORTS, MAX_CONFIGURABLE_SCHEDULED_EXPORTS,
+        MIN_MAX_SCHEDULED_EXPORTS,
+    };
     use crate::api::response::ErrorType;
 
     #[test]
@@ -216,6 +264,60 @@ mod tests {
         }
         std::env::remove_var("QCE_STANDALONE_MODE");
         assert_eq!(RunMode::from_env(), RunMode::Plugin);
+    }
+
+    /// issue #720：上限解析优先级为 环境变量 > 用户配置 > 默认值，
+    /// 非法与越界值逐级回退。
+    #[test]
+    fn max_scheduled_exports_resolution_order_and_bounds() {
+        // 无配置无环境变量 → 默认值。
+        assert_eq!(
+            resolve_max_scheduled_exports(None, None),
+            DEFAULT_MAX_SCHEDULED_EXPORTS
+        );
+        // 仅配置文件。
+        assert_eq!(resolve_max_scheduled_exports(Some(256), None), 256);
+        // 环境变量覆盖配置文件。
+        assert_eq!(resolve_max_scheduled_exports(Some(256), Some("512")), 512);
+        // 环境变量非法 → 回退配置文件。
+        assert_eq!(resolve_max_scheduled_exports(Some(256), Some("abc")), 256);
+        assert_eq!(resolve_max_scheduled_exports(Some(256), Some("-1")), 256);
+        // 环境变量越界 → 回退配置文件。
+        assert_eq!(
+            resolve_max_scheduled_exports(
+                Some(256),
+                Some(&(MAX_CONFIGURABLE_SCHEDULED_EXPORTS + 1).to_string())
+            ),
+            256
+        );
+        // 配置文件非法 / 越界 → 默认值。
+        assert_eq!(
+            resolve_max_scheduled_exports(Some(0), None),
+            DEFAULT_MAX_SCHEDULED_EXPORTS
+        );
+        assert_eq!(
+            resolve_max_scheduled_exports(Some(-5), None),
+            DEFAULT_MAX_SCHEDULED_EXPORTS
+        );
+        assert_eq!(
+            resolve_max_scheduled_exports(
+                Some(i64::try_from(MAX_CONFIGURABLE_SCHEDULED_EXPORTS).unwrap() + 1),
+                None
+            ),
+            DEFAULT_MAX_SCHEDULED_EXPORTS
+        );
+        // 边界值合法。
+        assert_eq!(
+            resolve_max_scheduled_exports(Some(MIN_MAX_SCHEDULED_EXPORTS as i64), None),
+            MIN_MAX_SCHEDULED_EXPORTS
+        );
+        assert_eq!(
+            resolve_max_scheduled_exports(
+                Some(i64::try_from(MAX_CONFIGURABLE_SCHEDULED_EXPORTS).unwrap()),
+                None
+            ),
+            MAX_CONFIGURABLE_SCHEDULED_EXPORTS
+        );
     }
 
     /// 独立模式标识序列化成前端 issue #340 使用的 `mode` 字段取值。

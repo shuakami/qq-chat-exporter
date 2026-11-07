@@ -87,7 +87,7 @@ async fn run() -> Result<(), String> {
 
     // 路径管理器 + 用户自定义目录
     let path_manager = Arc::new(PathManager::new());
-    load_custom_dirs(&path_manager).await;
+    let configured_max_scheduled = load_custom_dirs(&path_manager).await;
     if let Err(error) = path_manager.migrate_legacy_export_dirs().await {
         tracing::warn!("[QCE] Failed to migrate legacy export directories: {error}");
     }
@@ -143,6 +143,14 @@ async fn run() -> Result<(), String> {
     let scheduled_export_manager = Arc::new(ScheduledExportManager::new(Arc::clone(&db), executor));
     scheduled_export_manager.initialize().await;
 
+    // 定时导出任务上限（issue #720）：优先级为 QCE_MAX_SCHEDULED_EXPORTS 环境变量
+    // > user-config.json 的 maxScheduledExports > 内置默认值。
+    let max_scheduled_exports = qce_server::api::state::resolve_max_scheduled_exports(
+        configured_max_scheduled,
+        std::env::var("QCE_MAX_SCHEDULED_EXPORTS").ok().as_deref(),
+    );
+    tracing::info!("[QCE] Max scheduled exports: {max_scheduled_exports}");
+
     // 孤儿任务归一化（issue #144） + 任务表加载
     let export_tasks = reconcile_and_load_tasks(&db).await;
 
@@ -158,6 +166,7 @@ async fn run() -> Result<(), String> {
         resource_handler,
         progress_tracker,
         scheduled_export_manager,
+        max_scheduled_exports: std::sync::atomic::AtomicUsize::new(max_scheduled_exports),
         security_manager,
         path_manager: Arc::clone(&path_manager),
         ws_tx,
@@ -537,14 +546,15 @@ async fn root_or_ws(
     }
 }
 
-/// 从 `user-config.json` 加载自定义导出目录（issue #192）。
-async fn load_custom_dirs(path_manager: &PathManager) {
+/// 从 `user-config.json` 加载自定义导出目录（issue #192），并返回其中配置的
+/// 定时导出任务上限原始值（issue #720；缺失或类型不符时返回 `None`）。
+async fn load_custom_dirs(path_manager: &PathManager) -> Option<i64> {
     let config_path = path_manager.default_base_dir().join("user-config.json");
     let Ok(raw) = tokio::fs::read_to_string(&config_path).await else {
-        return;
+        return None;
     };
     let Ok(config) = serde_json::from_str::<Value>(&raw) else {
-        return;
+        return None;
     };
     if let Some(dir) = config.get("customOutputDir").and_then(Value::as_str) {
         if !dir.trim().is_empty() {
@@ -563,6 +573,7 @@ async fn load_custom_dirs(path_manager: &PathManager) {
             }
         }
     }
+    config.get("maxScheduledExports").and_then(Value::as_i64)
 }
 
 /// issue #144：把重启后仍是 `queued` / `pending` / `running` 的孤儿任务拍成 `failed`，
