@@ -8,6 +8,7 @@ export interface ConfigData {
   currentExportsDir: string
   currentScheduledExportsDir: string
   autoOpenBrowser: boolean
+  maxScheduledExports: number
 }
 
 interface ConfigResponse extends ConfigData {
@@ -38,6 +39,7 @@ export function useConfig() {
     customOutputDir?: string | null
     customScheduledExportDir?: string | null
     autoOpenBrowser?: boolean
+    maxScheduledExports?: number | null
   }) => {
     try {
       setLoading(true)

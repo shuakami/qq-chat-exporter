@@ -141,6 +141,7 @@ export function SettingsPanel() {
   const { mode, setThemeMode } = useThemeMode()
   const [customOutputDir, setCustomOutputDir] = useState("")
   const [customScheduledExportDir, setCustomScheduledExportDir] = useState("")
+  const [maxScheduledExports, setMaxScheduledExports] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [ipOpen, setIpOpen] = useState(false)
@@ -154,6 +155,7 @@ export function SettingsPanel() {
   const syncFromConfig = () => {
     setCustomOutputDir(config?.customOutputDir || "")
     setCustomScheduledExportDir(config?.customScheduledExportDir || "")
+    setMaxScheduledExports(config?.maxScheduledExports != null ? String(config.maxScheduledExports) : "")
   }
 
   useEffect(() => {
@@ -188,6 +190,20 @@ export function SettingsPanel() {
   const manualDir = config?.customOutputDir || config?.currentExportsDir || DEFAULT_HINT
   const scheduledDir =
     config?.customScheduledExportDir || config?.currentScheduledExportsDir || DEFAULT_HINT
+
+  const parsedMaxScheduledExports = Number.parseInt(maxScheduledExports, 10)
+  const maxScheduledExportsValid =
+    maxScheduledExports.trim() !== "" &&
+    Number.isInteger(parsedMaxScheduledExports) &&
+    parsedMaxScheduledExports >= 1 &&
+    parsedMaxScheduledExports <= 10000
+  const maxScheduledExportsDirty =
+    config != null && String(config.maxScheduledExports) !== maxScheduledExports.trim()
+
+  const handleSaveMaxScheduledExports = async () => {
+    if (!maxScheduledExportsValid) return
+    await updateConfig({ maxScheduledExports: parsedMaxScheduledExports })
+  }
 
   const whitelistEnabled = whitelist ? !whitelist.disabled : false
   const allowedIPs = whitelist?.allowedIPs ?? []
@@ -255,6 +271,44 @@ export function SettingsPanel() {
                 />
               ) : (
                 <div className="h-5 w-9 rounded-full bg-muted-foreground/10" />
+              )}
+            </Row>
+          </Section>
+
+          {/* Export */}
+          <Section title="导出" description="定时导出任务的全局限制">
+            <Row
+              title="定时导出任务上限"
+              description="最多可保存的定时导出任务数量，范围 1-10000"
+            >
+              {config ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10000}
+                    value={maxScheduledExports}
+                    onChange={(e) => setMaxScheduledExports(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        void handleSaveMaxScheduledExports()
+                      }
+                    }}
+                    className="h-8 w-24 rounded-lg border-0 bg-black/[0.03] px-2.5 text-right text-[13px] shadow-none focus-visible:ring-1 dark:bg-white/[0.05]"
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void handleSaveMaxScheduledExports()}
+                    disabled={!maxScheduledExportsValid || !maxScheduledExportsDirty || configLoading}
+                    className="h-8 shrink-0 rounded-full px-3 text-[13px] font-medium text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                  >
+                    保存
+                  </Button>
+                </div>
+              ) : (
+                <div className="h-8 w-32 rounded-lg bg-muted-foreground/10" />
               )}
             </Row>
           </Section>
