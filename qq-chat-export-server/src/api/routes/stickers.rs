@@ -11,6 +11,7 @@ use crate::api::http_security::http_get_bytes;
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
 use crate::market_face;
+use crate::paths::sanitize_task_name;
 
 /// 内嵌系统表情配置（与解析器共用）。
 static FACE_CONFIG: &str = include_str!("../../../assets/face_config.json");
@@ -76,16 +77,11 @@ fn object_result(value: &Value) -> &Value {
         .unwrap_or(value)
 }
 
-fn sanitize(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect()
+/// 表情名 / 包名进入文件系统路径前的统一消毒（issue #721）。
+/// 委托 `sanitize_task_name`：除 Windows 非法字符外还处理控制字符、
+/// 空白折叠、保留设备名、长度上限与 `..` 穿越（消毒后为空回退 `unknown`）。
+fn sanitize(name: &str, max_length: usize) -> String {
+    sanitize_task_name(name, max_length)
 }
 
 /// 收藏表情 → 表情包。
@@ -519,8 +515,8 @@ async fn save_sticker(sticker: &Value, stickers_dir: &FsPath) -> bool {
     let initial_ext = guess_initial_extension(&source);
     let file_name = format!(
         "{}_{}{}",
-        str_of(sticker, "stickerId"),
-        sanitize(&str_of(sticker, "name")),
+        sanitize(&str_of(sticker, "stickerId"), 64),
+        sanitize(&str_of(sticker, "name"), 80),
         initial_ext
     );
     let dest = stickers_dir.join(file_name);
@@ -653,7 +649,7 @@ pub async fn export_sticker_pack(
     let pack_name = str_of(pack, "packName");
     let export_dir = export_base_path(&state).join(format!(
         "{}_{}",
-        sanitize(&pack_name),
+        sanitize(&pack_name, 60),
         chrono::Utc::now().timestamp_millis()
     ));
     let success_count = export_pack_to_dir(&state, pack, &export_dir).await;
@@ -705,7 +701,7 @@ pub async fn export_all_sticker_packs(
 
     let mut total_success = 0usize;
     for pack in &packs {
-        let pack_dir = export_dir.join(sanitize(&str_of(pack, "packName")));
+        let pack_dir = export_dir.join(sanitize(&str_of(pack, "packName"), 60));
         total_success += export_pack_to_dir(&state, pack, &pack_dir).await;
     }
 
@@ -862,8 +858,19 @@ pub async fn sticker_export_records(
 
 #[cfg(test)]
 mod tests {
-    use super::{market_tab_list, parse_market_json, parse_market_pack_info, system_packs};
+    use super::{
+        market_tab_list, parse_market_json, parse_market_pack_info, sanitize, system_packs,
+    };
     use serde_json::json;
+
+    /// issue #721：表情 / 包名进入路径前必须走完整消毒。
+    #[test]
+    fn path_components_are_fully_sanitized() {
+        assert_eq!(sanitize("..", 60), "unknown");
+        assert_eq!(sanitize("我的表情包😀", 60), "我的表情包😀");
+        assert_eq!(sanitize("a/b\\c:d", 60), "a_b_c_d");
+        assert_eq!(sanitize("NUL", 60), "_NUL");
+    }
 
     #[test]
     fn reads_market_tabs_from_wrapped_or_direct_results() {

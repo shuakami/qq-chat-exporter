@@ -364,6 +364,49 @@ fn next_available_path(path: &Path) -> PathBuf {
 mod tests {
     use super::*;
 
+    /// issue #721：群名 / 会话名里的 emoji 与各类"非法"字符进入文件名或
+    /// 目录名前必须被消毒成安全的单个路径组件。
+    #[test]
+    fn sanitize_task_name_handles_special_group_names() {
+        // emoji 原样保留（NTFS / ZIP / URL 均合法）。
+        assert_eq!(sanitize_task_name("测试群😀🔥", 40), "测试群😀🔥");
+        assert_eq!(sanitize_task_name("👨‍👩‍👧‍👦 family", 40), "👨‍👩‍👧‍👦_family");
+
+        // Windows 非法字符全部折叠为下划线。
+        assert_eq!(sanitize_task_name("a<>:\"/\\|?*b", 40), "a_b");
+        // 控制字符与空白折叠。
+        assert_eq!(sanitize_task_name("a\nb\tc", 40), "a_b_c");
+        assert_eq!(sanitize_task_name("a  b   c", 40), "a_b_c");
+
+        // 首尾空白 / 点 / 下划线修剪。
+        assert_eq!(sanitize_task_name("  name.  ", 40), "name");
+        assert_eq!(sanitize_task_name("...name...", 40), "name");
+        assert_eq!(sanitize_task_name("___name___", 40), "name");
+
+        // 纯非法字符 / 纯点 → 回退 unknown（`..` 穿越被消除）。
+        assert_eq!(sanitize_task_name("..", 40), "unknown");
+        assert_eq!(sanitize_task_name("../..", 40), "unknown");
+        assert_eq!(sanitize_task_name("???", 40), "unknown");
+        assert_eq!(sanitize_task_name("", 40), "unknown");
+        assert_eq!(sanitize_task_name("   ", 40), "unknown");
+
+        // Windows 保留设备名（含带扩展名形态）。
+        assert_eq!(sanitize_task_name("CON", 40), "_CON");
+        assert_eq!(sanitize_task_name("con.", 40), "_con");
+        assert_eq!(sanitize_task_name("LPT9.txt", 40), "_LPT9.txt");
+        assert_eq!(sanitize_task_name("COM1", 40), "_COM1");
+        // 非保留名不加前缀。
+        assert_eq!(sanitize_task_name("console", 40), "console");
+        assert_eq!(sanitize_task_name("COM10", 40), "COM10");
+
+        // 超长名字按字符数截断。
+        let long = "测".repeat(100);
+        let safe = sanitize_task_name(&long, 40);
+        assert_eq!(safe.chars().count(), 40);
+        // 截断点恰好落在非法字符上时，残留的下划线被修剪掉。
+        assert_eq!(sanitize_task_name("abcdefghi?jkl", 10), "abcdefghi");
+    }
+
     #[test]
     fn sanitize_removes_quotes() {
         assert_eq!(PathManager::sanitize_path("  \"C:/a b\"  "), "C:/a b");

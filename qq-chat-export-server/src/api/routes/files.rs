@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use crate::api::http_security::http_download_to_file;
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
+use crate::paths::sanitize_task_name;
 
 /// 导出记录保留上限。
 const RECORD_LIMIT: usize = 100;
@@ -61,16 +62,11 @@ fn num_of(value: &Value, key: &str) -> i64 {
     }
 }
 
-fn sanitize(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
-                '_'
-            } else {
-                c
-            }
-        })
-        .collect()
+/// 群名 / 文件夹名 / 文件名进入文件系统路径前的统一消毒（issue #721）。
+/// 委托 `sanitize_task_name`：除 Windows 非法字符外还处理控制字符、
+/// 空白折叠、保留设备名、长度上限与 `..` 穿越（消毒后为空回退 `unknown`）。
+fn sanitize(name: &str, max_length: usize) -> String {
+    sanitize_task_name(name, max_length)
 }
 
 fn now_iso() -> String {
@@ -378,8 +374,8 @@ pub async fn export_group_files_metadata(
     let id = export_id();
     let export_dir = export_base_path(&state).join(format!(
         "{}_{}_{}",
-        sanitize(&group_name),
-        group_code,
+        sanitize(&group_name, 60),
+        sanitize(&group_code, 32),
         chrono::Utc::now().timestamp_millis()
     ));
     if let Err(error) = tokio::fs::create_dir_all(&export_dir).await {
@@ -502,8 +498,8 @@ pub async fn export_group_files_with_download(
     let id = export_id();
     let export_dir = export_base_path(&state).join(format!(
         "{}_{}_{}",
-        sanitize(&group_name),
-        group_code,
+        sanitize(&group_name, 60),
+        sanitize(&group_code, 32),
         chrono::Utc::now().timestamp_millis()
     ));
     if let Err(error) = tokio::fs::create_dir_all(&export_dir).await {
@@ -528,7 +524,7 @@ pub async fn export_group_files_with_download(
             .get(&parent)
             .cloned()
             .unwrap_or_else(|| export_dir.clone());
-        let folder_path = parent_path.join(sanitize(&str_of(folder, "folderName")));
+        let folder_path = parent_path.join(sanitize(&str_of(folder, "folderName"), 60));
         let _ = tokio::fs::create_dir_all(&folder_path).await;
         folder_paths.insert(str_of(folder, "folderId"), folder_path);
     }
@@ -541,7 +537,7 @@ pub async fn export_group_files_with_download(
             .get(&parent)
             .cloned()
             .unwrap_or_else(|| export_dir.clone());
-        let file_path = parent_path.join(sanitize(&str_of(file, "fileName")));
+        let file_path = parent_path.join(sanitize(&str_of(file, "fileName"), 120));
 
         state.broadcast_ws(&json!({
             "type": "group_files_export_progress",
@@ -614,8 +610,19 @@ pub async fn export_group_files_with_download(
 
 #[cfg(test)]
 mod tests {
-    use super::group_file_list_params;
+    use super::{group_file_list_params, sanitize};
     use serde_json::Value;
+
+    /// issue #721：群文件 / 文件夹名进入路径前必须走完整消毒
+    /// （`..` 穿越、控制字符、保留名、emoji）。
+    #[test]
+    fn path_components_are_fully_sanitized() {
+        assert_eq!(sanitize("..", 60), "unknown");
+        assert_eq!(sanitize("报告/最终版?.docx", 120), "报告_最终版_.docx");
+        assert_eq!(sanitize("CON", 60), "_CON");
+        assert_eq!(sanitize("测试群😀", 60), "测试群😀");
+        assert_eq!(sanitize("a\nb", 60), "a_b");
+    }
 
     #[test]
     fn root_folder_sends_root_folder_id() {
