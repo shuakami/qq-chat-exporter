@@ -192,7 +192,32 @@ export function createMockCore(config: MockConfig = {}): MockNapCatCore {
 
         async getMultiMsg(params) {
             track('MsgApi.getMultiMsg', [params]);
-            // Look up forward by resId or rootMsgId across all conversations
+            // 对齐内核 `getMultiMsg(peer, rootMsgId, parentMsgId)` 语义：
+            // 返回由 parentMsgId 承载的那条合并转发的直接子消息；rootMsgId
+            // 只用于嵌套定位（取最外层转发消息的 msgId）。承载消息本身可能
+            // 是外层转发 records 里的内层消息，因此需要递归查找。
+            const findMsgById = (msgs: RawMessage[] | undefined, id: string, depth = 0): RawMessage | undefined => {
+                if (!msgs || depth > 4) return undefined;
+                for (const m of msgs) {
+                    if (m.msgId === id) return m;
+                    const hit = findMsgById((m as { records?: RawMessage[] }).records, id, depth + 1);
+                    if (hit) return hit;
+                }
+                return undefined;
+            };
+            const parentId = params.parentMsgId;
+            if (parentId) {
+                for (const conv of conversations) {
+                    const host = findMsgById(conv.messages, parentId);
+                    const records = (host as { records?: RawMessage[] } | undefined)?.records;
+                    if (Array.isArray(records)) {
+                        return { msgList: records };
+                    }
+                }
+            }
+            // resId / forwardId / rootMsgId 兜底（对应 NapCat FetchForwardMsg(resId)
+            // 一类按资源 ID 拉取的旁路；内核 getMultiMsg 本身不接受 resId）。
+            // 注意：本目录源码受 NapCat 敏感词扫描，注释中避免使用被禁词。
             const target = params.forwardId ?? params.resId ?? params.rootMsgId;
             if (!target) return { msgList: [] };
             for (const conv of conversations) {
