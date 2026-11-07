@@ -10,19 +10,17 @@ use crate::api::response::{self, ApiError, RequestId};
 use crate::api::state::SharedState;
 use crate::paths::PathManager;
 
-const MAX_SCHEDULED_EXPORTS: usize = 128;
 const MAX_NAME_LENGTH: usize = 128;
 const MAX_IDENTIFIER_LENGTH: usize = 256;
-const MAX_TRIGGER_BATCH_SIZE: usize = MAX_SCHEDULED_EXPORTS;
 
-fn parse_trigger_ids(body: &Value) -> Result<Vec<String>, ApiError> {
+fn parse_trigger_ids(body: &Value, max_batch_size: usize) -> Result<Vec<String>, ApiError> {
     let ids = body
         .get("ids")
         .and_then(Value::as_array)
         .ok_or_else(|| ApiError::validation("ids 必须是数组", "INVALID_TRIGGER_IDS"))?;
-    if ids.is_empty() || ids.len() > MAX_TRIGGER_BATCH_SIZE {
+    if ids.is_empty() || ids.len() > max_batch_size {
         return Err(ApiError::validation(
-            format!("ids 数量必须在 1 到 {MAX_TRIGGER_BATCH_SIZE} 之间"),
+            format!("ids 数量必须在 1 到 {max_batch_size} 之间"),
             "INVALID_TRIGGER_IDS",
         ));
     }
@@ -263,12 +261,14 @@ pub async fn create_scheduled_export(
     if let Err(err) = validate_output_dir(&state.path_manager, &body) {
         return response::error(&err, &request_id);
     }
+    // issue #720：任务数量上限来自运行时配置（/api/config 或
+    // QCE_MAX_SCHEDULED_EXPORTS），不再写死 128。
     if state
         .scheduled_export_manager
         .all_scheduled_exports()
         .await
         .len()
-        >= MAX_SCHEDULED_EXPORTS
+        >= state.max_scheduled_exports()
     {
         let err = ApiError::validation("定时导出任务已达到上限", "SCHEDULE_LIMIT_REACHED");
         return response::error(&err, &request_id);
@@ -325,7 +325,7 @@ pub async fn trigger_scheduled_exports(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Json(body): Json<Value>,
 ) -> Response {
-    let ids = match parse_trigger_ids(&body) {
+    let ids = match parse_trigger_ids(&body, state.max_scheduled_exports()) {
         Ok(ids) => ids,
         Err(err) => return response::error(&err, &request_id),
     };
@@ -359,7 +359,7 @@ pub async fn update_scheduled_exports(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Json(body): Json<Value>,
 ) -> Response {
-    let ids = match parse_trigger_ids(&body) {
+    let ids = match parse_trigger_ids(&body, state.max_scheduled_exports()) {
         Ok(ids) => ids,
         Err(err) => return response::error(&err, &request_id),
     };
@@ -396,7 +396,7 @@ pub async fn delete_scheduled_exports(
     Extension(RequestId(request_id)): Extension<RequestId>,
     Json(body): Json<Value>,
 ) -> Response {
-    let ids = match parse_trigger_ids(&body) {
+    let ids = match parse_trigger_ids(&body, state.max_scheduled_exports()) {
         Ok(ids) => ids,
         Err(err) => return response::error(&err, &request_id),
     };
@@ -580,12 +580,23 @@ mod tests {
     #[test]
     fn validates_and_deduplicates_batch_trigger_ids() {
         assert_eq!(
-            parse_trigger_ids(&json!({ "ids": ["a", "b", "a"] })).expect("valid ids"),
+            parse_trigger_ids(&json!({ "ids": ["a", "b", "a"] }), 128).expect("valid ids"),
             vec!["a".to_owned(), "b".to_owned()]
         );
-        assert!(parse_trigger_ids(&json!({ "ids": [] })).is_err());
-        assert!(parse_trigger_ids(&json!({ "ids": [1] })).is_err());
-        assert!(parse_trigger_ids(&json!({})).is_err());
+        assert!(parse_trigger_ids(&json!({ "ids": [] }), 128).is_err());
+        assert!(parse_trigger_ids(&json!({ "ids": [1] }), 128).is_err());
+        assert!(parse_trigger_ids(&json!({}), 128).is_err());
+    }
+
+    /// issue #720：批量操作上限跟随可配置的任务数量上限。
+    #[test]
+    fn batch_trigger_ids_respect_configured_limit() {
+        let ids = json!({ "ids": ["a", "b", "c"] });
+        assert!(parse_trigger_ids(&ids, 2).is_err());
+        assert_eq!(
+            parse_trigger_ids(&ids, 3).expect("ids within configured limit"),
+            vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]
+        );
     }
 
     #[test]

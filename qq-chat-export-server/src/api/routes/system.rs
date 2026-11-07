@@ -4,7 +4,10 @@ use axum::Json;
 use serde_json::{json, Value};
 
 use crate::api::response::{self, ApiError, ErrorType, RequestId};
-use crate::api::state::SharedState;
+use crate::api::state::{
+    SharedState, DEFAULT_MAX_SCHEDULED_EXPORTS, MAX_CONFIGURABLE_SCHEDULED_EXPORTS,
+    MIN_MAX_SCHEDULED_EXPORTS,
+};
 use crate::paths::PathManager;
 use crate::version::{APP_COPYRIGHT, APP_NAME, VERSION};
 
@@ -15,6 +18,43 @@ enum ConfigPathUpdate {
     Missing,
     Clear,
     Set(String),
+}
+
+/// `maxScheduledExports` 更新解析结果（issue #720）。
+#[derive(Debug, PartialEq, Eq)]
+enum MaxScheduledExportsUpdate {
+    /// 请求未携带该字段，保持现状。
+    Missing,
+    /// 显式传 `null`，恢复默认上限。
+    Reset,
+    /// 设置为指定上限。
+    Set(usize),
+}
+
+/// 解析 `maxScheduledExports` 字段：缺失保持现状，`null` 恢复默认，
+/// 整数必须落在允许区间内。
+fn parse_max_scheduled_exports_update(body: &Value) -> Result<MaxScheduledExportsUpdate, ApiError> {
+    let Some(value) = body.get("maxScheduledExports") else {
+        return Ok(MaxScheduledExportsUpdate::Missing);
+    };
+    if value.is_null() {
+        return Ok(MaxScheduledExportsUpdate::Reset);
+    }
+    let parsed = value
+        .as_i64()
+        .and_then(|raw| usize::try_from(raw).ok())
+        .filter(|raw| {
+            (MIN_MAX_SCHEDULED_EXPORTS..=MAX_CONFIGURABLE_SCHEDULED_EXPORTS).contains(raw)
+        });
+    match parsed {
+        Some(limit) => Ok(MaxScheduledExportsUpdate::Set(limit)),
+        None => Err(ApiError::validation(
+            format!(
+                "maxScheduledExports 必须是 {MIN_MAX_SCHEDULED_EXPORTS} 到 {MAX_CONFIGURABLE_SCHEDULED_EXPORTS} 之间的整数"
+            ),
+            "INVALID_MAX_SCHEDULED_EXPORTS",
+        )),
+    }
 }
 
 fn parse_config_path(body: &Value, key: &str) -> Result<ConfigPathUpdate, ApiError> {
@@ -286,6 +326,7 @@ pub async fn get_config(
         json!({
             "customOutputDir": config.get("customOutputDir").cloned().unwrap_or(Value::Null),
             "customScheduledExportDir": config.get("customScheduledExportDir").cloned().unwrap_or(Value::Null),
+            "maxScheduledExports": state.max_scheduled_exports(),
             "currentExportsDir": state.path_manager.exports_dir(),
             "currentScheduledExportsDir": state.path_manager.scheduled_exports_dir(),
             "autoOpenBrowser": read_auto_open_browser(&config),
@@ -330,6 +371,10 @@ pub async fn put_config(
             );
             return response::error(&err, &request_id);
         }
+    };
+    let max_scheduled_exports = match parse_max_scheduled_exports_update(&body) {
+        Ok(update) => update,
+        Err(err) => return response::error(&err, &request_id),
     };
     let config_path = state
         .path_manager
@@ -377,6 +422,24 @@ pub async fn put_config(
 
     if let Some(value) = auto_open_browser {
         config_obj.insert("autoOpenBrowser".to_string(), Value::Bool(value));
+    }
+
+    // issue #720：maxScheduledExports 持久化到 user-config.json，运行时上限即时更新。
+    let resolved_max_scheduled = match &max_scheduled_exports {
+        MaxScheduledExportsUpdate::Missing => None,
+        MaxScheduledExportsUpdate::Reset => {
+            config_obj.remove("maxScheduledExports");
+            Some(DEFAULT_MAX_SCHEDULED_EXPORTS)
+        }
+        MaxScheduledExportsUpdate::Set(limit) => {
+            config_obj.insert("maxScheduledExports".to_string(), json!(limit));
+            Some(*limit)
+        }
+    };
+    if let Some(limit) = resolved_max_scheduled {
+        state
+            .max_scheduled_exports
+            .store(limit, std::sync::atomic::Ordering::Relaxed);
     }
 
     let Ok(serialized) = serde_json::to_string_pretty(&config) else {
@@ -438,6 +501,7 @@ pub async fn put_config(
             "message": "配置更新成功",
             "customOutputDir": config.get("customOutputDir").cloned().unwrap_or(Value::Null),
             "customScheduledExportDir": config.get("customScheduledExportDir").cloned().unwrap_or(Value::Null),
+            "maxScheduledExports": state.max_scheduled_exports(),
             "currentExportsDir": state.path_manager.exports_dir(),
             "currentScheduledExportsDir": state.path_manager.scheduled_exports_dir(),
             "autoOpenBrowser": read_auto_open_browser(&config),
@@ -448,7 +512,11 @@ pub async fn put_config(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_config_path, ConfigPathUpdate};
+    use super::{
+        parse_config_path, parse_max_scheduled_exports_update, ConfigPathUpdate,
+        MaxScheduledExportsUpdate, DEFAULT_MAX_SCHEDULED_EXPORTS,
+        MAX_CONFIGURABLE_SCHEDULED_EXPORTS, MIN_MAX_SCHEDULED_EXPORTS,
+    };
     use serde_json::json;
 
     #[test]
@@ -463,6 +531,61 @@ mod tests {
             parse_config_path(&json!({ "customOutputDir": null }), "customOutputDir")
                 .expect("null is valid"),
             ConfigPathUpdate::Clear
+        );
+    }
+
+    /// issue #720：maxScheduledExports 缺失保持现状、null 恢复默认、
+    /// 区间内整数生效、越界与非整数拒绝。
+    #[test]
+    fn max_scheduled_exports_update_parsing() {
+        assert_eq!(
+            parse_max_scheduled_exports_update(&json!({})).expect("missing is valid"),
+            MaxScheduledExportsUpdate::Missing
+        );
+        assert_eq!(
+            parse_max_scheduled_exports_update(&json!({ "maxScheduledExports": null }))
+                .expect("null resets"),
+            MaxScheduledExportsUpdate::Reset
+        );
+        assert_eq!(
+            parse_max_scheduled_exports_update(&json!({ "maxScheduledExports": 256 }))
+                .expect("in-range value"),
+            MaxScheduledExportsUpdate::Set(256)
+        );
+        assert_eq!(
+            parse_max_scheduled_exports_update(&json!({
+                "maxScheduledExports": MIN_MAX_SCHEDULED_EXPORTS
+            }))
+            .expect("min bound"),
+            MaxScheduledExportsUpdate::Set(MIN_MAX_SCHEDULED_EXPORTS)
+        );
+        assert_eq!(
+            parse_max_scheduled_exports_update(&json!({
+                "maxScheduledExports": MAX_CONFIGURABLE_SCHEDULED_EXPORTS
+            }))
+            .expect("max bound"),
+            MaxScheduledExportsUpdate::Set(MAX_CONFIGURABLE_SCHEDULED_EXPORTS)
+        );
+
+        for invalid in [
+            json!(0),
+            json!(-1),
+            json!(MAX_CONFIGURABLE_SCHEDULED_EXPORTS + 1),
+            json!(1.5),
+            json!("256"),
+            json!(true),
+        ] {
+            assert!(
+                parse_max_scheduled_exports_update(&json!({ "maxScheduledExports": invalid }))
+                    .is_err(),
+                "invalid value must be rejected: {invalid}"
+            );
+        }
+
+        // 默认值本身必须落在允许区间内。
+        assert!(
+            (MIN_MAX_SCHEDULED_EXPORTS..=MAX_CONFIGURABLE_SCHEDULED_EXPORTS)
+                .contains(&DEFAULT_MAX_SCHEDULED_EXPORTS)
         );
     }
 }
