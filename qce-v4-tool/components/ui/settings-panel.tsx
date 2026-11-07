@@ -191,7 +191,7 @@ export function SettingsPanel() {
   const scheduledDir =
     config?.customScheduledExportDir || config?.currentScheduledExportsDir || DEFAULT_HINT
 
-  const parsedMaxScheduledExports = Number.parseInt(maxScheduledExports, 10)
+  const parsedMaxScheduledExports = Number(maxScheduledExports)
   const maxScheduledExportsValid =
     maxScheduledExports.trim() !== "" &&
     Number.isInteger(parsedMaxScheduledExports) &&
