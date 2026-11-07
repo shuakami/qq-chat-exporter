@@ -2601,6 +2601,11 @@ async fn process_export_task(
                 .set_skip_download_types(Some(&normalized_skip_types))
                 .await;
         }
+        // Issue #663：文件/视频下载大小上限（字节），0 表示不限制。
+        state
+            .resource_handler
+            .set_download_size_limits_from_options(&req.options)
+            .await;
     }
 
     let total_chunks = spool.count().div_ceil(RAW_SPOOL_CHUNK_SIZE).max(1);
@@ -2730,6 +2735,7 @@ async fn process_export_task(
     if !filter_pure_image {
         state.resource_handler.set_progress_callback(None).await;
         state.resource_handler.set_skip_download_types(None).await;
+        state.resource_handler.set_download_size_limits(0, 0).await;
     }
     drop(resource_session_guard);
 

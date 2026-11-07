@@ -2851,10 +2851,6 @@ fn render_forward_element(exporter: &ModernHtmlExporter, data: &Value, depth: us
                 .and_then(Value::as_str)
                 .unwrap_or("");
             let text: String = normalize_whitespace(text_raw);
-            let (mut trimmed, truncated) = utf16_slice(&text, 60);
-            if truncated {
-                trimmed.push('…');
-            }
             let element_html: String = m
                 .get("content")
                 .and_then(|c| c.get("elements"))
@@ -2886,7 +2882,7 @@ fn render_forward_element(exporter: &ModernHtmlExporter, data: &Value, depth: us
             let body_text = if !element_html.is_empty() && body_is_media_placeholder {
                 String::new()
             } else {
-                trimmed
+                text
             };
             let body_html = if body_text.is_empty() {
                 String::new()
@@ -3803,7 +3799,7 @@ mod tests {
             ]),
             "[一箱猫猫]",
         );
-        assert!(extract_plain_text(&sticker_only).is_empty());
+        assert_eq!(extract_plain_text(&sticker_only), "");
     }
 
     #[test]
@@ -3834,7 +3830,10 @@ mod tests {
             media_dimension_attributes(&json!({ "width": 640, "height": 480 })),
             " width=\"640\" height=\"480\""
         );
-        assert!(media_dimension_attributes(&json!({ "width": 0, "height": 480 })).is_empty());
+        assert_eq!(
+            media_dimension_attributes(&json!({ "width": 0, "height": 480 })),
+            ""
+        );
 
         let avatar = generate_avatar_html(Some("10001"), Some("测试用户"));
         assert!(avatar.contains("class=\"avatar-fallback\""));
@@ -3904,5 +3903,49 @@ mod tests {
         );
         assert!(keyboard.contains("native-card-inline-keyboard"));
         assert!(keyboard.contains("native-card-action\">确认"));
+    }
+
+    #[test]
+    fn forward_card_renders_all_inner_messages_without_truncation() {
+        // issue #707：合并转发卡片必须渲染全部子消息，长文本不再被 "…" 截断。
+        use super::{render_forward_element, HtmlExportOptions, ModernHtmlExporter};
+
+        let exporter = ModernHtmlExporter::new(HtmlExportOptions {
+            output_path: std::path::PathBuf::from("forward-test.html"),
+            ..HtmlExportOptions::default()
+        });
+        let long_text = "长消息内容".repeat(30);
+        let inner: Vec<serde_json::Value> = (1..=6)
+            .map(|i| {
+                json!({
+                    "id": format!("m{i}"),
+                    "sender": { "name": format!("成员{i}") },
+                    "content": {
+                        "text": if i == 6 { long_text.clone() } else { format!("第{i}条") },
+                        "elements": []
+                    }
+                })
+            })
+            .collect();
+        let data = json!({
+            "title": "聊天记录",
+            "messageCount": 6,
+            "preview": [],
+            "messages": inner
+        });
+
+        let html = render_forward_element(&exporter, &data, 0);
+        for i in 1..=6 {
+            assert!(html.contains(&format!("成员{i}")), "missing sender {i}");
+        }
+        assert!(
+            html.contains(&long_text),
+            "long inner text must not be truncated"
+        );
+        assert!(
+            html.contains("forward-card-extra"),
+            "lines beyond the first four are collapsible"
+        );
+        assert!(html.contains("展开全部 6 条"));
     }
 }

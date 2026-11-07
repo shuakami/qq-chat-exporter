@@ -180,6 +180,10 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
                     .set_skip_download_types(Some(&normalized_skip_types))
                     .await;
             }
+            // Issue #663：文件/视频下载大小上限（字节），0 表示不限制。
+            self.resource_handler
+                .set_download_size_limits_from_options(&options)
+                .await;
         }
 
         let mut parser = SimpleMessageParser::new(SimpleParserOptions {
@@ -287,6 +291,7 @@ impl ScheduledExportExecutor for ApiScheduledExportExecutor {
         if !skip_resource_downloads {
             self.resource_handler.set_progress_callback(None).await;
             self.resource_handler.set_skip_download_types(None).await;
+            self.resource_handler.set_download_size_limits(0, 0).await;
         }
         drop(resource_session_guard);
 

@@ -164,6 +164,13 @@ struct ProgressCounters {
     failed: usize,
 }
 
+/// 单类资源下载大小上限（字节）。0 表示该类型不限制（issue #663）。
+#[derive(Debug, Clone, Copy, Default)]
+struct DownloadSizeLimits {
+    file_bytes: u64,
+    video_bytes: u64,
+}
+
 /// 下载任务。
 struct DownloadTask {
     resource: Arc<Mutex<ResourceInfo>>,
@@ -192,6 +199,7 @@ pub struct ResourceHandler {
     circuit_breaker: CircuitBreaker,
     health_checker: ResourceHealthChecker,
     skip_download_types: Mutex<HashSet<String>>,
+    download_size_limits: Mutex<DownloadSizeLimits>,
     progress_callback: Mutex<Option<ResourceProgressCallback>>,
     progress: Mutex<ProgressCounters>,
     last_batch_summary: Mutex<ResourceBatchSummary>,
@@ -223,6 +231,7 @@ impl ResourceHandler {
             ),
             health_checker: ResourceHealthChecker::new(),
             skip_download_types: Mutex::new(HashSet::new()),
+            download_size_limits: Mutex::new(DownloadSizeLimits::default()),
             progress_callback: Mutex::new(None),
             progress: Mutex::new(ProgressCounters::default()),
             last_batch_summary: Mutex::new(ResourceBatchSummary::default()),
@@ -268,6 +277,26 @@ impl ResourceHandler {
         if let Some(types) = types {
             skip.extend(types.iter().cloned());
         }
+    }
+
+    /// 配置文件/视频资源的下载大小上限（字节，issue #663）。
+    /// 0 表示该类型不限制；已知大小严格大于上限的资源只保留元数据，不发起下载。
+    pub async fn set_download_size_limits(&self, file_bytes: u64, video_bytes: u64) {
+        *self.download_size_limits.lock().await = DownloadSizeLimits {
+            file_bytes,
+            video_bytes,
+        };
+    }
+
+    /// 按导出选项配置文件/视频下载大小上限（issue #663）。
+    /// 读取 `maxFileDownloadSizeBytes` / `maxVideoDownloadSizeBytes`（JSON 数字，字节）；
+    /// 缺省、null、0 或负数一律视为不限制。
+    pub async fn set_download_size_limits_from_options(&self, options: &Value) {
+        self.set_download_size_limits(
+            download_size_limit_bytes(options, "maxFileDownloadSizeBytes"),
+            download_size_limit_bytes(options, "maxVideoDownloadSizeBytes"),
+        )
+        .await;
     }
 
     /// 独占一次导出任务的完整资源处理阶段。
@@ -375,6 +404,9 @@ impl ResourceHandler {
             let peer_uid = str_field(message, "peerUid")
                 .unwrap_or_default()
                 .to_string();
+            // issue #718：合并转发内层消息的媒体要按外层卡片的根 msgId + 会话寻址下载。
+            let (download_msg_id, download_chat_type, download_peer_uid) =
+                forwarded_download_addressing(message, &msg_id, chat_type, &peer_uid);
             let Some(elements) = message.get("elements").and_then(Value::as_array) else {
                 continue;
             };
@@ -398,9 +430,9 @@ impl ResourceHandler {
                     let shared = Arc::new(Mutex::new(resource));
                     tasks.push(DownloadTask {
                         resource: Arc::clone(&shared),
-                        msg_id: msg_id.clone(),
-                        chat_type,
-                        peer_uid: peer_uid.clone(),
+                        msg_id: download_msg_id.clone(),
+                        chat_type: download_chat_type,
+                        peer_uid: download_peer_uid.clone(),
                         element_id,
                         element: element.clone(),
                         priority: calculate_priority(&*shared.lock().await),
@@ -506,13 +538,9 @@ impl ResourceHandler {
             resource.status = "downloaded".to_string();
             resource.last_error = None;
             InitialState::Available
-        } else if self
-            .skip_download_types
-            .lock()
-            .await
-            .contains(&resource.resource_type)
-        {
-            // Issue #341: 命中跳过类型的资源不入下载队列，仅保留元数据。
+        } else if self.should_skip_download(&resource).await {
+            // Issue #341 / #663：命中跳过类型或超过下载大小上限的资源不入下载
+            // 队列，仅保留文件名、大小、md5 等元数据。
             resource.status = "skipped".to_string();
             resource.accessible = false;
             resource.local_path = Some(String::new());
@@ -526,6 +554,30 @@ impl ResourceHandler {
             tracing::warn!("保存资源信息失败: {error}");
         }
         Some((resource, initial))
+    }
+
+    /// 判断资源是否应跳过下载：类型命中跳过列表，或已知大小严格超过对应上限
+    /// （issue #663）。大小未知（<=0）时照常下载，恰好等于上限也下载。
+    async fn should_skip_download(&self, resource: &ResourceInfo) -> bool {
+        if self
+            .skip_download_types
+            .lock()
+            .await
+            .contains(&resource.resource_type)
+        {
+            return true;
+        }
+        let limits = *self.download_size_limits.lock().await;
+        let limit = match resource.resource_type.as_str() {
+            "file" => limits.file_bytes,
+            "video" => limits.video_bytes,
+            _ => 0,
+        };
+        if limit == 0 {
+            return false;
+        }
+        let size = resource.file_size.unwrap_or(0);
+        size > 0 && u64::try_from(size).is_ok_and(|bytes| bytes > limit)
     }
 
     /// 与数据库缓存记录合并。
@@ -1011,6 +1063,46 @@ fn str_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
+/// 解析导出选项中的下载大小上限（issue #663）。
+/// `maxFileDownloadSizeBytes` / `maxVideoDownloadSizeBytes` 为 JSON 数字（字节）；
+/// 缺省、null、0、负数或无法解析的值一律视为不限制（返回 0）。
+pub fn download_size_limit_bytes(options: &Value, key: &str) -> u64 {
+    options
+        .get(key)
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .map_or(0, |value| value as u64)
+}
+
+/// 合并转发内层消息的资源下载寻址（issue #718）。
+/// NapCat 富媒体接口按"根转发消息 msgId + 卡片所在会话"解析子元素
+/// （与 NapCat 自身对合并转发视频使用 `parentMsgIdList[0]` 的约定一致）；
+/// 解析器会把该信息注入 `_qceForward*` 字段。普通消息直接使用自身寻址。
+fn forwarded_download_addressing(
+    message: &Value,
+    msg_id: &str,
+    chat_type: i64,
+    peer_uid: &str,
+) -> (String, i64, String) {
+    let Some(root_msg_id) =
+        str_field(message, "_qceForwardRootMsgId").filter(|value| !value.is_empty())
+    else {
+        return (msg_id.to_string(), chat_type, peer_uid.to_string());
+    };
+    let forward_chat_type = message
+        .get("_qceForwardChatType")
+        .and_then(Value::as_i64)
+        .unwrap_or(chat_type);
+    let forward_peer_uid = str_field(message, "_qceForwardPeerUid")
+        .filter(|value| !value.is_empty())
+        .unwrap_or(peer_uid);
+    (
+        root_msg_id.to_string(),
+        forward_chat_type,
+        forward_peer_uid.to_string(),
+    )
+}
+
 /// 判断是否为媒体元素（直接检查元素属性）。
 fn is_media_element(element: &Value) -> bool {
     ["picElement", "videoElement", "pttElement", "fileElement"]
@@ -1051,6 +1143,13 @@ fn extract_resource_info(element: &Value) -> Option<ResourceInfo> {
                 None
             } else {
                 Some(md5_from_file_name)
+            })
+            .or_else(|| {
+                // NapCat videoElement 的真实字段是 videoMd5 / fileMd5（issue #663）。
+                str_field(video, "videoMd5")
+                    .or_else(|| str_field(video, "fileMd5"))
+                    .filter(|s| !s.is_empty())
+                    .map(ToString::to_string)
             })
             .or_else(|| {
                 str_field(video, "fileUuid")
@@ -1728,5 +1827,219 @@ mod tests {
             "Cannot read properties of undefined (reading 'GetGroupVideoUrl')"
         ));
         assert!(!is_retriable_error("packet cant get video url"));
+    }
+
+    /* ------------------------- issue #663 / #718 ------------------------- */
+
+    struct RecordingDownloader {
+        calls: Mutex<Vec<(String, i64, String, String)>>,
+        write_output: bool,
+    }
+
+    #[async_trait]
+    impl MediaDownloader for RecordingDownloader {
+        async fn download_media(
+            &self,
+            msg_id: &str,
+            chat_type: i64,
+            peer_uid: &str,
+            element_id: &str,
+            dest_path: &str,
+            _timeout_ms: u64,
+        ) -> Result<String, String> {
+            self.calls.lock().await.push((
+                msg_id.to_string(),
+                chat_type,
+                peer_uid.to_string(),
+                element_id.to_string(),
+            ));
+            if self.write_output {
+                tokio::fs::write(dest_path, b"payload")
+                    .await
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok(dest_path.to_string())
+        }
+    }
+
+    async fn recording_handler(downloader: Arc<RecordingDownloader>) -> Arc<ResourceHandler> {
+        let root =
+            std::env::temp_dir().join(format!("qce-size-limit-{}", uuid::Uuid::new_v4().simple()));
+        Arc::new(
+            ResourceHandler::new(
+                downloader,
+                None,
+                Arc::new(DatabaseManager::new(&root.join("qce.db"))),
+                ResourceHandlerConfig {
+                    storage_root: root,
+                    ..ResourceHandlerConfig::default()
+                },
+            )
+            .await,
+        )
+    }
+
+    #[test]
+    fn download_size_limit_bytes_follows_option_contract() {
+        let key = "maxFileDownloadSizeBytes";
+        // 缺省 / null / 0 / 负数 / 非数字 → 不限制（0）。
+        assert_eq!(download_size_limit_bytes(&json!({}), key), 0);
+        assert_eq!(download_size_limit_bytes(&json!({ key: null }), key), 0);
+        assert_eq!(download_size_limit_bytes(&json!({ key: 0 }), key), 0);
+        assert_eq!(download_size_limit_bytes(&json!({ key: -10 }), key), 0);
+        assert_eq!(
+            download_size_limit_bytes(&json!({ key: "1048576" }), key),
+            0
+        );
+        // 正数 → 字节上限；浮点数字同样按字节处理。
+        assert_eq!(
+            download_size_limit_bytes(&json!({ key: 1_048_576 }), key),
+            1_048_576
+        );
+        assert_eq!(
+            download_size_limit_bytes(&json!({ key: 1_048_576.0 }), key),
+            1_048_576
+        );
+    }
+
+    #[tokio::test]
+    async fn oversized_file_and_video_skip_download_but_keep_metadata() {
+        let downloader = Arc::new(RecordingDownloader {
+            calls: Mutex::new(Vec::new()),
+            write_output: true,
+        });
+        let handler = recording_handler(downloader.clone()).await;
+        handler.set_download_size_limits(1_000, 500).await;
+
+        let messages = vec![json!({
+            "msgId": "m1",
+            "chatType": 2,
+            "peerUid": "g1",
+            "elements": [
+                { "elementId": "e-file", "fileElement": {
+                    "fileName": "big.bin", "fileSize": "2000", "fileMd5": "md5file" } },
+                { "elementId": "e-video", "videoElement": {
+                    "fileName": "clip.mp4", "fileSize": 600, "videoMd5": "md5video" } },
+                { "elementId": "e-image", "picElement": {
+                    "fileName": "pic.jpg", "fileSize": 100, "md5HexStr": "md5img" } }
+            ]
+        })];
+        let map = handler.process_message_resources(&messages).await;
+        let resources = map.get("m1").expect("resources for m1");
+
+        let file = resources
+            .iter()
+            .find(|r| r.resource_type == "file")
+            .expect("file resource");
+        assert_eq!(file.status, "skipped");
+        assert!(!file.accessible);
+        assert_eq!(file.local_path.as_deref(), Some(""));
+        // 元数据必须保留：文件名、大小、md5。
+        assert_eq!(file.file_name.as_deref(), Some("big.bin"));
+        assert_eq!(file.file_size, Some(2000));
+        assert_eq!(file.md5, "md5file");
+
+        let video = resources
+            .iter()
+            .find(|r| r.resource_type == "video")
+            .expect("video resource");
+        assert_eq!(video.status, "skipped");
+        assert_eq!(video.file_name.as_deref(), Some("clip.mp4"));
+        assert_eq!(video.file_size, Some(600));
+
+        // 图片没有大小上限，照常下载。
+        let image = resources
+            .iter()
+            .find(|r| r.resource_type == "image")
+            .expect("image resource");
+        assert_eq!(image.status, "downloaded");
+        assert!(image
+            .local_path
+            .as_deref()
+            .is_some_and(|path| !path.is_empty()));
+
+        // 只有图片发起了下载请求。
+        let calls = downloader.calls.lock().await;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].3, "e-image");
+    }
+
+    #[tokio::test]
+    async fn size_limit_boundary_and_non_positive_options() {
+        let downloader = Arc::new(RecordingDownloader {
+            calls: Mutex::new(Vec::new()),
+            write_output: true,
+        });
+        let handler = recording_handler(downloader.clone()).await;
+        // 恰好等于上限必须下载；未知大小必须下载；负数视为不限制。
+        handler
+            .set_download_size_limits_from_options(&json!({
+                "maxFileDownloadSizeBytes": 100,
+                "maxVideoDownloadSizeBytes": -1,
+                "unrelated": null
+            }))
+            .await;
+
+        let messages = vec![json!({
+            "msgId": "m2",
+            "chatType": 1,
+            "peerUid": "u1",
+            "elements": [
+                // fileSize == 上限 → 下载
+                { "elementId": "e-eq", "fileElement": {
+                    "fileName": "eq.bin", "fileSize": 100, "fileMd5": "mdeq" } },
+                // fileSize 缺失（未知）→ 下载
+                { "elementId": "e-unknown", "fileElement": {
+                    "fileName": "unknown.bin", "fileMd5": "mdunknown" } },
+                // video 上限为负数 → 不限制 → 下载
+                { "elementId": "e-video", "videoElement": {
+                    "fileName": "big.mp4", "fileSize": 999_999_999 } }
+            ]
+        })];
+        let map = handler.process_message_resources(&messages).await;
+        let resources = map.get("m2").expect("resources for m2");
+        for resource in resources {
+            assert_eq!(
+                resource.status, "downloaded",
+                "{} should download: {resource:?}",
+                resource.resource_type
+            );
+        }
+        assert_eq!(downloader.calls.lock().await.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn forwarded_media_download_uses_outer_card_addressing() {
+        // issue #718：合并转发内层消息的下载要使用外层卡片根 msgId 与会话，
+        // 但资源映射仍以子消息 msgId 为键以便路径回填。
+        let downloader = Arc::new(RecordingDownloader {
+            calls: Mutex::new(Vec::new()),
+            write_output: true,
+        });
+        let handler = recording_handler(downloader.clone()).await;
+
+        let messages = vec![json!({
+            "msgId": "inner-msg",
+            "chatType": 9,
+            "peerUid": "original-peer",
+            "_qceForwardRootMsgId": "root-forward",
+            "_qceForwardChatType": 2,
+            "_qceForwardPeerUid": "group-peer",
+            "elements": [{
+                "elementId": "e-inner",
+                "picElement": {
+                    "fileName": "inner.jpg", "fileSize": 50, "md5HexStr": "mdinner"
+                }
+            }]
+        })];
+        let map = handler.process_message_resources(&messages).await;
+        assert!(map.contains_key("inner-msg"));
+
+        let calls = downloader.calls.lock().await;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "root-forward");
+        assert_eq!(calls[0].1, 2);
+        assert_eq!(calls[0].2, "group-peer");
+        assert_eq!(calls[0].3, "e-inner");
     }
 }
