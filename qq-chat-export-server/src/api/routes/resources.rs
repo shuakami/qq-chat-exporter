@@ -3293,6 +3293,8 @@ pub async fn merge_resources(
 
 #[cfg(test)]
 mod metadata_tests {
+    #[cfg(unix)]
+    use super::file_manager_target_is_safe;
     use super::{
         apply_file_metadata, avatar_url, existing_file_path, extract_html_time_range,
         find_sibling_file_ci, group_merge_sources, is_merged_base_name, merge_resource_files,
