@@ -2154,6 +2154,14 @@ mod tests {
         scripted_seq: Mutex<VecDeque<Result<Value, String>>>,
         /// get_msg_history 只返回游标自身（模拟游标不前进）。
         stall_history: bool,
+        /// 把每个接口的 msgList 反转返回。
+        ///
+        /// NapCat TS 层只是透传 `NodeIKernelMsgService`，源码没有记载
+        /// `getMsgsBySeqAndCount` / `getMsgsIncludeSelf` 的返回顺序；issue #716
+        /// 的实测样例按从新到旧书写，但 LLOneBot 的用法暗示可能相反。分页与
+        /// 补读逻辑按集合语义处理（min / 去重 / 全量扫描），必须与返回顺序无关，
+        /// 用该开关验证这一点。
+        reverse_output: bool,
     }
 
     impl SeqBoundaryMock {
@@ -2191,11 +2199,17 @@ mod tests {
                 calls: Mutex::new(Vec::new()),
                 scripted_seq: Mutex::new(VecDeque::new()),
                 stall_history: false,
+                reverse_output: false,
             }
         }
 
         fn with_stall_history(mut self) -> Self {
             self.stall_history = true;
+            self
+        }
+
+        fn with_reversed_output(mut self) -> Self {
+            self.reverse_output = true;
             self
         }
 
@@ -2216,12 +2230,15 @@ mod tests {
             count: i64,
         ) -> Result<Value, String> {
             self.calls.lock().unwrap().push(format!("latest:{count}"));
-            let messages: Vec<Value> = self
+            let mut messages: Vec<Value> = self
                 .records
                 .iter()
                 .take(count.max(0) as usize)
                 .cloned()
                 .collect();
+            if self.reverse_output {
+                messages.reverse();
+            }
             Ok(json!({ "result": 0, "msgList": messages }))
         }
 
@@ -2241,13 +2258,16 @@ mod tests {
             if self.stall_history {
                 return Ok(json!({ "result": 0, "msgList": [self.records[index].clone()] }));
             }
-            let messages: Vec<Value> = self
+            let mut messages: Vec<Value> = self
                 .records
                 .iter()
                 .skip(index)
                 .take(count.max(0) as usize)
                 .cloned()
                 .collect();
+            if self.reverse_output {
+                messages.reverse();
+            }
             Ok(json!({ "result": 0, "msgList": messages }))
         }
 
@@ -2273,13 +2293,16 @@ mod tests {
             if let Some(scripted) = self.scripted_seq.lock().unwrap().pop_front() {
                 return scripted;
             }
-            let messages: Vec<Value> = self
+            let mut messages: Vec<Value> = self
                 .records
                 .iter()
                 .filter(|msg| loose_msg_seq(msg).is_some_and(|seq| seq <= anchor_seq))
                 .take(count.max(0) as usize)
                 .cloned()
                 .collect();
+            if self.reverse_output {
+                messages.reverse();
+            }
             Ok(json!({ "result": 0, "msgList": messages }))
         }
     }
@@ -2350,6 +2373,44 @@ mod tests {
         assert_eq!(unique.len(), 15, "应导出全部 15 条消息");
         assert!(unique.contains("m99"), "边界 seq=9 的 msgId=99 必须被补回");
         // 补读确实发生了：对边界 seq=9 做了一次包含式重读（count=100 下限）。
+        assert!(
+            api.call_log().iter().any(|call| call == "seq:9:100"),
+            "缺少边界 seq=9 的包含式重读: {:?}",
+            api.call_log()
+        );
+    }
+
+    /// issue #716：NapCat TS 层不记录 `getMsgsBySeqAndCount` /
+    /// `getMsgsIncludeSelf` 的返回顺序（desc / queryOrder 的确切语义无法从
+    /// 源码证实）。分页与边界补读必须按集合语义工作：同一份历史无论内核按
+    /// 从新到旧还是从旧到新返回，都必须补回同一批 msgId。
+    #[tokio::test]
+    async fn seq_boundary_backfill_is_output_order_insensitive() {
+        let mut entries = vec![
+            ("m104".to_string(), 11, 114_000),
+            ("m103".to_string(), 10, 113_000),
+            ("m102".to_string(), 9, 112_000),
+            ("m101".to_string(), 9, 111_000),
+            ("m100".to_string(), 9, 110_000),
+            ("m99".to_string(), 9, 109_000),
+            ("m98".to_string(), 8, 108_000),
+            ("m97".to_string(), 8, 107_000),
+        ];
+        for seq in (1..=7).rev() {
+            entries.push((format!("m{seq:02}"), seq, seq * 1_000));
+        }
+        let api = Arc::new(SeqBoundaryMock::new(entries).with_reversed_output());
+        let fetcher = BatchMessageFetcher::new(
+            Arc::clone(&api) as Arc<dyn MessageFetchApi>,
+            boundary_fetcher_config(),
+        );
+
+        let ids = collect_all_ids(&fetcher, &group_peer(), &MessageFilter::default()).await;
+
+        let unique: HashSet<String> = ids.iter().cloned().collect();
+        assert_eq!(unique.len(), ids.len(), "不应有重复 msgId");
+        assert_eq!(unique.len(), 15, "应导出全部 15 条消息");
+        assert!(unique.contains("m99"), "边界 seq=9 的 msgId=99 必须被补回");
         assert!(
             api.call_log().iter().any(|call| call == "seq:9:100"),
             "缺少边界 seq=9 的包含式重读: {:?}",
