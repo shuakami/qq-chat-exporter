@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>实验性私聊漫游导出与查询 API · QQ Chat Exporter</title>
+<meta name="description" content="QQ Chat Exporter (QCE) 文档：实验性私聊漫游导出与查询 API。免费开源的 QQ 聊天记录导出工具，导出 HTML、JSON、TXT、Excel，支持定时备份、批量导出。">
+<meta name="keywords" content="QQ聊天记录导出,QQ Chat Exporter,QCE,QQ备份,QQNT,NapCat,实验性私聊漫游导出与查询 API">
+<meta name="robots" content="index,follow">
+<link rel="icon" href="../favicon.ico">
+<link rel="canonical" href="https://shuakami.github.io/qq-chat-exporter/docs/roaming-api.html">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="QQ Chat Exporter">
+<meta property="og:title" content="实验性私聊漫游导出与查询 API · QQ Chat Exporter">
+<meta property="og:description" content="QQ Chat Exporter (QCE) 文档：实验性私聊漫游导出与查询 API">
+<meta property="og:url" content="https://shuakami.github.io/qq-chat-exporter/docs/roaming-api.html">
+<meta property="og:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="实验性私聊漫游导出与查询 API · QQ Chat Exporter">
+<meta name="twitter:description" content="QQ Chat Exporter (QCE) 文档：实验性私聊漫游导出与查询 API">
+<meta name="twitter:image" content="https://shuakami.github.io/qq-chat-exporter/docs/images/banner.png">
+<link rel="preconnect" href="https://fonts.loli.net">
+<link rel="preconnect" href="https://gstatic.loli.net" crossorigin>
+<link href="https://fonts.loli.net/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="docs.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
+  <span class="right">
+    <a href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </span>
+  <button class="menu-btn" aria-label="菜单" onclick="document.body.classList.add('nav-open')">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+</header>
+<div class="mnav" aria-hidden="true">
+  <div class="mnav-head">
+    <a class="brand" href="../index.html">QQ Chat Exporter<span class="sep">/</span><span class="doc">文档</span></a>
+    <button class="mnav-close" aria-label="关闭" onclick="document.body.classList.remove('nav-open')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <nav class="mnav-body">
+    <a href="index.html">介绍</a>
+<a href="guide.html">使用手册</a>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="macos-deploy.html">macOS 部署</a>
+<a href="docker-napcat-deployment.html">Docker NapCat 部署</a>
+<a href="feedback.html">如何反馈问题</a>
+<a href="contributing.html">如何贡献</a>
+<a href="roaming-api.html" class="active">实验性漫游 API</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter/releases" target="_blank">下载</a>
+    <a class="ext" href="https://github.com/shuakami/qq-chat-exporter" target="_blank">GitHub</a>
+  </nav>
+</div>
+<div class="shell">
+  <nav class="sidebar"><div class="sec">指南</div>
+<a href="index.html">介绍</a>
+<a href="guide.html">使用手册</a>
+<div class="sec">部署</div>
+<a href="linux-deploy.html">Linux 部署</a>
+<a href="macos-deploy.html">macOS 部署</a>
+<a href="docker-napcat-deployment.html">Docker NapCat 部署</a>
+<div class="sec">参与</div>
+<a href="feedback.html">如何反馈问题</a>
+<a href="contributing.html">如何贡献</a>
+<div class="sec">开发</div>
+<a href="roaming-api.html" class="active">实验性漫游 API</a></nav>
+  <div class="main"><article class="content">
+    <h1>实验性私聊漫游导出与查询 API</h1>
+    <p>这组实验性 API 用于按日期核对和导出 QQ 私聊的漫游记录。推荐的任务端点会在服务端执行有界扫描，并把结果送入正式导出管线；三个低层查询端点只提供单次原语，不会自行扫描整段历史或创建导出任务。</p>
+<blockquote>
+<p>漫游日历只是提示信息：实际环境中可能出现日历没有标记、但日期锚点仍能查到的情况。任何响应都不能证明腾讯服务端的聊天记录完整性。</p>
+</blockquote>
+<p>原生方法签名核对自 NapCatQQ 提交 <a href="https://github.com/NapNeko/NapCatQQ/blob/3ac54c181b5e74d7acee5a62293ade88630b05ba/packages/napcat-core/services/NodeIKernelMsgService.ts"><code>3ac54c1</code></a>。三个低层原语曾在 macOS arm64、QQ <code>7.0.0-52194</code> 的已授权私聊中验证；本次完整有界导出链路另在 macOS arm64、QQ <code>6.9.98-51102</code> 的已授权 NapCat plugin-mode 环境中验证。NapCat 对日历和日期锚点的返回类型仍声明为 <code>unknown</code>，其他 QQ/NapCat 版本可能返回不同结构或不提供这些方法。这些验证不代表标准 macOS 启动器路径已经完成端到端验证。</p>
+<h2 id="前置条件"><a class="h-a" href="#前置条件">前置条件</a></h2>
+<ul>
+<li>仅支持 <code>chatType: 1</code> 的私聊；不支持群聊、频道或临时会话。</li>
+<li>完整模式下需要已登录 QQ，独立模式会返回 <code>503 STANDALONE_MODE</code>。</li>
+<li>所有 <code>/api</code> 路由沿用 QCE 的访问令牌认证。示例用 <code>$QCE_TOKEN</code>、<code>$QQ_NUMBER</code> 表示本机环境变量，请勿把真实令牌或账号写入仓库。</li>
+<li><code>msgTime</code> 使用 Unix <strong>秒</strong>，不是毫秒。</li>
+<li>消息序号和锚点时间按十进制字符串传递，避免 JavaScript 大整数精度损失。</li>
+</ul>
+<p>三个低层查询方法不会直接修改 QCE 的导出文件或配置，但 QQ 原生查询可能触发漫游消息同步、更新本地消息数据库或缓存；不要把“查询型”理解为底层绝对无副作用。推荐的 <code>/api/messages/roaming/export</code> 会创建持久化任务，并在成功时写出所选格式的导出文件。</p>
+<h2 id="1-qq-号解析为-peer-uid"><a class="h-a" href="#1-qq-号解析为-peer-uid">1. QQ 号解析为 peer UID</a></h2>
+<p>漫游接口不直接接收 QQ 号。先复用现有用户查询接口，将 QQ 号转换为 NTQQ 私聊使用的 <code>peerUid</code>：</p>
+<pre class="highlight"><code class="language-bash">curl -sS \
+  -H "Authorization: Bearer $QCE_TOKEN" \
+  "http://127.0.0.1:40653/api/users/lookup?uin=$QQ_NUMBER"</code></pre>
+<p>找到用户时，响应中的 <code>data.uid</code> 就是后续请求的 <code>peer.peerUid</code>：</p>
+<pre class="highlight"><code class="language-json">{
+  "success": true,
+  "data": {
+    "found": true,
+    "uid": "u_example"
+  }
+}</code></pre>
+<p><code>found: false</code> 时不要继续调用漫游接口。纯数字 QQ 号不会被当作 <code>peerUid</code> 接受。</p>
+<h2 id="2-创建有界漫游扫描与导出任务推荐"><a class="h-a" href="#2-创建有界漫游扫描与导出任务推荐">2. 创建有界漫游扫描与导出任务（推荐）</a></h2>
+<p>面向应用前端和普通调用方时，优先使用 <code>POST /api/messages/roaming/export</code>。该接口在服务端依次完成日期锚点扫描和受限序列桥接，再把恢复的原始消息送入与普通导出相同的解析、资源下载和格式导出管线；浏览器不需要逐日发起请求。</p>
+<h3 id="网页操作"><a class="h-a" href="#网页操作">网页操作</a></h3>
+<ol>
+<li>已在会话列表中的普通私聊：打开该行的导出下拉菜单，选择“漫游导出”。</li>
+<li>列表里找不到的联系人：在搜索框输入 QQ 号，先执行反查，再从反查结果选择“漫游导出”；网页会先把 QQ 号解析为会话 <code>peerUid</code>，不会把纯数字直接传给漫游接口。</li>
+<li>选择必填的开始日期、结束日期和导出格式后启动任务。</li>
+<li>在任务页查看扫描进度和 <code>partial</code> 提示；可停止任务，完成后可下载文件或打开所在位置。默认导出目录中支持的格式还可在文件列表中预览。</li>
+</ol>
+<p>漫游扫描只在连接完整 QQ 登录环境、bridge 可用时开放；独立查看模式不能创建该任务。</p>
+<p>请求中的 <code>filter.startTime</code> 和 <code>filter.endTime</code> 都是 Unix <strong>秒</strong>，且为必填；日期跨度按服务端本机时区的日历日计算。下面示例使用 UTC 中午的时间戳，创建一个 JSON 导出任务：</p>
+<pre class="highlight"><code class="language-bash">curl -sS \
+  -H "Authorization: Bearer $QCE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "peer": {"chatType": 1, "peerUid": "u_example", "guildId": ""},
+    "sessionName": "历史私聊",
+    "format": "JSON",
+    "filter": {
+      "startTime": 1672574400,
+      "endTime": 1704024000
+    },
+    "options": {
+      "includeResourceLinks": true,
+      "prettyFormat": true
+    },
+    "roaming": {
+      "maxMessages": 50000,
+      "maxSequenceQueries": 50000
+    }
+  }' \
+  http://127.0.0.1:40653/api/messages/roaming/export</code></pre>
+<p>支持的 <code>format</code> 与正式导出管线一致：<code>TXT</code>、<code>JSON</code>、<code>HTML</code>、<code>EXCEL</code>、<code>STREAMING_ZIP</code>、<code>STREAMING_JSONL</code>。<code>options</code> 也沿用普通导出选项，包括资源跳过、自包含 HTML、自定义导出目录等。</p>
+<p>创建成功后立即返回现有任务模型：</p>
+<pre class="highlight"><code class="language-json">{
+  "success": true,
+  "data": {
+    "taskId": "roaming_export_...",
+    "taskKind": "roaming_export",
+    "status": "queued",
+    "fileName": "friend_历史私聊_example_20260902_120000000.json",
+    "downloadUrl": "/downloads/friend_历史私聊_example_20260902_120000000.json",
+    "startTime": 1672574400,
+    "endTime": 1704024000,
+    "roamingScan": {
+      "bounded": true,
+      "requestedDays": 365,
+      "probedDays": 0,
+      "scannedDays": 0,
+      "calendarQueries": 0,
+      "calendarErrors": 0,
+      "anchorDays": 0,
+      "exactQueries": 0,
+      "latestQueries": 0,
+      "sequenceQueries": 0,
+      "emptySequenceQueries": 0,
+      "gapCount": 0,
+      "mismatchedAnchors": 0,
+      "unresolvedAnchors": 0,
+      "untimestampedMessages": 0,
+      "rawMessagesSeen": 0,
+      "messageCount": 0,
+      "maxMessages": 50000,
+      "maxSequenceQueries": 50000,
+      "closingAnchorFound": false,
+      "partial": false,
+      "stopReason": "running",
+      "currentDate": null,
+      "calendarAdvisory": true,
+      "serverCompletenessProven": false
+    }
+  }
+}</code></pre>
+<h3 id="任务状态进度和取消"><a class="h-a" href="#任务状态进度和取消">任务状态、进度和取消</a></h3>
+<p>该任务复用现有任务生命周期，不另建一套浏览器状态：</p>
+<ul>
+<li><code>GET /api/tasks/:taskId</code> 查询单个任务，<code>GET /api/tasks</code> 可在重连后恢复任务列表；任务状态和 <code>roamingScan</code> 会持久化到 QCE 数据库。</li>
+<li>新任务先进入 <code>queued</code>，取得通用导出并发名额后，漫游任务以 <code>pending</code> 可取消地等待历史查询独占门控；开始扫描时进入 <code>running</code>。三种活动状态都可以停止，但不能直接删除。</li>
+<li>WebSocket 继续发送 <code>export_progress</code>、<code>export_complete</code>、<code>export_error</code>，前端也可沿用现有轮询兜底。</li>
+<li><code>POST /api/tasks/:taskId/cancel</code> 会设置现有导出取消信号。扫描会在每个原生调用、重试退避和序列批次之间检查取消；正在进行的单次 QQ 原生调用仍受 bridge 自身超时约束。</li>
+<li>运行中或等待中的任务不能直接删除；<code>DELETE /api/tasks/:taskId</code> 会返回 <code>409 TASK_STILL_RUNNING</code>，应先调用取消接口，确认任务进入 <code>cancelled</code> 后再删除。</li>
+<li>完成后返回正常的 <code>fileName</code>、<code>filePath</code>、<code>downloadUrl</code> 和文件元数据。使用默认导出目录时，文件会出现在现有文件列表，支持预览的格式可继续使用 <code>GET /api/exports/files/:fileName/preview</code>；使用任务级自定义 <code>options.outputDir</code> 时，该文件不进入默认文件列表，应从任务页按精确路径下载或打开所在位置。两者的资源下载和补齐都沿用正式导出链路。</li>
+</ul>
+<h3 id="扫描和完整性边界"><a class="h-a" href="#扫描和完整性边界">扫描和完整性边界</a></h3>
+<p>服务端任务按以下固定顺序运行：</p>
+<ol>
+<li>先固定调用一次 <code>MsgService.getAioFirstViewLatestMsgs(peer, 10)</code>，取得当前可见的最新正序号候选。候选在 <code>endTime</code> 内时作为包含式尾界；候选晚于 <code>endTime</code> 且仍处于结束日期后的 31 天探测范围内时，才可作为过滤后的外部尾界。更远的候选不会触发跨范围逐序号桥接，找不到较近尾界时结果会标记为 <code>partial</code>。若这个缓存候选在时间或序号上早于逐日发现的锚点，也不会用它假装闭合范围。</li>
+<li>每个自然月尝试调用一次 <code>MsgService.queryRoamCalendar</code>，只记录提示，不用日历空位跳过日期；调用或响应解析失败仅增加 <code>calendarErrors</code>，不会单独中止扫描或把结果标成 <code>partial</code>。</li>
+<li>按本机时区逐日调用 <code>MsgService.queryFirstRoamMsg</code>。首日使用 <code>max(dayStart, startTime)</code>，后续日期使用当天最早的有效本地时间（通常为 00:00）；日期探测之间保留约 120 ms 的可取消间隔。没有可用 latest 尾界时，结束日期后最多再探测 31 天寻找下一锚点。</li>
+<li>对每个有效日期锚点调用 <code>MsgService.getMsgByClientSeqAndTime</code>。若 exact 为空，但 first 已给出正 <code>msgSeq</code>，任务会把该序号计入查询预算并调用一次 <code>MsgService.getSingleMsg</code> 恢复端点。只有 exact 或这个受限回退确实返回与 <code>msgSeq</code>、<code>clientSeq</code> 和 <code>msgTime</code> 匹配的消息，才把锚点作为已恢复的区间端点；两种方式都无法恢复时会增加 <code>unresolvedAnchors</code> 并标记 <code>partial</code>。</li>
+<li>对相邻的已恢复锚点，按正整数 <code>msgSeq</code> 的开区间逐个调用固定方法 <code>MsgService.getSingleMsg(peer, msgSeq)</code>。每批最多并发 4 个逻辑序号，批次之间保留约 120 ms 的可取消间隔，结果按请求序号顺序消费并稳定去重。成功空列表以及明确的 <code>2004000</code>、<code>2004007</code> 只表示该整数序号没有消息，计入 <code>emptySequenceQueries</code> 后继续；它们不制造 gap，也不会把结构上已核对完的区间标成 <code>partial</code>。未知业务码、错误序号或损坏结构会让任务失败。最老锚点之前没有经验证的序列边界，因此不会向 <code>seq=1</code> 盲扫。</li>
+<li>对所有结果执行请求时间范围过滤和稳定去重，写入磁盘 spool 后进入普通导出的解析、附件下载和格式生成阶段。</li>
+</ol>
+<p>所有历史原生调用在同一个进程级独占门控内完成，不会与另一个历史获取任务叠加；仅单个序列批次内部固定并发 4 个查询。限制如下：</p>
+<ul>
+<li>日期跨度硬上限为 1461 个本机日历日。</li>
+<li><code>roaming.maxMessages</code> 默认 50000，允许范围 <code>1..=100000</code>。</li>
+<li><code>roaming.maxSequenceQueries</code> 默认 50000，允许范围 <code>1..=100000</code>；retry attempt 不重复占用这个逻辑查询预算。</li>
+<li>达到消息或序号查询上限会导出当前已验证的有界结果，并设置 <code>partial: true</code> 以及相应 <code>stopReason</code>。</li>
+<li>找不到可信尾界、锚点序列不单调、锚点消息无法由 exact 或受限 single 回退恢复、或消息缺少时间戳时，也会通过计数字段和 <code>partial</code> 明示，绝不静默宣称完整。</li>
+<li><code>serverCompletenessProven</code> 始终为 <code>false</code>；<code>partial: false</code> 只表示本次有界算法走完了请求范围，不代表腾讯服务端保存完整。</li>
+</ul>
+<p>后台漫游导出会在取得通用导出名额后等待历史查询门控，等待过程可以取消，也不会提前占住门控阻塞已经运行的普通导出。三个低层漫游查询端点仍在门控被占用时同步返回 <code>429 HISTORY_QUERY_BUSY</code>。任务运行中的 calendar、first、exact、latest、single 五类原生查询会对 connect/timeout/request/body 传输错误及明确的瞬时 Worker/RPC 错误最多重试 3 次，采用 120/240/480 ms 的可取消退避；一旦成功便停止重试。URL 构造错误、JSON 解码错误、原生方法不存在、响应结构异常、非零 QQ 业务码和普通 TypeError 都不会进入重试。<code>2004000</code>/<code>2004007</code> 的单序号空结果同样不会重试；exact 的 raw/RPC 空码会进入上述单序号端点回退，而不是直接丢弃锚点。日历重试全部失败仍只计为一次逻辑 <code>calendarQueries</code> 和一次 <code>calendarErrors</code>。</p>
+<p>若 QQ/NapCat 缺少必需的原生方法，任务进入 <code>failed</code>，并持久化/广播 <code>errorCode: ROAMING_API_UNAVAILABLE</code>、<code>errorHttpStatus: 501</code>；重试耗尽的 bridge 传输错误、TypeError 等 Worker 内部错误、未列入允许范围的 QQ 业务码或封装失败对应 <code>ROAMING_QUERY_FAILED</code>/<code>502</code>，返回结构不兼容对应 <code>INVALID_ROAMING_RESPONSE</code>/<code>502</code>。任务层把 <code>0</code> 和无消息码 <code>2004000</code> 作为空的 first 结果；exact 的 <code>0</code>/<code>2004000</code>/<code>2004007</code> 空结果会尝试 single 端点回退。若响应带有有效锚点或消息则保留其载荷，其他非零码不能被误判为“没有历史”。日历仍只是 advisory，其业务码异常只增加 <code>calendarErrors</code>。single 的 <code>2004000</code>/<code>2004007</code>（包括 RPC 文本中严格的 <code>qq_result_...</code> 形式）仅折叠为对应整数序号为空。</p>
+<h2 id="3-低层接口查询漫游日历提示"><a class="h-a" href="#3-低层接口查询漫游日历提示">3. 低层接口：查询漫游日历提示</a></h2>
+<p><code>POST /api/messages/roaming/calendar</code> 调用固定的 <code>MsgService.queryRoamCalendar</code>。下面的 <code>1672531200</code> 是 2023-01-01 00:00:00 UTC 的秒级时间戳，仅作脱敏示例：</p>
+<pre class="highlight"><code class="language-bash">curl -sS \
+  -H "Authorization: Bearer $QCE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "peer": {"chatType": 1, "peerUid": "u_example", "guildId": ""},
+    "msgTime": 1672531200
+  }' \
+  http://127.0.0.1:40653/api/messages/roaming/calendar</code></pre>
+<pre class="highlight"><code class="language-json">{
+  "success": true,
+  "data": {
+    "resultCode": 0,
+    "errorMessage": "success",
+    "calendar": [5, 0],
+    "calendarAdvisory": true,
+    "serverCompletenessProven": false
+  }
+}</code></pre>
+<p><code>calendar</code> 保留 QQ 原生位图数组，不在 HTTP 层猜测月份、时区或日期。不能因数组为空或某日未标记，就断言更早记录不存在。</p>
+<h2 id="4-低层接口查询目标日期的首条锚点"><a class="h-a" href="#4-低层接口查询目标日期的首条锚点">4. 低层接口：查询目标日期的首条锚点</a></h2>
+<p><code>POST /api/messages/roaming/first</code> 调用固定的 <code>MsgService.queryFirstRoamMsg</code>。即使日历未标记目标日期，也可以直接查询该日期：</p>
+<pre class="highlight"><code class="language-bash">curl -sS \
+  -H "Authorization: Bearer $QCE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "peer": {"chatType": 1, "peerUid": "u_example", "guildId": ""},
+    "msgTime": 1672531200
+  }' \
+  http://127.0.0.1:40653/api/messages/roaming/first</code></pre>
+<p>找到锚点时，<code>clientSeq</code>、<code>msgTime</code> 统一为字符串；上游没有返回 <code>msgSeq</code> 时该字段为 <code>null</code>：</p>
+<pre class="highlight"><code class="language-json">{
+  "success": true,
+  "data": {
+    "resultCode": 0,
+    "errorMessage": "success",
+    "found": true,
+    "anchor": {
+      "msgSeq": "13774",
+      "clientSeq": "35566",
+      "msgTime": "1672531201"
+    },
+    "serverCompletenessProven": false
+  }
+}</code></pre>
+<p>目标日期没有锚点时返回 HTTP 200、<code>found: false</code> 和 <code>anchor: null</code>。成功业务码 <code>0</code> 的原生响应仍必须明确携带 <code>roamDatemsg</code>/<code>roamDateMsg</code> 字段；该字段为 <code>null</code>、空对象、<code>clientSeq</code>/<code>msgTime</code> 同时为零，或 <code>msgSeq</code>/<code>clientSeq</code>/<code>msgTime</code> 三字段都严格为 <code>-1</code> 时表示空锚点。兼容性观察中出现过三字段均为 <code>-1</code> 的空锚点形态，它只在业务码为 <code>0</code> 时作为空结果接受，并不代表服务端没有更早记录；缺字段、其他负值、单边为零或混合正负仍属于 <code>INVALID_ROAMING_RESPONSE</code>。有效锚点的字段必须是正十进制值；<code>msgSeq</code> 若未随锚点返回，只能由后续 exact 中实际匹配的消息恢复。这个接口查询的是传入时间所在日期，并不保证自动跳到下一个有消息的日期；调用方还应核对返回 <code>anchor.msgTime</code> 是否位于目标日期。</p>
+<h2 id="5-低层接口按锚点查询原始消息"><a class="h-a" href="#5-低层接口按锚点查询原始消息">5. 低层接口：按锚点查询原始消息</a></h2>
+<p>将上一步返回的 <code>clientSeq</code> 和 <code>msgTime</code> 原样传入 <code>POST /api/messages/roaming/exact</code>。该路由固定调用 <code>MsgService.getMsgByClientSeqAndTime(peer, clientSeq, msgTime)</code>：</p>
+<pre class="highlight"><code class="language-bash">curl -sS \
+  -H "Authorization: Bearer $QCE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "peer": {"chatType": 1, "peerUid": "u_example", "guildId": ""},
+    "clientSeq": "35566",
+    "msgTime": "1672531201"
+  }' \
+  http://127.0.0.1:40653/api/messages/roaming/exact</code></pre>
+<pre class="highlight"><code class="language-json">{
+  "success": true,
+  "data": {
+    "resultCode": 0,
+    "errorMessage": "success",
+    "count": 1,
+    "messages": [
+      {"msgId": "9007199254740993", "msgTime": "1672531201"}
+    ],
+    "serverCompletenessProven": false
+  }
+}</code></pre>
+<p><code>messages</code> 保留 NapCat 返回的原始消息对象。接口不会解析消息、下载附件或自动加入导出结果。</p>
+<h2 id="状态与兼容边界"><a class="h-a" href="#状态与兼容边界">状态与兼容边界</a></h2>
+<p>HTTP 层和 QQ 原生结果是两层状态：</p>
+<ul>
+<li>HTTP <code>200 success: true</code> 表示 bridge 调用成功且返回结构可识别。<code>data.resultCode</code> 仍是 QQ 原生业务状态；非零状态可能同时携带有效 <code>messages</code>，因此接口不会先丢弃消息。</li>
+<li>bridge 传输或调用失败返回 <code>502 ROAMING_QUERY_FAILED</code>。</li>
+<li>另一个历史消息查询正在占用 QQ Worker 时返回 <code>429 HISTORY_QUERY_BUSY</code>，调用方应稍后重试，不要无上限并发。</li>
+<li>当前 QQ/NapCat 缺少原生方法时返回 <code>501 ROAMING_API_UNAVAILABLE</code>。</li>
+<li>原生成功状态缺少必须字段时返回 <code>502 INVALID_ROAMING_RESPONSE</code>，避免把版本不兼容静默误报成“没有记录”。</li>
+<li>参数错误返回 <code>400</code>，包括群聊 peer、纯数字 QQ 号、非空 <code>guildId</code>、毫秒时间戳和非十进制锚点。</li>
+</ul>
+<p>这三个端点不接收任意 RPC 方法名、不提供无上限年份扫描，也没有暴露已废弃的序号批量分页接口。若要核对 2023 年等更早日期，应由调用方设置明确的日期范围、请求上限和停止条件，并始终将结果表述为“当前账号与客户端可见的记录”，而不是“完整腾讯云端记录”。</p>
+    <div class="pagenav"><a class="prev" href="contributing.html"><span class="dir">上一篇</span><span class="lbl">如何贡献</span></a></div>
+  </article></div>
+  <nav class="toc"><div class="t">本页目录</div><a class="" href="#前置条件">前置条件</a>
+<a class="" href="#1-qq-号解析为-peer-uid">1. QQ 号解析为 peer UID</a>
+<a class="" href="#2-创建有界漫游扫描与导出任务推荐">2. 创建有界漫游扫描与导出任务（推荐）</a>
+<a class="d3" href="#网页操作">网页操作</a>
+<a class="d3" href="#任务状态进度和取消">任务状态、进度和取消</a>
+<a class="d3" href="#扫描和完整性边界">扫描和完整性边界</a>
+<a class="" href="#3-低层接口查询漫游日历提示">3. 低层接口：查询漫游日历提示</a>
+<a class="" href="#4-低层接口查询目标日期的首条锚点">4. 低层接口：查询目标日期的首条锚点</a>
+<a class="" href="#5-低层接口按锚点查询原始消息">5. 低层接口：按锚点查询原始消息</a>
+<a class="" href="#状态与兼容边界">状态与兼容边界</a></nav>
+</div>
+<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('.toc a'));
+  if(!links.length)return;
+  var hs=links.map(function(a){return document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1)))});
+  function on(){
+    var i=0;
+    for(var j=0;j<hs.length;j++){if(hs[j]&&hs[j].getBoundingClientRect().top<90)i=j;}
+    links.forEach(function(a,j){a.classList.toggle('active',j===i)});
+  }
+  addEventListener('scroll',on,{passive:true});on();
+})();
+(function(){
+  var box=document.createElement('div');box.className='lightbox';
+  var big=document.createElement('img');box.appendChild(big);
+  var x=document.createElement('button');x.className='lb-close';x.innerHTML='✕';x.setAttribute('aria-label','关闭');box.appendChild(x);
+  document.body.appendChild(box);
+  function close(){box.classList.remove('open');setTimeout(function(){if(!box.classList.contains('open'))big.src='';},240);}
+  box.addEventListener('click',close);x.addEventListener('click',close);
+  big.addEventListener('click',function(e){e.stopPropagation();});
+  addEventListener('keydown',function(e){if(e.key==='Escape')close();});
+  [].forEach.call(document.querySelectorAll('.content img'),function(img){
+    img.addEventListener('click',function(){big.src=img.src;box.classList.add('open');});
+  });
+})();
+(function(){
+  var COPY='<svg class="ic ic-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+  var CHECK='<svg class="ic ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+  [].forEach.call(document.querySelectorAll('.content pre'),function(pre){
+    var btn=document.createElement('button');
+    btn.className='copy-btn';btn.type='button';btn.setAttribute('aria-label','复制代码');
+    btn.innerHTML=COPY+CHECK;
+    btn.addEventListener('click',function(){
+      var code=pre.querySelector('code');
+      var text=(code?code.textContent:pre.textContent).replace(/\n$/,'');
+      (navigator.clipboard?navigator.clipboard.writeText(text):Promise.reject()).catch(function(){
+        var ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);
+        ta.select();document.execCommand('copy');document.body.removeChild(ta);
+      }).then(function(){
+        btn.classList.add('copied');
+        clearTimeout(btn._t);
+        btn._t=setTimeout(function(){btn.classList.remove('copied');},1600);
+      });
+    });
+    pre.appendChild(btn);
+  });
+})();
+</script>
+</body>
+</html>
