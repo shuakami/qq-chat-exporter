@@ -74,6 +74,45 @@ test('bridge terminates the old owner before rebinding the reserved port', async
         assert.equal(bridge.port, address.port);
         assert.deepEqual(bridge.terminatedPids, [4242]);
         assert.equal(bridge.fallbackFromPort, null);
+        assert.equal(bridge.fallbackReason, null);
+    } finally {
+        await bridge.stop();
+    }
+});
+
+test('bridge falls back to an ephemeral port when the reserved port is denied by the OS', async () => {
+    // Windows reports EACCES (not EADDRINUSE) when a port is inside a
+    // WinNAT/Hyper-V excluded range. There is no stale owner to terminate, and
+    // failing the whole plugin startup leaves the Web UI unreachable (issue
+    // #717), so the reserved port must degrade to an ephemeral loopback port.
+    const deniedPort = 40654;
+    const attempts: number[] = [];
+    const bridge = await createNapCatBridge({}, deniedPort, {
+        reclaimPort: deniedPort,
+        terminatePortOwners: async () => {
+            throw new Error('EACCES must not terminate unrelated port owners');
+        },
+        listen: async (server: net.Server, port: number) => {
+            attempts.push(port);
+            if (port === deniedPort) {
+                const error = new Error(`listen EACCES: permission denied 127.0.0.1:${deniedPort}`) as NodeJS.ErrnoException;
+                error.code = 'EACCES';
+                throw error;
+            }
+            await new Promise<void>((resolve, reject) => {
+                server.once('error', reject);
+                server.listen(port, '127.0.0.1', () => resolve());
+            });
+        }
+    });
+    try {
+        assert.deepEqual(attempts, [deniedPort, 0]);
+        assert.ok(bridge.port > 0);
+        assert.equal(bridge.fallbackFromPort, deniedPort);
+        assert.equal(bridge.fallbackReason, 'EACCES');
+        const response = await fetch(`http://127.0.0.1:${bridge.port}/healthz`);
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { ok: true });
     } finally {
         await bridge.stop();
     }
