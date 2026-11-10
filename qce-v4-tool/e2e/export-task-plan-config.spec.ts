@@ -105,6 +105,18 @@ test.describe("shared export request builder", () => {
     }
   })
 
+  test("ignores a stale streaming switch for non-streaming formats (issue #722)", () => {
+    for (const format of ["TXT", "EXCEL"] as const) {
+      const request = buildExportRequest({
+        ...exportTaskPlanToForm(makePlan({ format }), { groupCode: "123", groupName: "测试群" }),
+        streamingZipMode: true,
+      })
+      expect(request.endpoint).toBe("/api/messages/export")
+      expect(request.body.format).toBe(format)
+      expect(request.body.options.batchSize).toBe(5000)
+    }
+  })
+
   test("routes bounded roaming exports through the task endpoint without changing timestamp units", () => {
     const request = buildExportRequest({
       ...exportTaskPlanToForm(makePlan({ format: "HTML" }), { groupCode: "123", groupName: "测试群" }),
