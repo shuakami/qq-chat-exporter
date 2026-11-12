@@ -1157,6 +1157,9 @@ export function TaskWizard({
                           ...p,
                           format: fmt,
                           filterPureImageMessages: fmt === "JSON" || fmt === "TXT",
+                          // Issue #722：TXT/EXCEL 沿用上次 HTML/JSON 的流式开关会导出成 HTML ZIP。
+                          streamingZipMode:
+                            fmt === "JSON" || fmt === "HTML" ? p.streamingZipMode : false,
                         }))
                       }
                     >

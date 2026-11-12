@@ -26,8 +26,10 @@ function toUnixSeconds(value: string, includeSelectedMinute = false): number {
 
 /** 单次、批量和可复用导出任务共用的请求构造。 */
 export function buildExportRequest(form: CreateTaskForm): BuiltExportRequest {
-  const useStreamingMode = form.streamingZipMode === true
   const isJsonFormat = form.format === "JSON"
+  // 流式导出只对 HTML/JSON 生效；TXT/EXCEL 即便残留了上次的开关状态也必须走标准导出。
+  const useStreamingMode =
+    form.streamingZipMode === true && (form.format === "HTML" || isJsonFormat)
   const isRoamingExport = form.historySource === "roaming"
   // The roaming scan uses native QQ history queries and currently supports the
   // time/sender filters only. Do not serialize a keyword filter that the task
