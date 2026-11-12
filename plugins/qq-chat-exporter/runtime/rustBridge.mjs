@@ -296,6 +296,7 @@ export function findRustServerBinary() {
 export async function createNapCatBridge(core, port = resolveBridgePort(), recovery = {}) {
   const reclaimPort = recovery.reclaimPort ?? DEFAULT_BRIDGE_PORT;
   const terminateOwners = recovery.terminatePortOwners ?? terminatePortOwners;
+  const bind = recovery.listen ?? listen;
   let requestId = 0;
 
   const server = createServer((request, response) => {
@@ -387,25 +388,36 @@ export async function createNapCatBridge(core, port = resolveBridgePort(), recov
 
   let terminatedPids = [];
   let fallbackFromPort = null;
+  let fallbackReason = null;
   try {
-    await listen(server, port);
+    await bind(server, port);
   } catch (error) {
-    if (error?.code !== 'EADDRINUSE' || port !== reclaimPort) throw error;
-    terminatedPids = await terminateOwners(port);
-    let reclaimed = false;
-    for (let attempt = 0; attempt < 10; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      try {
-        await listen(server, port);
-        reclaimed = true;
-        break;
-      } catch (retryError) {
-        if (retryError?.code !== 'EADDRINUSE') throw retryError;
-      }
-    }
-    if (!reclaimed) {
+    if (error?.code === 'EACCES') {
+      // Windows returns EACCES when a port falls inside an excluded range
+      // (WinNAT/Hyper-V) or is otherwise reserved by the OS. There is no stale
+      // QCE owner to reclaim, so keep the plugin alive on an ephemeral port.
       fallbackFromPort = port;
-      await listen(server, 0);
+      fallbackReason = 'EACCES';
+      await bind(server, 0);
+    } else {
+      if (error?.code !== 'EADDRINUSE' || port !== reclaimPort) throw error;
+      terminatedPids = await terminateOwners(port);
+      let reclaimed = false;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        try {
+          await bind(server, port);
+          reclaimed = true;
+          break;
+        } catch (retryError) {
+          if (retryError?.code !== 'EADDRINUSE') throw retryError;
+        }
+      }
+      if (!reclaimed) {
+        fallbackFromPort = port;
+        fallbackReason = 'EADDRINUSE';
+        await bind(server, 0);
+      }
     }
   }
 
@@ -419,6 +431,7 @@ export async function createNapCatBridge(core, port = resolveBridgePort(), recov
     port: address.port,
     terminatedPids,
     fallbackFromPort,
+    fallbackReason,
     stop: () => new Promise((resolve) => server.close(() => resolve()))
   };
 }
@@ -469,7 +482,7 @@ export async function startRustApiServer(core, frontendPath) {
       appendRuntimeLog(logFile, '[qce-plugin]', `terminated bridge port ${DEFAULT_BRIDGE_PORT} owner pid(s) ${bridge.terminatedPids.join(',')}`);
     }
     if (bridge.fallbackFromPort !== null) {
-      appendRuntimeLog(logFile, '[qce-plugin]', `bridge port ${bridge.fallbackFromPort} remained busy; using ${bridge.port}`);
+      appendRuntimeLog(logFile, '[qce-plugin]', `bridge port ${bridge.fallbackFromPort} unavailable (${bridge.fallbackReason}); using ${bridge.port}`);
     }
     appendRuntimeLog(logFile, '[qce-plugin]', `bridge ready on port ${bridge.port}`);
   } catch (error) {
