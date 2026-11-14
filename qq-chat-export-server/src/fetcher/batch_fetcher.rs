@@ -261,6 +261,20 @@ impl FetchError {
         }
     }
 
+    /// issue #723：判断是否是 QQ Worker 内部重试耗尽。
+    ///
+    /// NapCat 原生查询返回 `GeneralCallResult.result = -1`，且 `errMsg` 为
+    /// `2004007: reach max retry time limit!` 时，说明 Worker 内的原生重试
+    /// 已经耗尽预算。立即重试只会再次撞上同一限制，必须和超时一样先冷却。
+    fn is_native_retry_exhausted(&self) -> bool {
+        match self {
+            Self::Api(message) => message
+                .to_ascii_lowercase()
+                .contains("max retry time limit"),
+            _ => false,
+        }
+    }
+
     /// 判断错误是否属于 bridge / Worker 不可用（NapCat Worker 崩溃或重启）。
     fn is_bridge_down(&self) -> bool {
         let Self::Api(message) = self else {
@@ -737,28 +751,31 @@ impl BatchMessageFetcher {
                 async move {
                     let page = seq_page_size(batch_size);
                     requested_page.store(page, Ordering::SeqCst);
-                    match anchor {
+                    let value = match anchor {
                         None => {
                             tracing::info!(
                                 "[BatchMessageFetcher] 调用 getAioFirstViewLatestMsgs API (seq 分页首批), count={page}"
                             );
-                            api.get_aio_first_view_latest_msgs(&peer, page).await
+                            api.get_aio_first_view_latest_msgs(&peer, page).await?
                         }
                         Some(anchor) => {
                             tracing::info!(
                                 "[BatchMessageFetcher] 调用 getMsgsBySeqAndCount API, anchorSeq={anchor}, count={page}"
                             );
-                            api.get_msgs_by_seq_and_count(&peer, anchor, page).await
+                            api.get_msgs_by_seq_and_count(&peer, anchor, page).await?
                         }
-                    }
+                    };
+                    // issue #716：原生错误（GeneralCallResult.result != 0）与无效
+                    // 响应必须显式失败，不能再像空页一样按页宽跳过而静默丢消息。
+                    // issue #723：校验必须在 `call_with_retry` 内完成，否则瞬时
+                    // 的 2004007（原生重试耗尽）会绕过重试直接终止导出。
+                    extract_msg_page_strict(&value)
                 }
             })
             .await?;
 
         let page = requested_page.load(Ordering::SeqCst).max(1);
-        // issue #716：原生错误（GeneralCallResult.result != 0）与无效响应必须
-        // 显式失败，不能再像空页一样按页宽跳过而静默丢消息。
-        let mut messages = extract_msg_page_strict(&result).map_err(FetchError::Api)?;
+        let mut messages = result;
 
         // issue #716：满页时页尾边界 msgSeq 可能只返回了部分记录（count 限制
         // 的是记录条数，同一 msgSeq 可混有系统提示与普通消息）。先做包含式
@@ -915,10 +932,10 @@ impl BatchMessageFetcher {
     ///
     /// issue #305 / #316：超时类错误下次重试自动折半 batchSize（不低于
     /// [`MIN_BATCH_SIZE_ON_TIMEOUT`]），让 QQ 客户端有机会用更小窗口完成查询。
-    async fn call_with_retry<F, Fut>(&self, api_call: F) -> Result<Value, FetchError>
+    async fn call_with_retry<F, Fut, T>(&self, api_call: F) -> Result<T, FetchError>
     where
         F: Fn(i64) -> Fut,
-        Fut: std::future::Future<Output = Result<Value, String>>,
+        Fut: std::future::Future<Output = Result<T, String>>,
     {
         let mut bridge_recoveries = 0_u32;
         let mut attempt = 0_u32;
@@ -1007,11 +1024,18 @@ impl BatchMessageFetcher {
             // issue #305 / #316：超时类错误下次重试用更小的 batchSize。
             // issue #634：本地超时不代表 Worker 内旧查询已结束，先冷却再等
             // bridge 健康，避免重量级查询在 Worker 内叠加。
-            if result.is_timeout() {
+            // issue #723：原生 Worker 重试耗尽（2004007）同样需要冷却，
+            // 否则三次 1s/2s/3s 的普通重试会再次撞上同一限制。
+            if result.is_timeout() || result.is_native_retry_exhausted() {
                 self.shrink_batch_size().await;
                 let cooldown =
                     TIMEOUT_COOLDOWN_MS.max(self.config.retry_interval_ms * u64::from(attempt));
-                tracing::info!("[BatchMessageFetcher] 超时冷却 {cooldown}ms 后重试");
+                let reason = if result.is_timeout() {
+                    "超时"
+                } else {
+                    "原生重试耗尽"
+                };
+                tracing::info!("[BatchMessageFetcher] {reason}冷却 {cooldown}ms 后重试");
                 tokio::time::sleep(Duration::from_millis(cooldown)).await;
                 if !self.wait_for_bridge_recovery().await {
                     return Err(result);
@@ -1086,30 +1110,27 @@ impl BatchMessageFetcher {
     ) -> Result<(Vec<Value>, i64), FetchError> {
         let api = Arc::clone(&self.api);
         let peer = peer.clone();
-        let used = Arc::new(AtomicI64::new(1));
-        let used_in_call = Arc::clone(&used);
-        let value = self
-            .call_with_retry(move |batch_size| {
-                let api = Arc::clone(&api);
-                let peer = peer.clone();
-                let used = Arc::clone(&used_in_call);
-                async move {
-                    let count = seq_page_size(batch_size)
-                        .clamp(SEQ_BOUNDARY_BACKFILL_MIN_COUNT, GROUP_SEQ_PAGE_MAX);
-                    used.store(count, Ordering::SeqCst);
-                    match query {
-                        SeqBackfillQuery::Seq(seq) => {
-                            api.get_msgs_by_seq_and_count(&peer, seq, count).await
-                        }
-                        SeqBackfillQuery::MsgId(msg_id) => {
-                            api.get_msg_history(&peer, msg_id, count).await
-                        }
+        self.call_with_retry(move |batch_size| {
+            let api = Arc::clone(&api);
+            let peer = peer.clone();
+            async move {
+                let count = seq_page_size(batch_size)
+                    .clamp(SEQ_BOUNDARY_BACKFILL_MIN_COUNT, GROUP_SEQ_PAGE_MAX);
+                let value = match query {
+                    SeqBackfillQuery::Seq(seq) => {
+                        api.get_msgs_by_seq_and_count(&peer, seq, count).await?
                     }
-                }
-            })
-            .await?;
-        let messages = extract_msg_page_strict(&value).map_err(FetchError::Api)?;
-        Ok((messages, used.load(Ordering::SeqCst).max(1)))
+                    SeqBackfillQuery::MsgId(msg_id) => {
+                        api.get_msg_history(&peer, msg_id, count).await?
+                    }
+                };
+                // issue #723：与分页请求一样，原生 2004007 必须在重试预算内
+                // 冷却后重试，而不是把整段补读直接判死。
+                let messages = extract_msg_page_strict(&value)?;
+                Ok((messages, count.max(1)))
+            }
+        })
+        .await
     }
 
     /// issue #716：满页边界 msgSeq 的包含式补读。
@@ -2023,6 +2044,63 @@ mod tests {
         assert!(FetchError::Api("Connection refused (os error 111)".to_string()).is_bridge_down());
         assert!(!FetchError::Api("API调用超时".to_string()).is_bridge_down());
         assert!(!FetchError::Timeout(1000).is_bridge_down());
+    }
+
+    /// issue #723：QQ Worker 内部重试耗尽（2004007）必须与超时一样冷却重试。
+    #[test]
+    fn native_retry_exhausted_errors_are_detected() {
+        assert!(FetchError::Api(
+            "原生消息查询失败 result=-1: 2004007: reach max retry time limit!".to_string()
+        )
+        .is_native_retry_exhausted());
+        assert!(
+            !FetchError::Api("原生消息查询失败 result=-1: native boom".to_string())
+                .is_native_retry_exhausted()
+        );
+        assert!(!FetchError::Timeout(1000).is_native_retry_exhausted());
+        assert!(FetchError::Timeout(1000).is_timeout());
+    }
+
+    /// issue #723：原生 2004007 在 #716 之后会被严格校验拒绝；校验必须发生在
+    /// `call_with_retry` 内，否则单页失败会绕过重试预算直接终止导出。
+    #[tokio::test(start_paused = true)]
+    async fn native_retry_exhausted_page_is_retried_after_cooldown() {
+        let entries = vec![
+            ("m3".to_string(), 3, 3_000),
+            ("m2".to_string(), 2, 2_000),
+            ("m1".to_string(), 1, 1_000),
+        ];
+        let api = Arc::new(SeqBoundaryMock::new(entries));
+        api.script_seq(Ok(json!({
+            "result": -1,
+            "errMsg": "2004007: reach max retry time limit!",
+        })));
+        let fetcher = BatchMessageFetcher::new(
+            Arc::clone(&api) as Arc<dyn MessageFetchApi>,
+            BatchFetchConfig {
+                batch_size: 5,
+                retry_count: 1,
+                retry_interval_ms: 0,
+                ..BatchFetchConfig::default()
+            },
+        );
+
+        let started = tokio::time::Instant::now();
+        let batch = fetcher
+            .fetch_messages(&group_peer(), &MessageFilter::default(), None, Some("3"))
+            .await
+            .expect("原生重试耗尽后应冷却重试并成功");
+        assert_eq!(batch.messages.len(), 3, "重试后应返回同一页的全部消息");
+        let seq_calls = api
+            .call_log()
+            .iter()
+            .filter(|call| call.starts_with("seq:"))
+            .count();
+        assert_eq!(seq_calls, 2, "第一次 2004007 后必须重试同一页");
+        assert!(
+            started.elapsed() >= Duration::from_millis(TIMEOUT_COOLDOWN_MS),
+            "原生重试耗尽必须等待冷却时间"
+        );
     }
 
     #[tokio::test]
