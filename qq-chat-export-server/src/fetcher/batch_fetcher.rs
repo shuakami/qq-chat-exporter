@@ -758,7 +758,18 @@ impl BatchMessageFetcher {
         let page = requested_page.load(Ordering::SeqCst).max(1);
         // issue #716：原生错误（GeneralCallResult.result != 0）与无效响应必须
         // 显式失败，不能再像空页一样按页宽跳过而静默丢消息。
-        let mut messages = extract_msg_page_strict(&result).map_err(FetchError::Api)?;
+        // issue #728：翻到会话历史起点（导出范围覆盖最早消息）时，
+        // getMsgsBySeqAndCount 返回 result=2004000（no any more msg），
+        // 这是历史尽头的正常信号，按空页交给锚点推进收敛；其余非零
+        // result 仍显式失败。
+        let mut messages = if is_history_exhausted_result(&result) {
+            // issue #728：窗口跨过历史起点。收缩窗口重试同一锚点，尽量取回
+            // 锚点与最早消息之间的剩余记录；收缩到单条仍返回 2004000 时按
+            // 空页处理，交由锚点推进收敛终止。
+            self.recover_history_start_page(peer, anchor, page).await?
+        } else {
+            extract_msg_page_strict(&result).map_err(FetchError::Api)?
+        };
 
         // issue #716：满页时页尾边界 msgSeq 可能只返回了部分记录（count 限制
         // 的是记录条数，同一 msgSeq 可混有系统提示与普通消息）。先做包含式
@@ -776,6 +787,39 @@ impl BatchMessageFetcher {
         batch.messages = apply_client_side_filter(batch.messages, filter);
         batch.actual_count = batch.messages.len();
         Ok(batch)
+    }
+
+    /// issue #728：翻页窗口跨过会话历史起点（result=2004000）时，收缩窗口
+    /// 重试同一锚点：窗口 [anchor-count+1, anchor] 一旦不再跨越最早消息即可
+    /// 正常返回，把锚点与最早消息之间的剩余记录取回来。窗口收缩到单条仍
+    /// 返回 2004000（锚点本身没有消息，已越过最早记录）时按空页处理，交由
+    /// 锚点推进收敛终止。API 错误与无效响应照常显式失败。
+    async fn recover_history_start_page(
+        &self,
+        peer: &Peer,
+        anchor: Option<i64>,
+        page: i64,
+    ) -> Result<Vec<Value>, FetchError> {
+        let Some(anchor) = anchor else {
+            return Ok(Vec::new());
+        };
+        let mut count = page.max(1) / 2;
+        while count >= 1 {
+            if self.is_cancelled() {
+                return Err(FetchError::Cancelled);
+            }
+            let value = self
+                .api
+                .get_msgs_by_seq_and_count(peer, anchor, count)
+                .await
+                .map_err(FetchError::Api)?;
+            if is_history_exhausted_result(&value) {
+                count /= 2;
+                continue;
+            }
+            return extract_msg_page_strict(&value).map_err(FetchError::Api);
+        }
+        Ok(Vec::new())
     }
 
     /// 基于时间的顺序获取策略。
@@ -1108,7 +1152,13 @@ impl BatchMessageFetcher {
                 }
             })
             .await?;
-        let messages = extract_msg_page_strict(&value).map_err(FetchError::Api)?;
+        let messages = if is_history_exhausted_result(&value) {
+            // issue #728：边界重读锚点本身落在会话历史起点时同样返回
+            // result=2004000，视为无补读记录，由上层按补读完成处理。
+            Vec::new()
+        } else {
+            extract_msg_page_strict(&value).map_err(FetchError::Api)?
+        };
         Ok((messages, used.load(Ordering::SeqCst).max(1)))
     }
 
@@ -1286,6 +1336,14 @@ struct SeqBoundaryBackfill {
 /// NapCat 原生调用返回 `GeneralCallResult { result: 0 | -1, errMsg }`，
 /// 业务错误不抛异常而是 `result = -1`；`msgList` 可能在顶层或包一层
 /// `result` 对象内（与 `extract_msg_list` 的两种形状一致）。
+/// issue #728：会话历史起点信号。`getMsgsBySeqAndCount` 的翻页窗口跨过本机
+/// 最早一条消息时，NapCat 返回 result=2004000（no any more msg），而不是返回
+/// 短列表。与 #716 的"原生错误显式失败"不冲突：该码是历史尽头的正常信号，
+/// 其余非零 result 仍显式失败。
+fn is_history_exhausted_result(api_result: &Value) -> bool {
+    api_result.get("result").and_then(Value::as_i64) == Some(2004000)
+}
+
 fn extract_msg_page_strict(api_result: &Value) -> Result<Vec<Value>, String> {
     if let Some(code) = api_result.get("result").and_then(Value::as_i64) {
         if code != 0 {
@@ -2592,6 +2650,65 @@ mod tests {
         assert!(
             matches!(err, FetchError::SequenceBackfillExhausted { .. }),
             "unexpected error: {err}"
+        );
+    }
+
+    /// issue #728：result=2004000 是"翻到会话历史起点"的正常信号，
+    /// 不得当作通用原生错误把整次导出打断（其余非零 result 仍显式失败）。
+    #[test]
+    fn history_start_code_is_distinguished_from_generic_native_errors() {
+        let exhausted = json!({ "result": 2004000, "errMsg": "no any more msg!" });
+        assert!(is_history_exhausted_result(&exhausted));
+        assert!(!is_history_exhausted_result(&json!({ "result": 0 })));
+        assert!(!is_history_exhausted_result(&json!({ "result": 2004007 })));
+        assert!(!is_history_exhausted_result(&json!({ "msgList": [] })));
+
+        // 基线守卫：2004000 不走通用严格解析，严格解析对它仍然报错。
+        assert!(extract_msg_page_strict(&exhausted).is_err());
+    }
+
+    /// issue #728：导出范围覆盖最早消息时，翻页越过历史起点返回
+    /// result=2004000，必须按空页收敛终止，导出全部历史消息而不是 HTTP 500。
+    #[tokio::test]
+    async fn seq_paging_treats_history_start_as_end_of_history() {
+        // 6 条消息，页宽 5：首批取回 seq 6..2（满页触发边界 seq=2 包含式
+        // 补读），第二批锚点 seq=1 落在历史起点，原生接口返回 2004000。
+        let entries: Vec<(String, i64, i64)> = (1..=6)
+            .rev()
+            .map(|seq| (format!("m0{seq}"), seq, seq * 1_000))
+            .collect();
+        let api = Arc::new(SeqBoundaryMock::new(entries));
+        api.script_seq(Ok(json!({
+            "result": 0,
+            "msgList": [{
+                "msgId": "m02",
+                "msgSeq": "2",
+                "msgTime": "2000",
+                "msgType": 2,
+            }],
+        })));
+        api.script_seq(Ok(json!({
+            "result": 2004000,
+            "errMsg": "no any more msg!",
+        })));
+        let fetcher = BatchMessageFetcher::new(
+            Arc::clone(&api) as Arc<dyn MessageFetchApi>,
+            boundary_fetcher_config(),
+        );
+
+        let ids = collect_all_ids(&fetcher, &group_peer(), &MessageFilter::default()).await;
+
+        let unique: HashSet<String> = ids.iter().cloned().collect();
+        assert_eq!(
+            unique.len(),
+            6,
+            "历史起点之前的消息必须全部导出: {unique:?}"
+        );
+        assert!(unique.contains("m01"), "最早消息 m01 不能被 2004000 丢弃");
+        assert!(
+            api.call_log().iter().any(|call| call == "seq:1:5"),
+            "第二批应从锚点 seq=1 翻页并得到 2004000: {:?}",
+            api.call_log()
         );
     }
 }
