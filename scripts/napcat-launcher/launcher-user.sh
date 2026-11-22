@@ -497,7 +497,38 @@ if (process.env.QCE_NAPCAT_ENTRY === '1') {
 LOADER_EOF
 
         # In-place edit of the "main" field only, in the private copy.
-        sed -i '' -E 's/"main": *"[^"]*"/"main": ".\/loadNapCat-qce.js"/' "$QQ_RUNTIME_PKG_JSON"
+        #
+        # Deliberately NOT `sed -i ''`: that is BSD-only syntax. GNU sed and
+        # toybox sed treat the following '' as a separate operand (a filename)
+        # instead of the backup suffix for -i, so the substitution never runs
+        # — sed prints `s/.../.../: No such file or directory`, exits non-zero,
+        # and nothing checked it. The copy then boots its original "main"
+        # (application.asar/app_launcher/index.js), NapCat is never imported,
+        # and the launcher sits there waiting on a QR code that will never be
+        # generated, with no error pointing at the real cause. Hit in practice
+        # with the toybox sed some shims put ahead of /usr/bin/sed on PATH.
+        #
+        # Redirect + mv does the same in-place edit portably: it needs no -i
+        # at all, so every sed flavour parses the arguments identically.
+        local patched_json
+        patched_json="$(mktemp "${TMPDIR:-/tmp}/qce-pkg-json.XXXXXX")"
+        if ! sed -E 's/"main": *"[^"]*"/"main": ".\/loadNapCat-qce.js"/' \
+                "$QQ_RUNTIME_PKG_JSON" > "$patched_json"; then
+            rm -f "$patched_json"
+            echo "[Error] Failed to rewrite \"main\" in $QQ_RUNTIME_PKG_JSON."
+            exit 1
+        fi
+        mv "$patched_json" "$QQ_RUNTIME_PKG_JSON"
+
+        # Fail loudly instead of booting an unpatched copy. Without this the
+        # user gets the same silent "no QR code" hang on every run.
+        if ! grep -q '"main": *"\./loadNapCat-qce\.js"' "$QQ_RUNTIME_PKG_JSON" 2>/dev/null; then
+            echo "[Error] $QQ_RUNTIME_PKG_JSON does not carry the patched \"main\"."
+            echo "        The runtime copy would boot QQ's own entry point and"
+            echo "        NapCat would never load. Delete the copy and re-run:"
+            echo "          rm -rf \"$QQ_RUNTIME_APP_DIR\""
+            exit 1
+        fi
 
         macos_resign_qq_runtime
         qq_source_version_marker > "$QQ_RUNTIME_SOURCE_MARKER"
