@@ -2374,9 +2374,24 @@ async fn process_export_task(
                 normalize_to_ms(loose_i64(req.filter.get("startTime")).unwrap_or(0));
             let end_time_ms =
                 normalize_to_ms(loose_i64(req.filter.get("endTime")).unwrap_or_else(now_ms));
+            let keywords = req
+                .filter
+                .get("keywords")
+                .and_then(Value::as_array)
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::trim)
+                        .filter(|keyword| !keyword.is_empty())
+                        .map(str::to_owned)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|keywords| !keywords.is_empty());
             let fetch_filter = MessageFilter {
                 start_time: Some(start_time_ms),
                 end_time: Some(end_time_ms),
+                keywords,
                 ..MessageFilter::default()
             };
             let mut previous = None;
@@ -3546,6 +3561,14 @@ mod task_queue_tests {
     }
 
     async fn create_test_state() -> (crate::api::state::SharedState, std::path::PathBuf) {
+        let napcat =
+            crate::napcat::NapCatBridgeClient::new("http://127.0.0.1:40654", 10_000).unwrap();
+        create_test_state_with_napcat(napcat).await
+    }
+
+    async fn create_test_state_with_napcat(
+        napcat: crate::napcat::NapCatBridgeClient,
+    ) -> (crate::api::state::SharedState, std::path::PathBuf) {
         let temp =
             std::env::temp_dir().join(format!("qce-test-queue-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&temp).expect("create temp dir");
@@ -3553,8 +3576,6 @@ mod task_queue_tests {
         db.initialize().await.expect("init db");
         let (ws_tx, _) = tokio::sync::broadcast::channel(16);
         let path_manager = Arc::new(crate::paths::PathManager::new());
-        let napcat =
-            crate::napcat::NapCatBridgeClient::new("http://127.0.0.1:40654", 10_000).unwrap();
         let resource_handler = Arc::new(
             crate::resource::ResourceHandler::new(
                 Arc::new(napcat.clone()),
@@ -3599,6 +3620,111 @@ mod task_queue_tests {
             port: 0,
         });
         (state, temp)
+    }
+
+    #[tokio::test]
+    async fn json_export_applies_keyword_and_time_filters() {
+        const START_TIME: i64 = 1_782_000_000;
+        let messages: Vec<_> = [
+            (3, "misses", "different text", START_TIME + 2),
+            (2, "matches", "contains keyword", START_TIME + 1),
+            (1, "too-old", "contains keyword", START_TIME - 1),
+        ]
+        .into_iter()
+        .map(|(seq, id, text, timestamp)| {
+            json!({
+                "msgId": id,
+                "msgSeq": seq.to_string(),
+                "msgTime": timestamp.to_string(),
+                "chatType": 2,
+                "msgType": 9,
+                "peerUid": "12345",
+                "senderUid": "u_sample",
+                "senderUin": "10001",
+                "sendNickName": "Sample",
+                "elements": [{
+                    "elementType": 1,
+                    "textElement": { "content": text }
+                }]
+            })
+        })
+        .collect();
+        let bridge = axum::Router::new().route(
+            "/rpc",
+            axum::routing::post(move |Json(request): Json<Value>| {
+                let result = match request["method"].as_str() {
+                    Some("MsgService.getAioFirstViewLatestMsgs") => {
+                        json!({ "result": 0, "msgList": &messages[..1] })
+                    }
+                    Some("MsgApi.getMsgsBySeqAndCount") => {
+                        json!({ "result": 0, "msgList": &messages[1..] })
+                    }
+                    Some("Core.selfInfo") => json!({ "uid": "u_self", "uin": "10002" }),
+                    _ => json!({}),
+                };
+                async move { Json(json!({ "ok": true, "result": result })) }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let bridge_task = tokio::spawn(async move { axum::serve(listener, bridge).await.unwrap() });
+        let napcat = crate::napcat::NapCatBridgeClient::new(&endpoint, 2_000).unwrap();
+        let (state, temp) = create_test_state_with_napcat(napcat).await;
+
+        for (keywords, expected) in [
+            (json!([" KEYWORD ", "", null]), vec!["matches"]),
+            (json!(["absent keyword"]), vec![]),
+            (Value::Null, vec!["matches", "misses"]),
+        ] {
+            let response = export_messages(
+                State(Arc::clone(&state)),
+                Extension(RequestId("keyword-export-test".to_owned())),
+                Json(json!({
+                    "peer": { "chatType": 2, "peerUid": "12345" },
+                    "format": "JSON",
+                    "sessionName": "Sample",
+                    "filter": {
+                        "startTime": START_TIME,
+                        "endTime": START_TIME + 3,
+                        "keywords": keywords,
+                    },
+                    "options": { "outputDir": temp, "filterPureImageMessages": true },
+                })),
+            )
+            .await;
+            assert_eq!(response.status(), axum::http::StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), 4096)
+                .await
+                .unwrap();
+            let result: Value = serde_json::from_slice(&body).unwrap();
+            let task_id = result["data"]["taskId"].as_str().unwrap();
+            let task = tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    let task = state.export_tasks.lock().await[task_id].clone();
+                    if matches!(task["status"].as_str(), Some("completed" | "failed")) {
+                        break task;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect("export task reached a terminal state");
+            assert_eq!(task["status"], "completed", "{task}");
+            assert_eq!(task["messageCount"], expected.len());
+
+            let bytes = std::fs::read(task["filePath"].as_str().unwrap()).unwrap();
+            let document: Value = serde_json::from_slice(&bytes).unwrap();
+            let message_ids: Vec<_> = document["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|message| message["id"].as_str().unwrap())
+                .collect();
+            assert_eq!(message_ids, expected);
+        }
+
+        bridge_task.abort();
+        std::fs::remove_dir_all(temp).unwrap();
     }
 
     #[tokio::test]
