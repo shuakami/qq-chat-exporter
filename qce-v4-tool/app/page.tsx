@@ -1277,6 +1277,10 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
           sourceCount?: number
           totalMessages?: number
           deduplicatedMessages?: number
+          missingResourceCount?: number
+          missingResources?: string[]
+          jsonUnavailable?: boolean
+          sourceFilesRetained?: boolean
           jsonPath?: string
           htmlPath?: string
           status?: string
@@ -1286,22 +1290,29 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
 
         const successGroups = groups.filter(g => g.status === 'success')
         const failedGroups = groups.filter(g => g.status === 'failed')
-        const lines = successGroups.map(g =>
-          `${g.displayName}:合并 ${g.sourceCount} 个备份 → ${g.totalMessages} 条消息${g.deduplicatedMessages ? `（去重 ${g.deduplicatedMessages} 条）` : ''}`
-        )
+        const lines = successGroups.map(g => {
+          const outputs = [g.jsonPath && 'JSON', g.htmlPath && 'HTML'].filter(Boolean).join(' 和 ')
+          const details = [
+            g.deduplicatedMessages ? `去重 ${g.deduplicatedMessages} 条` : '',
+            g.jsonUnavailable ? '纯 HTML 备份缺少结构化消息，已生成 HTML' : `已生成 ${outputs}`,
+            g.sourceFilesRetained ? '已保留源备份' : '',
+          ].filter(Boolean).join('，')
+          return `${g.displayName}：合并 ${g.sourceCount} 个备份，共 ${g.totalMessages} 条消息（${details}）`
+        })
+        for (const group of successGroups) {
+          if (group.missingResourceCount) {
+            const examples = group.missingResources || []
+            const names = examples.length ? `：${examples.join('、')}${examples.length < group.missingResourceCount ? '等' : ''}` : ''
+            lines.push(`${group.displayName}：有 ${group.missingResourceCount} 个本地媒体文件未能保留${names}`)
+          }
+        }
         if (failedGroups.length > 0) {
           lines.push(`失败:${failedGroups.map(g => `${g.displayName}（${g.error || '未知错误'}）`).join('、')}`)
         }
         if (skipped.length > 0) {
           lines.push(`跳过:${skipped.map(s => s.fileName).join('、')}（每个聊天至少 2 个备份才会合并）`)
         }
-        const formats = config.formats || []
-        const formatLabel = formats.includes('json') && formats.includes('html')
-          ? 'JSON 和 HTML'
-          : formats.includes('json')
-            ? 'JSON'
-            : 'HTML'
-        const message = `成功合并 ${result.sourceCount} 个备份文件，共 ${result.totalMessages} 条消息${result.deduplicatedMessages > 0 ? `（去重 ${result.deduplicatedMessages} 条）` : ''}\n\n${lines.join('\n')}\n\n每个聊天已生成 ${formatLabel} 文件`
+        const message = `成功合并 ${result.sourceCount} 个备份文件，共 ${result.totalMessages} 条消息\n\n${lines.join('\n')}`
         
         addNotification(
           'success',
@@ -1326,7 +1337,9 @@ export default function QCEDashboard({ initialTab }: { initialTab?: string } = {
         setIsScheduledMergeDialogOpen(false)
       } else {
         removeNotification(loadingId)
-        addNotification('error', '合并失败', data.error?.message || '未知错误')
+        const groups: Array<{ displayName: string; error: string }> = data.error?.context?.groups || []
+        const details = groups.map(group => `${group.displayName}：${group.error}`).join('\n')
+        addNotification('error', '合并失败', details || data.error?.message || '未知错误')
       }
     } catch (error) {
       removeNotification(loadingId)

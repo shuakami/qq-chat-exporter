@@ -12,7 +12,7 @@ use crate::reply_preview_renderer::{render_reply_preview_elements, ReplyPreviewR
 use crate::reply_render::{
     choose_reply_jump_target, format_reply_timestamp, reply_timestamp_millis, ReplyRenderInput,
 };
-use crate::types::{ChatInfo, CleanMessage};
+use crate::types::{ChatInfo, CleanMessage, MessageContent, Sender};
 use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone, Timelike, Utc};
 use serde_json::{json, Value};
 use std::collections::HashSet;
@@ -122,6 +122,40 @@ pub struct ChunkedHtmlExportResult {
     pub total_messages: usize,
     /// 已复制的资源相对路径列表。
     pub copied_resources: Vec<String>,
+}
+
+/// A message saved by the single-file viewer. Only its rendered representation
+/// is available, so it can be reused in HTML without inventing structured data.
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InlineHtmlRecord {
+    pub id: String,
+    pub ts: i64,
+    pub date: String,
+    pub uid: String,
+    pub name: String,
+    pub text: String,
+    #[serde(default)]
+    pub text_truncated: bool,
+    pub html: String,
+}
+
+pub enum HtmlMergeMessage {
+    Structured(Box<CleanMessage>),
+    Rendered(InlineHtmlRecord),
+}
+
+impl HtmlMergeMessage {
+    #[must_use]
+    pub fn merge_key(&self) -> (&str, i64) {
+        match self {
+            Self::Structured(message) => (&message.id, message_ts_ms(message).unwrap_or(0)),
+            Self::Rendered(record) => (
+                record.id.strip_prefix("msg-").unwrap_or(&record.id),
+                record.ts,
+            ),
+        }
+    }
 }
 
 /// 内部资源任务结构。
@@ -395,6 +429,61 @@ impl ModernHtmlExporter {
         source: &mut S,
         chat_info: &ChatInfo,
     ) -> ExportResultT<Vec<String>> {
+        self.export_single_inline_inner(source, chat_info, &mut [])
+            .await
+    }
+
+    /// Write a merged viewer from ordered structured messages and sanitized
+    /// viewer records, rebuilding chunk, search, and message ID indexes.
+    pub async fn export_merged_inline(
+        &mut self,
+        messages: Vec<HtmlMergeMessage>,
+        chat_info: &ChatInfo,
+    ) -> ExportResultT<Vec<String>> {
+        let (messages, mut rendered): (Vec<_>, Vec<_>) = messages
+            .into_iter()
+            .map(|message| match message {
+                HtmlMergeMessage::Structured(message) => (*message, None),
+                HtmlMergeMessage::Rendered(record) => {
+                    let metadata = CleanMessage {
+                        id: record
+                            .id
+                            .strip_prefix("msg-")
+                            .unwrap_or(&record.id)
+                            .to_owned(),
+                        seq: String::new(),
+                        timestamp: record.ts,
+                        time: String::new(),
+                        sender: Sender {
+                            uid: record.uid.clone(),
+                            name: record.name.clone(),
+                            ..Sender::default()
+                        },
+                        message_type: String::new(),
+                        content: MessageContent::default(),
+                        recalled: false,
+                        system: false,
+                        raw_message: None,
+                    };
+                    (metadata, Some(record))
+                }
+            })
+            .unzip();
+        self.export_single_inline_inner(
+            &mut SliceMessageSource::new(&messages),
+            chat_info,
+            &mut rendered,
+        )
+        .await
+    }
+
+    async fn export_single_inline_inner<S: CleanMessageSource>(
+        &mut self,
+        source: &mut S,
+        chat_info: &ChatInfo,
+        rendered: &mut [Option<InlineHtmlRecord>],
+    ) -> ExportResultT<Vec<String>> {
+        let imports_html = !rendered.is_empty();
         let output_path = self.options.output_path.clone();
         let output_dir = output_path
             .parent()
@@ -414,13 +503,14 @@ impl ModernHtmlExporter {
         // 1) chunked 导出到临时目录
         self.options.output_path = temp_dir.join("index.html");
         let chunked_result = self
-            .export_chunked_source(
+            .export_chunked_source_inner(
                 source,
                 chat_info,
                 &ChunkedHtmlExportOptions {
                     write_manifest_json: Some(false),
                     ..ChunkedHtmlExportOptions::default()
                 },
+                rendered,
             )
             .await;
         self.options.output_path = output_path.clone();
@@ -472,14 +562,20 @@ impl ModernHtmlExporter {
         .await?;
 
         // 3b) manifest + chunks + msgid 索引（逐文件读入、转义、写出）
-        inline_script_file(&mut ws, &output_path, &chunked.manifest_js_path).await?;
+        inline_script_file(
+            &mut ws,
+            &output_path,
+            &chunked.manifest_js_path,
+            imports_html,
+        )
+        .await?;
         let chunks_dir = temp_dir.join("data").join("chunks");
         for path in sorted_js_files(&chunks_dir).await? {
-            inline_script_file(&mut ws, &output_path, &path).await?;
+            inline_script_file(&mut ws, &output_path, &path, imports_html).await?;
         }
         let index_dir = temp_dir.join("data").join("index");
         for path in sorted_js_files(&index_dir).await? {
-            inline_script_file(&mut ws, &output_path, &path).await?;
+            inline_script_file(&mut ws, &output_path, &path, imports_html).await?;
         }
 
         // 3c) viewer 应用脚本
@@ -538,6 +634,17 @@ impl ModernHtmlExporter {
         source: &mut S,
         chat_info: &ChatInfo,
         options: &ChunkedHtmlExportOptions,
+    ) -> ExportResultT<ChunkedHtmlExportResult> {
+        self.export_chunked_source_inner(source, chat_info, options, &mut [])
+            .await
+    }
+
+    async fn export_chunked_source_inner<S: CleanMessageSource>(
+        &mut self,
+        source: &mut S,
+        chat_info: &ChatInfo,
+        options: &ChunkedHtmlExportOptions,
+        rendered: &mut [Option<InlineHtmlRecord>],
     ) -> ExportResultT<ChunkedHtmlExportResult> {
         let output_path = self.options.output_path.clone();
         let output_dir = output_path
@@ -681,6 +788,7 @@ impl ModernHtmlExporter {
         let result = self
             .export_chunked_inner(
                 source,
+                rendered,
                 ChunkedRunArgs {
                     chat_info,
                     output_dir: &output_dir,
@@ -741,6 +849,7 @@ impl ModernHtmlExporter {
     async fn export_chunked_inner<S: CleanMessageSource>(
         &mut self,
         source: &mut S,
+        rendered: &mut [Option<InlineHtmlRecord>],
         args: ChunkedRunArgs<'_>,
     ) -> ExportResultT<ChunkedHtmlExportResult> {
         let ChunkedRunArgs {
@@ -773,18 +882,27 @@ impl ModernHtmlExporter {
         let chunk_file_rel =
             |id: &str| -> String { format!("{}/{}/{id}.js", dir_names.data, dir_names.chunks) };
 
+        let mut rendered = rendered.iter_mut();
         // stream process messages
         while let Some(batch) = source.next_batch().await? {
             for message in &batch {
+                let record = rendered.next().and_then(Option::take);
                 if !self.options.include_system_messages && is_system_message(message) {
                     continue;
                 }
 
-                let ts = message_ts_ms(message).unwrap_or(0);
-                let date_key = message_date_key(message).unwrap_or_default();
+                let message_time = record.as_ref().map_or_else(
+                    || message_ts_ms(message),
+                    |record| (record.ts != 0).then_some(record.ts),
+                );
+                let ts = message_time.unwrap_or(0);
+                let date_key = record.as_ref().map_or_else(
+                    || message_date_key(message).unwrap_or_default(),
+                    |record| record.date.clone(),
+                );
 
                 // global stats
-                if let Some(t) = message_ts_ms(message) {
+                if let Some(t) = message_time {
                     if first_time.is_none_or(|f| t < f) {
                         *first_time = Some(t);
                     }
@@ -808,8 +926,12 @@ impl ModernHtmlExporter {
                 }
 
                 // sender stats
-                let sender_uid = sender_uid_of(message);
-                let sender_name = get_display_name(message);
+                let sender_uid = record
+                    .as_ref()
+                    .map_or_else(|| sender_uid_of(message), |record| record.uid.clone());
+                let sender_name = record
+                    .as_ref()
+                    .map_or_else(|| get_display_name(message), |record| record.name.clone());
                 let sender_name_lower = sender_name.to_lowercase();
                 if !sender_uid.is_empty() {
                     let sender_uin = message.sender.uin.clone().filter(|s| !s.is_empty());
@@ -857,16 +979,22 @@ impl ModernHtmlExporter {
 
                 // render HTML
                 self.reply_targets.observe_rendered(message);
-                let html = self.render_message(message);
-
-                // extract plain text
-                let plain = extract_plain_text(message);
-                let plain_lower_full = plain.to_lowercase();
+                let (html, plain_lower_full, was_truncated) = if let Some(record) = record {
+                    self.last_rendered_date = Some(date_key.clone());
+                    (record.html, record.text, record.text_truncated)
+                } else {
+                    (
+                        self.render_message(message),
+                        extract_plain_text(message).to_lowercase(),
+                        false,
+                    )
+                };
                 let plain_units: Vec<u16> = plain_lower_full.encode_utf16().collect();
                 let stored_units =
                     &plain_units[..plain_units.len().min(limits.store_text_max_chars)];
                 let stored_text = String::from_utf16_lossy(stored_units);
-                let text_truncated = plain_units.len() > limits.store_text_max_chars;
+                let text_truncated =
+                    was_truncated || plain_units.len() > limits.store_text_max_chars;
 
                 // bloom update
                 if !sender_uid.is_empty() {
@@ -875,6 +1003,7 @@ impl ModernHtmlExporter {
                     }
                 }
                 if limits.enable_text_bloom {
+                    chunk.text_bloom_incomplete |= was_truncated;
                     if let Some(tb) = chunk.text_bloom.as_mut() {
                         let mut bloom_units = plain_units.clone();
                         bloom_units.push(u16::from(b' '));
@@ -1960,12 +2089,19 @@ async fn inline_script_file(
     ws: &mut BufWriter<fs::File>,
     output_path: &Path,
     file_path: &Path,
+    imports_html: bool,
 ) -> ExportResultT<()> {
     let content = fs::read_to_string(file_path)
         .await
         .map_err(|e| ExportError::io("readFile", file_path, e))?;
     write_chunk(ws, output_path, "<script>").await?;
-    write_chunk(ws, output_path, &escape_inline_script(&content)).await?;
+    let escaped = if imports_html {
+        // Escape '<' in imported JSON strings to preserve the script boundary.
+        content.replace('<', "\\u003c")
+    } else {
+        escape_inline_script(&content)
+    };
+    write_chunk(ws, output_path, &escaped).await?;
     write_chunk(ws, output_path, "</script>\n").await?;
     Ok(())
 }
