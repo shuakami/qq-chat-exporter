@@ -23,6 +23,8 @@ use crate::api::response::{self, ApiError, ErrorType, RequestId};
 use crate::api::state::SharedState;
 use crate::paths::sanitize_task_name;
 
+mod html_merge;
+
 // 通用小工具
 
 fn iso(time: std::time::SystemTime) -> String {
@@ -2343,6 +2345,7 @@ pub async fn merge_available_tasks(
 
 // POST /api/merge-resources（ResourceMerger 移植）
 
+#[derive(Clone)]
 struct MergeSource {
     html_file: PathBuf,
     json_file: Option<PathBuf>,
@@ -3120,6 +3123,86 @@ pub async fn merge_resources(
             group_count
         );
         broadcast_merge_progress(&state, "merge", index, group_count, &label);
+        let timestamp = Utc::now()
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            .replace([':', '.'], "-")
+            .chars()
+            .take(19)
+            .collect::<String>();
+        let (json_name, html_name) = merged_output_names(
+            &output_path,
+            &group.chat_type,
+            &group.display_name,
+            &timestamp,
+        );
+        let resource_base_name = json_name.strip_suffix(".json").unwrap_or(&json_name);
+
+        if group
+            .sources
+            .iter()
+            .any(|source| source.json_file.is_none())
+        {
+            let result = if generate_html {
+                html_merge::merge_html_backups(
+                    group,
+                    &output_path,
+                    &html_name,
+                    resource_base_name,
+                    deduplicate,
+                )
+                .await
+            } else {
+                Err("含纯 HTML 备份的聊天只能合并为 HTML，请选择生成 HTML 文件".to_string())
+            };
+            let mut entry = json!({
+                "chatType": group.chat_type,
+                "displayName": group.display_name,
+                "sourceCount": group.sources.len(),
+                "jsonPath": "",
+                "htmlPath": "",
+            });
+            match result {
+                Ok(result) => {
+                    // 保留有结构化数据、资产缺失或未生成所选 JSON 的源备份。
+                    let source_files_retained = delete_source_files
+                        && (result.missing_resources > 0
+                            || generate_json
+                            || group
+                                .sources
+                                .iter()
+                                .any(|source| source.json_file.is_some()));
+                    if delete_source_files && !source_files_retained {
+                        cleanup_merge_sources(&group.sources);
+                    }
+                    merged_source_count += group.sources.len();
+                    merged_message_count += result.messages;
+                    merged_deduplicated += result.deduplicated;
+                    merged_resource_count += result.resources;
+                    entry["htmlPath"] = json!(existing_file_path(&result.html_path));
+                    entry["totalMessages"] = json!(result.messages);
+                    entry["deduplicatedMessages"] = json!(result.deduplicated);
+                    entry["totalResources"] = json!(result.resources);
+                    entry["missingResourceCount"] = json!(result.missing_resources);
+                    entry["missingResources"] = json!(result.missing_examples);
+                    entry["jsonUnavailable"] = json!(generate_json);
+                    entry["sourceFilesRetained"] = json!(source_files_retained);
+                    entry["status"] = json!("success");
+                    broadcast_merge_progress(
+                        &state,
+                        "write",
+                        index + 1,
+                        group_count,
+                        "数据写入完成",
+                    );
+                }
+                Err(message) => {
+                    entry["status"] = json!("failed");
+                    entry["error"] = json!(message);
+                }
+            }
+            group_results.push(entry);
+            continue;
+        }
         let (messages, deduplicated) = match merge_source_messages(&group.sources, deduplicate) {
             Ok(result) => result,
             Err(message) => {
@@ -3148,19 +3231,6 @@ pub async fn merge_resources(
         );
 
         broadcast_merge_progress(&state, "resources", index, group_count, "合并资源文件...");
-        let timestamp = Utc::now()
-            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-            .replace([':', '.'], "-")
-            .chars()
-            .take(19)
-            .collect::<String>();
-        let (json_name, html_name) = merged_output_names(
-            &output_path,
-            &group.chat_type,
-            &group.display_name,
-            &timestamp,
-        );
-        let resource_base_name = json_name.strip_suffix(".json").unwrap_or(&json_name);
         let (resource_count, mapping) =
             match merge_resource_files(&group.sources, &output_path, resource_base_name) {
                 Ok(result) => result,
@@ -3267,7 +3337,12 @@ pub async fn merge_resources(
         .filter(|group| group.get("status").and_then(Value::as_str) == Some("success"))
         .count();
     if succeeded == 0 {
-        let err = ApiError::internal("所有聊天合并均失败", "MERGE_FAILED");
+        let errors: Vec<_> = group_results
+            .iter()
+            .map(|group| json!({ "displayName": group["displayName"], "error": group["error"] }))
+            .collect();
+        let err = ApiError::internal("所有聊天合并均失败", "MERGE_FAILED")
+            .with_context(json!({ "groups": errors }));
         return response::error(&err, &request_id);
     }
 
