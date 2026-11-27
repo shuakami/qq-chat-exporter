@@ -26,6 +26,7 @@ use tokio::task::JoinSet;
 const METADATA_PADDING: usize = 24;
 /// 回填元数据时只扫描文件头部这么多字节。
 const METADATA_SCAN_BYTES: usize = 64 * 1024;
+const MAX_FORWARD_RENDER_DEPTH: usize = 3;
 
 /// HTML 导出选项。
 #[derive(Debug, Clone)]
@@ -2043,44 +2044,80 @@ fn iter_resources(message: &CleanMessage) -> Vec<ResourceTask> {
         }
     }
 
-    // elements 中的资源元素
     for el in &message.content.elements {
-        let data = &el.data;
-        if !data.is_object() {
-            continue;
-        }
-        let el_type = if el.element_type.is_empty() {
-            "file".to_owned()
-        } else {
-            el.element_type.clone()
-        };
-
-        // 优先使用有效的 localPath
-        let local_path = str_field(data, "localPath").unwrap_or_default();
-        if !local_path.is_empty() && is_valid_resource_path(&local_path) {
-            tasks.push(ResourceTask {
-                resource_type: el_type,
-                file_name: base_name_of(&local_path),
-                local_path,
-            });
-            continue;
-        }
-        // 如果没有有效的 localPath，但有 filename/md5，也尝试处理（用于流式导出）
-        let filename = str_field(data, "filename").filter(|s| !s.is_empty());
-        let md5 = str_field(data, "md5").filter(|s| !s.is_empty());
-        if filename.is_some() || md5.is_some() {
-            let file_name = filename.or_else(|| md5.map(|m| format!("{m}.jpg")));
-            if let Some(file_name) = file_name {
-                tasks.push(ResourceTask {
-                    resource_type: el_type,
-                    file_name,
-                    // 空路径，copy_resource_file 会从 ResourceHandler 目录查找
-                    local_path: String::new(),
-                });
-            }
-        }
+        collect_element_resources(&el.element_type, &el.data, 0, &mut tasks);
     }
     tasks
+}
+
+fn collect_element_resources(
+    element_type: &str,
+    data: &Value,
+    forward_depth: usize,
+    tasks: &mut Vec<ResourceTask>,
+) {
+    if element_type == "forward" {
+        if forward_depth > MAX_FORWARD_RENDER_DEPTH {
+            return;
+        }
+        let Some(messages) = data.get("messages").and_then(Value::as_array) else {
+            return;
+        };
+        for message in messages {
+            let Some(elements) = message
+                .pointer("/content/elements")
+                .and_then(Value::as_array)
+            else {
+                continue;
+            };
+            for element in elements {
+                let Some(kind) = element.get("type").and_then(Value::as_str) else {
+                    continue;
+                };
+                if matches!(kind, "forward" | "image" | "video" | "audio" | "file") {
+                    if let Some(data) = element.get("data") {
+                        collect_element_resources(kind, data, forward_depth + 1, tasks);
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    let local_path = str_field(data, "localPath").unwrap_or_default();
+    let (file_name, local_path) = if is_valid_resource_path(&local_path) {
+        (Some(base_name_of(&local_path)), local_path)
+    } else {
+        let file_name = str_field(data, "filename")
+            .filter(|name| !name.is_empty())
+            .or_else(|| {
+                str_field(data, "md5")
+                    .filter(|md5| !md5.is_empty())
+                    .map(|md5| format!("{md5}.jpg"))
+            });
+        (file_name, String::new())
+    };
+    let Some(file_name) = file_name else {
+        return;
+    };
+    if forward_depth > 0
+        && (file_name.is_empty()
+            || file_name == "."
+            || file_name == ".."
+            || file_name.contains(['/', '\\', ':']))
+    {
+        return;
+    }
+    let resource_type = if element_type.is_empty() {
+        "file"
+    } else {
+        element_type
+    };
+    tasks.push(ResourceTask {
+        resource_type: resource_type.to_owned(),
+        file_name,
+        local_path,
+    });
 }
 
 /// 流式复制单个资源到导出目录。
@@ -2799,7 +2836,6 @@ fn render_forward_element(exporter: &ModernHtmlExporter, data: &Value, depth: us
         });
     // issue #434：子消息本身可能又是一条合并转发（嵌套[聊天记录]），递归展开成
     // 内层卡片。解析器侧 MAX_FORWARD_DEPTH=3，这里用同样的上限回退异常数据。
-    const MAX_RENDER_DEPTH: usize = 3;
     const INITIAL_FORWARD_LINES: usize = 4;
 
     let mut preview_html = String::new();
@@ -2860,7 +2896,9 @@ fn render_forward_element(exporter: &ModernHtmlExporter, data: &Value, depth: us
                         .filter_map(|element| {
                             let data = element.get("data").unwrap_or(&Value::Null);
                             match element.get("type").and_then(Value::as_str) {
-                                Some("forward") if depth < MAX_RENDER_DEPTH && !data.is_null() => {
+                                Some("forward")
+                                    if depth < MAX_FORWARD_RENDER_DEPTH && !data.is_null() =>
+                                {
                                     Some(render_forward_element(exporter, data, depth + 1))
                                 }
                                 Some("image") => Some(exporter.render_image_element(data)),

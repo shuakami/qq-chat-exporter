@@ -586,6 +586,64 @@ async fn modern_html_chunked_manifest_uses_custom_resource_directory() {
 }
 
 #[tokio::test]
+async fn inline_html_copies_media_from_nested_forwards() {
+    let temp = TestDir::new("forward-media");
+    let cached_image = temp.join("nested.png");
+    let cached_video = temp.join("forwarded.mp4");
+    fs::write(&cached_image, b"image fixture").expect("write cached image");
+    fs::write(&cached_video, b"video fixture").expect("write cached video");
+    let forwarded = message(
+        "outer",
+        1_718_454_840_000,
+        vec![MessageElement {
+            element_type: "forward".to_owned(),
+            data: json!({
+                "messages": [{
+                    "content": {
+                        "elements": [{
+                            "type": "video",
+                            "data": { "filename": "forwarded.mp4", "localPath": cached_video }
+                        }, {
+                            "type": "forward",
+                            "data": { "messages": [{
+                                "content": { "elements": [{
+                                    "type": "image",
+                                    "data": { "filename": "nested.png", "localPath": cached_image }
+                                }] }
+                            }] }
+                        }]
+                    }
+                }]
+            }),
+        }],
+    );
+    let export_dir = temp.join("export");
+    let output_path = export_dir.join("chat.html");
+    let mut exporter = ModernHtmlExporter::new(HtmlExportOptions {
+        output_path: output_path.clone(),
+        resource_dir_name: Some("chat_resources".to_owned()),
+        ..HtmlExportOptions::default()
+    });
+
+    exporter
+        .export_single_inline(&[forwarded], &chat_info())
+        .await
+        .expect("inline export");
+
+    let html = fs::read_to_string(output_path).expect("read inline export");
+    for (relative, content) in [
+        ("chat_resources/images/nested.png", b"image fixture"),
+        ("chat_resources/videos/forwarded.mp4", b"video fixture"),
+    ] {
+        assert!(html.contains(relative), "missing link to {relative}");
+        assert_eq!(
+            fs::read(export_dir.join(relative)).expect("read exported media"),
+            content,
+        );
+    }
+}
+
+#[tokio::test]
 async fn modern_html_renders_nested_forwards_and_print_options() {
     let temp = TestDir::new("modern-options");
     let nested = message(
