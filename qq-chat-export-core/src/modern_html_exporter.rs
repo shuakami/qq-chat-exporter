@@ -26,6 +26,7 @@ use tokio::task::JoinSet;
 const METADATA_PADDING: usize = 24;
 /// 回填元数据时只扫描文件头部这么多字节。
 const METADATA_SCAN_BYTES: usize = 64 * 1024;
+// Keep resource collection within the set of forwards the inline renderer can display.
 const MAX_FORWARD_RENDER_DEPTH: usize = 3;
 
 /// HTML 导出选项。
@@ -2060,6 +2061,7 @@ fn collect_element_resources(
         if forward_depth > MAX_FORWARD_RENDER_DEPTH {
             return;
         }
+        // The parent resource list does not include attachments from serialized child messages.
         let Some(messages) = data.get("messages").and_then(Value::as_array) else {
             return;
         };
@@ -2100,6 +2102,7 @@ fn collect_element_resources(
     let Some(file_name) = file_name else {
         return;
     };
+    // The copy step joins this name directly to the output directory for its media type.
     if forward_depth > 0
         && (file_name.is_empty()
             || file_name == "."
